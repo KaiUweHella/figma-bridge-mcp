@@ -749,7 +749,8 @@ annotateCmd
 const apiCmd = program
   .command('api [name]')
   .description('Look up Figma Plugin API interface or type (offline). Run `api setup` first.')
-  .action((name) => apiDocs.show(name));
+  .option('--full', 'Full markdown dump (default is a compact signatures-only view)')
+  .action((name, options) => apiDocs.show(name, { full: !!options.full }));
 
 apiCmd
   .command('setup')

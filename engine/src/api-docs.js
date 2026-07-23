@@ -110,7 +110,55 @@ function score(name, query) {
   return i === q.length ? i : 0;
 }
 
-export function show(query) {
+/**
+ * Compress a typedoc-style interface markdown to signatures + one line of
+ * prose per member. The full dumps repeat "Defined in:", "Inherited from"
+ * and cross-link boilerplate for EVERY inherited property — ComponentSetNode
+ * weighs 135 KB raw, which no LLM context (and no human) wants. Compact
+ * keeps: title, Extends, each member's signature blockquote and its first
+ * description line.
+ */
+function compactMarkdown(md) {
+  const stripLinks = (s) => s.replace(/\[`?([^\]`]+)`?\]\([^)]*\)/g, '$1');
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  let inMember = false;   // between a ### heading and the next ###/##
+  let proseTaken = false; // one description line per member
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('# ')) { out.push(stripLinks(line)); continue; }
+    if (line.startsWith('## ')) {
+      inMember = false;
+      // Drop link-only sections; keep structural ones (Extends, Properties, Methods, ...)
+      if (/^## (See|Source)\b/.test(line)) continue;
+      out.push('', stripLinks(line));
+      continue;
+    }
+    if (line.startsWith('### ')) {
+      inMember = true;
+      proseTaken = false;
+      out.push('', stripLinks(line));
+      continue;
+    }
+    if (!inMember) {
+      // Header block between title and first ## — keep prose (interface summary)
+      if (line.startsWith('Defined in:') || line.startsWith('---') || line.startsWith('#')) continue;
+      if (line.trim()) out.push(stripLinks(line));
+      continue;
+    }
+    // Inside a member section:
+    if (line.startsWith('> ')) { out.push(stripLinks(line)); continue; } // signature
+    if (line.startsWith('#### ') || line.startsWith('Defined in:') || line.startsWith('---')) continue;
+    if (!proseTaken && line.trim() && !line.startsWith('#') && !line.startsWith('[')) {
+      out.push(stripLinks(line.length > 240 ? line.slice(0, 240) + '…' : line));
+      proseTaken = true;
+    }
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+export function show(query, opts = {}) {
   const all = listAll();
   if (!all) {
     console.error('✗ docs not installed. Run: figma-cli api setup');
@@ -138,7 +186,13 @@ export function show(query) {
     console.log(`\nUse: figma-cli api <exact-name>`);
     return;
   }
-  console.log(fs.readFileSync(top.file, 'utf-8'));
+  const md = fs.readFileSync(top.file, 'utf-8');
+  if (opts.full) {
+    console.log(md);
+  } else {
+    console.log(compactMarkdown(md));
+    console.log('\n(compact view — full docs: figma-cli api ' + top.name + ' --full)');
+  }
 }
 
 /**
