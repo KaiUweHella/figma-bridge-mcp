@@ -19,8 +19,8 @@ import { convert, detectSourceType } from '../code-import/index.js';
 import {
   program,
   DAEMON_PORT,
+  daemonCurl,
   figmaUse,
-  getDaemonToken,
   getManualStartCommand,
   isDaemonRunning,
   killFigma,
@@ -538,9 +538,7 @@ program
     for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
       await new Promise(r => setTimeout(r, 1000));
       try {
-        const pluginToken = getDaemonToken();
-        const pluginHeader = pluginToken ? ` -H "X-Daemon-Token: ${pluginToken}"` : '';
-        const healthRes = execSync(`curl -s${pluginHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8' });
+        const healthRes = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
         const health = JSON.parse(healthRes);
         if (health.plugin) {
           pluginSpinner.succeed('Plugin connected and authenticated!');

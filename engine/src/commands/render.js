@@ -9,13 +9,11 @@ import { getFigmaVersion, isFigmaRunning, platformName } from '../platform.js';
 import {
   program,
   CONFIG_DIR,
-  DAEMON_PORT,
   checkConnection,
   daemonExec,
   detectWrapperSplit,
   fastEval,
   figmaEvalSync,
-  getDaemonToken,
   getFigmaClient,
   isDaemonRunning,
   unescapeShell
@@ -414,41 +412,14 @@ program
       // Extract props that figma-use doesn't handle correctly
       const postProcessFixes = extractPostProcessFixes(jsx);
 
-      // Check if we're in Safe Mode (plugin only, no CDP)
-      let useDaemonRender = false;
-      try {
-        const healthToken = getDaemonToken();
-        const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-        const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-        const health = JSON.parse(healthRes);
-        useDaemonRender = health.plugin && !health.cdp; // Safe Mode
-      } catch {}
-
-      let result;
-      if (useDaemonRender) {
-        // Safe Mode: use daemon render (works via plugin)
-        result = await daemonExec('render', { jsx });
-        // Position the frame after creation
-        if (result && result.id && (posX !== undefined || posY !== undefined)) {
-          await fastEval(`(async () => {
-            const n = await figma.getNodeByIdAsync("${result.id}");
-            if (n) { ${posX !== undefined ? `n.x = ${posX};` : ''} n.y = ${posY}; }
-          })()`);
-        }
-      } else {
-        // Yolo Mode: use figma-use (full JSX support, faster)
-        let cmd = 'figma-use render --stdin --json';
-        if (options.parent) cmd += ` --parent "${options.parent}"`;
-        if (posX !== undefined) cmd += ` --x ${posX}`;
-        cmd += ` --y ${posY}`;
-
-        const output = execSync(cmd, {
-          input: jsx,
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 60000
-        });
-        result = JSON.parse(output.trim());
+      // Plugin bridge is the only render path in the Safe-Mode build.
+      const result = await daemonExec('render', { jsx });
+      // Position the frame after creation
+      if (result && result.id && (posX !== undefined || posY !== undefined)) {
+        await fastEval(`(async () => {
+          const n = await figma.getNodeByIdAsync("${result.id}");
+          if (n) { ${posX !== undefined ? `n.x = ${posX};` : ''} n.y = ${posY}; }
+        })()`);
       }
 
       console.log(chalk.green('✓ Rendered: ' + result.id));

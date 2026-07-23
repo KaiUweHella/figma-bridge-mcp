@@ -235,6 +235,18 @@ function getTokenStatus() {
   return status;
 }
 
+// Sync HTTP call to the local daemon: curl via execFileSync with an ARGUMENT
+// ARRAY — never a shell string, so the daemon token can't hit shell parsing.
+// Prepends -s and the X-Daemon-Token header; callers pass the URL and any
+// extra flags. Returns stdout (utf8); throws like execFileSync on failure.
+function daemonCurl(extraArgs, { timeout = 2000 } = {}) {
+  const token = getDaemonToken();
+  const args = ['-s'];
+  if (token) args.push('-H', `X-Daemon-Token: ${token}`);
+  args.push(...extraArgs);
+  return execFileSync('curl', args, { encoding: 'utf8', stdio: 'pipe', timeout });
+}
+
 // Process-level health cache. A single CLI command checks daemon health 3-4
 // times across checkConnection/fastRender/command-internal guards — each was a
 // fresh `curl` subprocess spawn. Since a CLI process is short-lived, caching the
@@ -253,12 +265,10 @@ function isDaemonRunning(returnDetails = false, force = false) {
   }
   try {
     const token = getDaemonToken();
-    const tokenHeader = token ? ` -H "X-Daemon-Token: ${token}"` : '';
-    const response = execSync(`curl -s -o ${nullDevice} -w "%{http_code}"${tokenHeader} http://localhost:${DAEMON_PORT}/health`, {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 1000
-    });
+    const response = daemonCurl(
+      ['-o', nullDevice, '-w', '%{http_code}', `http://127.0.0.1:${DAEMON_PORT}/health`],
+      { timeout: 1000 }
+    );
     const statusCode = response.trim();
 
     if (returnDetails) {
@@ -555,11 +565,10 @@ function figmaEvalSync(code) {
       const payload = JSON.stringify({ action: 'eval', code: wrappedCode });
       const payloadFile = join(tmpdir(), `figma-payload-${Date.now()}.json`);
       writeFileSync(payloadFile, payload);
-      const daemonToken = getDaemonToken();
-      const tokenHeader = daemonToken ? ` -H "X-Daemon-Token: ${daemonToken}"` : '';
-      const result = execSync(
-        `curl -s -X POST http://127.0.0.1:${DAEMON_PORT}/exec -H "Content-Type: application/json"${tokenHeader} -d @"${payloadFile}"`,
-        { encoding: 'utf8', timeout: 60000 }
+      const result = daemonCurl(
+        ['-X', 'POST', `http://127.0.0.1:${DAEMON_PORT}/exec`,
+         '-H', 'Content-Type: application/json', '-d', `@${payloadFile}`],
+        { timeout: 60000 }
       );
       try { unlinkSync(payloadFile); } catch {}
       if (!result || result.trim() === '') {
@@ -601,13 +610,9 @@ function figmaUse(args, options = {}) {
 
   if (args === 'status' || args.startsWith('status')) {
     // Safe-Mode build: connection status = daemon health + plugin bridge,
-    // not a CDP page probe. execFileSync with an arg array — no shell string.
+    // not a CDP page probe.
     try {
-      const statusToken = getDaemonToken();
-      const curlArgs = ['-s'];
-      if (statusToken) curlArgs.push('-H', `X-Daemon-Token: ${statusToken}`);
-      curlArgs.push(`http://127.0.0.1:${DAEMON_PORT}/health`);
-      const result = execFileSync('curl', curlArgs, { encoding: 'utf8', stdio: 'pipe', timeout: 2000 });
+      const result = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
       const health = JSON.parse(result);
       if (health.status === 'ok' && health.plugin) {
         const status = 'Connected to Figma (plugin bridge)';
@@ -686,9 +691,7 @@ async function checkConnection() {
 
   // First check daemon (works for both CDP and Plugin modes)
   try {
-    const connToken = getDaemonToken();
-    const connHeader = connToken ? ` -H "X-Daemon-Token: ${connToken}"` : '';
-    const health = execSync(`curl -s${connHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
+    const health = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
     const data = JSON.parse(health);
     if (data.status === 'ok' && data.plugin) {
       return true;
@@ -706,9 +709,7 @@ async function checkConnection() {
 function checkConnectionSync() {
   // First check daemon (works for both CDP and Plugin modes)
   try {
-    const syncToken = getDaemonToken();
-    const syncHeader = syncToken ? ` -H "X-Daemon-Token: ${syncToken}"` : '';
-    const health = execSync(`curl -s${syncHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
+    const health = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
     const data = JSON.parse(health);
     if (data.status === 'ok' && data.plugin) {
       return true;
@@ -845,6 +846,7 @@ export {
   buildNodeSelector,
   checkConnection,
   checkConnectionSync,
+  daemonCurl,
   daemonExec,
   detectWrapperSplit,
   fastEval,
