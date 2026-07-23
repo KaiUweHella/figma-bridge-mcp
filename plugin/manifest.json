@@ -1,0 +1,22 @@
+{
+  "name": "FigCli (Safe/Hardened)",
+  "id": "figma-safe-mcp-bridge",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "capabilities": [],
+  "permissions": ["teamlibrary"],
+  "enableProposedApi": false,
+  "editorType": ["figma", "figjam"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "ws://127.0.0.1:3456",
+      "ws://127.0.0.1:3457",
+      "ws://127.0.0.1:3458",
+      "ws://127.0.0.1:3459",
+      "ws://127.0.0.1:3460"
+    ],
+    "reasoning": "Nur lokaler CLI-Daemon; keine externe Exfiltration moeglich."
+  }
+}

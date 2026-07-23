@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Inter, -apple-system, sans-serif;
+      font-size: 11px;
+      background: #2c2c2c;
+      color: #fff;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 10px 12px;
+      gap: 4px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #666;
+    }
+    .dot.connecting { background: #f59e0b; animation: pulse 1s infinite; }
+    .dot.connected { background: #22c55e; }
+    .dot.error { background: #ef4444; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .title { font-weight: 600; font-size: 12px; }
+    #status { color: #aaa; }
+    .hint { font-size: 9px; color: #666; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div class="title">Figma DS CLI</div>
+  <div class="row">
+    <div id="dot" class="dot connecting"></div>
+    <span id="status">Connecting...</span>
+  </div>
+  <div class="hint">Keep this window open</div>
+
+  <script>
+    // Scan ports 3456-3460 in PARALLEL for fast connection
+    const PORTS = [3456, 3457, 3458, 3459, 3460];
+    let ws = null;
+    let reconnectTimer = null;
+    let keepaliveTimer = null;
+    const statusEl = document.getElementById('status');
+    const dotEl = document.getElementById('dot');
+
+    function setStatus(text, state) {
+      statusEl.textContent = text;
+      dotEl.className = 'dot ' + state;
+    }
+
+    // Try all ports in parallel, use first successful connection
+    function connectParallel() {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+
+      setStatus('Scanning...', 'connecting');
+      let connected = false;
+      const attempts = [];
+
+      PORTS.forEach(port => {
+        const url = `ws://127.0.0.1:${port}/plugin`;
+        try {
+          const socket = new WebSocket(url);
+          attempts.push(socket);
+
+          socket.onopen = () => {
+            if (connected) {
+              socket.close();
+              return;
+            }
+            connected = true;
+            ws = socket;
+
+            // Close other attempts (silently, no handlers)
+            attempts.forEach(s => {
+              if (s !== socket) {
+                s.onclose = null;  // Prevent triggering reconnect
+                s.onerror = null;
+                try { s.close(); } catch {}
+              }
+            });
+
+            // NOW set handlers on winning socket only
+            ws.onmessage = handleMessage;
+            ws.onclose = handleClose;
+            ws.onerror = handleClose;
+
+            setStatus('Connected', 'connected');
+            parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
+
+            // Send hello
+            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '1.3.0' }));
+
+            // Start keepalive (ping every 10s)
+            startKeepalive();
+          };
+
+          // During scan: ignore close/error (don't trigger reconnect)
+          socket.onclose = () => {};
+          socket.onerror = () => {};
+        } catch (e) {}
+      });
+
+      // If no connection after 1.5s, retry (faster than 3s)
+      setTimeout(() => {
+        if (!connected) {
+          attempts.forEach(s => {
+            s.onclose = null;
+            try { s.close(); } catch {}
+          });
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connectParallel, 300);
+        }
+      }, 1500);
+    }
+
+    function handleMessage(event) {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.action === 'eval') {
+          parent.postMessage({
+            pluginMessage: { type: 'eval', id: msg.id, code: msg.code }
+          }, '*');
+        }
+
+        // Batch eval support
+        if (msg.action === 'eval-batch') {
+          parent.postMessage({
+            pluginMessage: { type: 'eval-batch', id: msg.id, codes: msg.codes }
+          }, '*');
+        }
+
+        // Daemon pings us
+        if (msg.action === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', id: msg.id }));
+        }
+
+        // Daemon responds to our ping
+        if (msg.type === 'pong') {
+          lastPong = Date.now();
+        }
+      } catch (e) {
+        console.error('Message parse error:', e);
+      }
+    }
+
+    function handleClose() {
+      // Only show reconnecting if we were the active connection
+      if (ws && ws.readyState !== WebSocket.OPEN) {
+        ws = null;
+        setStatus('Reconnecting...', 'connecting');
+        stopKeepalive();
+        parent.postMessage({ pluginMessage: { type: 'disconnected' } }, '*');
+
+        // Fast reconnect (200ms)
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connectParallel, 200);
+      }
+    }
+
+    let lastPong = Date.now();
+
+    function startKeepalive() {
+      stopKeepalive();
+      lastPong = Date.now();
+      keepaliveTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          // Check if we got a pong recently (within 8s for faster detection)
+          if (Date.now() - lastPong > 8000) {
+            console.log('No pong received, reconnecting...');
+            ws.close();
+            return;
+          }
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 3000);  // Ping every 3s for faster dead connection detection
+    }
+
+    function stopKeepalive() {
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+      }
+    }
+
+    // Legacy function name for compatibility
+    function connect() { connectParallel(); }
+
+    // Receive results from plugin main thread
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === 'result') {
+        // Send result back to CLI via WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'result',
+            id: msg.id,
+            result: msg.result,
+            error: msg.error
+          }));
+        }
+      }
+
+      // Batch result forwarding (CRITICAL for render-batch stability)
+      if (msg.type === 'batch-result') {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'batch-result',
+            id: msg.id,
+            results: msg.results
+          }));
+        }
+      }
+    };
+
+    // Start connection
+    connect();
+  </script>
+</body>
+</html>
