@@ -1,0 +1,7 @@
+{
+  "name": "figma-ds-cli",
+  "version": "2.1.0",
+  "description": "Vendored Safe-Mode-only engine derived from figma-ds-cli v2.1.0 (MIT, © Sil Bormüller). See ../NOTICE. Dependencies resolve from the root node_modules.",
+  "type": "module",
+  "private": true
+}

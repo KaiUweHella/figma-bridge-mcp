@@ -1,0 +1,38 @@
+figma-safe-mcp
+==============
+
+This product includes software vendored from a third party.
+
+engine/
+-------
+The contents of the `engine/` directory are derived from:
+
+    figma-ds-cli (a.k.a. "figma-cli")
+    Version:  2.1.0
+    Author:   Sil Bormüller (Into Design Systems)
+    Source:   https://github.com/silships/figma-cli
+    License:  MIT (see engine/LICENSE)
+
+The engine was vendored in a "Safe-Mode-only" form: the Chrome DevTools
+Protocol / binary-patching capability ("Yolo mode") of the upstream project
+has been removed, and a plugin access-key handshake has been added to the
+local WebSocket bridge.
+
+Files modified relative to upstream v2.1.0 (all other files are byte-identical
+to upstream, to keep future upstream syncs a targeted re-diff):
+
+    engine/src/figma-patch.js       — replaced with a neutered Safe-Mode stub
+    engine/src/daemon.js            — CDP removed; plugin-mode only; WS access-key auth added
+    engine/src/lib/cli-core.js      — plugin-mode daemon spawn; CDP fallbacks removed; key env pass-through; isolated state paths
+    engine/src/commands/setup.js    — connect flow is Safe-Mode-only; unpatch removed
+    engine/src/commands/misc.js     — `plugins` (voice) command removed
+
+Files excluded from the vendored copy relative to upstream:
+
+    src/figma-patch.js (replaced by stub)   plugins.js / plugins/voice/
+    examples/   plant-care-dashboard/   docs/   CLAUDE.md
+    src/.figma-client-*.mjs (generated temp artifact)
+    upstream plugin/ (superseded by this repo's hardened plugin/)
+
+figma-safe-mcp itself (everything outside engine/) is Copyright its authors and
+licensed MIT (see LICENSE).

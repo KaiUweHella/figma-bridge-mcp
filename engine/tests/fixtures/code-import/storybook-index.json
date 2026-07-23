@@ -1,0 +1,9 @@
+{
+  "v": 5,
+  "entries": {
+    "components-button--primary": { "id": "components-button--primary", "title": "Components/Button", "name": "Primary", "type": "story" },
+    "components-button--secondary": { "id": "components-button--secondary", "title": "Components/Button", "name": "Secondary", "type": "story" },
+    "components-button--docs": { "id": "components-button--docs", "title": "Components/Button", "name": "Docs", "type": "docs" },
+    "components-badge--default": { "id": "components-badge--default", "title": "Components/Badge", "name": "Default", "type": "story" }
+  }
+}

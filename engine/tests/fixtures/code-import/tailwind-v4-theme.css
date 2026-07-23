@@ -1,0 +1,7 @@
+@theme {
+  --color-primary: oklch(0.55 0.2 250);
+  --color-surface: rgb(246, 248, 250);
+  --radius-md: 6px;
+  --spacing-gutter: 1.5rem;
+  --font-sans: "Inter", sans-serif;
+}
