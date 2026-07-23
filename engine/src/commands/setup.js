@@ -4,8 +4,15 @@ import ora from 'ora';
 import { execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join, basename } from 'path';
+import { join, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { FigmaClient } from '../figma-client.js';
+
+// Repo root = three levels up from engine/src/commands/setup.js. Used to print
+// the plugin manifest path independent of the process cwd (the MCP server spawns
+// the engine from an arbitrary directory).
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const PLUGIN_MANIFEST_PATH = join(REPO_ROOT, 'plugin', 'manifest.json');
 import * as apiDocs from '../api-docs.js';
 import { isPatched, patchFigma, unpatchFigma } from '../figma-patch.js';
 import { convert, detectSourceType } from '../code-import/index.js';
@@ -475,218 +482,83 @@ program
 
 // ============ UNPATCH ============
 
-program
-  .command('unpatch')
-  .description('Restore Figma to original state (removes remote debugging patch)')
-  .action(() => {
-    const spinner = ora('Checking Figma patch status...').start();
-
-    try {
-      const patchStatus = isPatched();
-
-      if (patchStatus === false) {
-        spinner.succeed('Figma is already in original state (not patched)');
-        return;
-      }
-
-      if (patchStatus === null) {
-        spinner.warn('Cannot determine patch status. Figma version may be incompatible.');
-        return;
-      }
-
-      spinner.text = 'Restoring Figma to original state...';
-      unpatchFigma();
-
-      // Update config
-      const config = loadConfig();
-      config.patched = false;
-      saveConfig(config);
-
-      spinner.succeed('Figma restored to original state');
-      console.log(chalk.gray('  Remote debugging is now blocked by default.'));
-      console.log(chalk.gray('  Run "node src/index.js connect" to re-enable it.'));
-    } catch (err) {
-      spinner.fail(`Failed to unpatch: ${err.message}`);
-    }
-  });
+// The `unpatch` command was removed in the Safe-Mode build — there is no
+// binary patching to undo.
 
 // ============ CONNECT ============
 
 program
   .command('connect')
-  .description('Connect to Figma Desktop')
-  .option('--safe', 'Use Safe Mode (plugin-based, no patching required)')
-  .action(async (options) => {
+  .description('Connect to Figma Desktop (Safe Mode — plugin bridge only)')
+  .option('--safe', 'Accepted for compatibility; Safe Mode is the only mode')
+  .action(async (_options) => {
     // Fun welcome message
     console.log(chalk.hex('#FF6B35')('\n  ✨ Hey designer! ') + chalk.white("Don't be afraid of the terminal!"));
-    console.log(chalk.hex('#4ECDC4')('  🎨 Happy vibe coding! ') + chalk.gray('— Sil · ') + chalk.hex('#FF6B35')('intodesignsystems.com\n'));
+    console.log(chalk.hex('#4ECDC4')('  🎨 Happy vibe coding!\n'));
 
-    const config = loadConfig();
+    console.log(chalk.hex('#4ECDC4')('  🔒 Safe Mode ') + chalk.gray('(plugin bridge, no patching, no Figma API token)\n'));
 
-    // Safe Mode: Plugin-based connection (no patching, no CDP)
-    if (options.safe) {
-      console.log(chalk.hex('#4ECDC4')('  🔒 Safe Mode ') + chalk.gray('(plugin-based, no patching required)\n'));
-
-      // Stop any existing daemon
-      stopDaemon();
-
-      // Start daemon in plugin mode
-      const daemonSpinner = ora('Starting daemon in Safe Mode...').start();
-      try {
-        startDaemon(true, 'plugin');  // Force restart in plugin mode
-        await new Promise(r => setTimeout(r, 1000));
-        if (isDaemonRunning()) {
-          daemonSpinner.succeed('Daemon running in Safe Mode');
-        } else {
-          daemonSpinner.fail('Daemon failed to start');
-          return;
-        }
-      } catch (e) {
-        daemonSpinner.fail('Daemon failed: ' + e.message);
-        return;
-      }
-
-      // Show plugin setup instructions
-      console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
-      console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the FigCli plugin                           ') + chalk.hex('#FF6B35')('│'));
-      console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
-
-      console.log(chalk.white.bold('  ONE-TIME SETUP:\n'));
-      console.log(chalk.cyan('  1. ') + chalk.white('Open Figma Desktop and any design file'));
-      console.log(chalk.cyan('  2. ') + chalk.white('Go to ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
-      console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(process.cwd() + '/plugin/manifest.json'));
-      console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
-
-      console.log(chalk.white.bold('  EACH SESSION:\n'));
-      console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → FigCli\n'));
-
-      console.log(chalk.gray('  💡 Tip: Right-click plugin → "Add to toolbar" for one-click access\n'));
-
-      // Wait for plugin connection. The daemon stays alive after we exit,
-      // so the user can run commands the moment they actually launch the
-      // plugin — but we still want to give them a confirmation when it
-      // happens during onboarding. Bumped 30→90s after user feedback that
-      // 30s wasn't enough time to find the plugin in Figma's menu.
-      const pluginSpinner = ora('Waiting for plugin connection...').start();
-      let pluginConnected = false;
-      const PLUGIN_CONNECT_MAX_WAIT_S = 90;
-      for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        try {
-          const pluginToken = getDaemonToken();
-          const pluginHeader = pluginToken ? ` -H "X-Daemon-Token: ${pluginToken}"` : '';
-          const healthRes = execSync(`curl -s${pluginHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8' });
-          const health = JSON.parse(healthRes);
-          if (health.plugin) {
-            pluginSpinner.succeed('Plugin connected!');
-            console.log(chalk.green('\n  ✓ Ready! Safe Mode active.\n'));
-            pluginConnected = true;
-            break;
-          }
-        } catch {}
-        // Hint at the halfway mark so users know they can still finish setup.
-        if (i === Math.floor(PLUGIN_CONNECT_MAX_WAIT_S / 2)) {
-          pluginSpinner.text = `Waiting for plugin connection (${PLUGIN_CONNECT_MAX_WAIT_S - i}s left)…`;
-        }
-      }
-
-      if (!pluginConnected) {
-        pluginSpinner.warn('Plugin not detected yet — daemon is still listening.');
-        console.log(chalk.gray('\n  The daemon stays running in the background.'));
-        console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → FigCli') + chalk.gray(' in Figma whenever you\'re ready —'));
-        console.log(chalk.gray('  the next CLI command will connect automatically.\n'));
-      }
-      return;
-    }
-
-    // Yolo Mode: CDP-based connection (default)
-    console.log(chalk.hex('#FF6B35')('  🚀 Yolo Mode ') + chalk.gray('(direct CDP connection)\n'));
-
-    // Patch Figma if needed. Verify against the actual app.asar, NOT the cached
-    // config.patched flag: a Figma update replaces app.asar with a fresh (unpatched)
-    // copy, so a stale cache would skip re-patching and the CDP port stays blocked.
-    const patchStatus = isPatched();
-    if (patchStatus !== true) {
-      const patchSpinner = ora('Setting up Figma connection...').start();
-      try {
-        if (patchStatus === false) {
-          patchFigma();
-          patchSpinner.succeed('Figma configured');
-        } else {
-          patchSpinner.succeed('Figma ready');
-        }
-        config.patched = true;
-        saveConfig(config);
-      } catch (err) {
-        patchSpinner.fail('Setup failed');
-
-        // macOS 13+ needs "App Management" to modify another app's bundle
-        if (process.platform === 'darwin') {
-          console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
-          console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  One-time setup required                           ') + chalk.hex('#FF6B35')('│'));
-          console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
-
-          console.log(chalk.white('  Your Terminal needs permission to configure Figma.\n'));
-
-          console.log(chalk.cyan('  Step 1: ') + chalk.white('Open ') + chalk.yellow('System Settings'));
-          console.log(chalk.cyan('  Step 2: ') + chalk.white('Go to ') + chalk.yellow('Privacy & Security → App Management'));
-          console.log(chalk.cyan('  Step 3: ') + chalk.white('Enable your ') + chalk.yellow('Terminal') + chalk.white(' (or iTerm)'));
-          console.log(chalk.cyan('  Step 4: ') + chalk.white('Quit the terminal completely ') + chalk.gray('(Cmd+Q)'));
-          console.log(chalk.cyan('  Step 5: ') + chalk.white('Reopen it and try again\n'));
-
-          console.log(chalk.gray('  (On macOS 13+ "App Management" is what allows patching another app; Full Disk Access alone is not enough.)\n'));
-          console.log(chalk.gray('  Or use Safe Mode (no permission needed): ') + chalk.cyan('node src/index.js connect --safe\n'));
-        } else {
-          console.log(chalk.yellow('\n  Try running as administrator.\n'));
-          console.log(chalk.gray('  Or use Safe Mode: ') + chalk.cyan('node src/index.js connect --safe\n'));
-        }
-        return;
-      }
-    }
-
-    // Stop any existing daemon
+    // Stop any existing daemon, then start it in plugin mode.
     stopDaemon();
 
-    console.log(chalk.blue('Starting Figma...'));
+    const daemonSpinner = ora('Starting daemon in Safe Mode...').start();
     try {
-      killFigma();
-      await new Promise(r => setTimeout(r, 500));
-    } catch {}
-
-    startFigma();
-    console.log(chalk.green('✓ Figma started\n'));
-
-    // Wait and check connection
-    const spinner = ora('Waiting for connection...').start();
-    let connected = false;
-    for (let i = 0; i < 8; i++) {
+      startDaemon(true, 'plugin');  // Force restart in plugin mode
       await new Promise(r => setTimeout(r, 1000));
-      const result = figmaUse('status', { silent: true });
-      if (result && result.includes('Connected')) {
-        spinner.succeed('Connected to Figma');
-        console.log(chalk.gray(result.trim()));
-        connected = true;
-        break;
+      if (isDaemonRunning()) {
+        daemonSpinner.succeed('Daemon running in Safe Mode');
+      } else {
+        daemonSpinner.fail('Daemon failed to start');
+        return;
       }
-    }
-
-    if (!connected) {
-      spinner.warn('Open a file in Figma to connect');
+    } catch (e) {
+      daemonSpinner.fail('Daemon failed: ' + e.message);
       return;
     }
 
-    // Start daemon for fast commands (force restart to get fresh connection)
-    const daemonSpinner = ora('Starting speed daemon...').start();
-    try {
-      startDaemon(true, 'auto');  // Auto mode: uses plugin if connected, otherwise CDP
-      await new Promise(r => setTimeout(r, 1500));
-      if (isDaemonRunning()) {
-        daemonSpinner.succeed('Speed daemon running (commands are now 10x faster)');
-      } else {
-        daemonSpinner.warn('Daemon failed to start, commands will be slower');
+    // Show plugin setup instructions
+    console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
+    console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the FigCli plugin                           ') + chalk.hex('#FF6B35')('│'));
+    console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
+
+    console.log(chalk.white.bold('  ONE-TIME SETUP:\n'));
+    console.log(chalk.cyan('  1. ') + chalk.white('Open Figma Desktop and any design file'));
+    console.log(chalk.cyan('  2. ') + chalk.white('Go to ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
+    console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(PLUGIN_MANIFEST_PATH));
+    console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
+
+    console.log(chalk.white.bold('  EACH SESSION:\n'));
+    console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → FigCli'));
+    console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
+
+    // Wait for the plugin to connect AND authenticate.
+    const pluginSpinner = ora('Waiting for plugin connection...').start();
+    let pluginConnected = false;
+    const PLUGIN_CONNECT_MAX_WAIT_S = 90;
+    for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const pluginToken = getDaemonToken();
+        const pluginHeader = pluginToken ? ` -H "X-Daemon-Token: ${pluginToken}"` : '';
+        const healthRes = execSync(`curl -s${pluginHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8' });
+        const health = JSON.parse(healthRes);
+        if (health.plugin) {
+          pluginSpinner.succeed('Plugin connected and authenticated!');
+          console.log(chalk.green('\n  ✓ Ready! Safe Mode active.\n'));
+          pluginConnected = true;
+          break;
+        }
+      } catch {}
+      if (i === Math.floor(PLUGIN_CONNECT_MAX_WAIT_S / 2)) {
+        pluginSpinner.text = `Waiting for plugin connection (${PLUGIN_CONNECT_MAX_WAIT_S - i}s left)…`;
       }
-    } catch (e) {
-      daemonSpinner.warn('Daemon failed: ' + e.message);
+    }
+
+    if (!pluginConnected) {
+      pluginSpinner.warn('Plugin not detected yet — daemon is still listening.');
+      console.log(chalk.gray('\n  The daemon stays running in the background.'));
+      console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → FigCli') + chalk.gray(' in Figma and paste your access key —'));
+      console.log(chalk.gray('  the next command will connect automatically.\n'));
     }
   });
 

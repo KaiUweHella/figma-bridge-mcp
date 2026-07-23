@@ -188,12 +188,12 @@ function buildNodeSelector(options, { filterExpr = '' } = {}) {
 
 // Daemon configuration
 const DAEMON_PORT = 3456;
-const DAEMON_PID_FILE = join(homedir(), '.figma-cli-daemon.pid');
-const DAEMON_TOKEN_FILE = join(homedir(), '.figma-ds-cli', '.daemon-token');
+const DAEMON_PID_FILE = join(homedir(), '.figma-safe-mcp', 'daemon.pid');
+const DAEMON_TOKEN_FILE = join(homedir(), '.figma-safe-mcp', '.daemon-token');
 
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {
-  const configDir = join(homedir(), '.figma-ds-cli');
+  const configDir = join(homedir(), '.figma-safe-mcp');
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
   const token = randomBytes(32).toString('hex');
   writeFileSync(DAEMON_TOKEN_FILE, token, { mode: 0o600 });
@@ -211,7 +211,7 @@ function getDaemonToken() {
 
 // Get detailed token status for debugging
 function getTokenStatus() {
-  const configDir = join(homedir(), '.figma-ds-cli');
+  const configDir = join(homedir(), '.figma-safe-mcp');
   const tokenPath = DAEMON_TOKEN_FILE;
   const status = {
     configDir,
@@ -369,10 +369,10 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
 // (PID file present) — never spawns a daemon on a fresh, never-connected setup.
 async function ensureDaemonRunning(maxWaitMs = 5000) {
   if (isDaemonRunning()) return true;
-  // Guard: only resurrect a daemon the user actually set up — either a PID file
-  // is present (idle-shutdown leaves it) or Figma is patched for Yolo Mode (so
-  // the daemon is the intended fast path even after an explicit stop).
-  if (!existsSync(DAEMON_PID_FILE) && !isFigmaPatched()) return false;
+  // Guard: only resurrect a daemon the user actually set up — a PID file is
+  // present once figma_connect has started the daemon (idle-shutdown leaves it).
+  // Never spawn a daemon on a fresh, never-connected setup.
+  if (!existsSync(DAEMON_PID_FILE)) return false;
   try {
     startDaemon();
   } catch {
@@ -386,36 +386,24 @@ async function ensureDaemonRunning(maxWaitMs = 5000) {
   return false;
 }
 
-// Fast eval via daemon (falls back to direct connection)
+// Fast eval via daemon (plugin bridge only — no direct CDP fallback)
 async function fastEval(code) {
-  // Try daemon first (auto-restarting it if it idle-shut-down)
-  if (await ensureDaemonRunning()) {
-    try {
-      return await daemonExec('eval', { code });
-    } catch (e) {
-      // Continue to fallback
-    }
+  if (!(await ensureDaemonRunning())) {
+    throw new Error(NOT_CONNECTED_MSG);
   }
-
-  // Fall back to direct connection
-  const client = await getFigmaClient();
-  return await client.eval(code);
+  // Let a daemon error propagate — the plugin bridge is the only path.
+  return await daemonExec('eval', { code });
 }
 
-// Fast render via daemon (falls back to direct connection)
+// Fast render via daemon (plugin bridge only — no direct CDP fallback)
 async function fastRender(jsx) {
-  // The daemon OWNS the render once it's up. Do NOT fall back to a direct
-  // render if the daemon call fails: the daemon may have already created the
-  // frame before a transient error (a CDP hiccup under load — several heavy
-  // files open), and a second render would silently DUPLICATE it. Surface the
-  // error instead. Only render directly when the daemon can't be started at all.
-  if (await ensureDaemonRunning()) {
-    return await daemonExec('render', { jsx });
+  // The daemon OWNS the render once it's up. A failed daemon call is surfaced
+  // as-is: it may have already created the frame before erroring, and a retry
+  // would silently DUPLICATE it.
+  if (!(await ensureDaemonRunning())) {
+    throw new Error(NOT_CONNECTED_MSG);
   }
-
-  // Daemon genuinely unavailable — safe to render directly (single execution).
-  const client = await getFigmaClient();
-  return await client.render(jsx);
+  return await daemonExec('render', { jsx });
 }
 
 // Helper: run figma-use commands with Node 20+ compatibility warning
@@ -433,8 +421,10 @@ function runFigmaUse(cmd, options = {}) {
   }
 }
 
-// Start daemon in background
-function startDaemon(forceRestart = false, mode = 'auto') {
+// Start daemon in background. The Safe-Mode build only ever runs the daemon in
+// plugin mode; the `mode` argument is accepted for signature compatibility but
+// ignored.
+function startDaemon(forceRestart = false, mode = 'plugin') {
   // If force restart, always kill existing daemon first
   if (forceRestart) {
     stopDaemon();
@@ -452,10 +442,19 @@ function startDaemon(forceRestart = false, mode = 'auto') {
   const newToken = generateDaemonToken();
 
   const daemonScript = join(__dirname, 'daemon.js');
-  const child = spawn('node', [daemonScript], {
+  // Use the same node binary that launched this process (process.execPath),
+  // not whatever 'node' resolves to on PATH — the MCP server may spawn the
+  // engine with a node that isn't on PATH. PLUGIN_KEY_FILE (if set by the MCP
+  // layer) rides along in ...process.env and is passed explicitly for clarity.
+  const child = spawn(process.execPath, [daemonScript], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, DAEMON_PORT: String(DAEMON_PORT), DAEMON_MODE: mode }
+    env: {
+      ...process.env,
+      DAEMON_PORT: String(DAEMON_PORT),
+      DAEMON_MODE: 'plugin',
+      PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE || ''
+    }
   });
   child.unref();
 
@@ -511,7 +510,7 @@ const __dirname = join(dirname(fileURLToPath(import.meta.url)), '..');
 const __filename = join(__dirname, 'index.js');
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
-const CONFIG_DIR = join(homedir(), '.figma-ds-cli');
+const CONFIG_DIR = join(homedir(), '.figma-safe-mcp');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const program = new Command();
@@ -538,25 +537,16 @@ function saveConfig(config) {
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
-// Singleton FigmaClient instance
-let _figmaClient = null;
+// Direct CDP connection is removed in the Safe-Mode-only build. Every command
+// runs through the daemon → plugin bridge. This is the single choke point that
+// all former "direct fallback" paths flowed through, so neutering it here turns
+// every stray CDP fallback into one clear, actionable error.
+const NOT_CONNECTED_MSG =
+  'Not connected to Figma. Run figma_connect, then launch the FigCli plugin in Figma Desktop and paste your access key.';
 
-// Helper: Get or create FigmaClient
+// Helper: Get or create FigmaClient — DISABLED (no direct CDP in Safe Mode)
 async function getFigmaClient() {
-  if (!_figmaClient) {
-    _figmaClient = new FigmaClient();
-    // Short timeout: this is the per-command direct fallback (daemon couldn't be
-    // used). If Figma's CDP isn't reachable we want to fail in ~4s, not hang for
-    // 15s on every command. The explicit `connect` command keeps the 15s default
-    // because Figma may still be booting then.
-    try {
-      await _figmaClient.connect(null, { timeoutMs: 4000 });
-    } catch (e) {
-      _figmaClient = null;
-      throw e;
-    }
-  }
-  return _figmaClient;
+  throw new Error(NOT_CONNECTED_MSG);
 }
 
 // Helper: Run code in Figma (replaces figma-use eval)
@@ -594,62 +584,14 @@ function figmaEvalSync(code) {
       if (data.error) throw new Error(data.error);
       return data.result;
     } catch (e) {
-      // Check if we're in Safe Mode (plugin only) - don't fall through to CDP
-      try {
-        const healthToken = getDaemonToken();
-        const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-        const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-        const health = JSON.parse(healthRes);
-        if (health.plugin && !health.cdp) {
-          // Safe Mode - re-throw the error, don't try CDP fallback
-          throw e;
-        }
-      } catch {}
-      // Fall through to direct CDP connection
+      // Safe Mode: the plugin bridge is the only path. Re-throw the daemon
+      // error instead of falling through to a (removed) direct CDP connection.
+      throw e;
     }
   }
 
-  // Fallback: direct connection via temp script
-  const tempFile = join(tmpdir(), `figma-eval-${Date.now()}.mjs`);
-  const resultFile = join(tmpdir(), `figma-result-${Date.now()}.json`);
-
-  // Use file:// URL for ESM import (cross-platform). Resolve relative to
-  // this file, not process.cwd(), so the CLI works from any directory.
-  const clientUrl = pathToFileURL(join(__dirname, 'figma-client.js')).href;
-
-  const script = `
-    import { FigmaClient } from ${JSON.stringify(clientUrl)};
-    import { writeFileSync } from 'fs';
-
-    (async () => {
-      try {
-        const client = new FigmaClient();
-        await client.connect();
-        const result = await client.eval(${JSON.stringify(code)});
-        writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify({ success: true, result }));
-        client.close();
-      } catch (e) {
-        writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify({ success: false, error: e.message }));
-      }
-    })();
-  `;
-
-  writeFileSync(tempFile, script);
-  try {
-    execSync(`node "${tempFile}"`, { stdio: 'pipe', timeout: 60000 });
-    if (existsSync(resultFile)) {
-      const data = JSON.parse(readFileSync(resultFile, 'utf8'));
-      try { unlinkSync(tempFile); } catch {}
-      try { unlinkSync(resultFile); } catch {}
-      if (data.success) return data.result;
-      throw new Error(data.error);
-    }
-  } catch (e) {
-    try { unlinkSync(tempFile); } catch {}
-    try { unlinkSync(resultFile); } catch {}
-    throw e;
-  }
-  return null;
+  // Daemon not running — no direct CDP fallback exists in the Safe-Mode build.
+  throw new Error(NOT_CONNECTED_MSG);
 }
 
 // Compatibility wrapper for old figmaUse calls
@@ -759,21 +701,16 @@ async function checkConnection() {
     const connHeader = connToken ? ` -H "X-Daemon-Token: ${connToken}"` : '';
     const health = execSync(`curl -s${connHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
     const data = JSON.parse(health);
-    if (data.status === 'ok' && (data.plugin || data.cdp)) {
+    if (data.status === 'ok' && data.plugin) {
       return true;
     }
   } catch {}
 
-  // Fallback: check CDP directly
-  const connected = await FigmaClient.isConnected();
-  if (!connected) {
-    console.log(chalk.red('\n✗ Not connected to Figma\n'));
-    console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode)'));
-    console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
-    process.exit(1);
-  }
-  return true;
+  // No direct CDP fallback in Safe Mode — the plugin bridge must be connected.
+  console.log(chalk.red('\n✗ Not connected to Figma\n'));
+  console.log(chalk.white('  Run figma_connect, then launch the FigCli plugin'));
+  console.log(chalk.white('  in Figma Desktop and paste your access key.\n'));
+  process.exit(1);
 }
 
 // Helper: Check connection (sync version for backwards compat)
@@ -784,23 +721,16 @@ function checkConnectionSync() {
     const syncHeader = syncToken ? ` -H "X-Daemon-Token: ${syncToken}"` : '';
     const health = execSync(`curl -s${syncHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
     const data = JSON.parse(health);
-    if (data.status === 'ok' && (data.plugin || data.cdp)) {
+    if (data.status === 'ok' && data.plugin) {
       return true;
     }
   } catch {}
 
-  // Fallback: check CDP directly
-  try {
-    const port = getCdpPort();
-    execSync(`curl -s http://localhost:${port}/json`, { stdio: 'pipe', timeout: 2000 });
-    return true;
-  } catch {
-    console.log(chalk.red('\n✗ Not connected to Figma\n'));
-    console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode)'));
-    console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
-    process.exit(1);
-  }
+  // No direct CDP fallback in Safe Mode — the plugin bridge must be connected.
+  console.log(chalk.red('\n✗ Not connected to Figma\n'));
+  console.log(chalk.white('  Run figma_connect, then launch the FigCli plugin'));
+  console.log(chalk.white('  in Figma Desktop and paste your access key.\n'));
+  process.exit(1);
 }
 
 // Helper: Check if Figma is patched
@@ -935,7 +865,6 @@ export {
   GENERIC_NAME_PATTERNS,
   __dirname,
   __filename,
-  _figmaClient,
   buildNodeSelector,
   checkConnection,
   checkConnectionSync,
