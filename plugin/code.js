@@ -1,16 +1,17 @@
 /**
- * Figma CLI Bridge Plugin
+ * FigCli (Safe/Hardened) Bridge Plugin
  *
- * Safe Mode: Connects to CLI daemon via WebSocket
- * No debug port needed, no patching required.
+ * Safe Mode: connects to the local figma-safe-mcp daemon over WebSocket.
+ * No debug port, no app patching. The connection is authenticated with an
+ * access key the user pastes in once; it is persisted in figma.clientStorage
+ * (only reachable from this main thread, not the UI iframe) and handed to the
+ * UI on request.
  */
 
-// Show minimal UI (needed for WebSocket connection)
-figma.showUI(__html__, {
-  width: 160,
-  height: 72,
-  position: { x: -9999, y: 9999 }  // Bottom-left (push to far left)
-});
+const KEY_STORAGE = 'daemonKey';
+
+// Visible UI so the user can paste the access key. Kept small.
+figma.showUI(__html__, { width: 300, height: 220 });
 
 // Execute code with auto-return and timeout protection
 async function executeCode(code, timeoutMs = 25000) {
@@ -40,7 +41,7 @@ async function executeCode(code, timeoutMs = 25000) {
   // eval() runs in the plugin's main scope where `figma` is already global.
   const execPromise = eval(`(async () => { ${trimmed} })()`);
   const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs/1000}s)`)), timeoutMs)
+    setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
   );
 
   return Promise.race([execPromise, timeoutPromise]);
@@ -48,7 +49,30 @@ async function executeCode(code, timeoutMs = 25000) {
 
 // Handle messages from UI (WebSocket bridge)
 figma.ui.onmessage = async (msg) => {
-  // Single eval
+  // --- Access-key bridge (clientStorage is only reachable here) ---
+  if (msg.type === 'get-key') {
+    let value = '';
+    try {
+      value = (await figma.clientStorage.getAsync(KEY_STORAGE)) || '';
+    } catch (e) {
+      value = '';
+    }
+    figma.ui.postMessage({ type: 'key', value });
+    return;
+  }
+
+  if (msg.type === 'save-key') {
+    try {
+      await figma.clientStorage.setAsync(KEY_STORAGE, msg.value || '');
+      figma.ui.postMessage({ type: 'key-saved', value: msg.value || '' });
+      figma.notify('Access key saved', { timeout: 1500 });
+    } catch (e) {
+      figma.ui.postMessage({ type: 'key-saved', value: msg.value || '', error: e.message });
+    }
+    return;
+  }
+
+  // --- Eval bridge ---
   if (msg.type === 'eval') {
     try {
       const result = await executeCode(msg.code);
@@ -73,21 +97,20 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'connected') {
-    figma.notify('✓ Figma DS CLI connected', { timeout: 2000 });
+    figma.notify('✓ FigCli connected', { timeout: 2000 });
   }
 
   if (msg.type === 'disconnected') {
-    figma.notify('Figma DS CLI disconnected', { timeout: 2000 });
+    figma.notify('FigCli disconnected', { timeout: 2000 });
+  }
+
+  if (msg.type === 'auth-error') {
+    figma.notify('FigCli: access key rejected — re-enter it', { error: true });
   }
 
   if (msg.type === 'error') {
-    figma.notify('Figma DS CLI: ' + msg.message, { error: true });
+    figma.notify('FigCli: ' + msg.message, { error: true });
   }
 };
 
-// Keep plugin alive
-figma.on('close', () => {
-  // Plugin closed
-});
-
-console.log('Figma DS CLI plugin started');
+console.log('FigCli (Safe/Hardened) plugin started');

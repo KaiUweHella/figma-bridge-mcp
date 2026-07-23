@@ -11,60 +11,114 @@
       height: 100%;
       display: flex;
       flex-direction: column;
-      padding: 10px 12px;
-      gap: 4px;
+      padding: 12px 14px;
+      gap: 8px;
     }
-    .row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #666;
-    }
+    .row { display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; flex: none; }
     .dot.connecting { background: #f59e0b; animation: pulse 1s infinite; }
     .dot.connected { background: #22c55e; }
     .dot.error { background: #ef4444; }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
     .title { font-weight: 600; font-size: 12px; }
     #status { color: #aaa; }
-    .hint { font-size: 9px; color: #666; margin-top: 2px; }
+    .hint { font-size: 9px; color: #666; }
+    .panel { display: none; flex-direction: column; gap: 6px; margin-top: 2px; }
+    .panel.show { display: flex; }
+    label { font-size: 10px; color: #bbb; }
+    input {
+      width: 100%; padding: 6px 8px; border-radius: 4px; border: 1px solid #555;
+      background: #1e1e1e; color: #fff; font-family: monospace; font-size: 11px;
+    }
+    button {
+      padding: 6px 10px; border: none; border-radius: 4px; cursor: pointer;
+      background: #4ECDC4; color: #06342f; font-weight: 600; font-size: 11px;
+    }
+    button:hover { filter: brightness(1.08); }
+    .linkish {
+      background: none; color: #7aa2ff; padding: 0; font-weight: 400;
+      text-decoration: underline; font-size: 10px; align-self: flex-start;
+    }
   </style>
 </head>
 <body>
-  <div class="title">Figma DS CLI</div>
+  <div class="title">FigCli (Safe)</div>
   <div class="row">
     <div id="dot" class="dot connecting"></div>
-    <span id="status">Connecting...</span>
+    <span id="status">Starting…</span>
   </div>
-  <div class="hint">Keep this window open</div>
+
+  <div id="keyPanel" class="panel">
+    <label for="keyInput">Access key (from figma_connect):</label>
+    <input id="keyInput" type="text" spellcheck="false" autocomplete="off" placeholder="paste key here" />
+    <button id="saveBtn">Save &amp; connect</button>
+  </div>
+
+  <button id="changeKeyBtn" class="linkish" style="display:none">Change access key</button>
+  <div class="hint">Keep this window open while working.</div>
 
   <script>
-    // Scan ports 3456-3460 in PARALLEL for fast connection
     const PORTS = [3456, 3457, 3458, 3459, 3460];
     let ws = null;
     let reconnectTimer = null;
     let keepaliveTimer = null;
+    let lastPong = Date.now();
+    let KEY = null;              // access key, once known
+    let authed = false;          // authenticated on the current socket
+
     const statusEl = document.getElementById('status');
     const dotEl = document.getElementById('dot');
+    const keyPanel = document.getElementById('keyPanel');
+    const keyInput = document.getElementById('keyInput');
+    const saveBtn = document.getElementById('saveBtn');
+    const changeKeyBtn = document.getElementById('changeKeyBtn');
 
     function setStatus(text, state) {
       statusEl.textContent = text;
       dotEl.className = 'dot ' + state;
     }
+    function showKeyPanel(show) {
+      keyPanel.classList.toggle('show', show);
+      changeKeyBtn.style.display = show ? 'none' : 'block';
+    }
 
-    // Try all ports in parallel, use first successful connection
+    // --- Access-key bootstrap: ask code.js (clientStorage lives there) ---
+    function requestKey() {
+      parent.postMessage({ pluginMessage: { type: 'get-key' } }, '*');
+    }
+
+    saveBtn.onclick = () => {
+      const val = keyInput.value.trim();
+      if (!val) { setStatus('Enter a key first', 'error'); return; }
+      KEY = val;
+      parent.postMessage({ pluginMessage: { type: 'save-key', value: val } }, '*');
+      showKeyPanel(false);
+      // (Re)connect with the new key.
+      teardown();
+      connectParallel();
+    };
+    changeKeyBtn.onclick = () => {
+      keyInput.value = KEY || '';
+      showKeyPanel(true);
+    };
+
+    function teardown() {
+      stopKeepalive();
+      clearTimeout(reconnectTimer);
+      if (ws) {
+        try { ws.onclose = null; ws.onerror = null; ws.close(); } catch (e) {}
+        ws = null;
+      }
+      authed = false;
+    }
+
+    // Try all ports in parallel, use first socket that opens.
     function connectParallel() {
+      if (!KEY) { showKeyPanel(true); setStatus('Access key required', 'error'); return; }
       if (ws && ws.readyState === WebSocket.OPEN) return;
 
-      setStatus('Scanning...', 'connecting');
-      let connected = false;
+      setStatus('Scanning…', 'connecting');
+      let opened = false;
       const attempts = [];
 
       PORTS.forEach(port => {
@@ -74,35 +128,22 @@
           attempts.push(socket);
 
           socket.onopen = () => {
-            if (connected) {
-              socket.close();
-              return;
-            }
-            connected = true;
+            if (opened) { try { socket.close(); } catch (e) {} return; }
+            opened = true;
             ws = socket;
+            authed = false;
 
-            // Close other attempts (silently, no handlers)
             attempts.forEach(s => {
-              if (s !== socket) {
-                s.onclose = null;  // Prevent triggering reconnect
-                s.onerror = null;
-                try { s.close(); } catch {}
-              }
+              if (s !== socket) { s.onclose = null; s.onerror = null; try { s.close(); } catch (e) {} }
             });
 
-            // NOW set handlers on winning socket only
             ws.onmessage = handleMessage;
             ws.onclose = handleClose;
             ws.onerror = handleClose;
 
-            setStatus('Connected', 'connected');
-            parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
-
-            // Send hello
-            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '1.3.0' }));
-
-            // Start keepalive (ping every 10s)
-            startKeepalive();
+            setStatus('Authenticating…', 'connecting');
+            // First message MUST be the hello carrying the access key.
+            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '1.4.0', key: KEY }));
           };
 
           // During scan: ignore close/error (don't trigger reconnect)
@@ -111,13 +152,9 @@
         } catch (e) {}
       });
 
-      // If no connection after 1.5s, retry (faster than 3s)
       setTimeout(() => {
-        if (!connected) {
-          attempts.forEach(s => {
-            s.onclose = null;
-            try { s.close(); } catch {}
-          });
+        if (!opened) {
+          attempts.forEach(s => { s.onclose = null; try { s.close(); } catch (e) {} });
           clearTimeout(reconnectTimer);
           reconnectTimer = setTimeout(connectParallel, 300);
         }
@@ -125,109 +162,109 @@
     }
 
     function handleMessage(event) {
-      try {
-        const msg = JSON.parse(event.data);
+      let msg;
+      try { msg = JSON.parse(event.data); } catch (e) { return; }
 
-        if (msg.action === 'eval') {
-          parent.postMessage({
-            pluginMessage: { type: 'eval', id: msg.id, code: msg.code }
-          }, '*');
-        }
+      // Auth handshake results
+      if (msg.type === 'hello-ack') {
+        authed = true;
+        setStatus('Connected (authenticated)', 'connected');
+        parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
+        startKeepalive();
+        return;
+      }
+      if (msg.type === 'auth-error') {
+        authed = false;
+        setStatus('Access key rejected', 'error');
+        parent.postMessage({ pluginMessage: { type: 'auth-error' } }, '*');
+        teardown();
+        showKeyPanel(true);
+        return;
+      }
 
-        // Batch eval support
-        if (msg.action === 'eval-batch') {
-          parent.postMessage({
-            pluginMessage: { type: 'eval-batch', id: msg.id, codes: msg.codes }
-          }, '*');
-        }
-
-        // Daemon pings us
-        if (msg.action === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong', id: msg.id }));
-        }
-
-        // Daemon responds to our ping
-        if (msg.type === 'pong') {
-          lastPong = Date.now();
-        }
-      } catch (e) {
-        console.error('Message parse error:', e);
+      if (msg.action === 'eval') {
+        parent.postMessage({ pluginMessage: { type: 'eval', id: msg.id, code: msg.code } }, '*');
+      }
+      if (msg.action === 'eval-batch') {
+        parent.postMessage({ pluginMessage: { type: 'eval-batch', id: msg.id, codes: msg.codes } }, '*');
+      }
+      if (msg.action === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong', id: msg.id }));
+      }
+      if (msg.type === 'pong') {
+        lastPong = Date.now();
       }
     }
 
-    function handleClose() {
-      // Only show reconnecting if we were the active connection
+    function handleClose(event) {
+      // Daemon rejects unauthenticated sockets with close code 4401.
+      if (event && event.code === 4401) {
+        authed = false;
+        setStatus('Access key rejected', 'error');
+        parent.postMessage({ pluginMessage: { type: 'auth-error' } }, '*');
+        teardown();
+        showKeyPanel(true);
+        return;
+      }
       if (ws && ws.readyState !== WebSocket.OPEN) {
         ws = null;
-        setStatus('Reconnecting...', 'connecting');
+        authed = false;
+        setStatus('Reconnecting…', 'connecting');
         stopKeepalive();
         parent.postMessage({ pluginMessage: { type: 'disconnected' } }, '*');
-
-        // Fast reconnect (200ms)
         clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(connectParallel, 200);
       }
     }
-
-    let lastPong = Date.now();
 
     function startKeepalive() {
       stopKeepalive();
       lastPong = Date.now();
       keepaliveTimer = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          // Check if we got a pong recently (within 8s for faster detection)
-          if (Date.now() - lastPong > 8000) {
-            console.log('No pong received, reconnecting...');
-            ws.close();
-            return;
-          }
+          if (Date.now() - lastPong > 8000) { ws.close(); return; }
           ws.send(JSON.stringify({ type: 'ping' }));
         }
-      }, 3000);  // Ping every 3s for faster dead connection detection
+      }, 3000);
     }
-
     function stopKeepalive() {
-      if (keepaliveTimer) {
-        clearInterval(keepaliveTimer);
-        keepaliveTimer = null;
-      }
+      if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
     }
 
-    // Legacy function name for compatibility
-    function connect() { connectParallel(); }
-
-    // Receive results from plugin main thread
+    // Messages from the plugin main thread (eval results + key bridge)
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
 
-      if (msg.type === 'result') {
-        // Send result back to CLI via WebSocket
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'result',
-            id: msg.id,
-            result: msg.result,
-            error: msg.error
-          }));
+      if (msg.type === 'key') {
+        KEY = (msg.value || '').trim() || null;
+        if (KEY) {
+          showKeyPanel(false);
+          connectParallel();
+        } else {
+          setStatus('Enter your access key', 'error');
+          showKeyPanel(true);
         }
+        return;
+      }
+      if (msg.type === 'key-saved') {
+        return; // already handled optimistically in saveBtn.onclick
       }
 
-      // Batch result forwarding (CRITICAL for render-batch stability)
+      if (msg.type === 'result') {
+        if (ws && ws.readyState === WebSocket.OPEN && authed) {
+          ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error }));
+        }
+      }
       if (msg.type === 'batch-result') {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'batch-result',
-            id: msg.id,
-            results: msg.results
-          }));
+        if (ws && ws.readyState === WebSocket.OPEN && authed) {
+          ws.send(JSON.stringify({ type: 'batch-result', id: msg.id, results: msg.results }));
         }
       }
     };
 
-    // Start connection
-    connect();
+    // Boot: fetch the stored key, then connect (or prompt).
+    requestKey();
   </script>
 </body>
 </html>

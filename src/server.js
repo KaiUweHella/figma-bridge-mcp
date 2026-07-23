@@ -8,6 +8,7 @@ import {
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { runCli, ensureSafeConnect, health } from "./figma-cli.js";
+import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 // Subcommands that mutate the design; gated behind confirm when
@@ -38,13 +39,30 @@ const TOOLS = [
   {
     name: "figma_connect",
     description:
-      "Connect to Figma in Safe Mode (never Yolo). Returns plugin import instructions.",
+      "Connect to Figma in Safe Mode (never Yolo). Generates the plugin access key if needed and returns it with plugin import instructions.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "figma_status",
-    description: "Show whether the Figma plugin is connected.",
+    description:
+      "Show whether the Figma plugin is connected and authenticated, plus access-key state.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "figma_pairing",
+    description:
+      "Show the Figma plugin access key (paste it into the FigCli plugin). Pass rotate:true to generate a fresh key (requires reconnect).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rotate: {
+          type: "boolean",
+          description:
+            "Generate a NEW key, invalidating the old one. Run figma_connect afterwards to restart the daemon.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "figma_run",
@@ -136,13 +154,56 @@ async function handleTool(name, rawArgs) {
 
   switch (name) {
     case "figma_connect": {
+      // Ensure an access key exists BEFORE starting the daemon — the daemon
+      // reads the key file at startup and rejects the plugin without it.
+      const { key, created } = ensureKey();
       const res = await ensureSafeConnect();
-      return resultFromCli(res);
+      const keyBlock =
+        "\n────────────────────────────────────────\n" +
+        `  Plugin access key${created ? " (newly generated)" : ""}:\n\n` +
+        `    ${key}\n\n` +
+        "  Paste this into the FigCli plugin's access-key field in Figma\n" +
+        "  the first time you launch it. It is stored in the plugin and\n" +
+        "  reused across sessions.\n" +
+        "────────────────────────────────────────\n";
+      return textResult((res.stdout || res.stderr || "") + keyBlock);
     }
 
     case "figma_status": {
       const h = await health();
-      return textResult(h.message);
+      const key = readKey();
+      const raw = h.raw || {};
+      const lines = [
+        h.message,
+        `access key: ${key ? "configured" : "NOT set — run figma_connect"}`,
+      ];
+      if (h.raw) {
+        lines.push(
+          `plugin authenticated: ${raw.pluginAuthenticated === true ? "yes" : "no"}`,
+        );
+        if (raw.keyConfigured === false) {
+          lines.push("daemon has NO key loaded — reconnect after figma_connect");
+        }
+      }
+      return textResult(lines.join("\n"));
+    }
+
+    case "figma_pairing": {
+      if (input.rotate === true) {
+        const key = rotateKey();
+        return textResult(
+          `New plugin access key generated:\n\n    ${key}\n\n` +
+            `Stored at: ${keyPath()}\n\n` +
+            "The old key is now invalid. Run figma_connect to restart the daemon\n" +
+            "with the new key, then paste it into the FigCli plugin.",
+        );
+      }
+      const { key, created } = ensureKey();
+      return textResult(
+        `Plugin access key${created ? " (newly generated)" : ""}:\n\n    ${key}\n\n` +
+          `Stored at: ${keyPath()}\n\n` +
+          "Paste it into the FigCli plugin's access-key field in Figma.",
+      );
     }
 
     case "figma_run": {
@@ -195,7 +256,7 @@ async function handleTool(name, rawArgs) {
 
 async function main() {
   const server = new Server(
-    { name: "figma-safe-mcp", version: "0.1.0" },
+    { name: "figma-safe-mcp", version: "0.2.0" },
     { capabilities: { tools: {} } },
   );
 

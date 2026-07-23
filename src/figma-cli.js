@@ -15,14 +15,20 @@ import {
   AUDIT_LOG_PATH,
   EXEC_TIMEOUT_MS,
   CONNECT_TIMEOUT_MS,
-  FIGMA_CLI_CWD,
+  ENGINE_CWD,
   DAEMON_HOST,
   DAEMON_PORT,
   DAEMON_TOKEN_FILE,
+  PLUGIN_KEY_FILE,
   buildArgv,
 } from "./config.js";
 
 const execFileAsync = promisify(execFile);
+
+// Environment for engine child processes. Threading PLUGIN_KEY_FILE through here
+// is what lets the daemon (spawned detached by the engine) read the same access
+// key the MCP layer generated, so the plugin handshake can be authenticated.
+const engineEnv = { ...process.env, PLUGIN_KEY_FILE };
 
 // Allowlisted first-token subcommands. `connect` is deliberately excluded.
 // Verified against figma-cli's top-level commands (`var`/`col` are real aliases
@@ -112,7 +118,8 @@ export async function runCli(args) {
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
       timeout: EXEC_TIMEOUT_MS,
-      cwd: FIGMA_CLI_CWD,
+      cwd: ENGINE_CWD,
+      env: engineEnv,
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
@@ -149,7 +156,8 @@ export async function ensureSafeConnect() {
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
       timeout: CONNECT_TIMEOUT_MS,
-      cwd: FIGMA_CLI_CWD,
+      cwd: ENGINE_CWD,
+      env: engineEnv,
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
