@@ -11,12 +11,21 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
-      "ws://127.0.0.1:3456",
-      "ws://127.0.0.1:3457",
-      "ws://127.0.0.1:3458",
-      "ws://127.0.0.1:3459",
-      "ws://127.0.0.1:3460"
+      "ws://localhost",
+      "ws://localhost:3456",
+      "ws://localhost:3457",
+      "ws://localhost:3458",
+      "ws://localhost:3459",
+      "ws://localhost:3460"
     ],
-    "reasoning": "Nur lokaler CLI-Daemon; keine externe Exfiltration moeglich."
+    "devAllowedDomains": [
+      "ws://localhost",
+      "ws://localhost:3456",
+      "ws://localhost:3457",
+      "ws://localhost:3458",
+      "ws://localhost:3459",
+      "ws://localhost:3460"
+    ],
+    "reasoning": "Local CLI daemon only (loopback WebSocket); no external exfiltration possible."
   }
 }
