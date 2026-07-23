@@ -104,6 +104,15 @@ figma.ui.onmessage = async (msg) => {
     figma.notify('FigCli disconnected', { timeout: 2000 });
   }
 
+  // Fired once per outage, after the UI has scanned all ports for a few
+  // seconds without finding the daemon.
+  if (msg.type === 'daemon-unreachable') {
+    figma.notify('FigCli: daemon not reachable — run figma_connect to restart it', {
+      error: true,
+      timeout: 5000,
+    });
+  }
+
   if (msg.type === 'auth-error') {
     figma.notify('FigCli: access key rejected — re-enter it', { error: true });
   }

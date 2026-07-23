@@ -55,7 +55,7 @@
   </div>
 
   <button id="changeKeyBtn" class="linkish" style="display:none">Change access key</button>
-  <div class="hint">Keep this window open while working.</div>
+  <div id="hint" class="hint">Keep this window open while working.</div>
 
   <script>
     const PORTS = [3456, 3457, 3458, 3459, 3460];
@@ -72,6 +72,15 @@
     const keyInput = document.getElementById('keyInput');
     const saveBtn = document.getElementById('saveBtn');
     const changeKeyBtn = document.getElementById('changeKeyBtn');
+    const hintEl = document.getElementById('hint');
+
+    // Daemon-unreachable detection: endless "Scanning…" tells the user
+    // nothing. After a few failed scan rounds we name the problem, say what
+    // to do, and keep retrying quietly at a slower pace.
+    const DEFAULT_HINT = 'Keep this window open while working.';
+    const UNREACHABLE_AFTER_SCANS = 4;   // ≈7 s of failed scanning
+    let failedScans = 0;
+    let unreachableNotified = false;
 
     function setStatus(text, state) {
       statusEl.textContent = text;
@@ -117,7 +126,9 @@
       if (!KEY) { showKeyPanel(true); setStatus('Access key required', 'error'); return; }
       if (ws && ws.readyState === WebSocket.OPEN) return;
 
-      setStatus('Scanning…', 'connecting');
+      // Once we've declared the daemon unreachable, keep that message on
+      // screen instead of flickering back to "Scanning…" on every retry.
+      if (failedScans < UNREACHABLE_AFTER_SCANS) setStatus('Scanning…', 'connecting');
       let opened = false;
       const attempts = [];
 
@@ -132,6 +143,9 @@
             opened = true;
             ws = socket;
             authed = false;
+            failedScans = 0;
+            unreachableNotified = false;
+            hintEl.textContent = DEFAULT_HINT;
 
             attempts.forEach(s => {
               if (s !== socket) { s.onclose = null; s.onerror = null; try { s.close(); } catch (e) {} }
@@ -156,7 +170,18 @@
         if (!opened) {
           attempts.forEach(s => { s.onclose = null; try { s.close(); } catch (e) {} });
           clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(connectParallel, 300);
+          failedScans++;
+          if (failedScans >= UNREACHABLE_AFTER_SCANS) {
+            setStatus('Daemon not reachable', 'error');
+            hintEl.textContent = 'Start it from Claude with figma_connect (or: figma-cli connect). Reconnects automatically.';
+            if (!unreachableNotified) {
+              unreachableNotified = true;
+              parent.postMessage({ pluginMessage: { type: 'daemon-unreachable' } }, '*');
+            }
+            reconnectTimer = setTimeout(connectParallel, 2000);
+          } else {
+            reconnectTimer = setTimeout(connectParallel, 300);
+          }
         }
       }, 1500);
     }
