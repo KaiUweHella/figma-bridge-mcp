@@ -48,6 +48,63 @@ if (children.length === 0) {
   });
 
 canvas
+  .command('pages')
+  .description('List all pages in the file (current page marked)')
+  .option('--json', 'Output as JSON')
+  .action(async (options) => {
+    await checkConnection();
+    const code = `(async () => {
+      // Page names/ids are available without loading page contents.
+      return figma.root.children.map(p => ({
+        id: p.id,
+        name: p.name,
+        current: p.id === figma.currentPage.id,
+      }));
+    })()`;
+    try {
+      const pages = await daemonExec('eval', { code });
+      if (options.json) {
+        console.log(JSON.stringify(pages, null, 2));
+        return;
+      }
+      pages.forEach(p => {
+        const marker = p.current ? chalk.green('→ ') : '  ';
+        console.log(`${marker}${p.name} ${chalk.gray('(' + p.id + ')')}`);
+      });
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+canvas
+  .command('page <nameOrId>')
+  .description('Switch the current page (by exact id, exact name, or unique substring)')
+  .action(async (nameOrId) => {
+    await checkConnection();
+    const code = `(async () => {
+      const q = ${JSON.stringify(nameOrId)};
+      const pages = figma.root.children;
+      let target = pages.find(p => p.id === q) || pages.find(p => p.name === q);
+      if (!target) {
+        const matches = pages.filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
+        if (matches.length === 1) target = matches[0];
+        else if (matches.length > 1) {
+          throw new Error('Ambiguous page name "' + q + '": ' + matches.map(p => p.name).join(', '));
+        }
+      }
+      if (!target) throw new Error('Page not found: ' + q);
+      await figma.setCurrentPageAsync(target);
+      return { id: target.id, name: target.name };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓') + ` Switched to page: ${r.name} ${chalk.gray('(' + r.id + ')')}`);
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+canvas
   .command('next')
   .description('Get next free position on canvas (no overlap)')
   .option('-g, --gap <n>', 'Gap from existing elements', '100')
@@ -1153,6 +1210,38 @@ program
           layoutSizingHorizontal: n.layoutSizingHorizontal ?? null,
           layoutSizingVertical: n.layoutSizingVertical ?? null,
         };
+      }
+      // Component context — the main reason to inspect an INSTANCE is to find
+      // out WHAT it instantiates and which variant/property values it carries.
+      if (n.type === 'INSTANCE') {
+        const main = await n.getMainComponentAsync();
+        if (main) {
+          out.mainComponent = {
+            id: main.id,
+            name: main.name,
+            key: main.key || null,
+            remote: !!main.remote,
+            set: main.parent && main.parent.type === 'COMPONENT_SET'
+              ? { id: main.parent.id, name: main.parent.name }
+              : null,
+          };
+        }
+        try { out.componentProperties = n.componentProperties || null; } catch (e) {}
+        try { out.variantProperties = n.variantProperties || null; } catch (e) {}
+      }
+      if (n.type === 'COMPONENT') {
+        out.set = n.parent && n.parent.type === 'COMPONENT_SET'
+          ? { id: n.parent.id, name: n.parent.name }
+          : null;
+        try { out.variantProperties = n.variantProperties || null; } catch (e) {}
+        // Throws on variant children (definitions live on the set) — the set
+        // info above tells the caller where to look instead.
+        try { out.componentPropertyDefinitions = n.componentPropertyDefinitions; } catch (e) {}
+      }
+      if (n.type === 'COMPONENT_SET') {
+        try { out.variantGroupProperties = n.variantGroupProperties; } catch (e) {}
+        try { out.componentPropertyDefinitions = n.componentPropertyDefinitions; } catch (e) {}
+        out.variants = n.children.map(c => ({ id: c.id, name: c.name }));
       }
       // Raw geometry alongside, useful for debugging the spec output
       if ('x' in n) {

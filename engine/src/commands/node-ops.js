@@ -29,16 +29,28 @@ node
         if (!root) return 'Node not found';
 
         const lines = [];
+        let truncated = 0;
         function printNode(node, indent = 0, depth = 0) {
           if (depth > maxDepth) return;
           const prefix = '  '.repeat(indent);
           const size = node.width && node.height ? \` (\${Math.round(node.width)}x\${Math.round(node.height)})\` : '';
           lines.push(prefix + node.type + ': ' + node.name + size);
-          if ('children' in node && depth < maxDepth) {
-            node.children.forEach(c => printNode(c, indent + 1, depth + 1));
+          if ('children' in node && node.children.length > 0) {
+            if (depth < maxDepth) {
+              node.children.forEach(c => printNode(c, indent + 1, depth + 1));
+            } else {
+              // Children exist below the depth cut — say so instead of
+              // silently rendering a leaf (a truncated tree that LOOKS
+              // complete sends readers down wrong paths).
+              lines.push(prefix + '  … +' + node.children.length + ' child(ren) below depth ' + maxDepth);
+              truncated += node.children.length;
+            }
           }
         }
         printNode(root);
+        if (truncated > 0) {
+          lines.push('(' + truncated + ' node(s) hidden by depth limit — re-run with -d <n>)');
+        }
         return lines.join('\\n');
       })()`;
 

@@ -61,6 +61,11 @@ export const ALLOWED_COMMANDS = new Set([
   "import",
 ]);
 
+// Discoverability: top-level help is read-only (commander prints the command
+// list and exits) and safe to expose. Without this, an agent has no way to
+// find out which commands exist short of guessing against the allowlist.
+export const HELP_TOKENS = new Set(["--help", "-h", "help"]);
+
 // Guard against absurdly large arguments. render passes JSX inline, so this is
 // generous but still bounded.
 const MAX_ARG_LENGTH = 200000;
@@ -108,7 +113,7 @@ export async function runCli(args) {
   validateArgs(args);
 
   const command = args[0];
-  if (!ALLOWED_COMMANDS.has(command)) {
+  if (!ALLOWED_COMMANDS.has(command) && !HELP_TOKENS.has(command)) {
     throw new Error(`Command not allowed: ${command}`);
   }
 

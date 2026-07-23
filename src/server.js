@@ -245,8 +245,21 @@ async function handleTool(name, rawArgs) {
       // `api list` subcommand; bare `api` lists what is available (and prints a
       // one-time `api setup` hint if the docs are not downloaded yet).
       const args = input.name ? ["api", input.name] : ["api"];
-      const res = await runCli(args);
-      return resultFromCli(res);
+      try {
+        const res = await runCli(args);
+        return resultFromCli(res);
+      } catch (err) {
+        const msg = `${err.stderr || ""}${err.stdout || ""}${err.message || ""}`;
+        if (msg.includes("docs not installed")) {
+          // The engine's hint says `figma-cli api setup`, which an MCP agent
+          // cannot type. Translate it into the tool call that actually works.
+          return errorResult(
+            "The offline API docs are not installed yet (one-time download, ~5 MB).\n" +
+              'Run: figma_run with args ["api", "setup"] — then retry figma_reference.',
+          );
+        }
+        throw err;
+      }
     }
 
     default:

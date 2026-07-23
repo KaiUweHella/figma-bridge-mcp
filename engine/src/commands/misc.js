@@ -395,6 +395,130 @@ const componentCmd = program
   .command('component')
   .description('Manage component properties and variants');
 
+componentCmd
+  .command('list')
+  .description('List component sets (with variant axes) and standalone components')
+  .option('--all-pages', 'Search every page, not just the current one (slower on big files)')
+  .option('--json', 'Output as JSON')
+  .action(async (options) => {
+    await checkConnection();
+    const code = `(async () => {
+      ${options.allPages ? 'await figma.loadAllPagesAsync();' : ''}
+      const pages = ${options.allPages ? 'figma.root.children' : '[figma.currentPage]'};
+      const sets = [];
+      const singles = [];
+      function walk(node, pageName) {
+        if (node.type === 'COMPONENT_SET') {
+          let axes = null;
+          try { axes = node.variantGroupProperties; } catch (e) {}
+          sets.push({
+            id: node.id, name: node.name, page: pageName,
+            variantAxes: axes,
+            variants: node.children.map(c => ({ id: c.id, name: c.name })),
+          });
+          return; // variants are already reported; don't double-count as singles
+        }
+        if (node.type === 'COMPONENT') {
+          singles.push({ id: node.id, name: node.name, page: pageName });
+        }
+        if ('children' in node) node.children.forEach(c => walk(c, pageName));
+      }
+      for (const page of pages) page.children.forEach(c => walk(c, page.name));
+      return { componentSets: sets, standaloneComponents: singles };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      if (options.json) {
+        console.log(JSON.stringify(r, null, 2));
+        return;
+      }
+      if (r.componentSets.length === 0 && r.standaloneComponents.length === 0) {
+        console.log(chalk.yellow(options.allPages
+          ? 'No components in this file.'
+          : 'No components on the current page. Try --all-pages.'));
+        return;
+      }
+      if (r.componentSets.length > 0) {
+        console.log(chalk.cyan('\nComponent sets:'));
+        r.componentSets.forEach(s => {
+          console.log(`  ${chalk.white(s.name)} ${chalk.gray('(' + s.id + (options.allPages ? ', page: ' + s.page : '') + ')')}`);
+          if (s.variantAxes) {
+            Object.entries(s.variantAxes).forEach(([axis, def]) => {
+              console.log(chalk.gray(`    ${axis}: ${def.values.join(' | ')}`));
+            });
+          }
+          console.log(chalk.gray(`    ${s.variants.length} variant(s)`));
+        });
+      }
+      if (r.standaloneComponents.length > 0) {
+        console.log(chalk.cyan('\nStandalone components:'));
+        r.standaloneComponents.forEach(c => {
+          console.log(`  ${chalk.white(c.name)} ${chalk.gray('(' + c.id + (options.allPages ? ', page: ' + c.page : '') + ')')}`);
+        });
+      }
+      console.log();
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+componentCmd
+  .command('main <instanceId>')
+  .description('Resolve an instance to its main component (and variant set, if any)')
+  .option('--json', 'Output as JSON')
+  .action(async (instanceId, options) => {
+    await checkConnection();
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(instanceId)});
+      if (!n) throw new Error('Node not found: ' + ${JSON.stringify(instanceId)});
+      if (n.type !== 'INSTANCE') throw new Error('Not an INSTANCE (got ' + n.type + '): ' + n.name);
+      const main = await n.getMainComponentAsync();
+      if (!main) throw new Error('Instance has no resolvable main component (library not loaded?)');
+      const set = main.parent && main.parent.type === 'COMPONENT_SET' ? main.parent : null;
+      const out = {
+        instance: { id: n.id, name: n.name },
+        mainComponent: { id: main.id, name: main.name, key: main.key || null, remote: !!main.remote },
+        set: null,
+        variantProperties: null,
+        componentPropertyDefinitions: null,
+      };
+      try { out.variantProperties = n.variantProperties || null; } catch (e) {}
+      if (set) {
+        out.set = { id: set.id, name: set.name, variants: set.children.map(c => ({ id: c.id, name: c.name })) };
+        try { out.componentPropertyDefinitions = set.componentPropertyDefinitions; } catch (e) {}
+      } else {
+        try { out.componentPropertyDefinitions = main.componentPropertyDefinitions; } catch (e) {}
+      }
+      return out;
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      if (options.json) {
+        console.log(JSON.stringify(r, null, 2));
+        return;
+      }
+      console.log(chalk.cyan(`\n${r.instance.name} ${chalk.gray('(' + r.instance.id + ')')}`));
+      console.log(`  main: ${chalk.white(r.mainComponent.name)} ${chalk.gray('(' + r.mainComponent.id + (r.mainComponent.remote ? ', remote library' : '') + ')')}`);
+      if (r.set) {
+        console.log(`  set:  ${chalk.white(r.set.name)} ${chalk.gray('(' + r.set.id + ', ' + r.set.variants.length + ' variants)')}`);
+      }
+      if (r.variantProperties && Object.keys(r.variantProperties).length > 0) {
+        console.log('  variant values:');
+        Object.entries(r.variantProperties).forEach(([k, v]) => console.log(chalk.gray(`    ${k} = ${v}`)));
+      }
+      if (r.componentPropertyDefinitions && Object.keys(r.componentPropertyDefinitions).length > 0) {
+        console.log('  property definitions:');
+        Object.entries(r.componentPropertyDefinitions).forEach(([k, def]) => {
+          const opts = def.variantOptions ? ` [${def.variantOptions.join(' | ')}]` : '';
+          console.log(chalk.gray(`    ${k}: ${def.type}${opts} (default: ${JSON.stringify(def.defaultValue)})`));
+        });
+      }
+      console.log();
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
 const propCmd = componentCmd
   .command('prop')
   .description('Manage component properties (BOOLEAN, TEXT, INSTANCE_SWAP, VARIANT)');
