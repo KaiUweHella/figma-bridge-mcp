@@ -24,12 +24,12 @@ test('connect is NOT in the command allowlist (Yolo unreachable via figma_run)',
   await assert.rejects(() => runCli(['connect', '--safe']), /Command not allowed: connect/);
 });
 
-test('help tokens pass the allowlist gate (discoverability), connect stays blocked via help args', async () => {
+test('help flags pass the allowlist gate (discoverability), connect stays blocked', async () => {
   const { HELP_TOKENS, runCli } = await import('../src/figma-cli.js');
-  // --help / -h / help are read-only listings; runCli must not reject them at
-  // the allowlist gate. We run the real engine: commander prints usage and
-  // exits 0 for --help.
-  assert.deepEqual([...HELP_TOKENS].sort(), ['--help', '-h', 'help']);
+  // --help / -h are read-only listings; runCli must not reject them at the
+  // allowlist gate. Only flag forms are allowed — the engine has no `help`
+  // command, so a bare "help" token would hit its unknown-command exit path.
+  assert.deepEqual([...HELP_TOKENS].sort(), ['--help', '-h']);
   const res = await runCli(['--help']);
   assert.match(res.stdout, /Usage:/);
   // The listing may MENTION connect, but executing it stays blocked.

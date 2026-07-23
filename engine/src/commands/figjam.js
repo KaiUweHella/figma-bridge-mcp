@@ -17,14 +17,13 @@ program
   .command('export-jsx [nodeId]')
   .description('Export node as JSX/React code')
   .option('-o, --output <file>', 'Output file (otherwise stdout)')
-  .option('--pretty', 'Format output')
   .action(async (nodeId, options) => {
     await checkConnection();
 
     // Plugin bridge is the only execution path in the Safe-Mode build.
     {
       const code = `(async () => {
-        const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
         const nodes = targetId
           ? [await figma.getNodeByIdAsync(targetId)]
           : figma.currentPage.selection;

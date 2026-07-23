@@ -24,7 +24,7 @@ node
       const maxDepth = parseInt(options.depth) || 3;
       const code = `(async () => {
         const maxDepth = ${maxDepth};
-        const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
         const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
         if (!root) return 'Node not found';
 
@@ -72,7 +72,7 @@ node
     // Plugin bridge is the only execution path in the Safe-Mode build.
     {
       const code = `(async () => {
-        const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
         const nodes = targetId
           ? [await figma.getNodeByIdAsync(targetId)]
           : figma.currentPage.selection;

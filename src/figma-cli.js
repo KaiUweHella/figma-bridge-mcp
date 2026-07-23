@@ -61,10 +61,12 @@ export const ALLOWED_COMMANDS = new Set([
   "import",
 ]);
 
-// Discoverability: top-level help is read-only (commander prints the command
-// list and exits) and safe to expose. Without this, an agent has no way to
-// find out which commands exist short of guessing against the allowlist.
-export const HELP_TOKENS = new Set(["--help", "-h", "help"]);
+// Discoverability: the top-level help flag is read-only (commander prints the
+// command list and exits) and safe to expose. Without this, an agent has no way
+// to find out which commands exist short of guessing against the allowlist.
+// Only the flag forms are included: the vendored engine has no `help` command,
+// so a bare "help" token would reach the engine's unknown-command path (exit 1).
+export const HELP_TOKENS = new Set(["--help", "-h"]);
 
 // Guard against absurdly large arguments. render passes JSX inline, so this is
 // generous but still bounded.

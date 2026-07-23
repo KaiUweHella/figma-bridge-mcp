@@ -9,6 +9,7 @@ import { listBlocks, getBlock } from '../blocks/index.js';
 import {
   program,
   checkConnection,
+  componentContextExpr,
   daemonExec,
   getDaemonToken,
   handleEvalError
@@ -468,28 +469,15 @@ componentCmd
   .option('--json', 'Output as JSON')
   .action(async (instanceId, options) => {
     await checkConnection();
+    // Resolution shared with `inspect` via componentContextExpr — one source
+    // of truth for instance → main component / variant set / property facts.
     const code = `(async () => {
       const n = await figma.getNodeByIdAsync(${JSON.stringify(instanceId)});
       if (!n) throw new Error('Node not found: ' + ${JSON.stringify(instanceId)});
       if (n.type !== 'INSTANCE') throw new Error('Not an INSTANCE (got ' + n.type + '): ' + n.name);
-      const main = await n.getMainComponentAsync();
-      if (!main) throw new Error('Instance has no resolvable main component (library not loaded?)');
-      const set = main.parent && main.parent.type === 'COMPONENT_SET' ? main.parent : null;
-      const out = {
-        instance: { id: n.id, name: n.name },
-        mainComponent: { id: main.id, name: main.name, key: main.key || null, remote: !!main.remote },
-        set: null,
-        variantProperties: null,
-        componentPropertyDefinitions: null,
-      };
-      try { out.variantProperties = n.variantProperties || null; } catch (e) {}
-      if (set) {
-        out.set = { id: set.id, name: set.name, variants: set.children.map(c => ({ id: c.id, name: c.name })) };
-        try { out.componentPropertyDefinitions = set.componentPropertyDefinitions; } catch (e) {}
-      } else {
-        try { out.componentPropertyDefinitions = main.componentPropertyDefinitions; } catch (e) {}
-      }
-      return out;
+      const ctx = ${componentContextExpr('n')};
+      if (!ctx.mainComponent) throw new Error('Instance has no resolvable main component (library not loaded?)');
+      return { instance: { id: n.id, name: n.name }, ...ctx };
     })()`;
     try {
       const r = await daemonExec('eval', { code });
@@ -749,6 +737,16 @@ annotateCmd
 const apiCmd = program
   .command('api [name]')
   .description('Look up Figma Plugin API interface or type (offline). Run `api setup` first.')
+  .option('--full', 'Full markdown dump (default is a compact signatures-only view)')
+  .action((name, options) => apiDocs.show(name, { full: !!options.full }));
+
+// `api show <name>` forces a reference lookup: unlike `api <name>`, a name that
+// collides with a subcommand (setup/list/index/context/age/gap/search) is taken
+// as the lookup argument, never dispatched. The MCP figma_reference tool uses
+// this so no interface name can trigger a side-effecting subcommand.
+apiCmd
+  .command('show <name>')
+  .description('Show a specific interface/type by name (never dispatches to a subcommand)')
   .option('--full', 'Full markdown dump (default is a compact signatures-only view)')
   .action((name, options) => apiDocs.show(name, { full: !!options.full }));
 

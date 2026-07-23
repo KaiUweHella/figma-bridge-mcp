@@ -241,10 +241,12 @@ async function handleTool(name, rawArgs) {
     }
 
     case "figma_reference": {
-      // `api` is figma-cli's offline Figma Plugin API reference. There is no
-      // `api list` subcommand; bare `api` lists what is available (and prints a
-      // one-time `api setup` hint if the docs are not downloaded yet).
-      const args = input.name ? ["api", input.name] : ["api"];
+      // `api` is figma-cli's offline Figma Plugin API reference.
+      // - No name: `api list` enumerates every interface/type.
+      // - With a name: `api show <name>` forces a lookup. A bare `api <name>`
+      //   would dispatch names like "setup"/"list"/"context" to those
+      //   subcommands (side effects), so route through `show`.
+      const args = input.name ? ["api", "show", input.name] : ["api", "list"];
       try {
         const res = await runCli(args);
         return resultFromCli(res);

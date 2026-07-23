@@ -298,7 +298,6 @@ function generateFigmaCode(props, x, y) {
 program
   .command('render <jsx>')
   .description('Render JSX to Figma (use --as-component to also convert result to a Figma component)')
-  .option('--parent <id>', 'Parent node ID')
   .option('-x <n>', 'X position')
   .option('-y <n>', 'Y position')
   .option('--no-smart-position', 'Disable auto-positioning')
@@ -353,11 +352,23 @@ program
         }
       };
 
-      // Calculate smart position if not specified
-      let posX = options.x;
-      let posY = options.y !== undefined ? options.y : 0;
+      // Position: -x/-y arrive as raw user strings and are later interpolated
+      // into generated plugin-eval code, so coerce to finite numbers first and
+      // reject anything else (avoids code injection / ReferenceError from
+      // `n.x = <non-numeric>`).
+      const parsePos = (v, flag) => {
+        if (v === undefined) return undefined;
+        const n = Number(v);
+        if (!Number.isFinite(n)) {
+          console.error(chalk.red('✗'), `${flag} must be a number, got "${v}"`);
+          process.exit(1);
+        }
+        return n;
+      };
+      let posX = parsePos(options.x, '-x');
+      let posY = parsePos(options.y, '-y') ?? 0;
 
-      if (!options.parent && options.x === undefined && options.smartPosition !== false) {
+      if (posX === undefined && options.smartPosition !== false) {
         posX = getNextFreeX();
       }
 

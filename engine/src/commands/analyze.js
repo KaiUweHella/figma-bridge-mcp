@@ -13,7 +13,6 @@ import {
 program
   .command('lint')
   .description('Lint design for issues')
-  .option('--fix', 'Auto-fix issues where possible')
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     await checkConnection();

@@ -125,8 +125,15 @@ function compactMarkdown(md) {
   let i = 0;
   let inMember = false;   // between a ### heading and the next ###/##
   let proseTaken = false; // one description line per member
+  let inFence = false;    // inside a ``` code block
   for (; i < lines.length; i++) {
     const line = lines[i];
+    // Drop fenced code blocks whole. The compact view keeps only signatures +
+    // one prose line, so a lone ``` opener (with its body/closer skipped as
+    // non-prose) would leave unbalanced fences that make renderers treat the
+    // rest of the document as one code block.
+    if (line.startsWith('```')) { inFence = !inFence; continue; }
+    if (inFence) continue;
     if (line.startsWith('# ')) { out.push(stripLinks(line)); continue; }
     if (line.startsWith('## ')) {
       inMember = false;

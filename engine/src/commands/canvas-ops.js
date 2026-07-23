@@ -5,6 +5,7 @@ import {
   program,
   buildNodeSelector,
   checkConnection,
+  componentContextExpr,
   daemonExec,
   figmaUse,
   handleEvalError,
@@ -1211,38 +1212,11 @@ program
           layoutSizingVertical: n.layoutSizingVertical ?? null,
         };
       }
-      // Component context — the main reason to inspect an INSTANCE is to find
-      // out WHAT it instantiates and which variant/property values it carries.
-      if (n.type === 'INSTANCE') {
-        const main = await n.getMainComponentAsync();
-        if (main) {
-          out.mainComponent = {
-            id: main.id,
-            name: main.name,
-            key: main.key || null,
-            remote: !!main.remote,
-            set: main.parent && main.parent.type === 'COMPONENT_SET'
-              ? { id: main.parent.id, name: main.parent.name }
-              : null,
-          };
-        }
-        try { out.componentProperties = n.componentProperties || null; } catch (e) {}
-        try { out.variantProperties = n.variantProperties || null; } catch (e) {}
-      }
-      if (n.type === 'COMPONENT') {
-        out.set = n.parent && n.parent.type === 'COMPONENT_SET'
-          ? { id: n.parent.id, name: n.parent.name }
-          : null;
-        try { out.variantProperties = n.variantProperties || null; } catch (e) {}
-        // Throws on variant children (definitions live on the set) — the set
-        // info above tells the caller where to look instead.
-        try { out.componentPropertyDefinitions = n.componentPropertyDefinitions; } catch (e) {}
-      }
-      if (n.type === 'COMPONENT_SET') {
-        try { out.variantGroupProperties = n.variantGroupProperties; } catch (e) {}
-        try { out.componentPropertyDefinitions = n.componentPropertyDefinitions; } catch (e) {}
-        out.variants = n.children.map(c => ({ id: c.id, name: c.name }));
-      }
+      // Component context: what this INSTANCE instantiates and which
+      // variant/property values it carries. Shared with the component main
+      // command via componentContextExpr (one resolution).
+      const __ctx = ${componentContextExpr('n')};
+      if (__ctx && __ctx.role) out.component = __ctx;
       // Raw geometry alongside, useful for debugging the spec output
       if ('x' in n) {
         out.raw = { x: n.x, y: n.y, constraints: n.constraints };

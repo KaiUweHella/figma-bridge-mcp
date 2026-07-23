@@ -186,6 +186,53 @@ function buildNodeSelector(options, { filterExpr = '' } = {}) {
   return `const nodes = figma.currentPage.selection;`;
 }
 
+// Shared eval-snippet fragment: resolve a node's component context — instance →
+// main component, parent variant set, and the variant/property facts — into ONE
+// canonical object. Used by `inspect`, `component main`, and any command that
+// reports component structure so the resolution (and its dynamic-page quirks,
+// e.g. componentPropertyDefinitions throwing on variant children) lives in one
+// place. `nodeVar` names an in-scope node variable in the generated async code;
+// the returned expression evaluates to the context object (or null for a
+// non-component node). Must be used inside an async function (uses await).
+//
+// Shape: { role, mainComponent:{id,name,key,remote}|null,
+//          set:{id,name,variants:[{id,name}]}|null, variantProperties,
+//          componentProperties, componentPropertyDefinitions,
+//          variantGroupProperties }
+function componentContextExpr(nodeVar) {
+  return `await (async (__n) => {
+    if (!__n) return null;
+    const t = __n.type;
+    const ctx = { role: null, mainComponent: null, set: null,
+      variantProperties: null, componentProperties: null,
+      componentPropertyDefinitions: null, variantGroupProperties: null };
+    if (t !== 'INSTANCE' && t !== 'COMPONENT' && t !== 'COMPONENT_SET') return ctx;
+    ctx.role = t;
+    let main = null, setNode = null;
+    if (t === 'INSTANCE') {
+      main = await __n.getMainComponentAsync();
+      if (main) ctx.mainComponent = { id: main.id, name: main.name, key: main.key || null, remote: !!main.remote };
+      try { ctx.componentProperties = __n.componentProperties || null; } catch (e) {}
+      try { ctx.variantProperties = __n.variantProperties || null; } catch (e) {}
+    } else if (t === 'COMPONENT') {
+      main = __n;
+      try { ctx.variantProperties = __n.variantProperties || null; } catch (e) {}
+    } else {
+      setNode = __n;
+      try { ctx.variantGroupProperties = __n.variantGroupProperties; } catch (e) {}
+    }
+    if (!setNode && main && main.parent && main.parent.type === 'COMPONENT_SET') setNode = main.parent;
+    if (setNode) {
+      ctx.set = { id: setNode.id, name: setNode.name, variants: setNode.children.map(c => ({ id: c.id, name: c.name })) };
+    }
+    // Property definitions live on the set (variant children throw when asked);
+    // for a standalone component/instance they live on the main component.
+    const defSource = setNode || main;
+    if (defSource) { try { ctx.componentPropertyDefinitions = defSource.componentPropertyDefinitions; } catch (e) {} }
+    return ctx;
+  })(${nodeVar})`;
+}
+
 // Daemon configuration
 const DAEMON_PORT = 3456;
 const DAEMON_PID_FILE = join(homedir(), '.figma-safe-mcp', 'daemon.pid');
@@ -611,18 +658,12 @@ function figmaUse(args, options = {}) {
   if (args === 'status' || args.startsWith('status')) {
     // Safe-Mode build: connection status = daemon health + plugin bridge,
     // not a CDP page probe.
-    try {
-      const result = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
-      const health = JSON.parse(result);
-      if (health.status === 'ok' && health.plugin) {
-        const status = 'Connected to Figma (plugin bridge)';
-        if (!options.silent) console.log(status);
-        return status;
-      }
-      return 'Not connected';
-    } catch {
-      return 'Not connected';
+    if (daemonHealthy()) {
+      const status = 'Connected to Figma (plugin bridge)';
+      if (!options.silent) console.log(status);
+      return status;
     }
+    return 'Not connected';
   }
 
   if (args === 'variable list') {
@@ -681,6 +722,19 @@ function figmaUse(args, options = {}) {
   return null;
 }
 
+// Single source of truth for "daemon up AND plugin bridge connected". All
+// connection checks (checkConnection, figmaUse('status')) go through this so
+// the health contract lives in one place.
+function daemonHealthy() {
+  try {
+    const health = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
+    const data = JSON.parse(health);
+    return data.status === 'ok' && !!data.plugin;
+  } catch {
+    return false;
+  }
+}
+
 // Helper: Check connection
 async function checkConnection() {
   // Self-heal: if the daemon idle-shut-down, bring it back BEFORE any command
@@ -689,32 +743,7 @@ async function checkConnection() {
   // rather than just run slow. Resurrecting it here keeps the fast path alive.
   await ensureDaemonRunning();
 
-  // First check daemon (works for both CDP and Plugin modes)
-  try {
-    const health = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
-    const data = JSON.parse(health);
-    if (data.status === 'ok' && data.plugin) {
-      return true;
-    }
-  } catch {}
-
-  // No direct CDP fallback in Safe Mode — the plugin bridge must be connected.
-  console.log(chalk.red('\n✗ Not connected to Figma\n'));
-  console.log(chalk.white('  Run figma_connect, then launch the FigCli plugin'));
-  console.log(chalk.white('  in Figma Desktop and paste your access key.\n'));
-  process.exit(1);
-}
-
-// Helper: Check connection (sync version for backwards compat)
-function checkConnectionSync() {
-  // First check daemon (works for both CDP and Plugin modes)
-  try {
-    const health = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
-    const data = JSON.parse(health);
-    if (data.status === 'ok' && data.plugin) {
-      return true;
-    }
-  } catch {}
+  if (daemonHealthy()) return true;
 
   // No direct CDP fallback in Safe Mode — the plugin bridge must be connected.
   console.log(chalk.red('\n✗ Not connected to Figma\n'));
@@ -845,7 +874,7 @@ export {
   __filename,
   buildNodeSelector,
   checkConnection,
-  checkConnectionSync,
+  componentContextExpr,
   daemonCurl,
   daemonExec,
   detectWrapperSplit,
