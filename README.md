@@ -1,137 +1,139 @@
 # figma-safe-mcp
 
-An MCP server that wraps [`figma-cli`](https://github.com/silships/figma-cli) as its
-engine and exposes a small, token-efficient tool surface to any MCP client
-(Claude Desktop, Cursor, Claude Code).
+A **self-contained** MCP server that lets an AI assistant drive **Figma Desktop
+locally** — combining the **efficiency** of [figma-cli](https://github.com/silships/figma-cli)
+(plugin bridge, no Figma API token, terse token-efficient commands) with the
+**security** of a hardened plugin and a **locally generated access key** you paste
+into the plugin once.
 
-It runs **strictly in Safe Mode**: no binary patching, no Yolo mode, no Personal
-Access Token, no `api.figma.com`. Everything stays on `127.0.0.1`, driven through
-the Figma plugin API on your open design.
+Everything runs on `127.0.0.1`. No Figma Personal Access Token. No cloud. No
+binary patching of the Figma app.
 
-## Why
+---
 
-- **MCP ergonomics** — six clearly defined tools, natively usable in every MCP client.
-- **figma-cli power** — one generic `figma_run` tool passes CLI commands through,
-  so you get the full command surface without shipping ~113 tool schemas into
-  every session's context.
-- **Safer to use** — Safe Mode is enforced, commands are allowlisted, execution
-  never touches a shell, the plugin manifest is locked to localhost, and every
-  command is written to an audit log.
+## How it works
 
-## Prerequisites
+```
+MCP client ──stdio──▶ figma-safe-mcp (src/)
+                        │  execFile, command allowlist, audit log
+                        ▼
+                     vendored engine (engine/)  ──▶  local daemon :3456
+                        (Safe-Mode only)                │  HTTP: X-Daemon-Token
+                                                        │  WS  : access-key hello
+                                                        ▼
+                                              FigCli plugin in Figma Desktop
+                                                (evals code in the Figma sandbox)
+```
 
-1. **Node.js 18+**
-2. **figma-cli installed:**
-   ```bash
-   git clone https://github.com/silships/figma-cli && cd figma-cli && npm install
-   ```
-   Note the path to its entry point (`src/index.js`) or link it globally as
-   `figma-cli`.
-3. **Figma Desktop** open with a design file.
-4. **Hardened plugin imported:** in Figma → Plugins → Development → Import plugin
-   from manifest → choose the hardened [`plugin/manifest.json`](plugin/manifest.json)
-   from this project (not the original). The plugin's `code.js` and `ui.html` are
-   already bundled in [`plugin/`](plugin/) (byte-identical copies of figma-cli's),
-   so the folder is self-contained — nothing else to copy.
+- The **engine** is a Safe-Mode-only fork of `figma-ds-cli` v2.1.0, vendored
+  under `engine/`. The Chrome-DevTools "Yolo mode" (which patches the Figma app
+  binary) has been removed entirely — there is no code path to it.
+- The **daemon** brokers commands to the Figma plugin over a localhost
+  WebSocket. Two gates protect it:
+  - **HTTP routes** (`/health`, `/exec`) require the session token
+    (`X-Daemon-Token`), a 0600 file.
+  - **The plugin WebSocket** (`/plugin`) requires the **access key**: an
+    `Origin`/`Host` allowlist plus a first-message `hello` handshake carrying the
+    key, compared in constant time. This closes the upstream gap where *any*
+    local process could connect to the plugin socket and run code in your Figma
+    document.
 
 ## Install
 
 ```bash
+git clone <this-repo> figma-cli-mcp
+cd figma-cli-mcp
 npm install
 ```
 
+That's it — the engine and plugin ship inside this repo. There is **no external
+figma-cli to install** and **no environment variables to set**.
+
 ## Configure your MCP client
 
-**Claude Desktop / Cursor** (`claude_desktop_config.json` or `~/.cursor/mcp.json`):
+Point your MCP client at the server (adjust the path):
 
 ```json
 {
   "mcpServers": {
     "figma-safe": {
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/figma-safe-mcp/src/server.js"],
-      "env": {
-        "FIGMA_CLI_BIN": "node",
-        "FIGMA_CLI_ENTRY": "/ABSOLUTE/PATH/figma-cli/src/index.js"
-      }
+      "args": ["/absolute/path/to/figma-cli-mcp/src/server.js"]
     }
   }
 }
 ```
 
-**Claude Code (CLI):**
+## One-time pairing
 
-```bash
-claude mcp add figma-safe -s user \
-  -e FIGMA_CLI_BIN=node \
-  -e FIGMA_CLI_ENTRY=/ABSOLUTE/PATH/figma-cli/src/index.js \
-  -- node /ABSOLUTE/PATH/figma-safe-mcp/src/server.js
-```
-
-No `FIGMA_ACCESS_TOKEN` is needed — that's the difference from figma-console-mcp.
+1. Call **`figma_connect`**. It generates your access key (if needed), starts the
+   daemon, and prints the key plus plugin-import instructions.
+2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
+   and choose `plugin/manifest.json` from this repo.
+3. Launch the plugin: `Plugins → Development → FigCli`. **Paste the access key**
+   into its input and click *Save & connect*. The key is stored in the plugin
+   (`figma.clientStorage`) and reused every session.
+4. The plugin shows **“Connected (authenticated)”**. Verify with **`figma_status`**.
 
 ## Tools
 
-| Tool | Input | Action |
-|------|-------|--------|
-| `figma_connect` | – | Connect in Safe Mode; returns plugin import instructions. |
-| `figma_status` | – | Show whether the plugin is connected. |
-| `figma_run` | `{ args: string[], confirm?: boolean }` | Run any allowlisted figma-cli command. |
-| `figma_render` | `{ jsx: string, confirm?: boolean }` | Render JSX into the open design. |
-| `figma_inspect` | `{ nodeId: string }` | Inspect a node (`inspect <id> --json`). |
-| `figma_reference` | `{ name?: string }` | Look up CLI command syntax offline. |
+| Tool | Purpose |
+|------|---------|
+| `figma_connect` | Start Safe Mode, generate/show the access key, print plugin setup steps. |
+| `figma_status` | Report daemon + plugin connection, authentication, and key state. |
+| `figma_pairing` | Show the access key; `{rotate:true}` generates a fresh one. |
+| `figma_run` | Run any allowlisted engine command, e.g. `{"args":["canvas","info"]}`. |
+| `figma_render` | Render JSX into the open Figma design. |
+| `figma_inspect` | Inspect a node by id (JSON). |
+| `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
 
-Use `figma_reference` to discover command syntax instead of guessing.
+Write commands can be gated behind an explicit `confirm:true` by setting
+`FIGMA_WRITE_CONFIRM=1` in the server's environment.
 
-## Runtime flow
+## Security model
 
-1. Open Figma Desktop with a design file.
-2. Call `figma_connect` → starts the daemon in Safe Mode and prints import steps.
-3. In Figma: import & run the hardened plugin (FigCli Safe/Hardened).
-4. Call `figma_status` → should report the plugin connected.
-5. Call `figma_render` with a small JSX, e.g.
-   `<Frame name="Test" w={200} h={100} bg="#fff"/>`.
+- **No Figma API token** — Figma is driven through the local plugin, never
+  `api.figma.com`.
+- **No binary patching** — Yolo/CDP mode is stripped from the vendored engine.
+- **Command allowlist** — `figma_run` only accepts a fixed set of subcommands;
+  `connect` is *not* on it, so Safe-Mode-only connection is enforced.
+- **No shell** — the engine is spawned with `execFile` (`shell:false`).
+- **Two-layer daemon auth** — HTTP session token + plugin access key
+  (constant-time compared, `Origin`/`Host` allowlisted).
+- **Localhost-locked plugin** — `plugin/manifest.json` restricts
+  `networkAccess.allowedDomains` to `ws://127.0.0.1:3456–3460`.
+- **Isolated state** — token, pid, key, and audit log live under
+  `~/.figma-safe-mcp/`, separate from any upstream figma-cli install.
+- **Audit log** — every executed command is appended to
+  `~/.figma-safe-mcp/audit.log`.
 
-## Environment variables
+**Residual risk (documented):** a malicious local process that binds port 3456
+*before* the daemon could observe the plugin's `hello` and learn the key. The
+manifest's port lock and the daemon normally holding the port mitigate this; an
+HMAC challenge-response is a possible future hardening.
 
-| Var | Default | Purpose |
-|-----|---------|---------|
-| `FIGMA_CLI_BIN` | `figma-cli` | Command/path to the CLI. Use `node` with `FIGMA_CLI_ENTRY` if not linked globally. |
-| `FIGMA_CLI_ENTRY` | – | Absolute path to figma-cli's `src/index.js` (when `FIGMA_CLI_BIN=node`). |
-| `FIGMA_CLI_CWD` | cwd | Working directory for the CLI. |
-| `AUDIT_LOG_PATH` | `~/.figma-safe-mcp/audit.log` | Where executed commands are logged. |
-| `EXEC_TIMEOUT_MS` | `60000` | Per-command timeout. |
-| `CONNECT_TIMEOUT_MS` | `12000` | `figma_connect` wait cap (daemon is detached, so it survives). |
-| `DAEMON_PORT` | `3456` | figma-cli daemon port used by `figma_status`. |
-| `DAEMON_TOKEN_FILE` | `~/.figma-ds-cli/.daemon-token` | Token file `figma_status` reads for `/health`. |
-| `FIGMA_WRITE_CONFIRM` | off | When `1`, write commands require `confirm:true` (dry-run preview otherwise). |
+## Known limitations
 
-## Security hardening
+- **FigJam commands are unavailable.** `figjam-client.js` uses the (removed) CDP
+  transport; FigJam is not in the allowlist.
+- **`figma_reference` (`api setup`)** downloads the Figma Plugin API docs from the
+  network on first use — the only non-localhost action in the project.
+- **Node 20+ / figma-use.** The upstream `figma-use` dependency is fragile on
+  Node 20+, but all its call sites were Yolo-only and are inert in this build.
 
-1. **Safe Mode enforced.** `connect` runs only via `ensureSafeConnect()` with
-   `--safe`, and is intentionally absent from the command allowlist — so there is
-   no path through `figma_run` to patch the binary or open a CDP debug port.
-2. **No shell injection.** Execution is `execFile` with an argument array
-   (`shell:false`); the first argument is checked against an allowlist and no
-   user input is ever concatenated into a shell string.
-3. **Locked plugin manifest.** `networkAccess.allowedDomains` is restricted from
-   `["*"]` to localhost ports only, closing the plugin-UI exfiltration vector.
-4. **Audit log.** Every executed command is appended as a JSON line to
-   `~/.figma-safe-mcp/audit.log`. Optional write-confirm/dry-run adds a second gate.
+## Development
 
-### Optional daemon patch (closes the `/plugin` WS gap)
+```bash
+npm test      # 285 tests: vendored engine + daemon auth + MCP layer
+```
 
-figma-cli checks the session token on HTTP routes but not on the WebSocket
-upgrade to `/plugin`. To fully close this, add a `verifyClient` to the
-`WebSocketServer` in figma-cli's `src/daemon.js` that validates the token from
-`?token=`/`x-daemon-token` against `SESSION_TOKEN`, and make the plugin's
-`ui.html` send that token when connecting. This is an upstream change to
-figma-cli (not this wrapper) and optional — for single-user local use the
-localhost binding suffices.
+Do **not** run an upstream `figma-cli` at the same time — both would compete for
+port 3456. This build isolates its own token/pid under `~/.figma-safe-mcp/`, but
+the port is shared by design (the plugin manifest locks it).
 
-## Non-goals
+## Attribution
 
-- No REST/OAuth (no token) — extraction goes through the plugin.
-- No cloud relay / web client.
-- No 1:1 reproduction of all ~113 figma-console-mcp tools — breadth comes from
-  `figma_run` + `figma_reference`, which is what keeps this token-efficient.
+The `engine/` directory is derived from **figma-ds-cli v2.1.0**
+(© Sil Bormüller, MIT). See [`NOTICE`](NOTICE) for the exact list of vendored,
+modified, and excluded files, and [`engine/LICENSE`](engine/LICENSE) for the
+upstream license. figma-safe-mcp itself is MIT — see [`LICENSE`](LICENSE).
