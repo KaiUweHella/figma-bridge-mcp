@@ -84,7 +84,7 @@ node
             for (const [prop, binding] of Object.entries(node.boundVariables)) {
               const b = Array.isArray(binding) ? binding[0] : binding;
               if (b && b.id) {
-                const variable = figma.variables.getVariableById(b.id);
+                const variable = await figma.variables.getVariableByIdAsync(b.id);
                 bindings[prop] = variable ? variable.name : b.id;
               }
             }

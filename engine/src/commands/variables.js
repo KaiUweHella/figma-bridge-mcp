@@ -239,7 +239,7 @@ for (const col of filteredCols) {
     try {
       let value = variable.valuesByMode[modeId];
       if (value && value.type === 'VARIABLE_ALIAS') {
-        const resolved = figma.variables.getVariableById(value.id);
+        const resolved = await figma.variables.getVariableByIdAsync(value.id);
         if (resolved) value = resolved.valuesByMode[Object.keys(resolved.valuesByMode)[0]];
       }
       if (value && value.r !== undefined) {

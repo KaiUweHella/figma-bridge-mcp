@@ -1098,10 +1098,10 @@ removed
     const gap = 32;
 
     for (const comp of componentOrder) {
-      const convertSingle = `
+      const convertSingle = `(async () => {
 const f = figma.currentPage.children.find(n => n.name === ${JSON.stringify(comp.name)} && n.type === 'FRAME');
 if (f) {
-  const vars = figma.variables.getLocalVariables();
+  const vars = await figma.variables.getLocalVariablesAsync();
   const findVar = (name) => vars.find(v => v.name === name);
   ${comp.varFill ? `
   const vFill = findVar(${JSON.stringify(comp.varFill)});
@@ -1121,7 +1121,7 @@ if (f) {
   c.x = ${comp.row === 0 ? row0X : row1X};
   c.y = ${comp.row === 0 ? 0 : 80};
 }
-`;
+})()`;
       try {
         figmaUse(`eval "${convertSingle.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
         if (comp.row === 0) row0X += comp.width + gap;

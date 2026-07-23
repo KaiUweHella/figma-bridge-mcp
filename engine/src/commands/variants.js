@@ -92,6 +92,7 @@ program
 
         const baseName = sourceComponent.name.replace(/\\/(Small|Medium|Large)/gi, '').replace(/\\s*(Small|Medium|Large)\\s*/gi, '').trim() || 'Component';
         const createdComponents = [];
+        const createdNodes = [];
 
         function scaleNode(node, mult) {
           // Scale frame/rectangle dimensions
@@ -160,9 +161,10 @@ program
           x += comp.width + gap;
 
           createdComponents.push({ id: comp.id, name: comp.name, w: comp.width, h: comp.height });
+          createdNodes.push(comp);
         }
 
-        figma.currentPage.selection = createdComponents.map(c => figma.getNodeById(c.id)).filter(Boolean);
+        figma.currentPage.selection = createdNodes;
         figma.viewport.scrollAndZoomIntoView(figma.currentPage.selection);
 
         return { count: createdComponents.length, components: createdComponents };
@@ -483,6 +485,7 @@ program
         const rowProps = properties.slice(0, -1);
 
         const createdComponents = [];
+        const createdNodes = [];
         const createdLabels = [];
         const rowCombos = new Map();
         for (const combo of combinations) {
@@ -549,11 +552,12 @@ program
             component.y = startY + headerOffset + rowIndex * (instanceH + gap);
 
             createdComponents.push({ id: component.id, name: component.name });
+            createdNodes.push(component);
           }
           rowIndex++;
         }
 
-        const allNodes = [...createdComponents.map(c => figma.getNodeById(c.id)), ...createdLabels].filter(Boolean);
+        const allNodes = [...createdNodes, ...createdLabels].filter(Boolean);
         figma.currentPage.selection = allNodes;
         if (allNodes.length > 0) {
           figma.viewport.scrollAndZoomIntoView(allNodes);
