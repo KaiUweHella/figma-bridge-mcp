@@ -1,15 +1,9 @@
 // Commands: node-ops (extracted from index.js)
 import chalk from 'chalk';
-import { execSync } from 'child_process';
-import { join } from 'path';
 import {
   program,
-  DAEMON_PORT,
   checkConnection,
-  fastEval,
-  getDaemonToken,
-  isInSafeMode,
-  runFigmaUse
+  fastEval
 } from '../lib/cli-core.js';
 
 // ============ NODE OPERATIONS (figma-use) ============
@@ -25,7 +19,8 @@ node
   .action(async (nodeId, options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const maxDepth = parseInt(options.depth) || 3;
       const code = `(async () => {
         const maxDepth = ${maxDepth};
@@ -53,11 +48,6 @@ node
       } catch (e) {
         console.log(chalk.red('✗ Tree failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use node tree';
-      if (nodeId) cmd += ` "${nodeId}"`;
-      cmd += ` --depth ${options.depth}`;
-      runFigmaUse(cmd);
     }
   });
 
@@ -67,7 +57,8 @@ node
   .action(async (nodeId) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
         const nodes = targetId
@@ -113,10 +104,6 @@ node
       } catch (e) {
         console.log(chalk.red('✗ Bindings failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use node bindings';
-      if (nodeId) cmd += ` "${nodeId}"`;
-      runFigmaUse(cmd);
     }
   });
 
@@ -126,42 +113,26 @@ node
   .action(async (nodeIds) => {
     await checkConnection();
 
-    // Check if we're in Safe Mode (plugin only, no CDP)
-    let useDaemon = false;
-    try {
-      const healthToken = getDaemonToken();
-      const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-      const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-      const health = JSON.parse(healthRes);
-      useDaemon = health.plugin && !health.cdp;
-    } catch {}
-
-    if (useDaemon) {
-      // Safe Mode: use native Figma API
-      const code = `(async () => {
-        const ids = ${JSON.stringify(nodeIds)};
-        const results = [];
-        for (const id of ids) {
-          const node = await figma.getNodeByIdAsync(id);
-          if (node && (node.type === 'FRAME' || node.type === 'GROUP')) {
-            const comp = figma.createComponentFromNode(node);
-            results.push({ id: comp.id, name: comp.name });
-          }
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    const code = `(async () => {
+      const ids = ${JSON.stringify(nodeIds)};
+      const results = [];
+      for (const id of ids) {
+        const node = await figma.getNodeByIdAsync(id);
+        if (node && (node.type === 'FRAME' || node.type === 'GROUP')) {
+          const comp = figma.createComponentFromNode(node);
+          results.push({ id: comp.id, name: comp.name });
         }
-        return results;
-      })()`;
-      try {
-        const result = await fastEval(code);
-        if (result && result.length > 0) {
-          result.forEach(r => console.log(chalk.green(`✓ Converted: ${r.id} (${r.name})`)));
-        }
-      } catch (e) {
-        console.log(chalk.red('✗ Convert failed: ' + e.message));
       }
-    } else {
-      // Yolo Mode: use figma-use
-      const cmd = `npx figma-use node to-component "${nodeIds.join(' ')}"`;
-      runFigmaUse(cmd);
+      return results;
+    })()`;
+    try {
+      const result = await fastEval(code);
+      if (result && result.length > 0) {
+        result.forEach(r => console.log(chalk.green(`✓ Converted: ${r.id} (${r.name})`)));
+      }
+    } catch (e) {
+      console.log(chalk.red('✗ Convert failed: ' + e.message));
     }
   });
 
@@ -171,37 +142,21 @@ node
   .action(async (nodeIds) => {
     await checkConnection();
 
-    // Check if we're in Safe Mode
-    let useDaemon = false;
-    try {
-      const healthToken = getDaemonToken();
-      const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-      const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-      const health = JSON.parse(healthRes);
-      useDaemon = health.plugin && !health.cdp;
-    } catch {}
-
-    if (useDaemon) {
-      // Safe Mode: use native Figma API
-      const code = `(async () => {
-        const ids = ${JSON.stringify(nodeIds)};
-        let deleted = 0;
-        for (const id of ids) {
-          const node = await figma.getNodeByIdAsync(id);
-          if (node) { node.remove(); deleted++; }
-        }
-        return deleted;
-      })()`;
-      try {
-        const result = await fastEval(code);
-        console.log(chalk.green(`✓ Deleted ${result} node(s)`));
-      } catch (e) {
-        console.log(chalk.red('✗ Delete failed: ' + e.message));
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    const code = `(async () => {
+      const ids = ${JSON.stringify(nodeIds)};
+      let deleted = 0;
+      for (const id of ids) {
+        const node = await figma.getNodeByIdAsync(id);
+        if (node) { node.remove(); deleted++; }
       }
-    } else {
-      // Yolo Mode: use figma-use
-      const cmd = `npx figma-use node delete "${nodeIds.join(' ')}"`;
-      runFigmaUse(cmd);
+      return deleted;
+    })()`;
+    try {
+      const result = await fastEval(code);
+      console.log(chalk.green(`✓ Deleted ${result} node(s)`));
+    } catch (e) {
+      console.log(chalk.red('✗ Delete failed: ' + e.message));
     }
   });
 

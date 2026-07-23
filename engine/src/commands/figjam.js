@@ -8,9 +8,7 @@ import { FigmaClient } from '../figma-client.js';
 import {
   program,
   checkConnection,
-  fastEval,
-  isInSafeMode,
-  runFigmaUse
+  fastEval
 } from '../lib/cli-core.js';
 
 // ============ EXPORT ============
@@ -23,7 +21,8 @@ program
   .action(async (nodeId, options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
         const nodes = targetId
@@ -100,16 +99,6 @@ program
       } catch (e) {
         console.log(chalk.red('✗ Export failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use export jsx';
-      if (nodeId) cmd += ` "${nodeId}"`;
-      if (options.pretty) cmd += ' --pretty';
-      if (options.output) {
-        cmd += ` > "${options.output}"`;
-        runFigmaUse(cmd, { stdio: 'inherit' });
-      } else {
-        runFigmaUse(cmd);
-      }
     }
   });
 
@@ -120,7 +109,8 @@ program
   .action(async (nodeId, options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const components = [];
         function findComponents(node) {
@@ -166,15 +156,6 @@ program
         }
       } catch (e) {
         console.log(chalk.red('✗ Export failed: ' + e.message));
-      }
-    } else {
-      let cmd = 'npx figma-use export storybook';
-      if (nodeId) cmd += ` "${nodeId}"`;
-      if (options.output) {
-        cmd += ` > "${options.output}"`;
-        runFigmaUse(cmd, { stdio: 'inherit' });
-      } else {
-        runFigmaUse(cmd);
       }
     }
   });

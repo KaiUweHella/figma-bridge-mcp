@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { execSync, spawn } from 'child_process';
+import { execSync, execFileSync, spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -406,21 +406,6 @@ async function fastRender(jsx) {
   return await daemonExec('render', { jsx });
 }
 
-// Helper: run figma-use commands with Node 20+ compatibility warning
-function runFigmaUse(cmd, options = {}) {
-  try {
-    execSync(cmd, { stdio: options.stdio || 'inherit', timeout: options.timeout || 60000 });
-  } catch (error) {
-    if (error.message?.includes('enableCompileCache')) {
-      console.log(chalk.red('\n✗ figma-use is broken on Node.js ' + process.version));
-      console.log(chalk.yellow('  This is a known upstream bug (enableCompileCache not available in ESM).'));
-      console.log(chalk.gray('  Workaround: use Node.js 18.x, or wait for a figma-use update.\n'));
-    } else {
-      throw error;
-    }
-  }
-}
-
 // Start daemon in background. The Safe-Mode build only ever runs the daemon in
 // plugin mode; the `mode` argument is accepted for signature compatibility but
 // ignored.
@@ -615,13 +600,17 @@ function figmaUse(args, options = {}) {
   }
 
   if (args === 'status' || args.startsWith('status')) {
+    // Safe-Mode build: connection status = daemon health + plugin bridge,
+    // not a CDP page probe. execFileSync with an arg array — no shell string.
     try {
-      const port = getCdpPort();
-      const result = execSync(`curl -s http://localhost:${port}/json`, { encoding: 'utf8', stdio: 'pipe' });
-      const pages = JSON.parse(result);
-      const figmaPage = pages.find(p => p.url?.includes('figma.com/design') || p.url?.includes('figma.com/file'));
-      if (figmaPage) {
-        const status = `Connected to Figma\n  File: ${figmaPage.title.replace(' – Figma', '')}`;
+      const statusToken = getDaemonToken();
+      const curlArgs = ['-s'];
+      if (statusToken) curlArgs.push('-H', `X-Daemon-Token: ${statusToken}`);
+      curlArgs.push(`http://127.0.0.1:${DAEMON_PORT}/health`);
+      const result = execFileSync('curl', curlArgs, { encoding: 'utf8', stdio: 'pipe', timeout: 2000 });
+      const health = JSON.parse(result);
+      if (health.status === 'ok' && health.plugin) {
+        const status = 'Connected to Figma (plugin bridge)';
         if (!options.silent) console.log(status);
         return status;
       }
@@ -844,18 +833,6 @@ function handleEvalError(e) {
 }
 
 // Helper: Check if Safe Mode (plugin only)
-async function isInSafeMode() {
-  try {
-    const healthToken = getDaemonToken();
-    const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-    const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-    const health = JSON.parse(healthRes);
-    return health.plugin && !health.cdp;
-  } catch {
-    return false;
-  }
-}
-
 export {
   CONFIG_DIR,
   CONFIG_FILE,
@@ -888,14 +865,12 @@ export {
   hexToRgb,
   isDaemonRunning,
   isFigmaPatched,
-  isInSafeMode,
   isVarRef,
   killFigma,
   loadConfig,
   pkg,
   program,
   prompt,
-  runFigmaUse,
   saveConfig,
   smartPosCode,
   startDaemon,

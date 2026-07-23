@@ -4,9 +4,7 @@ import { join } from 'path';
 import {
   program,
   checkConnection,
-  fastEval,
-  isInSafeMode,
-  runFigmaUse
+  fastEval
 } from '../lib/cli-core.js';
 
 // ============ DESIGN ANALYSIS ============
@@ -20,7 +18,8 @@ program
   .action(async (options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       // Safe Mode: native implementation
       const code = `(async () => {
         const issues = [];
@@ -74,12 +73,6 @@ program
       } catch (e) {
         console.log(chalk.red('✗ Lint failed: ' + e.message));
       }
-    } else {
-      // Yolo Mode: use figma-use
-      let cmd = 'npx figma-use lint';
-      if (options.fix) cmd += ' --fix';
-      if (options.json) cmd += ' --json';
-      runFigmaUse(cmd);
     }
   });
 
@@ -94,7 +87,8 @@ analyze
   .action(async (options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const colors = new Map();
         function rgbToHex(r, g, b) {
@@ -131,10 +125,6 @@ analyze
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use analyze colors';
-      if (options.json) cmd += ' --json';
-      runFigmaUse(cmd);
     }
   });
 
@@ -146,7 +136,8 @@ analyze
   .action(async (options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const styles = new Map();
         function checkNode(node) {
@@ -179,10 +170,6 @@ analyze
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use analyze typography';
-      if (options.json) cmd += ' --json';
-      runFigmaUse(cmd);
     }
   });
 
@@ -193,7 +180,8 @@ analyze
   .action(async (options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const gaps = new Map();
         const paddings = new Map();
@@ -227,10 +215,6 @@ analyze
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use analyze spacing';
-      if (options.json) cmd += ' --json';
-      runFigmaUse(cmd);
     }
   });
 
@@ -241,7 +225,8 @@ analyze
   .action(async (options) => {
     await checkConnection();
 
-    if (await isInSafeMode()) {
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
       const code = `(async () => {
         const patterns = new Map();
         function getSignature(node) {
@@ -280,10 +265,6 @@ analyze
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
       }
-    } else {
-      let cmd = 'npx figma-use analyze clusters';
-      if (options.json) cmd += ' --json';
-      runFigmaUse(cmd);
     }
   });
 
