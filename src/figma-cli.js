@@ -31,8 +31,8 @@ const execFileAsync = promisify(execFile);
 const engineEnv = { ...process.env, PLUGIN_KEY_FILE };
 
 // Allowlisted first-token subcommands. `connect` is deliberately excluded.
-// Verified against figma-cli's top-level commands (`var`/`col` are real aliases
-// of `variables`/`colors`).
+// Verified against figma-cli's top-level commands (`var` aliases `variables`,
+// `col` aliases `collections` — a write surface: `col create`).
 // `blocks` and `shadcn` are gone on purpose: the engine ships no third-party
 // design-system generators, so there is nothing to allowlist.
 export const ALLOWED_COMMANDS = new Set([
@@ -243,16 +243,77 @@ export async function ensureSafeConnect() {
  */
 export function withAbsoluteOutputDir(rawArgs, baseDir = process.cwd()) {
   const args = [...rawArgs];
-  const idx = args.findIndex((a) => a === "-o" || a === "--output");
   let outDir;
+  // Separated form: -o <dir> / --output <dir>
+  const idx = args.findIndex((a) => a === "-o" || a === "--output");
+  // Combined form: --output=<dir> / -o=<dir> — commander accepts it, and the
+  // old findIndex missed it, silently redirecting assets to the default dir.
+  const eqIdx = args.findIndex((a) => /^(--output|-o)=/.test(a));
   if (idx !== -1 && typeof args[idx + 1] === "string") {
     outDir = path.isAbsolute(args[idx + 1]) ? args[idx + 1] : path.resolve(baseDir, args[idx + 1]);
     args[idx + 1] = outDir;
+  } else if (eqIdx !== -1) {
+    const [flag, ...rest] = args[eqIdx].split("=");
+    const value = rest.join("=");
+    outDir = path.isAbsolute(value) ? value : path.resolve(baseDir, value);
+    args[eqIdx] = `${flag}=${outDir}`;
   } else {
     outDir = path.resolve(baseDir, "assets");
     args.push("-o", outDir);
   }
   return { args, outDir };
+}
+
+// Engine flags (beyond -o/--output) that consume a value token — needed to
+// find positional arguments correctly.
+const VALUE_FLAGS = new Set(["--sections", "--pages", "-s", "--scale", "-f", "--format", "-d", "--depth"]);
+
+/**
+ * The engine child runs with cwd = the MCP server repo, so RELATIVE output
+ * paths land inside this repo instead of the user's project (a stray
+ * node-export.png in the repo root was the live evidence). `export assets`
+ * is covered by withAbsoluteOutputDir; this normalizes the other three
+ * file-writing commands against the server's cwd (the client workspace):
+ *   - `extract [output]`            (positional, default DESIGN.md)
+ *   - `export node|screenshot -o …` (default node-export.png / screenshot.png)
+ * All other commands pass through untouched.
+ * @param {string[]} rawArgs
+ * @param {string} [baseDir]
+ * @returns {string[]}
+ */
+export function normalizeOutputArgs(rawArgs, baseDir = process.cwd()) {
+  const args = [...rawArgs];
+  const abs = (p) => (path.isAbsolute(p) ? p : path.resolve(baseDir, p));
+
+  if (args[0] === "extract") {
+    for (let i = 1; i < args.length; i++) {
+      const a = args[i];
+      if (VALUE_FLAGS.has(a)) { i++; continue; }
+      if (a.startsWith("-")) continue;
+      args[i] = abs(a); // the [output] positional
+      return args;
+    }
+    args.push(abs("DESIGN.md"));
+    return args;
+  }
+
+  if (args[0] === "export" && (args[1] === "node" || args[1] === "screenshot")) {
+    const idx = args.findIndex((a) => a === "-o" || a === "--output");
+    if (idx !== -1 && typeof args[idx + 1] === "string") {
+      args[idx + 1] = abs(args[idx + 1]);
+      return args;
+    }
+    const eqIdx = args.findIndex((a) => /^(--output|-o)=/.test(a));
+    if (eqIdx !== -1) {
+      const [flag, ...rest] = args[eqIdx].split("=");
+      args[eqIdx] = `${flag}=${abs(rest.join("="))}`;
+      return args;
+    }
+    args.push("-o", abs(args[1] === "node" ? "node-export.png" : "screenshot.png"));
+    return args;
+  }
+
+  return args;
 }
 
 /**
@@ -265,6 +326,57 @@ function readDaemonToken() {
     return fs.readFileSync(DAEMON_TOKEN_FILE, "utf8").trim();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Read the last selection the plugin UI pushed to the daemon (button or
+ * debounced selectionchange). Null selection means nothing was pushed yet —
+ * either nothing is selected, or the plugin predates the feature.
+ * @returns {Promise<{ok: boolean, selection: object|null, pluginConnected: boolean, message: string}>}
+ */
+export async function getSelection() {
+  const token = readDaemonToken();
+  if (!token) {
+    return {
+      ok: false,
+      selection: null,
+      pluginConnected: false,
+      message: "Daemon not started (no token file). Run figma_connect first.",
+    };
+  }
+  const daemonPort = getDaemonPort();
+  const url = `http://${DAEMON_HOST}:${daemonPort}/selection`;
+  try {
+    const res = await fetch(url, {
+      headers: { "X-Daemon-Token": token, Host: `${DAEMON_HOST}:${daemonPort}` },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        selection: null,
+        pluginConnected: false,
+        message:
+          res.status === 404
+            ? "Daemon predates the selection feature — restart it via figma_connect."
+            : `Daemon answered HTTP ${res.status}.`,
+      };
+    }
+    const raw = await res.json();
+    return {
+      ok: true,
+      selection: raw.selection || null,
+      pluginConnected: raw.pluginConnected === true,
+      message: "",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      selection: null,
+      pluginConnected: false,
+      message: `Daemon not reachable at ${url}: ${err.message}. Run figma_connect first.`,
+    };
   }
 }
 
@@ -295,6 +407,19 @@ export async function health() {
       signal: controller.signal,
     });
     const raw = await res.json();
+    // 403 = a daemon answered but rejected OUR token. Without this branch the
+    // message below reads "plugin NOT connected" and sends the user to
+    // relaunch the plugin — the actual problem is a token mismatch (stale
+    // token file, or a foreign daemon on the port).
+    if (res.status === 403) {
+      return {
+        ok: false,
+        plugin: false,
+        raw,
+        message:
+          "Daemon reachable but authentication FAILED (token mismatch — stale token file or a different daemon on this port). Run figma_connect to restart the daemon with a fresh token.",
+      };
+    }
     const plugin = raw.plugin === true;
     return {
       ok: res.ok,

@@ -302,20 +302,25 @@ function daemonCurl(extraArgs, { timeout = 2000, maxBuffer = 64 * 1024 * 1024 } 
 // boolean result for a brief window collapses those to one spawn. `force` and
 // the detail form always bypass the cache (used by retry/fallback logic that
 // must see the live state after a failure).
-let _daemonHealthCache = { time: 0, value: null };
+let _daemonHealthCache = { time: 0, value: null, port: null };
 const DAEMON_HEALTH_TTL_MS = 2000;
-function invalidateDaemonHealthCache() { _daemonHealthCache = { time: 0, value: null }; }
+function invalidateDaemonHealthCache() { _daemonHealthCache = { time: 0, value: null, port: null }; }
 
 // Check if daemon is running (returns object with details, or false)
 function isDaemonRunning(returnDetails = false, force = false) {
+  // The cache is keyed by the RESOLVED port: after a fallback the daemon may
+  // publish a new port within the TTL window, and a cached "down" for the old
+  // port must not answer for the new one.
+  const port = getDaemonPort();
   if (!returnDetails && !force && _daemonHealthCache.value !== null &&
+      _daemonHealthCache.port === port &&
       Date.now() - _daemonHealthCache.time < DAEMON_HEALTH_TTL_MS) {
     return _daemonHealthCache.value;
   }
   try {
     const token = getDaemonToken();
     const response = daemonCurl(
-      ['-o', nullDevice, '-w', '%{http_code}', `http://127.0.0.1:${getDaemonPort()}/health`],
+      ['-o', nullDevice, '-w', '%{http_code}', `http://127.0.0.1:${port}/health`],
       { timeout: 1000 }
     );
     const statusCode = response.trim();
@@ -329,7 +334,7 @@ function isDaemonRunning(returnDetails = false, force = false) {
       };
     }
     const ok = statusCode === '200';
-    _daemonHealthCache = { time: Date.now(), value: ok };
+    _daemonHealthCache = { time: Date.now(), value: ok, port };
     return ok;
   } catch (e) {
     if (returnDetails) {
@@ -339,7 +344,7 @@ function isDaemonRunning(returnDetails = false, force = false) {
         hasToken: !!getDaemonToken()
       };
     }
-    _daemonHealthCache = { time: Date.now(), value: false };
+    _daemonHealthCache = { time: Date.now(), value: false, port };
     return false;
   }
 }
@@ -471,18 +476,18 @@ async function fastRender(jsx) {
 function startDaemon(forceRestart = false, mode = 'plugin') {
   // If force restart, always kill existing daemon first
   if (forceRestart) {
+    // stopDaemon() kills the daemon's own PID (guarded — never a foreign
+    // process squatting the default port) and clears the port file.
     stopDaemon();
     sleepAfterStop();
-
-    // Double-check port is free
-    try {
-      killPort(getDaemonPort());
-    } catch {}
-  } else if (isDaemonRunning()) {
+  } else if (isDaemonRunning(false, true)) {
+    // force=true: bypass the 2s health cache. A stale cached "down" here
+    // would rotate the session token underneath a LIVE daemon.
     return true; // Already running
   }
 
-  // Generate session token before spawning daemon
+  // Generate session token before spawning daemon. Safe even if a daemon
+  // wins a concurrent race: the daemon re-reads the token file per request.
   const newToken = generateDaemonToken();
 
   const daemonScript = join(__dirname, 'daemon.js');
@@ -521,15 +526,26 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
 function stopDaemon() {
   invalidateDaemonHealthCache(); // state changed — don't serve a stale "up"
   try {
+    let filePid = null;
     if (existsSync(DAEMON_PID_FILE)) {
-      const pid = readFileSync(DAEMON_PID_FILE, 'utf8').trim();
+      filePid = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
       try {
-        process.kill(parseInt(pid), 'SIGTERM');
+        process.kill(filePid, 'SIGTERM');
       } catch {}
       unlinkSync(DAEMON_PID_FILE);
     }
-    // Also try to kill by port (resolved before clearing the port file)
-    try { killPort(getDaemonPort()); } catch {}
+    // Kill-by-port ONLY when the listener is provably our daemon (PID file
+    // match). After an idle shutdown the port file is gone and the resolved
+    // port is the range default — killPort() there would SIGKILL whatever
+    // foreign process the port fallback deliberately left alone.
+    try {
+      const port = getDaemonPort();
+      const raw = getPortPid(port);
+      if (raw && filePid !== null) {
+        const pids = String(raw).split('\n').map((s) => parseInt(s.trim(), 10));
+        if (pids.includes(filePid)) killPort(port);
+      }
+    } catch {}
     clearPortFile();
   } catch {}
 }

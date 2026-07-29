@@ -12,33 +12,55 @@ import { join, dirname } from "node:path";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runCli, ensureSafeConnect, health, ALLOWED_COMMANDS, withAbsoluteOutputDir } from "./figma-cli.js";
+import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, withAbsoluteOutputDir, normalizeOutputArgs } from "./figma-cli.js";
 import { buildHistory } from "./history.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 // Subcommands that mutate the design; gated behind confirm when
 // FIGMA_WRITE_CONFIRM=1. Read commands always run.
-const WRITE_COMMANDS = new Set([
+// Write gate, per command group. Verified against the engine's real
+// subcommands (node/component/... --help):
+// - Commands in ALWAYS_WRITE mutate the file regardless of arguments
+//   (combos/sizes generate variant grids — they even have --dry-run).
+// - For gated GROUPS, only the listed subcommands are reads; everything
+//   else in the group (create/set/delete/add/clear/prop/combine/link/...)
+//   counts as a write. Unknown future subcommands therefore default to
+//   WRITE — the safe direction for a confirm gate.
+// - `tokens` is special: the bare command exports (read); of its
+//   subcommands only `overlap` is a read.
+const ALWAYS_WRITE = new Set([
   "render",
   "render-batch",
-  "node",
-  "component",
-  "var",
   "import",
   "pin",
-  "annotate",
-  "dev",
-  "section",
-  "grid",
   "gradient",
+  "combos",
+  "sizes",
 ]);
 
-function isWrite(args) {
+const READ_SUBCOMMANDS = {
+  node: new Set(["tree", "bindings"]),
+  component: new Set(["list", "main"]),
+  dev: new Set(["list"]),
+  annotate: new Set(["list"]),
+  section: new Set(["list"]),
+  grid: new Set(["list"]),
+  col: new Set(["list"]),
+  var: new Set(["list", "find"]),
+};
+
+export function isWrite(args) {
   if (!Array.isArray(args) || args.length === 0) return false;
-  // `tokens import` is a write; bare `tokens` (export/list) is a read.
-  if (args[0] === "tokens") return args[1] === "import";
-  return WRITE_COMMANDS.has(args[0]);
+  // A help flag anywhere makes commander print usage and exit — never a write.
+  if (args.includes("--help") || args.includes("-h")) return false;
+  const [cmd, sub] = args;
+  if (ALWAYS_WRITE.has(cmd)) return true;
+  // Bare group command or a leading flag → usage output, not an action.
+  const subIsAction = sub !== undefined && !sub.startsWith("-");
+  if (cmd === "tokens") return subIsAction && sub !== "overlap";
+  if (cmd in READ_SUBCOMMANDS) return subIsAction && !READ_SUBCOMMANDS[cmd].has(sub);
+  return false;
 }
 
 // Server version for figma_status: package version + short git SHA. A status
@@ -134,6 +156,12 @@ const TOOLS = [
       required: ["jsx"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "figma_selection",
+    description:
+      "The nodes the user currently has selected in Figma — pushed automatically by the FigCli plugin on every selection change. Use this instead of asking the user to copy node ids: they select in Figma, you read the ids here and feed them to figma_inspect/figma_spec/figma_screenshot.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "figma_history",
@@ -502,7 +530,9 @@ async function handleTool(name, rawArgs) {
       if (args[0] === "export" && args[1] === "assets") {
         return await runAssetExport(args, input.label);
       }
-      const res = await runCli(args, { label: input.label });
+      // extract / export node|screenshot write files — resolve their output
+      // paths against the client workspace, not the engine's repo cwd.
+      const res = await runCli(normalizeOutputArgs(args), { label: input.label });
       return resultFromCli(res);
     }
 
@@ -517,6 +547,30 @@ async function handleTool(name, rawArgs) {
       }
       const res = await runCli(args, { label: input.label });
       return resultFromCli(res);
+    }
+
+    case "figma_selection": {
+      const sel = await getSelection();
+      if (!sel.ok) return errorResult(sel.message);
+      if (!sel.selection) {
+        return textResult(
+          sel.pluginConnected
+            ? "No selection pushed yet. Ask the user to select something in Figma — the plugin pushes every selection change automatically. If selecting changes nothing here, the plugin needs a reload (Plugins → Development → FigCli)."
+            : "Plugin not connected — launch Plugins → Development → FigCli in Figma first.",
+        );
+      }
+      const s = sel.selection;
+      if (!s.nodes.length) {
+        return textResult(`Selection on page "${s.page}" is empty (as of ${s.receivedAt}).`);
+      }
+      const lines = s.nodes.map((n) => {
+        const size = n.width !== undefined ? ` — ${n.width}×${n.height}` : "";
+        return `- ${n.id}  ${n.type}  "${n.name}"${size}`;
+      });
+      const more = s.total > s.nodes.length ? `\n(+${s.total - s.nodes.length} more selected)` : "";
+      return textResult(
+        `User selection on page "${s.page}" (${s.total} node${s.total !== 1 ? "s" : ""}, as of ${s.receivedAt}):\n${lines.join("\n")}${more}`,
+      );
     }
 
     case "figma_history": {

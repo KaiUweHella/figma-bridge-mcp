@@ -162,12 +162,14 @@ daemon
       const reconnToken = getDaemonToken();
       const reconnHeaders = {};
       if (reconnToken) reconnHeaders['X-Daemon-Token'] = reconnToken;
-      const response = await fetch(`http://localhost:${getDaemonPort()}/reconnect`, { headers: reconnHeaders });
+      const response = await fetch(`http://127.0.0.1:${getDaemonPort()}/reconnect`, { headers: reconnHeaders });
       const result = await response.json();
       if (result.error) {
         console.log(chalk.red('✗ Reconnect failed: ' + result.error));
+      } else if (result.hadPlugin) {
+        console.log(chalk.green('✓ Plugin socket closed — the plugin reconnects automatically'));
       } else {
-        console.log(chalk.green('✓ Reconnected to Figma'));
+        console.log(chalk.yellow('○ No plugin was connected. Open Plugins → Development → FigCli in Figma.'));
       }
     } catch (e) {
       console.log(chalk.red('✗ Failed: ' + e.message));

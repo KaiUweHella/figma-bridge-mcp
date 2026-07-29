@@ -97,6 +97,50 @@ test('export assets output dirs resolve against the CLIENT workspace, never the 
   assert.deepEqual(input, ['export', 'assets', '1:2', '-o', 'x']);
 });
 
+test('withAbsoluteOutputDir handles the combined --output=dir form', async () => {
+  const { withAbsoluteOutputDir } = await import('../src/figma-cli.js');
+  // Commander accepts --output=dir; the old findIndex missed it and silently
+  // redirected the export to the default assets dir.
+  const eq = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output=src/assets'], '/work/project');
+  assert.equal(eq.outDir, '/work/project/src/assets');
+  assert.deepEqual(eq.args, ['export', 'assets', '1:2', '--output=/work/project/src/assets']);
+  const eqAbs = withAbsoluteOutputDir(['export', 'assets', '1:2', '-o=/elsewhere/a'], '/work/project');
+  assert.equal(eqAbs.outDir, '/elsewhere/a');
+});
+
+test('normalizeOutputArgs anchors extract / export node|screenshot outputs to the client workspace', async () => {
+  const { normalizeOutputArgs } = await import('../src/figma-cli.js');
+  const base = '/work/project';
+
+  // extract: positional output, also after value-taking flags
+  assert.deepEqual(normalizeOutputArgs(['extract'], base).at(-1), '/work/project/DESIGN.md');
+  assert.deepEqual(normalizeOutputArgs(['extract', 'docs/D.md'], base),
+    ['extract', '/work/project/docs/D.md']);
+  assert.deepEqual(normalizeOutputArgs(['extract', '--pages', 'Home', 'D.md'], base),
+    ['extract', '--pages', 'Home', '/work/project/D.md']);
+  assert.deepEqual(normalizeOutputArgs(['extract', '--selection'], base).at(-1), '/work/project/DESIGN.md');
+
+  // export node/screenshot: -o forms and default filenames
+  assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2', '-o', 'shot.png'], base),
+    ['export', 'node', '1:2', '-o', '/work/project/shot.png']);
+  assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2', '--output=shot.png'], base),
+    ['export', 'node', '1:2', '--output=/work/project/shot.png']);
+  assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2'], base).slice(-2),
+    ['-o', '/work/project/node-export.png']);
+  assert.deepEqual(normalizeOutputArgs(['export', 'screenshot'], base).slice(-2),
+    ['-o', '/work/project/screenshot.png']);
+
+  // everything else passes through untouched
+  assert.deepEqual(normalizeOutputArgs(['canvas', 'info'], base), ['canvas', 'info']);
+  assert.deepEqual(normalizeOutputArgs(['export', 'css', '1:2'], base), ['export', 'css', '1:2']);
+});
+
+test('figma_selection tool schema exists and takes no parameters', async () => {
+  const { unknownParamError } = await import('../src/server.js');
+  assert.equal(unknownParamError('figma_selection', {}), null);
+  assert.match(unknownParamError('figma_selection', { nodeId: '1:2' }), /This tool takes no parameters/);
+});
+
 test('server.js parses — a syntax error here means "cannot attach to figma-safe"', async () => {
   // The suite never imports src/server.js (importing would START the stdio
   // server), so a template-literal typo in TOOLS/INSTRUCTIONS used to reach

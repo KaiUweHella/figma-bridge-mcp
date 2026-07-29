@@ -19,10 +19,13 @@
     .dot.connecting { background: #f59e0b; animation: pulse 1s infinite; }
     .dot.connected { background: #22c55e; }
     .dot.error { background: #ef4444; }
+    .dot.paused { background: #f59e0b; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
     .title { font-weight: 600; font-size: 12px; }
     #status { color: #aaa; }
+    #connMeta { color: #666; font-size: 9px; margin-left: auto; }
     .hint { font-size: 9px; color: #666; }
+    .hint.warn { color: #f59e0b; }
     .panel { display: none; flex-direction: column; gap: 6px; margin-top: 2px; }
     .panel.show { display: flex; }
     label { font-size: 10px; color: #bbb; }
@@ -39,6 +42,36 @@
       background: none; color: #7aa2ff; padding: 0; font-weight: 400;
       text-decoration: underline; font-size: 10px; align-self: flex-start;
     }
+    .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+    .toolbar button {
+      background: #3a3a3a; color: #ddd; font-weight: 500; font-size: 10px;
+      padding: 5px 8px; border: 1px solid #4a4a4a;
+    }
+    .toolbar button:hover { background: #454545; filter: none; }
+    .toolbar button.active { background: #7a3b06; border-color: #f59e0b; color: #ffd9a0; }
+    #stats { font-size: 9px; color: #888; }
+    #selInfo {
+      display: none; font-size: 9px; color: #9ecbff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #selInfo.show { display: block; }
+    #lastError {
+      display: none; font-size: 9px; color: #f87171; background: #3a2222;
+      border-radius: 4px; padding: 4px 6px; word-break: break-word;
+      max-height: 44px; overflow-y: auto;
+    }
+    #lastError.show { display: block; }
+    #log {
+      display: none; flex: 1; min-height: 120px; overflow-y: auto;
+      background: #232323; border: 1px solid #3a3a3a; border-radius: 4px;
+      padding: 4px 6px; font-family: monospace; font-size: 9px; line-height: 1.5;
+    }
+    #log.show { display: block; }
+    .logline { color: #9a9a9a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .logline .t { color: #666; }
+    .logline.write { color: #d8b96a; }
+    .logline.err { color: #f87171; }
+    .logline.meta { color: #6fa8dc; }
   </style>
 </head>
 <body>
@@ -46,6 +79,7 @@
   <div class="row">
     <div id="dot" class="dot connecting"></div>
     <span id="status">Starting…</span>
+    <span id="connMeta"></span>
   </div>
 
   <div id="keyPanel" class="panel">
@@ -53,6 +87,17 @@
     <input id="keyInput" type="text" spellcheck="false" autocomplete="off" placeholder="paste key here" />
     <button id="saveBtn">Save &amp; connect</button>
   </div>
+
+  <div class="toolbar">
+    <button id="pauseBtn" title="Reject incoming agent commands until resumed">⏸ Pause</button>
+    <button id="checkpointBtn" title="Save a named entry in Figma's version history">Checkpoint</button>
+    <button id="logBtn" title="Show the activity log">Log ▾</button>
+  </div>
+
+  <div id="selInfo" title="The agent sees this selection via figma_selection"></div>
+  <div id="stats"></div>
+  <div id="lastError"></div>
+  <div id="log"></div>
 
   <button id="changeKeyBtn" class="linkish" style="display:none">Change access key</button>
   <div id="hint" class="hint">Keep this window open while working.</div>
@@ -63,16 +108,33 @@
     let reconnectTimer = null;
     let keepaliveTimer = null;
     let lastPong = Date.now();
+    let lastPingSent = 0;
+    let latencyMs = null;
+    let connectedPort = null;
     let KEY = null;              // access key, once known
     let authed = false;          // authenticated on the current socket
 
+    // Scan generation: every new scan (and every teardown) invalidates all
+    // callbacks of older scans. Without this, two overlapping scans could BOTH
+    // produce an authenticated socket — the daemon then holds one while our
+    // global `ws` points at the other, and the orphan leaks.
+    let scanGen = 0;
+
     const statusEl = document.getElementById('status');
     const dotEl = document.getElementById('dot');
+    const connMetaEl = document.getElementById('connMeta');
     const keyPanel = document.getElementById('keyPanel');
     const keyInput = document.getElementById('keyInput');
     const saveBtn = document.getElementById('saveBtn');
     const changeKeyBtn = document.getElementById('changeKeyBtn');
     const hintEl = document.getElementById('hint');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const selInfoEl = document.getElementById('selInfo');
+    const checkpointBtn = document.getElementById('checkpointBtn');
+    const logBtn = document.getElementById('logBtn');
+    const statsEl = document.getElementById('stats');
+    const lastErrorEl = document.getElementById('lastError');
+    const logEl = document.getElementById('log');
 
     // Daemon-unreachable detection: endless "Scanning…" tells the user
     // nothing. After a few failed scan rounds we name the problem, say what
@@ -86,10 +148,134 @@
       statusEl.textContent = text;
       dotEl.className = 'dot ' + state;
     }
+    function setConnMeta() {
+      if (!connectedPort) { connMetaEl.textContent = ''; return; }
+      connMetaEl.textContent = ':' + connectedPort + (latencyMs !== null ? ' · ' + latencyMs + 'ms' : '');
+    }
     function showKeyPanel(show) {
       keyPanel.classList.toggle('show', show);
       changeKeyBtn.style.display = show ? 'none' : 'block';
     }
+
+    // ============ Activity log (feature A) ============
+    // Every eval already flows through this iframe — record it instead of
+    // discarding it. Ring buffer, newest on top.
+    const LOG_MAX = 50;
+    const logEntries = [];       // {id, t0, label, kind: 'read'|'write'|'meta', status, ms}
+    let okCount = 0, errCount = 0;
+    let logOpen = false;
+
+    const WRITE_RE = /\b(create[A-Z]\w*|\.remove\s*\(|appendChild|insertChild|setProperties|resize\s*\(|saveVersionHistoryAsync)\b|\.\w+\s*=[^=]/;
+    const API_RE = /figma\.((?:\w+\.)*\w+)\s*\(/;
+    const NODE_ID_RE = /\b\d+:\d+\b/g;
+
+    function evalLabel(code) {
+      const api = API_RE.exec(code);
+      const ids = new Set((code.match(NODE_ID_RE) || []));
+      let label = api ? api[1] + '()' : 'eval';
+      if (ids.size) label += ' · ' + ids.size + ' node' + (ids.size > 1 ? 's' : '');
+      return label;
+    }
+
+    function addLog(entry) {
+      logEntries.unshift(entry);
+      if (logEntries.length > LOG_MAX) logEntries.pop();
+      renderLog();
+    }
+    function finishLog(id, error, batchInfo) {
+      const e = logEntries.find(x => x.id === id && !x.status);
+      if (!e) return;
+      e.ms = Date.now() - e.t0;
+      e.status = error ? 'err' : 'ok';
+      if (batchInfo) e.label += ' — ' + batchInfo;
+      if (error) { errCount++; showError(error); } else { okCount++; }
+      renderStats();
+      renderLog();
+    }
+    function renderStats() {
+      statsEl.textContent = okCount + errCount
+        ? '✓ ' + okCount + '  ✗ ' + errCount + ' since connect'
+        : '';
+    }
+    function showError(text) {
+      lastErrorEl.textContent = String(text);
+      lastErrorEl.classList.add('show');
+    }
+    function fmtTime(t) {
+      const d = new Date(t);
+      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+    }
+    function renderLog() {
+      if (!logOpen) return;
+      logEl.innerHTML = '';
+      for (const e of logEntries) {
+        const div = document.createElement('div');
+        div.className = 'logline ' + (e.status === 'err' ? 'err' : e.kind);
+        const mark = e.status === 'err' ? '✗' : (e.status === 'ok' ? '✓' : '…');
+        const ms = e.ms !== undefined ? ' (' + e.ms + 'ms)' : '';
+        div.textContent = mark + ' ' + e.label + ms;
+        const t = document.createElement('span');
+        t.className = 't';
+        t.textContent = '  ' + fmtTime(e.t0);
+        div.appendChild(t);
+        div.title = e.label;
+        logEl.appendChild(div);
+      }
+    }
+
+    logBtn.onclick = () => {
+      logOpen = !logOpen;
+      logEl.classList.toggle('show', logOpen);
+      logBtn.textContent = logOpen ? 'Log ▴' : 'Log ▾';
+      parent.postMessage({ pluginMessage: { type: 'resize', width: logOpen ? 380 : 320, height: logOpen ? 480 : 240 } }, '*');
+      renderLog();
+    };
+
+    // ============ Pause / kill switch (feature B) ============
+    let paused = false;
+    pauseBtn.onclick = () => {
+      paused = !paused;
+      pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+      pauseBtn.classList.toggle('active', paused);
+      if (paused) {
+        setStatus('Paused — rejecting agent commands', 'paused');
+      } else if (authed) {
+        setStatus('Connected (authenticated)', 'connected');
+      }
+    };
+    function rejectPaused(msg) {
+      const error = 'Paused by user in the FigCli plugin UI — press Resume there to continue.';
+      const reply = msg.action === 'eval-batch'
+        ? { type: 'batch-result', id: msg.id, results: (msg.codes || []).map(() => ({ success: false, error })) }
+        : { type: 'result', id: msg.id, error };
+      try { ws.send(JSON.stringify(reply)); } catch (e) {}
+      addLog({ id: msg.id, t0: Date.now(), label: 'rejected (paused)', kind: 'meta', status: 'err', ms: 0 });
+      errCount++; renderStats();
+    }
+
+    // ============ Selection display (feature C) ============
+    // Selection changes arrive automatically from code.js (debounced
+    // selectionchange). Shown here so the user SEES what the agent sees; no
+    // button — the push happens on its own.
+    function renderSelection(sel) {
+      const nodes = (sel && sel.nodes) || [];
+      if (!nodes.length) {
+        selInfoEl.classList.remove('show');
+        selInfoEl.textContent = '';
+        return;
+      }
+      const first = nodes[0];
+      const size = first.width !== undefined ? ' ' + first.width + '×' + first.height : '';
+      const more = sel.total > 1 ? '  +' + (sel.total - 1) + ' more' : '';
+      selInfoEl.textContent = '▸ Selected: ' + first.name + ' (' + first.type + size + ')' + more;
+      selInfoEl.classList.add('show');
+    }
+
+    // ============ Checkpoint (feature D) ============
+    checkpointBtn.onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'checkpoint' } }, '*');
+      addLog({ id: 'cp' + Date.now(), t0: Date.now(), label: 'checkpoint requested', kind: 'meta', status: 'ok', ms: 0 });
+    };
 
     // --- Access-key bootstrap: ask code.js (clientStorage lives there) ---
     function requestKey() {
@@ -112,6 +298,7 @@
     };
 
     function teardown() {
+      scanGen++; // invalidate any in-flight port scan
       stopKeepalive();
       clearTimeout(reconnectTimer);
       if (ws) {
@@ -119,12 +306,19 @@
         ws = null;
       }
       authed = false;
+      connectedPort = null;
+      latencyMs = null;
+      setConnMeta();
     }
 
     // Try all ports in parallel, use first socket that opens.
     function connectParallel() {
       if (!KEY) { showKeyPanel(true); setStatus('Access key required', 'error'); return; }
       if (ws && ws.readyState === WebSocket.OPEN) return;
+
+      // Starting a new scan invalidates all callbacks of any previous scan —
+      // an overlapping scan can no longer produce a second winner socket.
+      const gen = ++scanGen;
 
       // Once we've declared the daemon unreachable, keep that message on
       // screen instead of flickering back to "Scanning…" on every retry.
@@ -139,13 +333,16 @@
           attempts.push(socket);
 
           socket.onopen = () => {
-            if (opened) { try { socket.close(); } catch (e) {} return; }
+            if (opened || gen !== scanGen) { try { socket.close(); } catch (e) {} return; }
             opened = true;
             ws = socket;
             authed = false;
             failedScans = 0;
             unreachableNotified = false;
+            connectedPort = port;
+            setConnMeta();
             hintEl.textContent = DEFAULT_HINT;
+            hintEl.classList.remove('warn');
 
             attempts.forEach(s => {
               if (s !== socket) { s.onclose = null; s.onerror = null; try { s.close(); } catch (e) {} }
@@ -157,7 +354,7 @@
 
             setStatus('Authenticating…', 'connecting');
             // First message MUST be the hello carrying the access key.
-            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '1.4.0', key: KEY }));
+            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '2.0.0', key: KEY }));
           };
 
           // During scan: ignore close/error (don't trigger reconnect)
@@ -167,6 +364,11 @@
       });
 
       setTimeout(() => {
+        if (gen !== scanGen) {
+          // A newer scan (or teardown) superseded this one — just clean up.
+          attempts.forEach(s => { s.onclose = null; try { s.close(); } catch (e) {} });
+          return;
+        }
         if (!opened) {
           attempts.forEach(s => { s.onclose = null; try { s.close(); } catch (e) {} });
           clearTimeout(reconnectTimer);
@@ -186,6 +388,44 @@
       }, 1500);
     }
 
+    function authFailureText(reason) {
+      if (reason === 'no-key-configured') {
+        return {
+          status: 'Daemon has no access key',
+          hint: 'The daemon started without a key file. Run figma_connect (it restarts the daemon with your key) — re-entering the key here will NOT help.',
+          showPanel: false,
+        };
+      }
+      if (reason === 'timeout') {
+        return {
+          status: 'Auth handshake timed out',
+          hint: 'The hello reply took too long. Reconnecting…',
+          showPanel: false,
+        };
+      }
+      return {
+        status: 'Access key rejected',
+        hint: 'Re-enter the key shown by figma_connect / figma_pairing.',
+        showPanel: true,
+      };
+    }
+    function onAuthFailure(reason) {
+      authed = false;
+      const t = authFailureText(reason);
+      setStatus(t.status, 'error');
+      hintEl.textContent = t.hint;
+      hintEl.classList.add('warn');
+      parent.postMessage({ pluginMessage: { type: 'auth-error', reason: reason || 'invalid-key' } }, '*');
+      teardown();
+      if (t.showPanel) {
+        showKeyPanel(true);
+      } else if (reason === 'timeout') {
+        reconnectTimer = setTimeout(connectParallel, 1000);
+      }
+      // no-key-configured: stay put — reconnecting is pointless until the
+      // daemon is restarted with a key; the user was told what to run.
+    }
+
     function handleMessage(event) {
       let msg;
       try { msg = JSON.parse(event.data); } catch (e) { return; }
@@ -193,24 +433,26 @@
       // Auth handshake results
       if (msg.type === 'hello-ack') {
         authed = true;
-        setStatus('Connected (authenticated)', 'connected');
+        okCount = 0; errCount = 0; renderStats();
+        setStatus(paused ? 'Paused — rejecting agent commands' : 'Connected (authenticated)', paused ? 'paused' : 'connected');
         parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
         startKeepalive();
         return;
       }
       if (msg.type === 'auth-error') {
-        authed = false;
-        setStatus('Access key rejected', 'error');
-        parent.postMessage({ pluginMessage: { type: 'auth-error' } }, '*');
-        teardown();
-        showKeyPanel(true);
+        onAuthFailure(msg.reason);
         return;
       }
 
       if (msg.action === 'eval') {
+        if (paused) { rejectPaused(msg); return; }
+        addLog({ id: msg.id, t0: Date.now(), label: evalLabel(msg.code || ''), kind: WRITE_RE.test(msg.code || '') ? 'write' : 'read' });
         parent.postMessage({ pluginMessage: { type: 'eval', id: msg.id, code: msg.code } }, '*');
       }
       if (msg.action === 'eval-batch') {
+        if (paused) { rejectPaused(msg); return; }
+        const n = (msg.codes || []).length;
+        addLog({ id: msg.id, t0: Date.now(), label: 'batch · ' + n + ' step' + (n !== 1 ? 's' : ''), kind: 'write' });
         parent.postMessage({ pluginMessage: { type: 'eval-batch', id: msg.id, codes: msg.codes } }, '*');
       }
       if (msg.action === 'ping') {
@@ -218,22 +460,24 @@
       }
       if (msg.type === 'pong') {
         lastPong = Date.now();
+        if (lastPingSent) { latencyMs = Date.now() - lastPingSent; setConnMeta(); }
       }
     }
 
     function handleClose(event) {
       // Daemon rejects unauthenticated sockets with close code 4401.
       if (event && event.code === 4401) {
-        authed = false;
-        setStatus('Access key rejected', 'error');
-        parent.postMessage({ pluginMessage: { type: 'auth-error' } }, '*');
-        teardown();
-        showKeyPanel(true);
+        // Reason arrived (or not) via the auth-error message just before the
+        // close; if it did, onAuthFailure already ran and tore down `ws`.
+        if (ws) onAuthFailure('invalid-key');
         return;
       }
       if (ws && ws.readyState !== WebSocket.OPEN) {
         ws = null;
         authed = false;
+        connectedPort = null;
+        latencyMs = null;
+        setConnMeta();
         setStatus('Reconnecting…', 'connecting');
         stopKeepalive();
         parent.postMessage({ pluginMessage: { type: 'disconnected' } }, '*');
@@ -248,6 +492,7 @@
       keepaliveTimer = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           if (Date.now() - lastPong > 8000) { ws.close(); return; }
+          lastPingSent = Date.now();
           ws.send(JSON.stringify({ type: 'ping' }));
         }
       }, 3000);
@@ -273,18 +518,44 @@
         return;
       }
       if (msg.type === 'key-saved') {
-        return; // already handled optimistically in saveBtn.onclick
+        if (msg.error) {
+          // The key works for THIS session (it is in memory) but was not
+          // persisted — after a plugin restart it will be gone.
+          hintEl.textContent = 'Warning: key not persisted (' + msg.error + ') — it will be asked again next time.';
+          hintEl.classList.add('warn');
+        }
+        return;
       }
 
       if (msg.type === 'result') {
+        finishLog(msg.id, msg.error);
         if (ws && ws.readyState === WebSocket.OPEN && authed) {
           ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error }));
         }
       }
       if (msg.type === 'batch-result') {
+        const fails = (msg.results || []).filter(r => r && r.success === false);
+        finishLog(msg.id, fails.length ? (fails.length + ' step(s) failed: ' + (fails[0].error || '')) : null,
+          (msg.results || []).length + ' done');
         if (ws && ws.readyState === WebSocket.OPEN && authed) {
           ws.send(JSON.stringify({ type: 'batch-result', id: msg.id, results: msg.results }));
         }
+      }
+
+      // Selection snapshot from the main thread (automatic, debounced):
+      // show it in the UI and forward it to the daemon so the MCP tool
+      // figma_selection can read it. Not logged — auto-pushes would spam
+      // the activity log.
+      if (msg.type === 'selection-snapshot') {
+        renderSelection(msg.selection);
+        if (ws && ws.readyState === WebSocket.OPEN && authed) {
+          ws.send(JSON.stringify({ type: 'selection', selection: msg.selection, ts: Date.now() }));
+        }
+      }
+
+      if (msg.type === 'checkpoint-done') {
+        if (msg.error) showError('Checkpoint failed: ' + msg.error);
+        else addLog({ id: 'cpd' + Date.now(), t0: Date.now(), label: 'checkpoint saved ✓', kind: 'meta', status: 'ok', ms: 0 });
       }
     };
 

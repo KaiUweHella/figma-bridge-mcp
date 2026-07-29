@@ -89,13 +89,32 @@ Point your MCP client at the server (adjust the path):
 | `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
 | `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
 | `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files. `figma_run`/`figma_render` accept a `label` to annotate entries. |
+| `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin UI. The user selects; the agent reads the ids instead of asking for them. |
 
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
 form `12-34`, or a full Figma URL (the file key is checked against the
 Safe-Mode "only the open file" constraint and warned about).
 
 Write commands can be gated behind an explicit `confirm:true` by setting
-`FIGMA_WRITE_CONFIRM=1` in the server's environment.
+`FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
+subcommand level: reads like `node tree` or `component list` pass freely,
+mutations like `node delete`, `combos`, or `tokens spacing` require confirm.
+
+## Plugin window
+
+The FigCli plugin window is more than the connection status:
+
+- **Activity log** (Log ▾) — every command the agent runs, live, with
+  duration and ok/error; writes are highlighted. The connected port and
+  round-trip latency show next to the status dot.
+- **⏸ Pause** — a kill switch: while paused, the plugin rejects every
+  incoming agent command with an explicit error.
+- **Selection readout** — whatever the user selects is pushed to the agent
+  automatically (debounced) and shown in the window ("▸ Selected: …"), so
+  the user always sees what `figma_selection` will return. Select a frame,
+  say "build this" — no node-id copying.
+- **Checkpoint** — saves a labeled entry in Figma's native version history
+  as a manual safety net before letting the agent loose.
 
 ## Design-to-code workflow
 

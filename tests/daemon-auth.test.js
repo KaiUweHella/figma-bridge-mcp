@@ -155,3 +155,90 @@ test('WS with a disallowed browser Origin is rejected by verifyClient', async ()
   });
   assert.equal(rejected, true);
 });
+
+test('token rotation under a LIVE daemon heals: new token accepted without restart', async () => {
+  // startDaemon() rotates the token file before every spawn; a lost spawn
+  // race used to wedge the surviving daemon on the old in-memory token
+  // (permanent 403). The daemon now re-reads the file per request.
+  const ROTATED = 'rotated-token-xyz';
+  writeFileSync(join(tmp, 'token'), ROTATED);
+  try {
+    const resNew = await httpHealth({ 'X-Daemon-Token': ROTATED });
+    assert.equal(resNew.status, 200, 'rotated token must be accepted live');
+    const resOld = await httpHealth({ 'X-Daemon-Token': TOKEN });
+    assert.equal(resOld.status, 403, 'old token must now be rejected');
+  } finally {
+    writeFileSync(join(tmp, 'token'), TOKEN); // restore for later tests
+  }
+});
+
+// Authenticate a scratch plugin socket and run `fn` with it.
+function withAuthedWs(fn) {
+  const ws = openWs();
+  return new Promise((resolve, reject) => {
+    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', version: 't', key: KEY })));
+    ws.on('message', async (d) => {
+      const m = JSON.parse(d.toString());
+      if (m.type === 'hello-ack') {
+        try { resolve(await fn(ws)); } catch (e) { reject(e); }
+      }
+    });
+    ws.on('error', reject);
+    setTimeout(() => reject(new Error('auth timeout')), 3000);
+  }).finally(() => { try { ws.close(); } catch {} });
+}
+
+test('/selection: plugin push is cached and served with auth', async () => {
+  // Before any push: null selection.
+  const empty = await (await fetch(`http://127.0.0.1:${PORT}/selection`, {
+    headers: { 'X-Daemon-Token': TOKEN },
+  })).json();
+  assert.equal(empty.selection, null);
+
+  await withAuthedWs(async (ws) => {
+    ws.send(JSON.stringify({
+      type: 'selection',
+      selection: { page: 'Page 1', total: 2, nodes: [
+        { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 },
+        { id: '1:3', name: 'CTA', type: 'INSTANCE' },
+      ] },
+    }));
+    await new Promise((r) => setTimeout(r, 150)); // let the daemon process it
+  });
+
+  const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+    headers: { 'X-Daemon-Token': TOKEN },
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.selection.page, 'Page 1');
+  assert.equal(body.selection.total, 2);
+  assert.equal(body.selection.nodes.length, 2);
+  assert.deepEqual(body.selection.nodes[0], { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 });
+  assert.ok(body.selection.receivedAt);
+
+  // Unauthenticated read is rejected like every other route.
+  const noAuth = await fetch(`http://127.0.0.1:${PORT}/selection`);
+  assert.equal(noAuth.status, 403);
+});
+
+test('/reconnect: closes the plugin socket and reports hadPlugin', async () => {
+  // Without a plugin: ok:true, hadPlugin:false.
+  const idle = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
+    headers: { 'X-Daemon-Token': TOKEN },
+  })).json();
+  assert.equal(idle.ok, true);
+  assert.equal(idle.hadPlugin, false);
+
+  // With an authenticated plugin: socket gets closed by the daemon.
+  const closedByDaemon = await withAuthedWs(async (ws) => {
+    const closed = new Promise((resolve) => ws.on('close', () => resolve(true)));
+    const body = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
+      headers: { 'X-Daemon-Token': TOKEN },
+    })).json();
+    assert.equal(body.ok, true);
+    assert.equal(body.hadPlugin, true);
+    return Promise.race([closed, new Promise((r) => setTimeout(() => r(false), 2000))]);
+  });
+  assert.equal(closedByDaemon, true);
+});

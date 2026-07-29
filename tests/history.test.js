@@ -123,6 +123,31 @@ test('buildHistory: missing audit log yields a friendly empty message', () => {
   assert.match(out, /No history yet/);
 });
 
+test('formatHistory sanitizes hostile labels/refs (markdown injection)', () => {
+  const entries = [
+    {
+      ts: '2026-01-03T00:00:00.000Z', source: 'design',
+      args: ['render', 'x'], nodes: ['1:2'],
+      label: 'evil\n\n# injected heading\n| a | b |',
+    },
+    {
+      ts: '2026-01-02T00:00:00.000Z', source: 'code',
+      label: 'commit | with pipes', ref: 'src/a|b\nc.tsx',
+    },
+  ];
+  const md = formatHistory(entries);
+  const lines = md.split('\n');
+  // Header + separator + exactly one row per entry — the newline payload must
+  // not create extra markdown lines (the injected heading stays inline text).
+  assert.equal(lines.length, 4);
+  assert.ok(lines.every((l) => l.startsWith('|')), 'every line stays a table row');
+  // Pipes inside cells are escaped, so each row still has exactly 4 columns
+  // (5 unescaped pipes).
+  for (const row of lines.slice(2)) {
+    assert.equal(row.split(/(?<!\\)\|/).length - 1, 5, row);
+  }
+});
+
 test('server schemas: label and figma_history params are accepted', async () => {
   const { unknownParamError } = await import('../src/server.js');
   assert.equal(unknownParamError('figma_run', { args: ['canvas', 'info'], label: 'x' }), null);

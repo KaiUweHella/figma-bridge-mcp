@@ -26,6 +26,7 @@ import { homedir } from 'os';
 import { createHash, timingSafeEqual } from 'crypto';
 import { FigmaClient } from './figma-client.js';
 import { parsePortRange, writePortFile, clearPortFile } from './lib/daemon-port.js';
+import { getPortPid } from './platform.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -48,12 +49,24 @@ const IDLE_TIMEOUT_MS = parseInt(process.env.DAEMON_IDLE_TIMEOUT) || 60 * 60 * 1
 const TOKEN_FILE = process.env.DAEMON_TOKEN_FILE || join(homedir(), '.figma-safe-mcp', '.daemon-token');
 // Singleton PID file, claimed only by the daemon that wins the port bind.
 const PID_FILE = process.env.DAEMON_PID_FILE || join(homedir(), '.figma-safe-mcp', 'daemon.pid');
-let SESSION_TOKEN = null;
 
-try {
-  SESSION_TOKEN = readFileSync(TOKEN_FILE, 'utf8').trim();
+// Session token is read PER REQUEST, not once at startup: startDaemon() rotates
+// the token file before every spawn, and a lost spawn race (two CLIs starting
+// daemons concurrently; the loser exits but has already rotated the file) would
+// otherwise leave the surviving daemon holding a stale token — rejecting every
+// request with 403 until a manual restart. The file is ~64 bytes and local;
+// a read per request is negligible.
+function readSessionToken() {
+  try {
+    return readFileSync(TOKEN_FILE, 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+if (readSessionToken()) {
   console.log('[daemon] Session token loaded');
-} catch {
+} else {
   console.error('[daemon] WARNING: No session token found. Daemon will reject all HTTP requests.');
 }
 
@@ -96,12 +109,15 @@ function validateRequest(req) {
     return 'Invalid host header';
   }
 
-  // Layer 2: Session token (blocks unauthorized local processes)
+  // Layer 2: Session token (blocks unauthorized local processes).
+  // Read fresh per request so a token rotation under a live daemon heals
+  // instead of wedging every consumer on 403.
   const token = req.headers['x-daemon-token'];
-  if (!SESSION_TOKEN) {
+  const sessionToken = readSessionToken();
+  if (!sessionToken) {
     return 'No session token configured';
   }
-  if (token !== SESSION_TOKEN) {
+  if (token !== sessionToken) {
     return 'Invalid or missing token';
   }
 
@@ -131,6 +147,8 @@ resetIdleTimer();
 let pluginWs = null;
 let pluginPendingRequests = new Map();
 let pluginMsgId = 0;
+// Last selection pushed by the plugin UI (null until the first push).
+let lastSelection = null;
 
 function isPluginConnected() {
   return !!(pluginWs && pluginWs.readyState === WebSocket.OPEN);
@@ -212,9 +230,6 @@ async function handleRequest(req, res) {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
-      const MAX_RETRIES = 2;
-      let lastError;
-
       let payload;
       try {
         payload = JSON.parse(body);
@@ -224,70 +239,81 @@ async function handleRequest(req, res) {
         return;
       }
 
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        try {
-          const { action, code, jsx, jsxArray, gap, vertical, collection } = payload;
-          let result;
+      // NO retries for ANY action: every action ultimately evals arbitrary,
+      // usually MUTATING code in the plugin. On a timeout/disconnect the code
+      // may still complete in Figma — re-sending it silently DUPLICATES the
+      // mutation (frames, variables, node edits). The earlier retry loop
+      // exempted only render/render-batch and re-ran evals; that was wrong.
+      try {
+        const { action, code, jsx, jsxArray, gap, vertical, collection } = payload;
+        let result;
 
-          const execWithTimeout = async (fn, timeoutMs = 30000) => {
-            return Promise.race([
-              fn(),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
-              )
-            ]);
-          };
+        const execWithTimeout = async (fn, timeoutMs = 30000) => {
+          return Promise.race([
+            fn(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
+            )
+          ]);
+        };
 
-          switch (action) {
-            case 'eval':
-              result = await execWithTimeout(() => executeEval(code));
-              break;
-            case 'render': {
-              // Parse JSX → plugin code, then execute via the plugin bridge.
-              const parser = new FigmaClient();
-              const renderCode = await parser.parseJSX(jsx);
-              result = await execWithTimeout(() => executeEval(renderCode), 90000);
-              break;
-            }
-            case 'render-batch': {
-              const batchParser = new FigmaClient();
-              if (collection) batchParser.setCollection(collection);
-              const batchCode = await batchParser.parseJSXBatch(jsxArray, {
-                gap: gap || 40,
-                vertical: vertical || false
-              });
-              result = await execWithTimeout(() => executeEval(batchCode), 60000);
-              break;
-            }
-            default:
-              throw new Error(`Unknown action: ${action}`);
+        switch (action) {
+          case 'eval':
+            result = await execWithTimeout(() => executeEval(code));
+            break;
+          case 'render': {
+            // Parse JSX → plugin code, then execute via the plugin bridge.
+            const parser = new FigmaClient();
+            const renderCode = await parser.parseJSX(jsx);
+            result = await execWithTimeout(() => executeEval(renderCode), 90000);
+            break;
           }
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ result, mode: getMode() }));
-          return;
-        } catch (error) {
-          lastError = error;
-          console.log(`[daemon] Attempt ${attempt + 1} failed: ${error.message}`);
-
-          // NEVER retry a mutating render: executeEval may have already created
-          // the frame before the response errored, and retrying would silently
-          // produce a DUPLICATE. Reads/eval may still retry.
-          if (payload.action === 'render' || payload.action === 'render-batch') break;
-
-          // Safe Mode: wait briefly for a plugin reconnect before retrying.
-          if (attempt < MAX_RETRIES) {
-            for (let i = 0; i < 10; i++) {
-              await new Promise(r => setTimeout(r, 200));
-              if (isPluginConnected()) break;
-            }
+          case 'render-batch': {
+            const batchParser = new FigmaClient();
+            if (collection) batchParser.setCollection(collection);
+            const batchCode = await batchParser.parseJSXBatch(jsxArray, {
+              gap: gap || 40,
+              vertical: vertical || false
+            });
+            result = await execWithTimeout(() => executeEval(batchCode), 60000);
+            break;
           }
+          default:
+            throw new Error(`Unknown action: ${action}`);
         }
-      }
 
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: (lastError && lastError.message) || 'Execution failed' }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ result, mode: getMode() }));
+      } catch (error) {
+        console.log(`[daemon] /exec failed: ${error.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message || 'Execution failed' }));
+      }
     });
+    return;
+  }
+
+  // Last selection the plugin UI pushed (button or selectionchange event).
+  // Read by the MCP tool figma_selection.
+  if (req.url === '/selection') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      selection: lastSelection,
+      pluginConnected: isPluginConnected(),
+    }));
+    return;
+  }
+
+  // Force the plugin to reconnect: close its socket — the plugin UI re-scans
+  // the whole port range automatically. Used by `daemon reconnect` (this route
+  // did not exist before; the command always failed on the 404 fallthrough).
+  if (req.url === '/reconnect') {
+    const hadPlugin = isPluginConnected();
+    if (hadPlugin) {
+      try { pluginWs.close(); } catch {}
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, hadPlugin }));
     return;
   }
 
@@ -395,6 +421,27 @@ wss.on('connection', (ws) => {
     if (msg.type === 'ping') {
       try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
     }
+
+    // Selection push from the plugin (automatic, debounced selectionchange
+    // events). Cached here; served via GET /selection so the MCP tool
+    // figma_selection can read it. Only the authenticated socket reaches
+    // this handler.
+    if (msg.type === 'selection' && msg.selection && typeof msg.selection === 'object') {
+      lastSelection = {
+        page: String(msg.selection.page || ''),
+        total: Number(msg.selection.total) || 0,
+        nodes: Array.isArray(msg.selection.nodes)
+          ? msg.selection.nodes.slice(0, 50).map((n) => ({
+              id: String(n.id || ''),
+              name: String(n.name || ''),
+              type: String(n.type || ''),
+              ...(Number.isFinite(n.width) ? { width: n.width } : {}),
+              ...(Number.isFinite(n.height) ? { height: n.height } : {}),
+            }))
+          : [],
+        receivedAt: new Date().toISOString(),
+      };
+    }
   });
 
   ws.on('close', () => {
@@ -416,19 +463,45 @@ wss.on('connection', (ws) => {
   });
 });
 
+// Cross-check the response signature against the OS: is the PID listening on
+// `port` the one in our PID file? Returns true/false, or null when unknown
+// (lsof/netstat unavailable, no PID file, unparsable output).
+function pidFileOwnsPort(port) {
+  try {
+    const filePid = parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10);
+    if (!Number.isInteger(filePid)) return null;
+    const raw = getPortPid(port);
+    if (!raw) return null;
+    // lsof -ti may list several PIDs (listener + connected clients).
+    const pids = String(raw).split('\n').map((s) => parseInt(s.trim(), 10));
+    if (!pids.some(Number.isInteger)) return null;
+    return pids.includes(filePid);
+  } catch {
+    return null;
+  }
+}
+
 // Probe whether the process holding `port` is one of our daemons — WITHOUT
 // sending the session token (a foreign squatter on the port must never see
-// it). Our daemon answers unauthenticated /health with 403 and a JSON body
-// whose `error` starts with "Unauthorized". A squatter mimicking that shape
-// can only cause a benign "already running" exit — it holds the port either way.
+// it). Two signals: (1) our daemon answers unauthenticated /health with 403
+// and a JSON `error` starting with "Unauthorized"; (2) the listening PID
+// matches our PID file. Since the port fallback exists, a squatter MIMICKING
+// the 403 shape would otherwise not be benign — it would make this daemon
+// exit "already running" and silently deny the whole toolchain. The PID
+// cross-check demotes a mimic to a plain foreign squatter (→ fallback);
+// when the PID cannot be determined, the signature alone decides.
 async function looksLikeOurDaemon(port) {
   try {
+    // 800ms: a legitimate daemon with a briefly busy event loop must not be
+    // misclassified as foreign — that would spawn a second daemon on the
+    // next port (the exact split-brain this probe exists to prevent).
     const res = await fetch(`http://127.0.0.1:${port}/health`, {
-      signal: AbortSignal.timeout(300),
+      signal: AbortSignal.timeout(800),
     });
     if (res.status !== 403) return false;
     const body = await res.json();
-    return typeof body.error === 'string' && body.error.startsWith('Unauthorized');
+    if (typeof body.error !== 'string' || !body.error.startsWith('Unauthorized')) return false;
+    return pidFileOwnsPort(port) !== false;
   } catch {
     return false;
   }

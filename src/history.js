@@ -93,6 +93,14 @@ function truncate(s, max) {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
+// Every cell value is attacker-influenced (labels via the `label` param,
+// args/refs via tool input) — collapse newlines and escape pipes so a crafted
+// value cannot break out of its table cell and inject markdown lines that a
+// later agent session would read as content.
+function cell(value, max = 120) {
+  return truncate(String(value).replace(/\s+/g, " ").replace(/\|/g, "\\|").trim(), max);
+}
+
 function designLabel(entry) {
   if (entry.label) return entry.label;
   const args = Array.isArray(entry.args) ? entry.args : [];
@@ -101,11 +109,11 @@ function designLabel(entry) {
 }
 
 function nodesCell(entry) {
-  if (entry.source === "code") return entry.ref || "";
+  if (entry.source === "code") return cell(entry.ref || "");
   const nodes = entryNodes(entry);
   if (!nodes.length) return "";
   const shown = nodes.slice(0, 6).join(", ");
-  return nodes.length > 6 ? `${shown} +${nodes.length - 6}` : shown;
+  return cell(nodes.length > 6 ? `${shown} +${nodes.length - 6}` : shown);
 }
 
 /**
@@ -123,8 +131,8 @@ export function formatHistory(entries, { format = "markdown" } = {}) {
   ];
   for (const e of entries) {
     const source = e.source === "code" ? "code" : "design";
-    const label = truncate((e.source === "code" ? e.label : designLabel(e)).replace(/\|/g, "\\|"), 120);
-    lines.push(`| ${e.ts} | ${source} | ${label} | ${nodesCell(e)} |`);
+    const label = cell(e.source === "code" ? e.label : designLabel(e));
+    lines.push(`| ${cell(e.ts, 40)} | ${source} | ${label} | ${nodesCell(e)} |`);
   }
   return lines.join("\n");
 }
