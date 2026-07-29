@@ -263,3 +263,41 @@ test('yaml model output is smaller than pretty JSON of the same model', () => {
   const json = JSON.stringify(model, null, 2);
   assert.ok(yaml.length < json.length, `yaml ${yaml.length} vs json ${json.length}`);
 });
+
+// ---- component keys: sets trailer + structured model (Storybook mapping) ----
+
+test('sets trailer renders the set key once; tree lines stay key-free', () => {
+  const withSets = {
+    ...FIXTURE,
+    frames: [{
+      t: 'FRAME', n: 'Screen', id: '9:1', w: 400, h: 100,
+      kids: [{ t: 'INSTANCE', n: 'Button', id: '9:2', w: 80, h: 32, mc: 'Button', main: 'Primary', mainKey: 'PLACEHOLDER_VARIANT_KEY', set: 'Button' }],
+    }],
+    sets: [
+      { name: 'Button', id: '10:4', props: { Size: ['S', 'M'] }, setKey: 'PLACEHOLDER_SET_KEY', dvKey: 'PLACEHOLDER_VARIANT_KEY' },
+      { name: 'Legacy', id: '11:1', props: null }, // no key → no key segment
+    ],
+  };
+  const md = formatCodeSpec(withSets, { phase: 'structure' });
+  assert.match(md, /- Button — Size: S\/M · \[10:4\] · key `PLACEHOLDER_SET_KEY`/);
+  assert.match(md, /- Legacy · \[11:1\]\n/); // no trailing key segment
+  // The 40-char-class key appears exactly once (trailer), never on tree lines.
+  assert.equal((md.match(/PLACEHOLDER_SET_KEY/g) || []).length, 1);
+  assert.ok(!/PLACEHOLDER_VARIANT_KEY/.test(md), 'instance keys stay out of the tree format');
+});
+
+test('specModel carries mainKey per instance and the enriched sets envelope', () => {
+  const withSets = {
+    ...FIXTURE,
+    frames: [{
+      t: 'FRAME', n: 'Screen', id: '9:1', w: 400, h: 100,
+      kids: [{ t: 'INSTANCE', n: 'Button', id: '9:2', w: 80, h: 32, mc: 'Button', main: 'Primary', mainKey: 'PLACEHOLDER_VARIANT_KEY', set: 'Button' }],
+    }],
+    sets: [{ name: 'Button', id: '10:4', props: { Size: ['S'] }, setKey: 'PLACEHOLDER_SET_KEY', dvKey: 'PLACEHOLDER_VARIANT_KEY' }],
+  };
+  const model = specModel(withSets, { phase: 'structure' });
+  const instance = model.frames[0].kids[0];
+  assert.equal(instance.mainKey, 'PLACEHOLDER_VARIANT_KEY');
+  assert.equal(model.sets[0].setKey, 'PLACEHOLDER_SET_KEY');
+  assert.equal(model.sets[0].dvKey, 'PLACEHOLDER_VARIANT_KEY');
+});

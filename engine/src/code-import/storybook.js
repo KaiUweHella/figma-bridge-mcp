@@ -8,7 +8,11 @@
 /**
  * parseStorybookIndex(jsonText) → { tokens, meta }
  * tokens: all-empty normalized shape
- * meta.components: [{name, category, variants}]
+ * meta.components: [{name, category, title, importPath, variants,
+ *                    stories: [{id, name, importPath}]}]
+ * `variants` stays a plain string array (existing consumers depend on it);
+ * `stories` carries the stable story ids (`component-name--story-name`) and
+ * import paths the Figma↔Storybook mapping needs.
  */
 export function parseStorybookIndex(jsonText) {
   let doc;
@@ -22,7 +26,7 @@ export function parseStorybookIndex(jsonText) {
   const entries = doc.entries ?? doc.stories ?? {};
 
   // Group by title, preserving insertion order
-  const groups = new Map(); // title → { name, category, variants[] }
+  const groups = new Map(); // title → { name, category, title, importPath, variants[], stories[] }
   for (const entry of Object.values(entries)) {
     // Skip docs entries
     if (entry.type === 'docs') continue;
@@ -32,10 +36,13 @@ export function parseStorybookIndex(jsonText) {
       const segments = title.split('/');
       const name = segments[segments.length - 1].trim();
       const category = segments.length > 1 ? segments.slice(0, -1).join('/').trim() : undefined;
-      groups.set(title, { name, category, variants: [] });
+      groups.set(title, { name, category, title, importPath: entry.importPath, variants: [], stories: [] });
     }
+    const group = groups.get(title);
+    if (!group.importPath && entry.importPath) group.importPath = entry.importPath;
     if (entry.name) {
-      groups.get(title).variants.push(entry.name);
+      group.variants.push(entry.name);
+      group.stories.push({ id: entry.id, name: entry.name, importPath: entry.importPath });
     }
   }
 

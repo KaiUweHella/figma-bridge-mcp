@@ -204,7 +204,12 @@ export function walkerCode(pageId, {
     const SETS = new Map();
     const setsOut = () => {
       const list = [];
-      for (const entry of SETS.entries()) list.push({ name: entry[0], id: entry[1].id, props: entry[1].props });
+      for (const entry of SETS.entries()) {
+        const out = { name: entry[0], id: entry[1].id, props: entry[1].props };
+        if (entry[1].setKey) out.setKey = entry[1].setKey;
+        if (entry[1].dvKey) out.dvKey = entry[1].dvKey;
+        list.push(out);
+      }
       return list;
     };
     const styleCache = new Map();
@@ -444,6 +449,10 @@ export function walkerCode(pageId, {
       if (n.type === 'COMPONENT_SET') {
         try { o.vp = n.variantGroupProperties; } catch (e) {}
         o.kidCount = n.children.length;
+        // Identity handle: the SET's own id/key — the stable identity of the
+        // whole component (what a Storybook story mirrors).
+        o.setId = n.id;
+        try { if (n.key) o.setKey = n.key; } catch (e) {}
         // Reuse handle: the default variant is the COMPONENT you instance
         // (a set has no createInstance). Capture its node id (same-file reuse)
         // and publish key (cross-file reuse, only resolvable once published).
@@ -462,6 +471,8 @@ export function walkerCode(pageId, {
           const main = await n.getMainComponentAsync();
           if (main) {
             o.main = main.name;
+            // Stable publish key — the identity a Storybook mapping hangs on.
+            try { if (main.key) o.mainKey = main.key; } catch (e) {}
             if (main.parent && main.parent.type === 'COMPONENT_SET') {
               o.set = main.parent.name;
               // Set-level variant axes (state=default/hover/…): collected ONCE
@@ -474,7 +485,13 @@ export function walkerCode(pageId, {
                   const vp = main.parent.variantGroupProperties;
                   if (vp) { props = {}; for (const k of Object.keys(vp)) props[k] = vp[k].values; }
                 } catch (e) {}
-                SETS.set(main.parent.name, { id: main.parent.id, props });
+                const entry = { id: main.parent.id, props };
+                try { if (main.parent.key) entry.setKey = main.parent.key; } catch (e) {}
+                try {
+                  const dv = main.parent.defaultVariant || main.parent.children[0];
+                  if (dv && dv.key) entry.dvKey = dv.key;
+                } catch (e) {}
+                SETS.set(main.parent.name, entry);
               }
             }
           }
@@ -496,6 +513,14 @@ export function walkerCode(pageId, {
           for (const c of n.children) { const k = await walk(c, depth + 1); if (k) o.kids.push(k); }
         }
         return o;
+      }
+      // Standalone COMPONENT (not a variant inside a set — those are reached
+      // through the COMPONENT_SET branch above): capture id + publish key so
+      // the census/DESIGN.md can list it with a reuse handle. Explicit id —
+      // o.id is otherwise only present with --with-ids.
+      if (n.type === 'COMPONENT') {
+        o.id = n.id;
+        try { if (n.key) o.key = n.key; } catch (e) {}
       }
       if ('children' in n && n.children.length) {
         if (depth >= MAX_DEPTH) { o.more = n.children.length; return o; }
@@ -776,7 +801,9 @@ export function hexToHsl(hexStr) {
 /**
  * Walk all page trees and count every design decision.
  * Returns { colors, typography, radii, spacing, shadows: Map, fonts: Set,
- *           componentSets: [{name, page, props, variants, sample}] }.
+ *           componentSets: [{name, page, props, variants, sample, key, id, setKey, setId}],
+ *           components: [{name, page, key, id}] } — `components` are STANDALONE
+ * components (variants inside a set are excluded via the underSet flag).
  * Color keys are bare hex (opacity suffix stripped); typography keys are
  * 'family|style|size|lh|ls'.
  */
@@ -784,11 +811,12 @@ export function buildCensus(pages) {
   const census = {
     colors: new Map(), typography: new Map(), radii: new Map(),
     spacing: new Map(), shadows: new Map(), fonts: new Set(), componentSets: [],
+    components: [],
   };
   const visitPaints = (arr) => (arr || []).forEach(p => {
     if (typeof p === 'string' && p.startsWith('#')) bump(census.colors, p.split('@')[0]);
   });
-  const visit = (n, pageName) => {
+  const visit = (n, pageName, underSet = false) => {
     visitPaints(n.fills);
     visitPaints(n.strokes);
     if (n.gap > 0) bump(census.spacing, n.gap);
@@ -800,9 +828,16 @@ export function buildCensus(pages) {
       bump(census.typography, [n.txt.font, n.txt.style || '', n.txt.size ?? '', n.txt.lh ?? '', n.txt.ls ?? ''].join('|'));
     }
     if (n.t === 'COMPONENT_SET') {
-      census.componentSets.push({ name: n.n, page: pageName, props: n.vp || {}, variants: n.kidCount || 0, sample: n.kids?.[0], key: n.key, id: n.id });
+      census.componentSets.push({
+        name: n.n, page: pageName, props: n.vp || {}, variants: n.kidCount || 0,
+        sample: n.kids?.[0], key: n.key, id: n.id, setKey: n.setKey, setId: n.setId,
+      });
     }
-    (n.kids || []).forEach(k => visit(k, pageName));
+    // A set's sample variant is walked as its child — it is NOT a standalone.
+    if (n.t === 'COMPONENT' && !underSet) {
+      census.components.push({ name: n.n, page: pageName, key: n.key, id: n.id });
+    }
+    (n.kids || []).forEach(k => visit(k, pageName, n.t === 'COMPONENT_SET'));
   };
   for (const page of pages) (page.frames || []).forEach(f => visit(f, page.name));
   return census;
@@ -1198,10 +1233,15 @@ export function generateDesignMd(extraction, options = {}) {
     }
     if (key === 'components') {
       header(key);
-      if (!census.componentSets.length) out.push('_no component sets found_', '');
+      const standalones = census.components || [];
+      if (!census.componentSets.length && !standalones.length) out.push('_no components found_', '');
       for (const cs of census.componentSets) {
         out.push(`### ${cs.name}`, '');
         out.push(`Page: ${cs.page} · ${cs.variants} variants`, '');
+        // Set key = the stable IDENTITY of the whole component (what a
+        // Storybook story mirrors). The Reuse line below stays the
+        // INSTANCING handle (default variant) — parseReuseLine depends on it.
+        if (cs.setKey) out.push(`Set key: \`${cs.setKey}\``, '');
         const reuse = reuseHandleLine({ key: cs.key, id: cs.id });
         if (reuse) out.push(reuse, '');
         out.push(variantMatrixTable(cs.props), '');
@@ -1209,6 +1249,12 @@ export function generateDesignMd(extraction, options = {}) {
           out.push('Sample variant structure:', '');
           out.push(...formatTree(cs.sample, 0), '');
         }
+      }
+      for (const c of standalones) {
+        out.push(`### ${c.name}`, '');
+        out.push(`Page: ${c.page} · standalone component`, '');
+        const reuse = reuseHandleLine({ key: c.key, id: c.id });
+        if (reuse) out.push(reuse, '');
       }
     }
     if (key === 'states') {

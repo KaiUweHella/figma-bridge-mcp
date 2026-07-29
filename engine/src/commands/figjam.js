@@ -101,63 +101,9 @@ program
     }
   });
 
-program
-  .command('export-storybook [nodeId]')
-  .description('Export components as Storybook stories')
-  .option('-o, --output <file>', 'Output file (otherwise stdout)')
-  .action(async (nodeId, options) => {
-    await checkConnection();
-
-    // Plugin bridge is the only execution path in the Safe-Mode build.
-    {
-      const code = `(async () => {
-        const components = [];
-        function findComponents(node) {
-          if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
-            components.push({
-              id: node.id,
-              name: node.name,
-              type: node.type,
-              width: Math.round(node.width),
-              height: Math.round(node.height)
-            });
-          }
-          if ('children' in node) node.children.forEach(c => findComponents(c));
-        }
-        figma.currentPage.children.forEach(c => findComponents(c));
-        return components;
-      })()`;
-
-      try {
-        const components = await fastEval(code);
-        if (!components.length) {
-          console.log(chalk.yellow('No components found on current page'));
-          return;
-        }
-
-        let output = '// Storybook stories generated from Figma\n';
-        output += 'import React from "react";\n\n';
-
-        components.forEach(c => {
-          const safeName = c.name.replace(/[^a-zA-Z0-9]/g, '');
-          output += `export const ${safeName} = () => (\n`;
-          output += `  <div style={{ width: ${c.width}, height: ${c.height} }}>\n`;
-          output += `    {/* ${c.name} - ID: ${c.id} */}\n`;
-          output += `  </div>\n`;
-          output += `);\n\n`;
-        });
-
-        if (options.output) {
-          writeFileSync(options.output, output);
-          console.log(chalk.green(`✓ Exported ${components.length} components to ${options.output}`));
-        } else {
-          console.log(output);
-        }
-      } catch (e) {
-        console.log(chalk.red('✗ Export failed: ' + e.message));
-      }
-    }
-  });
+// (export-storybook removed: it ignored its nodeId argument and emitted fake
+// empty-div "stories" with only file-local node ids — misleading next to the
+// real Figma↔Storybook bridge, `map storybook`.)
 
 // ============ FIGJAM ============
 

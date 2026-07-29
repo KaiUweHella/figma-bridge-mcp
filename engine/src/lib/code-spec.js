@@ -726,7 +726,10 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
           return `${axis}: ${(values || []).join('/')}${interactive ? ' ⚑' : ''}`;
         }).join(' · ')
         : '';
-      out.push(`- ${s.name}${axes ? ` — ${axes}` : ''} · [${s.id}]`);
+      // Full set key ONCE per set (not per instance): the stable identity a
+      // Storybook mapping (figma-map.json) is keyed by. The backtick form is
+      // what the MCP layer's annotation pass greps for.
+      out.push(`- ${s.name}${axes ? ` — ${axes}` : ''} · [${s.id}]${s.setKey ? ` · key \`${s.setKey}\`` : ''}`);
     }
     out.push('');
     if (anyInteractive) {
@@ -825,6 +828,7 @@ export function specModel(result, { phase = 'all', dedup = true } = {}) {
     // Content / identity (structure information):
     if (node.txt?.chars !== undefined) o.text = node.txt.chars;
     if (node.main) o.main = node.main;
+    if (node.mainKey) o.mainKey = node.mainKey;
     if (node.set) o.set = node.set;
     if (node.mc && !node.main) o.mc = node.mc;
     if (node.props) o.props = node.props;

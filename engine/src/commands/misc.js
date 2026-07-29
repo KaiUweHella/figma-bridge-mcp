@@ -313,6 +313,45 @@ gridCmd
 // ============ COMPONENT PROPERTIES ============
 // Manage variant/boolean/text/instance-swap properties on Figma components.
 
+/**
+ * Eval code for a component inventory — shared by `component list` and
+ * `map storybook`. Returns { componentSets, standaloneComponents } where
+ * `key` is the stable publish key (survives library publishing — the identity
+ * a Storybook/code mapping hangs on; node ids are file-local) and
+ * `defaultVariantId` marks the set's instancing handle.
+ */
+export function componentInventoryCode(allPages) {
+  return `(async () => {
+    ${allPages ? 'await figma.loadAllPagesAsync();' : ''}
+    const pages = ${allPages ? 'figma.root.children' : '[figma.currentPage]'};
+    const sets = [];
+    const singles = [];
+    const safeKey = (n) => { try { return n.key || null; } catch (e) { return null; } };
+    function walk(node, pageName) {
+      if (node.type === 'COMPONENT_SET') {
+        let axes = null;
+        try { axes = node.variantGroupProperties; } catch (e) {}
+        let dvId = null;
+        try { dvId = (node.defaultVariant || node.children[0] || {}).id || null; } catch (e) {}
+        sets.push({
+          id: node.id, name: node.name, page: pageName,
+          key: safeKey(node),
+          defaultVariantId: dvId,
+          variantAxes: axes,
+          variants: node.children.map(c => ({ id: c.id, name: c.name, key: safeKey(c) })),
+        });
+        return; // variants are already reported; don't double-count as singles
+      }
+      if (node.type === 'COMPONENT') {
+        singles.push({ id: node.id, name: node.name, page: pageName, key: safeKey(node) });
+      }
+      if ('children' in node) node.children.forEach(c => walk(c, pageName));
+    }
+    for (const page of pages) page.children.forEach(c => walk(c, page.name));
+    return { fileName: figma.root.name, componentSets: sets, standaloneComponents: singles };
+  })()`;
+}
+
 const componentCmd = program
   .command('component')
   .description('Manage component properties and variants');
@@ -324,30 +363,7 @@ componentCmd
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     await checkConnection();
-    const code = `(async () => {
-      ${options.allPages ? 'await figma.loadAllPagesAsync();' : ''}
-      const pages = ${options.allPages ? 'figma.root.children' : '[figma.currentPage]'};
-      const sets = [];
-      const singles = [];
-      function walk(node, pageName) {
-        if (node.type === 'COMPONENT_SET') {
-          let axes = null;
-          try { axes = node.variantGroupProperties; } catch (e) {}
-          sets.push({
-            id: node.id, name: node.name, page: pageName,
-            variantAxes: axes,
-            variants: node.children.map(c => ({ id: c.id, name: c.name })),
-          });
-          return; // variants are already reported; don't double-count as singles
-        }
-        if (node.type === 'COMPONENT') {
-          singles.push({ id: node.id, name: node.name, page: pageName });
-        }
-        if ('children' in node) node.children.forEach(c => walk(c, pageName));
-      }
-      for (const page of pages) page.children.forEach(c => walk(c, page.name));
-      return { componentSets: sets, standaloneComponents: singles };
-    })()`;
+    const code = componentInventoryCode(options.allPages);
     try {
       const r = await daemonExec('eval', { code });
       if (options.json) {
@@ -364,6 +380,7 @@ componentCmd
         console.log(chalk.cyan('\nComponent sets:'));
         r.componentSets.forEach(s => {
           console.log(`  ${chalk.white(s.name)} ${chalk.gray('(' + s.id + (options.allPages ? ', page: ' + s.page : '') + ')')}`);
+          if (s.key) console.log(chalk.gray(`    key: ${s.key}`));
           if (s.variantAxes) {
             Object.entries(s.variantAxes).forEach(([axis, def]) => {
               console.log(chalk.gray(`    ${axis}: ${def.values.join(' | ')}`));
@@ -375,7 +392,7 @@ componentCmd
       if (r.standaloneComponents.length > 0) {
         console.log(chalk.cyan('\nStandalone components:'));
         r.standaloneComponents.forEach(c => {
-          console.log(`  ${chalk.white(c.name)} ${chalk.gray('(' + c.id + (options.allPages ? ', page: ' + c.page : '') + ')')}`);
+          console.log(`  ${chalk.white(c.name)} ${chalk.gray('(' + c.id + (options.allPages ? ', page: ' + c.page : '') + (c.key ? ', key ' + c.key : '') + ')')}`);
         });
       }
       console.log();
@@ -407,9 +424,9 @@ componentCmd
         return;
       }
       console.log(chalk.cyan(`\n${r.instance.name} ${chalk.gray('(' + r.instance.id + ')')}`));
-      console.log(`  main: ${chalk.white(r.mainComponent.name)} ${chalk.gray('(' + r.mainComponent.id + (r.mainComponent.remote ? ', remote library' : '') + ')')}`);
+      console.log(`  main: ${chalk.white(r.mainComponent.name)} ${chalk.gray('(' + r.mainComponent.id + (r.mainComponent.key ? ', key ' + r.mainComponent.key : '') + (r.mainComponent.remote ? ', remote library' : '') + ')')}`);
       if (r.set) {
-        console.log(`  set:  ${chalk.white(r.set.name)} ${chalk.gray('(' + r.set.id + ', ' + r.set.variants.length + ' variants)')}`);
+        console.log(`  set:  ${chalk.white(r.set.name)} ${chalk.gray('(' + r.set.id + (r.set.key ? ', key ' + r.set.key : '') + ', ' + r.set.variants.length + ' variants)')}`);
       }
       if (r.variantProperties && Object.keys(r.variantProperties).length > 0) {
         console.log('  variant values:');

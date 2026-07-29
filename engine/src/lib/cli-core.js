@@ -208,13 +208,17 @@ function componentContextExpr(nodeVar) {
     if (t !== 'INSTANCE' && t !== 'COMPONENT' && t !== 'COMPONENT_SET') return ctx;
     ctx.role = t;
     let main = null, setNode = null;
+    const safeKey = (n) => { try { return n.key || null; } catch (e) { return null; } };
     if (t === 'INSTANCE') {
       main = await __n.getMainComponentAsync();
-      if (main) ctx.mainComponent = { id: main.id, name: main.name, key: main.key || null, remote: !!main.remote };
+      if (main) ctx.mainComponent = { id: main.id, name: main.name, key: safeKey(main), remote: !!main.remote };
       try { ctx.componentProperties = __n.componentProperties || null; } catch (e) {}
       try { ctx.variantProperties = __n.variantProperties || null; } catch (e) {}
     } else if (t === 'COMPONENT') {
       main = __n;
+      // Inspecting a COMPONENT directly also reports its own stable key —
+      // previously only instances surfaced one.
+      ctx.mainComponent = { id: __n.id, name: __n.name, key: safeKey(__n), remote: !!__n.remote };
       try { ctx.variantProperties = __n.variantProperties || null; } catch (e) {}
     } else {
       setNode = __n;
@@ -222,7 +226,7 @@ function componentContextExpr(nodeVar) {
     }
     if (!setNode && main && main.parent && main.parent.type === 'COMPONENT_SET') setNode = main.parent;
     if (setNode) {
-      ctx.set = { id: setNode.id, name: setNode.name, variants: setNode.children.map(c => ({ id: c.id, name: c.name })) };
+      ctx.set = { id: setNode.id, name: setNode.name, key: safeKey(setNode), variants: setNode.children.map(c => ({ id: c.id, name: c.name })) };
     }
     // Property definitions live on the set (variant children throw when asked);
     // for a standalone component/instance they live on the main component.

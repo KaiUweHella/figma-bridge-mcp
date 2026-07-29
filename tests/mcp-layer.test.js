@@ -141,6 +141,49 @@ test('figma_selection tool schema exists and takes no parameters', async () => {
   assert.match(unknownParamError('figma_selection', { nodeId: '1:2' }), /This tool takes no parameters/);
 });
 
+test('normalizeOutputArgs anchors map storybook output to the client workspace', async () => {
+  const { normalizeOutputArgs } = await import('../src/figma-cli.js');
+  const base = '/work/project';
+  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base).slice(-2),
+    ['-o', '/work/project/figma-map.json']);
+  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '-o', 'maps/m.json'], base),
+    ['map', 'storybook', 'u', '-o', '/work/project/maps/m.json']);
+  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '--output=m.json'], base),
+    ['map', 'storybook', 'u', '--output=/work/project/m.json']);
+});
+
+test('figma-map: loader tolerates missing/corrupt files, annotates via both keys', async () => {
+  const { loadFigmaMap, annotationFor, storybookTrailer } = await import('../src/figma-map.js');
+  const { writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'figma-map-'));
+
+  // Missing file → null / no annotation / empty trailer — never throws.
+  assert.equal(loadFigmaMap(dir), null);
+  assert.equal(annotationFor('anykey', dir), null);
+  assert.equal(storybookTrailer('key `anykey`', dir), '');
+
+  // Corrupt file → same graceful behavior.
+  writeFileSync(join(dir, 'figma-map.json'), '{not json');
+  assert.equal(loadFigmaMap(dir), null);
+
+  // Valid map: lookup over BOTH figmaKey and figmaVariantKey.
+  writeFileSync(join(dir, 'figma-map.json'), JSON.stringify({
+    version: 1,
+    mappings: [{
+      figmaName: 'Button', figmaKey: 'setkey1', figmaVariantKey: 'varkey1',
+      storyId: 'components-button--primary', importPath: './src/Button.stories.tsx',
+    }],
+  }));
+  assert.match(annotationFor('setkey1', dir), /↔ story components-button--primary \(\.\/src\/Button\.stories\.tsx\)/);
+  assert.match(annotationFor('varkey1', dir), /components-button--primary/);
+  assert.equal(annotationFor('unknown', dir), null);
+
+  // Trailer: dedupes multiple hits of the same story, ignores unmapped keys.
+  const trailer = storybookTrailer('- A · key `setkey1`\n- B · key `varkey1`\n- C · key `nope`', dir);
+  assert.match(trailer, /## Storybook mapping/);
+  assert.equal((trailer.match(/components-button--primary/g) || []).length, 1);
+});
+
 test('server.js parses — a syntax error here means "cannot attach to figma-safe"', async () => {
   // The suite never imports src/server.js (importing would START the stdio
   // server), so a template-literal typo in TOOLS/INSTRUCTIONS used to reach

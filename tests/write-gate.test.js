@@ -77,6 +77,12 @@ test('unknown subcommands of gated groups default to WRITE (safe direction)', ()
   assert.equal(isWrite(['tokens', 'future-subcommand']), true);
 });
 
+test('map writes a repo file (figma-map.json), never the design — not gated', () => {
+  assert.equal(isWrite(['map', 'storybook', 'http://localhost:6006']), false);
+  assert.equal(isWrite(['map']), false);
+  assert.equal(isWrite(['map', '--help']), false);
+});
+
 test('help flags and bare group commands never gate', () => {
   assert.equal(isWrite(['render', '--help']), false);
   assert.equal(isWrite(['tokens', '-h']), false);

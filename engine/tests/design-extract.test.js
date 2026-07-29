@@ -83,6 +83,28 @@ test('buildCensus carries key/id from a COMPONENT_SET walker node', () => {
   assert.equal(census.componentSets[0].id, '10:5');
 });
 
+test('buildCensus: setKey/setId carried; standalone components collected; set variants excluded', () => {
+  const pages = [{ id: '1:1', name: 'P', nodeCount: 1, frames: [
+    { t: 'COMPONENT_SET', n: 'Button', vp: { Size: { values: ['S'] } },
+      kidCount: 1, key: 'dvkey', id: '10:5', setKey: 'setkey', setId: '10:4',
+      kids: [{ t: 'COMPONENT', n: 'Size=S', key: 'dvkey', id: '10:5' }] },
+    { t: 'COMPONENT', n: 'Logo', key: 'logokey', id: '20:1' },
+  ] }];
+  const census = buildCensus(pages);
+  assert.equal(census.componentSets[0].setKey, 'setkey');
+  assert.equal(census.componentSets[0].setId, '10:4');
+  // The set's sample variant is NOT a standalone; Logo is.
+  assert.equal(census.components.length, 1);
+  assert.deepEqual(census.components[0], { name: 'Logo', page: 'P', key: 'logokey', id: '20:1' });
+});
+
+test('walkerCode captures set identity and standalone component keys', () => {
+  const code = walkerCode('1:1');
+  assert.match(code, /o\.setId = n\.id/);
+  assert.match(code, /o\.setKey = n\.key/);
+  assert.match(code, /o\.mainKey = main\.key/);
+});
+
 test('assignSemanticNames classifies by lightness and chroma', () => {
   const colors = new Map([
     ['#ffffff', 50],  // near-white → background

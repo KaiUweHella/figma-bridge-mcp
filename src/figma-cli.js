@@ -65,6 +65,9 @@ export const ALLOWED_COMMANDS = new Set([
   "extract",
   "spec",
   "analyze",
+  // map writes figma-map.json (Figma↔Storybook component mapping) into the
+  // client project — file-write only, never touches the Figma document.
+  "map",
 ]);
 
 // Discoverability: the top-level help flag is read-only (commander prints the
@@ -310,6 +313,23 @@ export function normalizeOutputArgs(rawArgs, baseDir = process.cwd()) {
       return args;
     }
     args.push("-o", abs(args[1] === "node" ? "node-export.png" : "screenshot.png"));
+    return args;
+  }
+
+  // map storybook writes figma-map.json — anchor it in the client project.
+  if (args[0] === "map") {
+    const idx = args.findIndex((a) => a === "-o" || a === "--output");
+    if (idx !== -1 && typeof args[idx + 1] === "string") {
+      args[idx + 1] = abs(args[idx + 1]);
+      return args;
+    }
+    const eqIdx = args.findIndex((a) => /^(--output|-o)=/.test(a));
+    if (eqIdx !== -1) {
+      const [flag, ...rest] = args[eqIdx].split("=");
+      args[eqIdx] = `${flag}=${abs(rest.join("="))}`;
+      return args;
+    }
+    args.push("-o", abs("figma-map.json"));
     return args;
   }
 

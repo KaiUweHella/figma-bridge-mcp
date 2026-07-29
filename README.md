@@ -89,7 +89,7 @@ Point your MCP client at the server (adjust the path):
 | `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
 | `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
 | `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files. `figma_run`/`figma_render` accept a `label` to annotate entries. |
-| `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin UI. The user selects; the agent reads the ids instead of asking for them. |
+| `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their main component with the stable publish `key`, and mapped components show their Storybook story. |
 
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
 form `12-34`, or a full Figma URL (the file key is checked against the
@@ -145,6 +145,27 @@ than interpreting it. Build a screen from Figma in five steps:
 6. **Verify** — screenshot your build and compare against the PNG from step 1.
 
 The same spec is available on the CLI as `figma-cli export code-spec <nodeId>`.
+
+## Storybook mirroring
+
+Figma components carry a **stable publish key** (survives library publishing;
+node ids are file-local). The key now flows through `figma_spec` (json/yaml
+model + the "Component sets used" trailer), `figma_selection`, `component
+list`, `figma_inspect`, and DESIGN.md.
+
+To link them to their code mirror:
+
+```bash
+figma-cli map storybook http://localhost:6006
+```
+
+(or via MCP: `figma_run` with `["map","storybook","http://localhost:6006"]`).
+This matches the file's components against the Storybook index by normalized
+name and writes **`figma-map.json`** into your project: Figma key ↔ story id /
+import path, with a `confidence` per match plus both unmatched lists. Edit
+entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
+survive re-runs. When the file exists, `figma_selection` and `figma_spec`
+annotate components with `↔ story <id> (<importPath>)` automatically.
 
 ## Security model
 

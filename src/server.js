@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, withAbsoluteOutputDir, normalizeOutputArgs } from "./figma-cli.js";
 import { buildHistory } from "./history.js";
+import { annotationFor, storybookTrailer } from "./figma-map.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
 import { WRITE_CONFIRM } from "./config.js";
 
@@ -29,6 +30,9 @@ import { WRITE_CONFIRM } from "./config.js";
 //   WRITE — the safe direction for a confirm gate.
 // - `tokens` is special: the bare command exports (read); of its
 //   subcommands only `overlap` is a read.
+// - `map` is deliberately NOT gated: it writes a repo file (figma-map.json),
+//   never the Figma document — same class as `extract` (writes DESIGN.md).
+//   FIGMA_WRITE_CONFIRM protects the design file, not the filesystem.
 const ALWAYS_WRITE = new Set([
   "render",
   "render-batch",
@@ -350,7 +354,20 @@ output may not resolve in follow-up calls; prefer the top-level instance id.
 
 figma_run gives access to further read commands: ["node","tree","<id>"],
 ["analyze","colors"], ["extract"] (writes DESIGN.md), ["verify","<id>"].
-Append --help to any command for syntax.`;
+Append --help to any command for syntax.
+
+Storybook mirroring: ["map","storybook","<url|dir>"] matches the Figma file's
+components (stable publish keys) against a running/built Storybook and writes
+figma-map.json into your project. When that file exists, figma_selection and
+figma_spec annotate components with their story (↔ story <id>). Edit entries
+by hand and set "matchedBy": "manual" to pin them across re-runs.
+
+When you BUILD components + stories from a Figma design: name each component
+and its story title after the Figma component/set name from the spec (the
+"Component sets used" trailer, or the main/set fields on instances) — e.g.
+Figma set "Button" → story title "Components/Button". Matching is name-based;
+matching names give high-confidence automatic links. Run map storybook as the
+LAST step, once the stories exist.`;
 
 function textResult(text) {
   return { content: [{ type: "text", text: text || "" }] };
@@ -565,7 +582,13 @@ async function handleTool(name, rawArgs) {
       }
       const lines = s.nodes.map((n) => {
         const size = n.width !== undefined ? ` — ${n.width}×${n.height}` : "";
-        return `- ${n.id}  ${n.type}  "${n.name}"${size}`;
+        // Component identity: resolved main component (instances) or own key.
+        const comp = n.mainName ? ` → ${n.setName ? n.setName + " / " : ""}${n.mainName}` : "";
+        const key = n.setKey || n.componentKey;
+        const keyPart = key ? `  key \`${key}\`` : "";
+        // Storybook mirror from figma-map.json, when one exists.
+        const story = key ? annotationFor(key) : null;
+        return `- ${n.id}  ${n.type}  "${n.name}"${size}${comp}${keyPart}${story ? `  ${story}` : ""}`;
       });
       const more = s.total > s.nodes.length ? `\n(+${s.total - s.nodes.length} more selected)` : "";
       return textResult(
@@ -696,6 +719,10 @@ async function handleTool(name, rawArgs) {
         args.push("-d", String(depth));
       }
       const res = await runCli(args);
+      // Append the Storybook mirror for every component key in the spec —
+      // purely additive, no-op without a figma-map.json in the project.
+      const trailer = storybookTrailer(res.stdout || "");
+      if (trailer) res.stdout = (res.stdout || "") + trailer;
       return resultFromCli(res);
     }
 

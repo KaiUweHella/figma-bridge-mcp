@@ -437,6 +437,12 @@ wss.on('connection', (ws) => {
               type: String(n.type || ''),
               ...(Number.isFinite(n.width) ? { width: n.width } : {}),
               ...(Number.isFinite(n.height) ? { height: n.height } : {}),
+              // Component identity (stable publish keys) — whitelist them
+              // explicitly or they are silently dropped here.
+              ...(typeof n.componentKey === 'string' && n.componentKey ? { componentKey: n.componentKey.slice(0, 128) } : {}),
+              ...(typeof n.setKey === 'string' && n.setKey ? { setKey: n.setKey.slice(0, 128) } : {}),
+              ...(typeof n.mainName === 'string' && n.mainName ? { mainName: n.mainName.slice(0, 256) } : {}),
+              ...(typeof n.setName === 'string' && n.setName ? { setName: n.setName.slice(0, 256) } : {}),
             }))
           : [],
         receivedAt: new Date().toISOString(),

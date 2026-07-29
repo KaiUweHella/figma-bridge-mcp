@@ -120,6 +120,19 @@ test('storybook: v6 stories.json shape also parses', () => {
   } });
   const { meta } = parseStorybookIndex(v6);
   assert.equal(meta.components[0].name, 'Button');
+  // v6 entries carry ids too — the mapping needs them.
+  assert.deepEqual(meta.components[0].stories, [{ id: 'button--primary', name: 'Primary', importPath: undefined }]);
+});
+
+test('storybook: keeps story ids, title and importPath (mapping identity)', () => {
+  const { meta } = parseStorybookIndex(fixture('storybook-index.json'));
+  const button = meta.components.find(c => c.name === 'Button');
+  assert.equal(button.title, 'Components/Button');
+  assert.equal(button.importPath, './src/Button.stories.tsx');
+  assert.deepEqual(button.stories.map(s => s.id),
+    ['components-button--primary', 'components-button--secondary']); // docs entry skipped
+  // Back-compat: variants stays a plain string array (design-md consumers).
+  assert.deepEqual(button.variants, ['Primary', 'Secondary']);
 });
 
 import { convert, detectSourceType } from '../src/code-import/index.js';

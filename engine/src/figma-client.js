@@ -3953,36 +3953,8 @@ export class FigmaClient {
     `);
   }
 
-  /**
-   * Export component to Storybook story
-   */
-  async exportToStorybook(nodeId) {
-    const jsxResult = await this.exportToJSX(nodeId);
-    if (jsxResult.error) return jsxResult;
-
-    const nodeInfo = await this.getNode(nodeId);
-    const componentName = (nodeInfo.name || 'Component').replace(/[^a-zA-Z0-9]/g, '');
-
-    const story = `import type { Meta, StoryObj } from '@storybook/react';
-
-// Auto-generated from Figma
-const ${componentName} = () => (
-${jsxResult.jsx.split('\n').map(l => '  ' + l).join('\n')}
-);
-
-const meta: Meta<typeof ${componentName}> = {
-  title: 'Components/${componentName}',
-  component: ${componentName},
-};
-
-export default meta;
-type Story = StoryObj<typeof ${componentName}>;
-
-export const Default: Story = {};
-`;
-
-    return { story, componentName };
-  }
+  // (exportToStorybook removed — dead code with zero callers; the real
+  // Figma↔Storybook bridge is `map storybook` / figma-map.json.)
 
   // ============ Visual Diff ============
 

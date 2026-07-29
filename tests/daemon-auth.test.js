@@ -200,7 +200,11 @@ test('/selection: plugin push is cached and served with auth', async () => {
       type: 'selection',
       selection: { page: 'Page 1', total: 2, nodes: [
         { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 },
-        { id: '1:3', name: 'CTA', type: 'INSTANCE' },
+        // Component identity fields must pass the whitelist; junk must not,
+        // and over-length keys are truncated.
+        { id: '1:3', name: 'CTA', type: 'INSTANCE',
+          componentKey: 'k'.repeat(200), setKey: 'sk1', mainName: 'Primary', setName: 'Button',
+          evil: 'dropped', __proto__injection: 'dropped' },
       ] },
     }));
     await new Promise((r) => setTimeout(r, 150)); // let the daemon process it
@@ -215,6 +219,12 @@ test('/selection: plugin push is cached and served with auth', async () => {
   assert.equal(body.selection.total, 2);
   assert.equal(body.selection.nodes.length, 2);
   assert.deepEqual(body.selection.nodes[0], { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 });
+  const inst = body.selection.nodes[1];
+  assert.equal(inst.componentKey, 'k'.repeat(128)); // truncated to cap
+  assert.equal(inst.setKey, 'sk1');
+  assert.equal(inst.mainName, 'Primary');
+  assert.equal(inst.setName, 'Button');
+  assert.ok(!('evil' in inst), 'unknown fields are dropped');
   assert.ok(body.selection.receivedAt);
 
   // Unauthenticated read is rejected like every other route.

@@ -64,24 +64,50 @@ function errorMessage(error) {
 // Fully automatic: every selection change is pushed (debounced) — the UI
 // displays it and forwards it to the daemon, where the MCP tool
 // figma_selection picks it up. There is no button; selecting IS the gesture.
-function selectionSnapshot() {
-  const nodes = figma.currentPage.selection.slice(0, 50).map((n) => {
+//
+// Component identity: for the first few nodes the STABLE publish key is
+// resolved (main component for instances, own key for components/sets) so a
+// Storybook/code mapping can identify the component — node ids are file-local.
+const KEY_RESOLVE_CAP = 10; // bound the async main-component lookups per push
+
+async function selectionSnapshot() {
+  const selection = figma.currentPage.selection;
+  const nodes = [];
+  for (let i = 0; i < Math.min(selection.length, 50); i++) {
+    const n = selection[i];
     const entry = { id: n.id, name: n.name, type: n.type };
     try {
       entry.width = Math.round(n.width);
       entry.height = Math.round(n.height);
     } catch (e) {}
-    return entry;
-  });
+    if (i < KEY_RESOLVE_CAP) {
+      try {
+        if (n.type === 'INSTANCE') {
+          const main = await n.getMainComponentAsync();
+          if (main) {
+            entry.mainName = main.name;
+            if (main.key) entry.componentKey = main.key;
+            if (main.parent && main.parent.type === 'COMPONENT_SET') {
+              entry.setName = main.parent.name;
+              if (main.parent.key) entry.setKey = main.parent.key;
+            }
+          }
+        } else if (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') {
+          if (n.key) entry.componentKey = n.key;
+        }
+      } catch (e) {}
+    }
+    nodes.push(entry);
+  }
   return {
     page: figma.currentPage.name,
-    total: figma.currentPage.selection.length,
+    total: selection.length,
     nodes,
   };
 }
 
-function pushSelection() {
-  figma.ui.postMessage({ type: 'selection-snapshot', selection: selectionSnapshot() });
+async function pushSelection() {
+  figma.ui.postMessage({ type: 'selection-snapshot', selection: await selectionSnapshot() });
 }
 
 // Auto-push on selection change (debounced) so the agent's figma_selection is
