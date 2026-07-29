@@ -21,7 +21,7 @@ terminal. Open Figma Desktop, then \`figma-cli connect\` once per session.
 1. **Create frames with \`render\` / \`render-batch\`** — they have smart positioning.
    NEVER use \`eval\` to create visual nodes (no positioning, bypasses guards).
 2. **"N buttons/cards" = N separate top-level nodes**, not one wrapper frame
-   containing N children. Use \`render-batch '[...]'\` or \`shadcn add <c> --count N\`.
+   containing N children. Use \`render-batch '[...]'\`.
 3. **Never delete the user's existing nodes.**
 4. After creating, **verify**: \`figma-cli verify "<id>" --measure\` (returns a
    screenshot + real w/h so you catch size bugs by numbers, not by eye).
@@ -57,7 +57,6 @@ Don't read the structure markdown by hand. Use:
 figma-cli connect                      # connect to Figma Desktop (yolo)
 figma-cli render '<Frame>...</Frame>'  # one frame
 figma-cli render-batch '[ "<Frame>", ... ]' --direction row
-figma-cli shadcn add button --count 3  # N distinct shadcn primitives
 figma-cli node to-component "<id>"     # promote to a component
 figma-cli verify "<id>" --measure      # screenshot + dimensions
 figma-cli a11y audit                   # contrast / touch / text checks

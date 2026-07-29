@@ -25,8 +25,17 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { createHash, timingSafeEqual } from 'crypto';
 import { FigmaClient } from './figma-client.js';
+import { parsePortRange, writePortFile, clearPortFile } from './lib/daemon-port.js';
 
-const PORT = parseInt(process.env.DAEMON_PORT) || 3456;
+// Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
+// only reach the manifest range — off-range values are documented unsupported).
+// Without it, the daemon walks the range and binds the first free port, which
+// the plugin's parallel port scan finds on its own.
+const EXPLICIT_PORT = parseInt(process.env.DAEMON_PORT, 10);
+const PORT_CANDIDATES = Number.isInteger(EXPLICIT_PORT) && EXPLICIT_PORT > 0
+  ? [EXPLICIT_PORT]
+  : parsePortRange();
+let boundPort = null; // set once the HTTP server wins a bind
 // Safe-Mode build: the daemon is always the plugin bridge. Kept as a constant
 // (not env-driven) so no configuration can re-enable a CDP path.
 const MODE = 'plugin';
@@ -309,6 +318,12 @@ const wss = new WebSocketServer({
   }
 });
 
+// ws re-emits the underlying server's errors (including the EADDRINUSE of a
+// failed bind attempt) on the WebSocketServer. Without a listener that becomes
+// an uncaught 'error' event and kills the process before the fallback loop in
+// start() can try the next port. The HTTP-server side owns error handling.
+wss.on('error', () => {});
+
 const AUTH_TIMEOUT_MS = 5000;
 
 wss.on('connection', (ws) => {
@@ -401,24 +416,93 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Singleton guard: a second daemon (concurrent CLI race) fails to bind the port.
-// Exit it cleanly before it does any work and without touching the PID file.
-httpServer.on('error', (err) => {
-  if (err && err.code === 'EADDRINUSE') {
-    console.log(`[daemon] Port ${PORT} already owned by another daemon — exiting (singleton).`);
-    process.exit(0);
+// Probe whether the process holding `port` is one of our daemons — WITHOUT
+// sending the session token (a foreign squatter on the port must never see
+// it). Our daemon answers unauthenticated /health with 403 and a JSON body
+// whose `error` starts with "Unauthorized". A squatter mimicking that shape
+// can only cause a benign "already running" exit — it holds the port either way.
+async function looksLikeOurDaemon(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(300),
+    });
+    if (res.status !== 403) return false;
+    const body = await res.json();
+    return typeof body.error === 'string' && body.error.startsWith('Unauthorized');
+  } catch {
+    return false;
   }
+}
+
+function tryListen(port) {
+  return new Promise((resolve, reject) => {
+    const onError = (err) => reject(err);
+    httpServer.once('error', onError);
+    httpServer.listen(port, '127.0.0.1', () => {
+      httpServer.removeListener('error', onError);
+      resolve();
+    });
+  });
+}
+
+async function start() {
+  // Split-brain guard: an existing daemon may sit on a LATER range port (its
+  // start-time squatter since gone). Binding 3456 now would give two daemons,
+  // with the plugin scan connecting to whichever answers first. Scan the whole
+  // range for one of ours before binding anything. Skipped for an explicit
+  // DAEMON_PORT — the singleton check below covers the single candidate.
+  if (PORT_CANDIDATES.length > 1) {
+    for (const port of PORT_CANDIDATES) {
+      if (await looksLikeOurDaemon(port)) {
+        console.log(`[daemon] Already running on port ${port} — exiting (singleton).`);
+        process.exit(0);
+      }
+    }
+  }
+
+  for (const port of PORT_CANDIDATES) {
+    try {
+      await tryListen(port);
+      boundPort = port;
+      break;
+    } catch (err) {
+      if (err && err.code === 'EADDRINUSE') {
+        if (await looksLikeOurDaemon(port)) {
+          console.log(`[daemon] Port ${port} already owned by another daemon — exiting (singleton).`);
+          process.exit(0);
+        }
+        console.log(`[daemon] Port ${port} held by a foreign process — trying next.`);
+        continue;
+      }
+      console.error('[daemon] server error:', err);
+      process.exit(1);
+    }
+  }
+
+  if (boundPort === null) {
+    console.error(
+      `[daemon] All ports ${PORT_CANDIDATES.join(', ')} are busy. ` +
+      `Free one of them or set DAEMON_PORT (note: the Figma plugin can only reach 3456-3460).`
+    );
+    process.exit(1);
+  }
+
+  try { writeFileSync(PID_FILE, String(process.pid)); } catch {}
+  writePortFile(boundPort);
+  console.log(`[daemon] figma-safe-mcp daemon running on port ${boundPort} (pid ${process.pid})`);
+  console.log(`[daemon] Mode: plugin (Safe Mode only)`);
+  console.log(`[daemon] Idle timeout: ${IDLE_TIMEOUT_MS / 1000}s`);
+  console.log(`[daemon] Auth: HTTP token + plugin access key required`);
+}
+
+// Unexpected errors after a successful bind (the pre-bind path handles its own).
+httpServer.on('error', (err) => {
+  if (boundPort === null) return; // tryListen owns pre-bind errors
   console.error('[daemon] server error:', err);
   process.exit(1);
 });
 
-httpServer.listen(PORT, '127.0.0.1', () => {
-  try { writeFileSync(PID_FILE, String(process.pid)); } catch {}
-  console.log(`[daemon] figma-safe-mcp daemon running on port ${PORT} (pid ${process.pid})`);
-  console.log(`[daemon] Mode: plugin (Safe Mode only)`);
-  console.log(`[daemon] Idle timeout: ${IDLE_TIMEOUT_MS / 1000}s`);
-  console.log(`[daemon] Auth: HTTP token + plugin access key required`);
-});
+start();
 
 // Graceful shutdown
 process.on('SIGTERM', shutdown);
@@ -428,6 +512,9 @@ function shutdown() {
   console.log('[daemon] Shutting down...');
   if (idleTimer) clearTimeout(idleTimer);
   if (pluginWs) pluginWs.close();
+  // Only clear the port file if it still names our port — a dying old daemon
+  // must not delete a newer daemon's published port.
+  if (boundPort !== null) clearPortFile(process.env, boundPort);
   httpServer.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000);
 }

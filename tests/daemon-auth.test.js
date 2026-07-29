@@ -61,6 +61,9 @@ before(async () => {
       DAEMON_PORT: String(PORT),
       DAEMON_TOKEN_FILE: tokenFile,
       DAEMON_PID_FILE: pidFile,
+      // Keep the test daemon's published-port file out of ~/.figma-safe-mcp —
+      // a SIGKILLed test run must never leave a stale real port file behind.
+      DAEMON_PORT_FILE: join(tmp, 'port'),
       PLUGIN_KEY_FILE: keyFile,
       DAEMON_IDLE_TIMEOUT: '600000',
     },

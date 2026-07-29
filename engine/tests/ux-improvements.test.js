@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { FigmaClient } from '../src/figma-client.js';
-import { getVariety } from '../src/shadcn.js';
 
 const client = new FigmaClient();
 
@@ -42,61 +41,24 @@ describe('unresolved vars in single render', () => {
     assert.ok(/__unresolved\.length > 0/.test(code), 'must return wrapped object when unresolved vars exist');
   });
 
-  // Regression: shadcn components bound to var:primary etc. used to render
-  // grey-on-grey (invisible text) when no matching variable existed, because
-  // boundFill fell back to opaque grey for BOTH fill and text. The fallback now
-  // resolves to the semantic token's real default color so components stay
-  // visible WITHOUT requiring any variables to be loaded.
-  it('unresolved semantic vars fall back to their real default color, not grey', async () => {
+  // Neutral-tool policy: the renderer ships NO built-in design-system color
+  // table. Unresolved var: references fall back to neutral grey and are
+  // reported via __unresolvedVars — never silently painted with third-party
+  // default colors.
+  it('unresolved vars fall back to neutral grey with a warning — no built-in color table', async () => {
     const single = await client.parseJSX('<Frame name="B" bg="var:primary"><Text color="var:primary-foreground">x</Text></Frame>');
     const batch = await client.parseJSXBatch(['<Frame name="B" bg="var:primary"><Text color="var:primary-foreground">x</Text></Frame>']);
     for (const [label, code] of [['single', single], ['batch', batch]]) {
-      assert.ok(code.includes('__varDefaults'), `${label}: default-color map must be embedded`);
-      assert.ok(code.includes('__defaultColor'), `${label}: default-color resolver must be present`);
-      // primary default is dark zinc, primary-foreground is near-white — both
-      // must be in the embedded map so bg + text don't collapse to grey.
-      assert.ok(code.includes('"primary"') && code.includes('0.094'), `${label}: primary default (dark) must be present`);
-      assert.ok(code.includes('"primary-foreground"') && code.includes('0.98'), `${label}: primary-foreground default (near-white) must be present`);
+      assert.ok(!code.includes('__varDefaults'), `${label}: no default-color map may be embedded`);
+      assert.ok(!code.includes('__defaultColor'), `${label}: no default-color resolver may be present`);
+      assert.ok(code.includes('__unresolvedVars'), `${label}: unresolved names must still be tracked and surfaced`);
+      assert.ok(code.includes('{ r: 0.5, g: 0.5, b: 0.5 }'), `${label}: fallback paint is neutral grey`);
     }
   });
 });
 
-// ----------------------------------------------------------------
-// Variety pools: `shadcn add card --count N` gives N DIFFERENT cards
-// ----------------------------------------------------------------
-describe('component variety pools', () => {
-  it('card --count N yields N DISTINCT designs (not clones)', () => {
-    const four = getVariety('card', 4);
-    assert.strictEqual(four.length, 4, 'must return exactly N items');
-    assert.strictEqual(new Set(four.map(c => c.jsx)).size, 4, 'all 4 must be different layouts');
-    assert.strictEqual(new Set(four.map(c => c.name)).size, 4, 'each gets a distinct, descriptive name');
-    four.forEach(c => {
-      assert.ok(c.name.startsWith('Card '), `name "${c.name}" must be a descriptive Card name, not bare "Card"`);
-      assert.ok(c.jsx.includes(`name="${c.name}"`), 'JSX root frame name must match the descriptive name');
-    });
-  });
-
-  it('cycles through the pool when N exceeds its size', () => {
-    const eight = getVariety('card', 8);
-    assert.strictEqual(eight.length, 8, 'still returns N items');
-    assert.ok(new Set(eight.map(c => c.jsx)).size >= 6, 'covers the whole pool before repeating');
-  });
-
-  it('button --count N yields N DISTINCT styles with descriptive names', () => {
-    const four = getVariety('button', 4);
-    assert.strictEqual(four.length, 4, 'must return exactly N items');
-    assert.strictEqual(new Set(four.map(b => b.jsx)).size, 4, 'all 4 must be different styles');
-    assert.strictEqual(new Set(four.map(b => b.name)).size, 4, 'each gets a distinct, descriptive name');
-    four.forEach(b => {
-      assert.ok(b.name.startsWith('Button ') && b.name !== 'Button', `name "${b.name}" must distinguish the style, not bare "Button"`);
-      assert.ok(b.jsx.includes(`name="${b.name}"`), 'JSX root frame name must match the descriptive name');
-    });
-  });
-
-  it('returns null for components without a variety pool', () => {
-    assert.strictEqual(getVariety('badge', 3), null, 'components without a pool clone the default');
-  });
-});
+// (The shadcn variety-pool tests were removed together with the shadcn
+// generator — the engine ships no third-party design-system content.)
 
 // ----------------------------------------------------------------
 // Unknown prop validation with suggestions

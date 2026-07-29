@@ -17,7 +17,7 @@ import {
   CONNECT_TIMEOUT_MS,
   ENGINE_CWD,
   DAEMON_HOST,
-  DAEMON_PORT,
+  getDaemonPort,
   DAEMON_TOKEN_FILE,
   PLUGIN_KEY_FILE,
   buildArgv,
@@ -33,11 +33,11 @@ const engineEnv = { ...process.env, PLUGIN_KEY_FILE };
 // Allowlisted first-token subcommands. `connect` is deliberately excluded.
 // Verified against figma-cli's top-level commands (`var`/`col` are real aliases
 // of `variables`/`colors`).
+// `blocks` and `shadcn` are gone on purpose: the engine ships no third-party
+// design-system generators, so there is nothing to allowlist.
 export const ALLOWED_COMMANDS = new Set([
   "render",
   "render-batch",
-  "blocks",
-  "shadcn",
   "combos",
   "sizes",
   "node",
@@ -59,6 +59,12 @@ export const ALLOWED_COMMANDS = new Set([
   "pin",
   "api",
   "import",
+  // Read-only design-to-code surface: extract writes DESIGN.md (filesystem,
+  // not the design), spec reads/enforces it, analyze reports color/typo/
+  // spacing censuses. None of them mutate the Figma file.
+  "extract",
+  "spec",
+  "analyze",
 ]);
 
 // Discoverability: the top-level help flag is read-only (commander prints the
@@ -90,6 +96,30 @@ function isoNow() {
   return new Date().toISOString();
 }
 
+// Node ids referenced by a command, for the local history (figma_history).
+// Plain "12:34" plus the URL form "node-id=12-34". Best-effort: a "12:30"
+// inside free text matches too — acceptable for a history filter.
+const NODE_ID_RE = /\b\d+:\d+\b/g;
+const URL_NODE_ID_RE = /node-id=(\d+)-(\d+)/g;
+
+/**
+ * Extract Figma node ids from a list of strings, normalized to "d:d",
+ * deduplicated and capped.
+ * @param {string[]} strings
+ * @param {number} [cap]
+ * @returns {string[]}
+ */
+export function extractNodeIds(strings, cap = 50) {
+  const ids = new Set();
+  for (const s of strings) {
+    if (typeof s !== "string") continue;
+    for (const m of s.matchAll(URL_NODE_ID_RE)) ids.add(`${m[1]}:${m[2]}`);
+    for (const m of s.matchAll(NODE_ID_RE)) ids.add(m[0]);
+    if (ids.size >= cap) break;
+  }
+  return [...ids].slice(0, cap);
+}
+
 function validateArgs(args) {
   if (!Array.isArray(args) || args.length === 0) {
     throw new Error("args must be a non-empty array of strings");
@@ -109,22 +139,36 @@ function validateArgs(args) {
 /**
  * Run an allowlisted figma-cli command.
  * @param {string[]} args
+ * @param {{timeoutMs?: number, label?: string}} [opts] - per-call timeout
+ *   override (long-running exports need more than the default EXEC_TIMEOUT_MS);
+ *   `label` is a short human intent note stored in the audit/history log.
  * @returns {Promise<{stdout: string, stderr: string, code: number}>}
  */
-export async function runCli(args) {
+export async function runCli(args, opts = {}) {
   validateArgs(args);
 
   const command = args[0];
   if (!ALLOWED_COMMANDS.has(command) && !HELP_TOKENS.has(command)) {
-    throw new Error(`Command not allowed: ${command}`);
+    // Name the allowlist right in the error — agents were guessing command
+    // names one rejection at a time (style, select, selection, …).
+    throw new Error(
+      `Command not allowed: ${command}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
+    );
   }
 
   const { cmd, argv } = buildArgv(args);
-  appendAudit({ ts: isoNow(), args });
+  // `nodes`/`label` feed figma_history; old {ts, args} lines stay valid.
+  const nodes = extractNodeIds(args);
+  appendAudit({
+    ts: isoNow(),
+    args,
+    ...(nodes.length ? { nodes } : {}),
+    ...(opts.label ? { label: String(opts.label).slice(0, 200) } : {}),
+  });
 
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
-      timeout: EXEC_TIMEOUT_MS,
+      timeout: opts.timeoutMs || EXEC_TIMEOUT_MS,
       cwd: ENGINE_CWD,
       env: engineEnv,
       maxBuffer: MAX_BUFFER,
@@ -189,6 +233,29 @@ export async function ensureSafeConnect() {
 }
 
 /**
+ * Force an ABSOLUTE -o/--output on an `export assets` argv, resolving relative
+ * paths against the given base dir (the MCP server's cwd = the client's
+ * workspace — NOT the engine repo, where relative paths used to land).
+ * Appends the default "assets" dir when no -o was given.
+ * @param {string[]} rawArgs
+ * @param {string} [baseDir]
+ * @returns {{args: string[], outDir: string}}
+ */
+export function withAbsoluteOutputDir(rawArgs, baseDir = process.cwd()) {
+  const args = [...rawArgs];
+  const idx = args.findIndex((a) => a === "-o" || a === "--output");
+  let outDir;
+  if (idx !== -1 && typeof args[idx + 1] === "string") {
+    outDir = path.isAbsolute(args[idx + 1]) ? args[idx + 1] : path.resolve(baseDir, args[idx + 1]);
+    args[idx + 1] = outDir;
+  } else {
+    outDir = path.resolve(baseDir, "assets");
+    args.push("-o", outDir);
+  }
+  return { args, outDir };
+}
+
+/**
  * Read the daemon session token written by figma-cli (0600 file). Returns null
  * if it does not exist yet (daemon never started).
  * @returns {string|null}
@@ -218,12 +285,13 @@ export async function health() {
     };
   }
 
-  const url = `http://${DAEMON_HOST}:${DAEMON_PORT}/health`;
+  const daemonPort = getDaemonPort();
+  const url = `http://${DAEMON_HOST}:${daemonPort}/health`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {
     const res = await fetch(url, {
-      headers: { "X-Daemon-Token": token, Host: `${DAEMON_HOST}:${DAEMON_PORT}` },
+      headers: { "X-Daemon-Token": token, Host: `${DAEMON_HOST}:${daemonPort}` },
       signal: controller.signal,
     });
     const raw = await res.json();

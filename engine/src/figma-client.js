@@ -8,36 +8,9 @@
 import WebSocket from 'ws';
 import { getCdpPort } from './figma-patch.js';
 
-/**
- * Visible fallback colors for shadcn semantic token names (Zinc light theme).
- * When a `var:` reference can't be resolved (e.g. the user never loaded any
- * variables, which is a totally valid choice), the renderer used to fall back
- * to opaque grey — which made shadcn components render as grey blocks with
- * invisible same-grey text. Falling back to the real default value instead
- * means components look correct WITHOUT forcing anyone to load a token set.
- * Values are 0–1 rgb floats (hex / 255).
- */
-const SEMANTIC_VAR_DEFAULTS = {
-  background: { r: 1, g: 1, b: 1 },
-  foreground: { r: 0.039, g: 0.039, b: 0.043 },
-  card: { r: 1, g: 1, b: 1 },
-  'card-foreground': { r: 0.039, g: 0.039, b: 0.043 },
-  popover: { r: 1, g: 1, b: 1 },
-  'popover-foreground': { r: 0.039, g: 0.039, b: 0.043 },
-  primary: { r: 0.094, g: 0.094, b: 0.106 },
-  'primary-foreground': { r: 0.98, g: 0.98, b: 0.98 },
-  secondary: { r: 0.957, g: 0.957, b: 0.961 },
-  'secondary-foreground': { r: 0.094, g: 0.094, b: 0.106 },
-  muted: { r: 0.957, g: 0.957, b: 0.961 },
-  'muted-foreground': { r: 0.443, g: 0.443, b: 0.478 },
-  accent: { r: 0.957, g: 0.957, b: 0.961 },
-  'accent-foreground': { r: 0.094, g: 0.094, b: 0.106 },
-  destructive: { r: 0.937, g: 0.267, b: 0.267 },
-  'destructive-foreground': { r: 0.98, g: 0.98, b: 0.98 },
-  border: { r: 0.894, g: 0.894, b: 0.906 },
-  input: { r: 0.894, g: 0.894, b: 0.906 },
-  ring: { r: 0.094, g: 0.094, b: 0.106 },
-};
+// NOTE: there is deliberately no built-in semantic color table here. An
+// unresolved `var:` reference falls back to neutral grey and is reported via
+// __unresolvedVars — the tool ships no design-system defaults of its own.
 
 export class FigmaClient {
   constructor() {
@@ -50,8 +23,7 @@ export class FigmaClient {
     this.executionContextId = null; // For Figma v39+ sandboxed context
     // Optional: pin var:<name> resolution to a single Variable Collection.
     // Set via setCollection() or directly. Per-attribute `var:collection:name`
-    // in JSX overrides this. nullish = use the global "shadcn first, then any"
-    // fallback in the var-cache loader.
+    // in JSX overrides this. nullish = all collections, natural order.
     this.collectionFilter = null;
   }
 
@@ -353,12 +325,19 @@ export class FigmaClient {
     const allFontMap = new Map();
     const allFonts = [];
     let anyUsesVars = false;
+    let anyUsesTextStyles = false;
+    let anyUsesInstances = false;
+    let anyUsesSpacing = false;
 
     parsed.forEach(({ props, children }) => {
       const bg = props.bg || props.fill || null;
       const stroke = props.stroke || null;
       if (this.isVarRef(bg)) anyUsesVars = true;
       if (stroke && this.isVarRef(stroke)) anyUsesVars = true;
+      for (const k of ['gap', 'rowGap', 'wrapGap', 'counterAxisSpacing', 'p', 'padding',
+        'px', 'py', 'pt', 'pr', 'pb', 'pl', 'rounded', 'radius']) {
+        if (this.isVarRef(props[k])) anyUsesVars = true;
+      }
 
       const collected = this.collectFontsAndVarUsage(children);
       collected.fonts.forEach(f => {
@@ -366,6 +345,9 @@ export class FigmaClient {
         if (!allFontMap.has(key)) { allFontMap.set(key, f); allFonts.push(f); }
       });
       if (collected.usesVars) anyUsesVars = true;
+      if (collected.usesTextStyles || collected.hasText) anyUsesTextStyles = true;
+      if (collected.usesInstances) anyUsesInstances = true;
+      if (collected.hasSpacing || this.hasSpacingProps(props)) anyUsesSpacing = true;
     });
 
     // Font caching: only load fonts not yet loaded in this session
@@ -373,8 +355,8 @@ export class FigmaClient {
 
     // Variable caching: reuse loaded vars across calls.
     // Loads ALL local variables in a single batched call (Figma's
-    // getLocalVariablesAsync), then sorts shadcn-first so its names win when
-    // multiple collections define the same token. Avoids N round-trips
+    // getLocalVariablesAsync); no collection is privileged — first-come-wins
+    // in Figma's natural collection order. Avoids N round-trips
     // when a user imports a Carbon / Material / DESIGN.md system with ~100
     // variables — the per-id loop made renders feel like a hang.
     // Resolve collection filter (case-insensitive substring), evaluated in
@@ -393,9 +375,6 @@ export class FigmaClient {
           figma.variables.getLocalVariablesAsync(),
         ]);
         const filter = ${JSON.stringify(colFilter)};
-        const shadcnColIds = new Set(
-          collections.filter(c => c.name.startsWith('shadcn')).map(c => c.id)
-        );
         let scopedColIds = null;
         if (filter) {
           const fl = filter.toLowerCase();
@@ -422,12 +401,7 @@ export class FigmaClient {
             if (scopedColIds.has(v.variableCollectionId)) register(v);
           }
         } else {
-          for (const v of allVars) {
-            if (shadcnColIds.has(v.variableCollectionId)) register(v);
-          }
-          for (const v of allVars) {
-            if (!shadcnColIds.has(v.variableCollectionId)) register(v);
-          }
+          for (const v of allVars) register(v);
         }
         // Also stash collection-name → id map for the var:collection:name
         // per-attribute override syntax. Same tail-aliasing applies.
@@ -461,21 +435,12 @@ export class FigmaClient {
       // Collect names that callers asked for but didn't resolve so we can
       // surface them at the end instead of silently rendering grey.
       globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-      const __varDefaults = ${JSON.stringify(SEMANTIC_VAR_DEFAULTS)};
-      const __defaultColor = (requestedKey) => {
-        if (!requestedKey) return null;
-        let k = String(requestedKey);
-        const c = k.lastIndexOf(':'); if (c >= 0) k = k.slice(c + 1);
-        const s = k.lastIndexOf('/'); if (s >= 0) k = k.slice(s + 1);
-        return __varDefaults[k] || null;
-      };
       const boundFill = (variable, requestedKey) => {
         if (!variable) {
           if (requestedKey) globalThis.__unresolvedVars.add(requestedKey);
-          // No variable loaded for this name. Fall back to the semantic token's
-          // real default color so the component stays VISIBLE (grey-on-grey made
-          // text disappear). Unknown names still get neutral grey.
-          return { type: 'SOLID', color: __defaultColor(requestedKey) || { r: 0.5, g: 0.5, b: 0.5 } };
+          // No variable loaded for this name: neutral grey + the unresolved
+          // warning above. No built-in design-system defaults.
+          return { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } };
         }
         return figma.variables.setBoundVariableForPaint(
           { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', variable
@@ -540,21 +505,26 @@ export class FigmaClient {
         f${frameIdx}.resize(${width}, ${height});
         f${frameIdx}.x = posX;
         f${frameIdx}.y = posY;
-        f${frameIdx}.cornerRadius = ${rounded};
+        f${frameIdx}.cornerRadius = ${this.spacingRaw(rounded)};
+        ${this.spacingBind(`f${frameIdx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], rounded, 'radius')}
         ${fillCode.code}
         ${strokeCode.code}
         ${effectsCode}
         ${imageCode}
         f${frameIdx}.layoutMode = '${flex === 'none' || flex === 'stack' || flex === 'free' ? 'NONE' : (flex === 'row' ? 'HORIZONTAL' : 'VERTICAL')}';
         ${flex === 'none' || flex === 'stack' || flex === 'free' ? '' : `${wrap && flex === 'row' ? `f${frameIdx}.layoutWrap = 'WRAP';` : ''}
-        f${frameIdx}.itemSpacing = ${itemGap};
-        f${frameIdx}.paddingTop = f${frameIdx}.paddingBottom = ${py};
-        f${frameIdx}.paddingLeft = f${frameIdx}.paddingRight = ${px};
+        f${frameIdx}.itemSpacing = ${this.spacingRaw(itemGap)};
+        f${frameIdx}.paddingTop = f${frameIdx}.paddingBottom = ${this.spacingRaw(py)};
+        f${frameIdx}.paddingLeft = f${frameIdx}.paddingRight = ${this.spacingRaw(px)};
+        ${this.spacingBind(`f${frameIdx}`, ['itemSpacing'], itemGap, 'space')}
+        ${this.spacingBind(`f${frameIdx}`, ['paddingTop', 'paddingBottom'], py, 'space')}
+        ${this.spacingBind(`f${frameIdx}`, ['paddingLeft', 'paddingRight'], px, 'space')}
         f${frameIdx}.primaryAxisAlignItems = '${justifyVal}';
         f${frameIdx}.counterAxisAlignItems = '${alignVal}';
         f${frameIdx}.primaryAxisSizingMode = '${flex === 'col' ? (hugHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED') : (hugWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED')}';
         f${frameIdx}.counterAxisSizingMode = '${flex === 'col' ? (hugWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED') : (hugHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED')}';
-        ${wrap && flex === 'row' && wrapGap > 0 ? `f${frameIdx}.counterAxisSpacing = ${wrapGap};` : ''}`}
+        ${wrap && flex === 'row' && wrapGap > 0 ? `f${frameIdx}.counterAxisSpacing = ${wrapGap};
+        ${this.spacingBind(`f${frameIdx}`, ['counterAxisSpacing'], wrapGap, 'space')}` : ''}`}
         f${frameIdx}.clipsContent = ${clip};
         ${opacity !== null ? `f${frameIdx}.opacity = ${opacity};` : ''}
         ${visible === false ? `f${frameIdx}.visible = false;` : ''}
@@ -569,6 +539,9 @@ export class FigmaClient {
       (async function() {
         ${fontLoads}
         ${varLoadCode}
+        ${anyUsesTextStyles ? this.generateTextStyleHelperCode() : ''}
+        ${anyUsesSpacing ? this.generateSpacingHelperCode() : ''}
+        ${anyUsesInstances ? this.generateInstanceHelperCode() : ''}
 
         // Calculate start position
         let posX = 0, posY = 100;
@@ -735,7 +708,7 @@ export class FigmaClient {
     const known = {
       Frame: [...layout, ...paint, ...corners, ...effects],
       Text: ['name', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
-        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines'],
+        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines', 'style'],
       Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
       Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Rectangle: null, // alias of Rect, filled below
@@ -744,7 +717,7 @@ export class FigmaClient {
       Circle: null,    // alias of Ellipse, filled below
       Image: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
-      Instance: ['name', 'component', 'id', 'w', 'h', 'width', 'height'],
+      Instance: ['name', 'component', 'id', 'variant', 'w', 'h', 'width', 'height'],
     };
     known.Rectangle = known.Rect;
     known.Circle = known.Ellipse;
@@ -786,6 +759,8 @@ export class FigmaClient {
       const props = this.parseProps(m[2] || '');
       for (const prop of Object.keys(props)) {
         if (valid.includes(prop)) continue;
+        // Instance override props are dynamic by design: text:<Layer>, prop:<Property>
+        if (tag === 'Instance' && (prop.startsWith('text:') || prop.startsWith('prop:'))) continue;
         let suggestion = aliases[prop] || null;
         if (!suggestion) {
           // Typo detection: closest known prop within edit distance 2
@@ -805,8 +780,9 @@ export class FigmaClient {
   parseProps(propsStr) {
     const props = {};
 
-    // Match name="value" or name={value}
-    const regex = /(\w+)=(?:"([^"]*)"|{([^}]*)})/g;
+    // Match name="value" or name={value}. Keys allow ":" and "-" so Instance
+    // override props (text:Name="…", prop:State="…") parse too.
+    const regex = /([\w:.-]+)=(?:"([^"]*)"|{([^}]*)})/g;
     let match;
 
     while ((match = regex.exec(propsStr)) !== null) {
@@ -894,8 +870,12 @@ export class FigmaClient {
       }
     }
 
-    // Parse self-closing Slot elements
-    const slotSelfCloseRegex = /<Slot(?:\s+([^/]*?))?\s*\/>/g;
+    // Parse self-closing Slot elements.
+    // NOTE (all self-closing regexes below): the attribute section must be
+    // matched with [^>] — NOT [^/] — because attribute values legitimately
+    // contain slashes (var:green/600, image URLs). [^/] silently dropped the
+    // whole element as soon as a value had a "/" in it.
+    const slotSelfCloseRegex = /<Slot(?:\s+([^>]*?))?\s*\/>/g;
     while ((match = slotSelfCloseRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -928,7 +908,7 @@ export class FigmaClient {
 
     // Parse Rectangle elements (self-closing)
     // Use (?:\s+([^/]*?))? to allow Rect with or without attributes
-    const rectRegex = /<(?:Rectangle|Rect)(?:\s+([^/]*?))?\s*\/>/g;
+    const rectRegex = /<(?:Rectangle|Rect)(?:\s+([^>]*?))?\s*\/>/g;
     while ((match = rectRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -942,7 +922,7 @@ export class FigmaClient {
 
     // Parse Ellipse / Circle elements (self-closing). Supports rings, spinners,
     // donut/pie via arc (sweep°), arcStart (start°, 0=3 o'clock) and innerRadius.
-    const ellipseRegex = /<(?:Ellipse|Circle)(?:\s+([^/]*?))?\s*\/>/g;
+    const ellipseRegex = /<(?:Ellipse|Circle)(?:\s+([^>]*?))?\s*\/>/g;
     while ((match = ellipseRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -955,12 +935,12 @@ export class FigmaClient {
     }
 
     // Parse Image elements (self-closing) - creates placeholder rectangle
-    const imageRegex = /<Image\s+([^/]*)\s*\/>/g;
+    const imageRegex = /<Image(?:\s+([^>]*?))?\s*\/>/g;
     while ((match = imageRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
       if (!insideFrame) {
-        const imgProps = this.parseProps(match[1]);
+        const imgProps = this.parseProps(match[1] || '');
         imgProps._type = 'image';
         imgProps._index = idx;
         children.push(imgProps);
@@ -968,12 +948,12 @@ export class FigmaClient {
     }
 
     // Parse Icon elements (self-closing) - creates placeholder
-    const iconRegex = /<Icon\s+([^/]*)\s*\/>/g;
+    const iconRegex = /<Icon(?:\s+([^>]*?))?\s*\/>/g;
     while ((match = iconRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
       if (!insideFrame) {
-        const iconProps = this.parseProps(match[1]);
+        const iconProps = this.parseProps(match[1] || '');
         iconProps._type = 'icon';
         iconProps._index = idx;
         children.push(iconProps);
@@ -981,12 +961,12 @@ export class FigmaClient {
     }
 
     // Parse Instance elements (self-closing) - creates component instance
-    const instanceRegex = /<Instance\s+([^/]*)\s*\/>/g;
+    const instanceRegex = /<Instance(?:\s+([^>]*?))?\s*\/>/g;
     while ((match = instanceRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
       if (!insideFrame) {
-        const instProps = this.parseProps(match[1]);
+        const instProps = this.parseProps(match[1] || '');
         instProps._type = 'instance';
         instProps._index = idx;
         children.push(instProps);
@@ -1030,28 +1010,46 @@ export class FigmaClient {
   collectFontsAndVarUsage(items) {
     const fontMap = new Map(); // 'family/style' -> { family, style }
     let usesVars = false;
+    let usesTextStyles = false;
+    let usesInstances = false;
+    let hasText = false;
+    let hasSpacing = false;
     const check = (v) => { if (this.isVarRef(v)) usesVars = true; };
+    // Spacing/radius props get tokenised (reuse-or-create a FLOAT variable),
+    // and a var: reference among them also means the var cache must load.
+    const checkSpacing = (item) => {
+      if (this.hasSpacingProps(item)) hasSpacing = true;
+      for (const k of ['gap', 'rowGap', 'wrapGap', 'counterAxisSpacing', 'p', 'padding',
+        'px', 'py', 'pt', 'pr', 'pb', 'pl', 'rounded', 'radius']) check(item[k]);
+    };
     const walk = (list) => {
       list.forEach(item => {
         if (item._type === 'text') {
+          hasText = true;
           const family = item.font || 'Inter';
           const style = this.weightToStyle(item.weight, item.italic);
           fontMap.set(family + '/' + style, { family, style });
           check(item.color || '#000000');
+          check(item.size); // size="var:text/md" binds fontSize to a FLOAT variable
+          if (item.style) usesTextStyles = true;
         } else if (item._type === 'frame' || item._type === 'slot') {
           check(item.bg || item.fill || null);
           if (item.stroke) check(item.stroke);
+          checkSpacing(item);
         } else if (item._type === 'rect' || item._type === 'image' || item._type === 'icon') {
           check(item.bg || item.fill || item.color || item.c || '#e4e4e7');
+          checkSpacing(item);
         } else if (item._type === 'ellipse') {
           check(item.bg || item.fill || null);
           if (item.stroke) check(item.stroke);
+        } else if (item._type === 'instance') {
+          usesInstances = true;
         }
         if (item._children) walk(item._children);
       });
     };
     walk(items);
-    return { fonts: [...fontMap.values()], usesVars };
+    return { fonts: [...fontMap.values()], usesVars, usesTextStyles, usesInstances, hasText, hasSpacing };
   }
 
   /**
@@ -1090,6 +1088,273 @@ export class FigmaClient {
   }
 
   /**
+   * Helper preamble for text styles. Two entry points:
+   *
+   * __applyTextStyle(node, name) — for explicit <Text style="Name">: resolves
+   * a LOCAL text style by name (exact, then "…/name" suffix, then substring —
+   * case-insensitive). If none exists it is CREATED from the node's current
+   * typography, so the given name becomes a reusable style from then on.
+   *
+   * __ensureTextStyle(node, family, style, size) — for every plain <Text>:
+   * derives a deterministic style name ("Inter/14 Semi Bold"), reuses the
+   * local style of that name if present, creates it otherwise, and applies
+   * it. This is what keeps rendered text attached to shared styles instead
+   * of leaving raw fontSize/fontName everywhere.
+   */
+  generateTextStyleHelperCode() {
+    return `
+        if (!globalThis.__textStylesCache || Date.now() - (globalThis.__textStylesTime || 0) > 30000) {
+          globalThis.__textStylesCache = await figma.getLocalTextStylesAsync();
+          globalThis.__textStylesTime = Date.now();
+        }
+        const __setStyleId = async (node, styleId) => {
+          try { await node.setTextStyleIdAsync(styleId); }
+          catch (e) { try { node.textStyleId = styleId; } catch (e2) {} }
+        };
+        const __applyTextStyle = async (node, name) => {
+          const styles = globalThis.__textStylesCache || [];
+          const ln = String(name).toLowerCase();
+          let s = styles.find(st => st.name.toLowerCase() === ln)
+            || styles.find(st => st.name.toLowerCase().endsWith('/' + ln))
+            || styles.find(st => st.name.toLowerCase().includes(ln));
+          if (!s) {
+            // Create the named style from this text's typography so the name
+            // the caller asked for exists (and is reused) from now on.
+            s = figma.createTextStyle();
+            s.name = String(name);
+            try { s.fontName = node.fontName; } catch (e) {}
+            try { s.fontSize = node.fontSize; } catch (e) {}
+            globalThis.__textStylesCache.push(s);
+          }
+          try { await figma.loadFontAsync(s.fontName); } catch (e) {}
+          await __setStyleId(node, s.id);
+        };
+        const __ensureTextStyle = async (node, family, style, size) => {
+          const styles = globalThis.__textStylesCache || [];
+          // Reuse ANY existing style with this exact typography, whatever it
+          // is called — a file whose system calls 13px/Regular "Body/SM"
+          // must not get a parallel "Inter/13 Regular" next to it. Only when
+          // nothing matches do we create one, under a descriptive name.
+          let s = styles.find(st => st.fontSize === Number(size)
+            && st.fontName && st.fontName.family === family && st.fontName.style === style);
+          if (!s) {
+            const name = family + '/' + size + ' ' + style;
+            s = styles.find(st => st.name === name);
+            if (!s) {
+              s = figma.createTextStyle();
+              s.name = name;
+              try { s.fontName = node.fontName; } catch (e) {}
+              try { s.fontSize = Number(size); } catch (e) {}
+              globalThis.__textStylesCache.push(s);
+            }
+          }
+          await __setStyleId(node, s.id);
+        };
+    `;
+  }
+
+  /**
+   * Helper preamble for spacing/radius tokens. __space(node, fields, value,
+   * kind) binds gap / padding / corner radius to a FLOAT variable instead of
+   * leaving a hard-coded number on the node:
+   *
+   *   - value "var:space/4"  → binds that variable (explicit opt-in)
+   *   - value 16 + kind      → REUSES a local FLOAT variable of the matching
+   *                            namespace (space / gap / padding for kind
+   *                            "space", radius / corner for kind "radius")
+   *                            whose resolved value is 16, and CREATES
+   *                            "space/16px" or "radius/16px" if none exists.
+   *
+   * Matching is namespace-scoped on purpose: a padding of 40 must not latch
+   * onto `size/control-md` just because that also happens to be 40.
+   * The raw number is always assigned first, so a failed bind degrades to
+   * exactly the old behaviour.
+   */
+  generateSpacingHelperCode() {
+    return `
+        if (!globalThis.__spaceCache || Date.now() - (globalThis.__spaceCacheTime || 0) > 30000) {
+          const [__cols, __allVars] = await Promise.all([
+            figma.variables.getLocalVariableCollectionsAsync(),
+            figma.variables.getLocalVariablesAsync(),
+          ]);
+          globalThis.__spaceCache = { cols: __cols, vars: __allVars.filter(v => v.resolvedType === 'FLOAT') };
+          globalThis.__spaceCacheTime = Date.now();
+        }
+        const __spaceNum = (v) => {
+          /* Resolve a FLOAT variable's first-mode value, following aliases. */
+          let val = Object.values(v.valuesByMode)[0];
+          let guard = 10;
+          while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
+            const t = (globalThis.__spaceCache.vars || []).find(x => x.id === val.id);
+            if (!t) return null;
+            val = Object.values(t.valuesByMode)[0];
+          }
+          return typeof val === 'number' ? val : null;
+        };
+        const __spaceNs = (name, kind) => {
+          const n = String(name).toLowerCase();
+          const head = n.split('/')[0];
+          return kind === 'radius'
+            ? (head.includes('radius') || head.includes('corner') || head.includes('rounded'))
+            : (head.includes('space') || head.includes('spacing') || head.includes('gap') || head.includes('padding'));
+        };
+        const __spaceCollection = (kind) => {
+          const c = globalThis.__spaceCache;
+          const sibling = (c.vars || []).find(v => __spaceNs(v.name, kind));
+          if (sibling) {
+            const col = (c.cols || []).find(x => x.id === sibling.variableCollectionId);
+            if (col) return col;
+          }
+          if (c.cols && c.cols.length) return c.cols[0];
+          const created = figma.variables.createVariableCollection('Tokens');
+          c.cols.push(created);
+          return created;
+        };
+        const __findOrCreateSpaceVar = (value, kind) => {
+          const c = globalThis.__spaceCache;
+          const hit = (c.vars || []).find(v => __spaceNs(v.name, kind) && __spaceNum(v) === value);
+          if (hit) return hit;
+          const col = __spaceCollection(kind);
+          if (!col) return null;
+          const base = (kind === 'radius' ? 'radius/' : 'space/') + value + 'px';
+          let name = base, i = 2;
+          while ((c.vars || []).some(v => v.name === name)) name = base + '-' + (i++);
+          let v;
+          try { v = figma.variables.createVariable(name, col, 'FLOAT'); }
+          catch (e) { return null; }
+          for (const m of col.modes) {
+            try { v.setValueForMode(m.modeId, value); } catch (e) {}
+          }
+          c.vars.push(v);
+          return v;
+        };
+        const __space = (node, fields, value, kind) => {
+          let variable = null;
+          if (typeof value === 'string' && value.startsWith('var:')) {
+            const key = value.slice(4);
+            variable = typeof lookupVar === 'function' ? lookupVar(key) : null;
+            if (!variable) {
+              globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+              globalThis.__unresolvedVars.add(key);
+              return;
+            }
+          } else {
+            const num = Number(value);
+            if (!isFinite(num) || num <= 0) return; /* 0 needs no token */
+            variable = __findOrCreateSpaceVar(num, kind);
+          }
+          if (!variable) return;
+          for (const f of fields) {
+            try { node.setBoundVariable(f, variable); }
+            catch (e) { try { node.setBoundVariable(f, variable.id); } catch (e2) {} }
+          }
+        };
+    `;
+  }
+
+  /**
+   * Helper preamble for <Instance>: component resolution that works across
+   * pages and component sets, plus variant/property/text overrides. This is
+   * what lets a render REUSE an existing design system instead of rebuilding
+   * every card from raw frames.
+   */
+  generateInstanceHelperCode() {
+    return `
+        const __variantPairs = (s) => {
+          const out = {};
+          String(s).split(',').forEach(p => {
+            const i = p.indexOf('=');
+            if (i > 0) out[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+          });
+          return out;
+        };
+        const __resolveComponent = async (id, name, variantStr) => {
+          let node = null;
+          if (id) {
+            try { node = await figma.getNodeByIdAsync(id); } catch (e) {}
+          } else if (name) {
+            const match = n => (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') && n.name === name;
+            node = figma.currentPage.findOne(match);
+            if (!node) {
+              // Components usually live on a dedicated page — search them all.
+              try { await figma.loadAllPagesAsync(); } catch (e) {}
+              for (const page of figma.root.children) {
+                if (page === figma.currentPage) continue;
+                try { node = page.findOne(match); } catch (e) { node = null; }
+                if (node) break;
+              }
+            }
+          }
+          if (!node) return null;
+          if (node.type === 'COMPONENT_SET') {
+            let variant = null;
+            if (variantStr) {
+              const want = __variantPairs(variantStr);
+              variant = node.children.find(c => {
+                const have = __variantPairs(c.name);
+                return Object.keys(want).every(k => have[k] === want[k]);
+              }) || null;
+            }
+            return variant || node.defaultVariant || node.children[0] || null;
+          }
+          return node.type === 'COMPONENT' ? node : null;
+        };
+        // Map user-facing property names onto the instance's real keys.
+        // Non-variant component properties carry a "#node:id" suffix in their
+        // key ("Label#12:3") that callers shouldn't have to know about.
+        // INSTANCE_SWAP values are resolved by COMPONENT NAME too, so callers
+        // write prop:Icon="Icon=leaf" instead of hunting down a node id.
+        const __mapProps = async (inst, raw) => {
+          const defs = inst.componentProperties || {};
+          const keys = Object.keys(defs);
+          const out = {};
+          for (const k of Object.keys(raw)) {
+            const full = keys.find(dk => dk === k || dk.split('#')[0] === k);
+            const key = full || k;
+            const def = full ? defs[full] : null;
+            let v = raw[k];
+            if (def && def.type === 'BOOLEAN') {
+              v = (v === true || v === 'true');
+            } else if (def && def.type === 'INSTANCE_SWAP' && typeof v === 'string'
+                       && !/^\\d+:\\d+$/.test(v) && !/^[0-9a-f]{20,}$/i.test(v)) {
+              const target = await __resolveComponent(null, v, null);
+              if (target) v = target.id;
+              else {
+                globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+                globalThis.__unresolvedVars.add('swap:' + v);
+                continue;
+              }
+            }
+            out[key] = v;
+          }
+          return out;
+        };
+        const __setInstanceText = async (inst, layerName, value) => {
+          /* Prop keys can't contain spaces, layer names usually do
+             ("Monstera Deliciosa"). Match space-insensitively so
+             text:MonsteraDeliciosa="…" finds that layer. */
+          const __norm = s => String(s).toLowerCase().replace(/\\s+/g, '');
+          const t = inst.findOne(n => n.type === 'TEXT' && n.name === layerName)
+            || inst.findOne(n => n.type === 'TEXT' && __norm(n.name) === __norm(layerName));
+          if (!t) {
+            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+            globalThis.__unresolvedVars.add('text:' + layerName);
+            return;
+          }
+          try {
+            if (t.fontName !== figma.mixed) {
+              await figma.loadFontAsync(t.fontName);
+            } else {
+              const fonts = t.getRangeAllFontNames(0, t.characters.length);
+              for (const f of fonts) await figma.loadFontAsync(f);
+            }
+            t.characters = String(value);
+          } catch (e) {}
+        };
+    `;
+  }
+
+  /**
    * Generate Plugin API code for a list of parsed child elements.
    * Shared by the single-render path (generateCode) and the batch path
    * (parseJSXBatch) so both support the same child types and props.
@@ -1102,7 +1367,12 @@ export class FigmaClient {
         if (item._type === 'text') {
           const family = item.font || 'Inter';
           const style = this.weightToStyle(item.weight, item.italic);
-          const size = item.size || 14;
+          // size="var:text/md" binds fontSize to a FLOAT variable instead of
+          // interpolating the raw string into `fontSize = var:text/md` (JS error).
+          const sizeIsVar = this.isVarRef(item.size);
+          const size = sizeIsVar ? 14 : (item.size || 14);
+          const sizeVarName = sizeIsVar ? String(item.size).slice(4) : null;
+          const textStyleName = item.style || null;
           const color = item.color || '#000000';
           const fillWidth = item.w === 'fill';
           const textFillCode = this.generateFillCode(color, `el${idx}`);
@@ -1128,6 +1398,13 @@ export class FigmaClient {
           const isCol = parentFlex === 'col' || parentFlex === 'column';
           const parentNone = parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free';
           const autoFill = isCol && !fillWidth;
+
+          // Auto text styles: every plain <Text> gets attached to a shared
+          // local style ("Inter/14 Semi Bold") — reused when it exists,
+          // created when it doesn't. Skipped when the caller already chose a
+          // style, binds size to a variable, or overrides style-bound props
+          // (lineHeight/letterSpacing would detach the style again).
+          const autoStyle = !textStyleName && !sizeIsVar && !tLineHeight && !tLetterSpacing;
           return `
         __currentNode = 'Text: ${item.content.substring(0, 30).replace(/'/g, "\\'")}';
         const el${idx} = figma.createText();
@@ -1138,6 +1415,9 @@ export class FigmaClient {
         ${tAlign ? `el${idx}.textAlignHorizontal = '${tAlign}';` : ''}
         el${idx}.characters = ${JSON.stringify(item.content)};
         ${textFillCode.code}
+        ${sizeVarName ? `{ const __v = lookupVar(${JSON.stringify(sizeVarName)}); if (__v) { try { el${idx}.setBoundVariable('fontSize', __v); } catch (e) {} } else { globalThis.__unresolvedVars.add(${JSON.stringify(sizeVarName)}); } }` : ''}
+        ${textStyleName ? `await __applyTextStyle(el${idx}, ${JSON.stringify(textStyleName)});` : ''}
+        ${autoStyle ? `await __ensureTextStyle(el${idx}, ${JSON.stringify(family)}, ${JSON.stringify(style)}, ${size});` : ''}
         ${parentVar}.appendChild(el${idx});
         ${fillWidth && !parentNone ? `el${idx}.layoutSizingHorizontal = 'FILL'; el${idx}.textAutoResize = 'HEIGHT';` : ''}
         ${autoFill ? `// Auto-FILL: text in col layout needs FILL for Safe Mode wrapping
@@ -1291,12 +1571,18 @@ export class FigmaClient {
         el${idx}.layoutMode = '${isNone ? 'NONE' : (fFlex === 'row' ? 'HORIZONTAL' : 'VERTICAL')}';
         ${!isNone && fWrap && fFlex === 'row' ? `el${idx}.layoutWrap = 'WRAP';` : ''}
         ${hasWidth || hasHeight || (!isNone && (wantFillH || wantFillV)) ? `el${idx}.resize(${resizeW}, ${resizeH});` : ''}
-        ${isNone ? '' : `el${idx}.itemSpacing = ${fGap};
-        el${idx}.paddingTop = ${fPt};
-        el${idx}.paddingBottom = ${fPb};
-        el${idx}.paddingLeft = ${fPl};
-        el${idx}.paddingRight = ${fPr};`}
-        el${idx}.cornerRadius = ${fRounded};
+        ${isNone ? '' : `el${idx}.itemSpacing = ${this.spacingRaw(fGap)};
+        el${idx}.paddingTop = ${this.spacingRaw(fPt)};
+        el${idx}.paddingBottom = ${this.spacingRaw(fPb)};
+        el${idx}.paddingLeft = ${this.spacingRaw(fPl)};
+        el${idx}.paddingRight = ${this.spacingRaw(fPr)};
+        ${this.spacingBind(`el${idx}`, ['itemSpacing'], fGap, 'space')}
+        ${this.spacingBind(`el${idx}`, ['paddingTop'], fPt, 'space')}
+        ${this.spacingBind(`el${idx}`, ['paddingBottom'], fPb, 'space')}
+        ${this.spacingBind(`el${idx}`, ['paddingLeft'], fPl, 'space')}
+        ${this.spacingBind(`el${idx}`, ['paddingRight'], fPr, 'space')}`}
+        el${idx}.cornerRadius = ${this.spacingRaw(fRounded)};
+        ${this.spacingBind(`el${idx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], fRounded, 'radius')}
         ${frameFillCode.code}
         ${frameStrokeCode.code}
         ${frameEffectsCode}
@@ -1317,7 +1603,8 @@ export class FigmaClient {
           }
         } catch (e) {}` : ''}
         ${nestedChildren}
-        ${fWrap && fFlex === 'row' && fWrapGap > 0 ? `el${idx}.counterAxisSpacing = ${fWrapGap};` : ''}
+        ${fWrap && fFlex === 'row' && fWrapGap > 0 ? `el${idx}.counterAxisSpacing = ${fWrapGap};
+        ${this.spacingBind(`el${idx}`, ['counterAxisSpacing'], fWrapGap, 'space')}` : ''}
         ${parentIsNone ? `
           ${item.x !== undefined ? `el${idx}.x = ${fAbsoluteX};` : ''}
           ${item.y !== undefined ? `el${idx}.y = ${fAbsoluteY};` : ''}
@@ -1397,7 +1684,8 @@ export class FigmaClient {
         const el${idx} = figma.createRectangle();
         el${idx}.name = ${JSON.stringify(rName)};
         el${idx}.resize(${rWidth}, ${rHeight});
-        el${idx}.cornerRadius = ${rRounded};
+        el${idx}.cornerRadius = ${this.spacingRaw(rRounded)};
+        ${this.spacingBind(`el${idx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], rRounded, 'radius')}
         ${rectFillCode.code}
         ${parentVar}.appendChild(el${idx});
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
@@ -1442,7 +1730,8 @@ export class FigmaClient {
         const el${idx} = figma.createRectangle();
         el${idx}.name = ${JSON.stringify(iName)};
         el${idx}.resize(${iWidth}, ${iHeight});
-        el${idx}.cornerRadius = ${iRounded};
+        el${idx}.cornerRadius = ${this.spacingRaw(iRounded)};
+        ${this.spacingBind(`el${idx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], iRounded, 'radius')}
         ${imgFillCode.code}
         ${parentVar}.appendChild(el${idx});
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
@@ -1501,28 +1790,48 @@ export class FigmaClient {
         ${parentVar}.appendChild(el${idx});`;
           }
         } else if (item._type === 'instance') {
-          // Component instance
-          const compId = item.component || item.id;
-          const compName = item.name;
-
-          if (compId) {
-            // Create instance by component ID
-            return `
-        const comp${idx} = figma.getNodeById(${JSON.stringify(compId)});
-        if (comp${idx} && comp${idx}.type === 'COMPONENT') {
-          const el${idx} = comp${idx}.createInstance();
-          ${parentVar}.appendChild(el${idx});
-        }`;
-          } else if (compName) {
-            // Find component by name and create instance
-            return `
-        const comp${idx} = figma.currentPage.findOne(n => n.type === 'COMPONENT' && n.name === ${JSON.stringify(compName)});
+          // Component instance. `id` (or an id-shaped `component` value, kept
+          // for backwards compatibility) resolves by node id; `component` /
+          // `name` resolve by exact name — current page first, then every
+          // other page. Component SETS resolve to a variant, picked via
+          // variant="Axis=Value[, Axis2=Value2]" or the set's default.
+          // Overrides: prop:Name="…" → setProperties (BOOLEAN coerced),
+          // text:Layer="…" → characters of the named TEXT descendant.
+          const idLike = v => typeof v === 'string' && /^\d+:\d+$/.test(v);
+          const compId = item.id || (idLike(item.component) ? item.component : null);
+          const compName = !compId ? (item.component || item.name) : null;
+          if (!compId && !compName) return '';
+          const variantStr = item.variant || null;
+          const textOverrides = {};
+          const propOverrides = {};
+          for (const k of Object.keys(item)) {
+            if (k.startsWith('text:')) textOverrides[k.slice(5)] = item[k];
+            else if (k.startsWith('prop:')) propOverrides[k.slice(5)] = item[k];
+          }
+          const isNum = v => v !== undefined && v !== 'fill' && v !== 'hug' && !isNaN(parseFloat(v));
+          const instW = isNum(item.w) ? item.w : isNum(item.width) ? item.width : null;
+          const instH = isNum(item.h) ? item.h : isNum(item.height) ? item.height : null;
+          const fillW = item.w === 'fill' || item.width === 'fill';
+          const fillH = item.h === 'fill' || item.height === 'fill';
+          const textCode = Object.entries(textOverrides).map(([k, v]) =>
+            `await __setInstanceText(el${idx}, ${JSON.stringify(k)}, ${JSON.stringify(v)});`).join('\n          ');
+          return `
+        __currentNode = 'Instance: ${String(compName || compId).replace(/'/g, "\\'")}';
+        const comp${idx} = await __resolveComponent(${JSON.stringify(compId)}, ${JSON.stringify(compName)}, ${JSON.stringify(variantStr)});
         if (comp${idx}) {
           const el${idx} = comp${idx}.createInstance();
+          ${item.name && item.component ? `el${idx}.name = ${JSON.stringify(item.name)};` : ''}
           ${parentVar}.appendChild(el${idx});
+          ${variantStr ? `try { el${idx}.setProperties(__variantPairs(${JSON.stringify(variantStr)})); } catch (e) {}` : ''}
+          ${Object.keys(propOverrides).length ? `try { el${idx}.setProperties(await __mapProps(el${idx}, ${JSON.stringify(propOverrides)})); } catch (e) {}` : ''}
+          ${textCode}
+          ${instW !== null && instH !== null ? `try { el${idx}.resize(${instW}, ${instH}); } catch (e) {}` : ''}
+          ${fillW ? `try { el${idx}.layoutSizingHorizontal = 'FILL'; } catch (e) {}` : ''}
+          ${fillH ? `try { el${idx}.layoutSizingVertical = 'FILL'; } catch (e) {}` : ''}
+        } else {
+          globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+          globalThis.__unresolvedVars.add('component:' + ${JSON.stringify(compName || compId)});
         }`;
-          }
-          return '';
         } else if (item._type === 'slot') {
           // Slot element - creates slot inside component
           // NOTE: createSlot only works when parent is a component
@@ -1553,11 +1862,14 @@ export class FigmaClient {
           ${parentVar}.appendChild(slot${idx});
         }
         slot${idx}.layoutMode = '${slotFlex === 'row' ? 'HORIZONTAL' : 'VERTICAL'}';
-        slot${idx}.itemSpacing = ${slotGap};
-        slot${idx}.paddingTop = ${slotPy};
-        slot${idx}.paddingBottom = ${slotPy};
-        slot${idx}.paddingLeft = ${slotPx};
-        slot${idx}.paddingRight = ${slotPx};
+        slot${idx}.itemSpacing = ${this.spacingRaw(slotGap)};
+        slot${idx}.paddingTop = ${this.spacingRaw(slotPy)};
+        slot${idx}.paddingBottom = ${this.spacingRaw(slotPy)};
+        slot${idx}.paddingLeft = ${this.spacingRaw(slotPx)};
+        slot${idx}.paddingRight = ${this.spacingRaw(slotPx)};
+        ${this.spacingBind(`slot${idx}`, ['itemSpacing'], slotGap, 'space')}
+        ${this.spacingBind(`slot${idx}`, ['paddingTop', 'paddingBottom'], slotPy, 'space')}
+        ${this.spacingBind(`slot${idx}`, ['paddingLeft', 'paddingRight'], slotPx, 'space')}
         ${slotWidth && !fillWidth ? `slot${idx}.resize(${slotWidth}, ${slotHeight || 100});` : ''}
         ${fillWidth ? `slot${idx}.layoutSizingHorizontal = 'FILL';` : ''}
         ${fillHeight ? `slot${idx}.layoutSizingVertical = 'FILL';` : ''}
@@ -1624,9 +1936,12 @@ export class FigmaClient {
       if (this.isVarRef(value)) usesVars = true;
     };
 
-    // Check root frame for var usage
+    // Check root frame for var usage (including spacing/radius refs, which
+    // need the var cache just as much as a fill does)
     checkVarUsage(bg);
     if (stroke) checkVarUsage(stroke);
+    for (const k of ['gap', 'rowGap', 'wrapGap', 'counterAxisSpacing', 'p', 'padding',
+      'px', 'py', 'pt', 'pr', 'pb', 'pl', 'rounded', 'radius']) checkVarUsage(props[k]);
 
     // Collect all fonts and check variable usage recursively
     const collected = this.collectFontsAndVarUsage(children);
@@ -1670,9 +1985,6 @@ export class FigmaClient {
             figma.variables.getLocalVariablesAsync(),
           ]);
           const filter = ${JSON.stringify(colFilter2)};
-          const shadcnColIds = new Set(
-            collections.filter(c => c.name.startsWith('shadcn')).map(c => c.id)
-          );
           let scopedColIds = null;
           if (filter) {
             const fl = filter.toLowerCase();
@@ -1695,8 +2007,7 @@ export class FigmaClient {
           if (scopedColIds) {
             for (const v of allVars) if (scopedColIds.has(v.variableCollectionId)) register(v);
           } else {
-            for (const v of allVars) if (shadcnColIds.has(v.variableCollectionId)) register(v);
-            for (const v of allVars) if (!shadcnColIds.has(v.variableCollectionId)) register(v);
+            for (const v of allVars) register(v);
           }
           globalThis.__varsByCollection = {};
           for (const v of allVars) {
@@ -1723,20 +2034,12 @@ export class FigmaClient {
           return vars[key];
         };
         globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-        const __varDefaults = ${JSON.stringify(SEMANTIC_VAR_DEFAULTS)};
-        const __defaultColor = (requestedKey) => {
-          if (!requestedKey) return null;
-          let k = String(requestedKey);
-          const c = k.lastIndexOf(':'); if (c >= 0) k = k.slice(c + 1);
-          const s = k.lastIndexOf('/'); if (s >= 0) k = k.slice(s + 1);
-          return __varDefaults[k] || null;
-        };
         const boundFill = (variable, requestedKey) => {
           if (!variable) {
             if (requestedKey) globalThis.__unresolvedVars.add(requestedKey);
-            // No variable loaded — use the semantic token's real default color
-            // so the component stays VISIBLE instead of grey-on-grey.
-            return { type: 'SOLID', color: __defaultColor(requestedKey) || { r: 0.5, g: 0.5, b: 0.5 } };
+            // No variable loaded: neutral grey + the unresolved warning.
+            // No built-in design-system defaults.
+            return { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } };
           }
           return figma.variables.setBoundVariableForPaint(
             { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', variable
@@ -1751,6 +2054,9 @@ export class FigmaClient {
       (async function() {
         ${fontLoadCode}
         ${varLoadCode}
+        ${collected.usesTextStyles || collected.hasText ? this.generateTextStyleHelperCode() : ''}
+        ${collected.hasSpacing || this.hasSpacingProps(props) ? this.generateSpacingHelperCode() : ''}
+        ${collected.usesInstances ? this.generateInstanceHelperCode() : ''}
         ${smartPosCode}
 
         let __currentNode = 'root';
@@ -1761,18 +2067,22 @@ export class FigmaClient {
         frame.resize(${width}, ${height});
         frame.x = smartX;
         frame.y = ${y};
-        frame.cornerRadius = ${rounded};
+        frame.cornerRadius = ${this.spacingRaw(rounded)};
+        ${this.spacingBind('frame', ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], rounded, 'radius')}
         ${rootFillCode.code}
         ${rootStrokeCode.code}
         ${rootEffectsCode}
         ${rootImageCode}
         frame.layoutMode = '${flex === 'none' || flex === 'stack' || flex === 'free' ? 'NONE' : (flex === 'row' ? 'HORIZONTAL' : 'VERTICAL')}';
         ${flex === 'none' || flex === 'stack' || flex === 'free' ? '' : `${wrap && flex === 'row' ? `frame.layoutWrap = 'WRAP';` : ''}
-        frame.itemSpacing = ${gap};
-        frame.paddingTop = ${py};
-        frame.paddingBottom = ${py};
-        frame.paddingLeft = ${px};
-        frame.paddingRight = ${px};
+        frame.itemSpacing = ${this.spacingRaw(gap)};
+        frame.paddingTop = ${this.spacingRaw(py)};
+        frame.paddingBottom = ${this.spacingRaw(py)};
+        frame.paddingLeft = ${this.spacingRaw(px)};
+        frame.paddingRight = ${this.spacingRaw(px)};
+        ${this.spacingBind('frame', ['itemSpacing'], gap, 'space')}
+        ${this.spacingBind('frame', ['paddingTop', 'paddingBottom'], py, 'space')}
+        ${this.spacingBind('frame', ['paddingLeft', 'paddingRight'], px, 'space')}
         frame.primaryAxisAlignItems = '${justifyVal}';
         frame.counterAxisAlignItems = '${alignVal}';
         frame.primaryAxisSizingMode = '${flex === 'col' ? (hugHeight || fillHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED') : (hugWidth || fillWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED')}';
@@ -1842,6 +2152,40 @@ export class FigmaClient {
    */
   isVarRef(value) {
     return typeof value === 'string' && value.startsWith('var:');
+  }
+
+  /**
+   * Raw numeric value for a spacing/radius prop. A "var:name" reference has
+   * no number to assign, so it falls back (the __space bind sets the real
+   * value from the variable a moment later).
+   */
+  spacingRaw(value, fallback = 0) {
+    if (value === undefined || value === null || this.isVarRef(value)) return fallback;
+    const n = Number(value);
+    return isFinite(n) ? n : fallback;
+  }
+
+  /**
+   * Emit the __space() call that binds one spacing/radius value to a FLOAT
+   * variable (reusing or creating it). Returns '' when there is nothing worth
+   * tokenising — no value, or a plain 0.
+   */
+  spacingBind(nodeVar, fields, value, kind) {
+    if (value === undefined || value === null) return '';
+    if (!this.isVarRef(value) && !(Number(value) > 0)) return '';
+    const payload = this.isVarRef(value) ? value : Number(value);
+    return `__space(${nodeVar}, ${JSON.stringify(fields)}, ${JSON.stringify(payload)}, ${JSON.stringify(kind)});`;
+  }
+
+  /** True if any spacing/radius prop on this props object is worth tokenising. */
+  hasSpacingProps(props) {
+    const keys = ['gap', 'rowGap', 'wrapGap', 'counterAxisSpacing', 'p', 'padding',
+      'px', 'py', 'pt', 'pr', 'pb', 'pl', 'rounded', 'radius'];
+    return keys.some(k => {
+      const v = props[k];
+      if (v === undefined || v === null) return false;
+      return this.isVarRef(v) || Number(v) > 0;
+    });
   }
 
   /**

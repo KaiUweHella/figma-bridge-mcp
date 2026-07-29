@@ -45,10 +45,12 @@ export const EXEC_TIMEOUT_MS = Number(process.env.EXEC_TIMEOUT_MS) || 60000;
 export const CONNECT_TIMEOUT_MS =
   Number(process.env.CONNECT_TIMEOUT_MS) || 12000;
 
-// Daemon endpoint (Safe Mode). Must match the vendored engine's daemon.js:
-// port 3456 on 127.0.0.1, token file under ~/.figma-safe-mcp.
+// Daemon endpoint (Safe Mode). The port is resolved fresh per call by the
+// engine's shared resolver (env DAEMON_PORT > port file published by the
+// daemon > 3456) — the daemon may have fallen back within 3456-3460 when the
+// default port was held by a foreign process.
 export const DAEMON_HOST = process.env.DAEMON_HOST || "127.0.0.1";
-export const DAEMON_PORT = Number(process.env.DAEMON_PORT) || 3456;
+export { getDaemonPort } from "../engine/src/lib/daemon-port.js";
 export const DAEMON_TOKEN_FILE =
   process.env.DAEMON_TOKEN_FILE || path.join(STATE_DIR, ".daemon-token");
 

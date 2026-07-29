@@ -15,14 +15,13 @@ import { FigJamClient } from '../figjam-client.js';
 import { FigmaClient } from '../figma-client.js';
 import * as apiDocs from '../api-docs.js';
 import { isPatched, patchFigma, unpatchFigma, getFigmaCommand, getCdpPort, getFigmaBinaryPath } from '../figma-patch.js';
-import { listComponents, getComponent, getAllComponents, VISUAL_COMPONENTS } from '../shadcn.js';
-import { listBlocks, getBlock } from '../blocks/index.js';
 import { extractGradient, extractMesh, buildMeshFromColors, buildFigmaPaint, buildCssString } from '../gradient-extractor.js';
 import {
   nullDevice, killPort, getPortPid, sleepAfterStop,
   startFigmaApp, killFigmaApp,
   getFigmaVersion, isFigmaRunning, platformName
 } from '../platform.js';
+import { getDaemonPort, clearPortFile } from './daemon-port.js';
 
 // Fix zsh shell escaping: zsh escapes ! to \! even in single quotes
 function unescapeShell(str) {
@@ -233,8 +232,9 @@ function componentContextExpr(nodeVar) {
   })(${nodeVar})`;
 }
 
-// Daemon configuration
-const DAEMON_PORT = 3456;
+// Daemon configuration. The port is resolved fresh per call (env > port file
+// published by the daemon > 3456) — see lib/daemon-port.js. The daemon may
+// have fallen back to 3457-3460 when 3456 was held by a foreign process.
 const DAEMON_PID_FILE = join(homedir(), '.figma-safe-mcp', 'daemon.pid');
 const DAEMON_TOKEN_FILE = join(homedir(), '.figma-safe-mcp', '.daemon-token');
 
@@ -286,12 +286,14 @@ function getTokenStatus() {
 // ARRAY — never a shell string, so the daemon token can't hit shell parsing.
 // Prepends -s and the X-Daemon-Token header; callers pass the URL and any
 // extra flags. Returns stdout (utf8); throws like execFileSync on failure.
-function daemonCurl(extraArgs, { timeout = 2000 } = {}) {
+function daemonCurl(extraArgs, { timeout = 2000, maxBuffer = 64 * 1024 * 1024 } = {}) {
   const token = getDaemonToken();
   const args = ['-s'];
   if (token) args.push('-H', `X-Daemon-Token: ${token}`);
   args.push(...extraArgs);
-  return execFileSync('curl', args, { encoding: 'utf8', stdio: 'pipe', timeout });
+  // maxBuffer: execFileSync defaults to 1 MB, which any real screenshot
+  // response exceeds (ENOBUFS). 64 MB covers 4x exports of large frames.
+  return execFileSync('curl', args, { encoding: 'utf8', stdio: 'pipe', timeout, maxBuffer });
 }
 
 // Process-level health cache. A single CLI command checks daemon health 3-4
@@ -313,7 +315,7 @@ function isDaemonRunning(returnDetails = false, force = false) {
   try {
     const token = getDaemonToken();
     const response = daemonCurl(
-      ['-o', nullDevice, '-w', '%{http_code}', `http://127.0.0.1:${DAEMON_PORT}/health`],
+      ['-o', nullDevice, '-w', '%{http_code}', `http://127.0.0.1:${getDaemonPort()}/health`],
       { timeout: 1000 }
     );
     const statusCode = response.trim();
@@ -365,7 +367,7 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
   headers['X-Daemon-Token'] = token;
 
   try {
-    const response = await fetch(`http://localhost:${DAEMON_PORT}/exec`, {
+    const response = await fetch(`http://localhost:${getDaemonPort()}/exec`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ action, ...data }),
@@ -474,7 +476,7 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
 
     // Double-check port is free
     try {
-      killPort(DAEMON_PORT);
+      killPort(getDaemonPort());
     } catch {}
   } else if (isDaemonRunning()) {
     return true; // Already running
@@ -488,15 +490,21 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
   // not whatever 'node' resolves to on PATH — the MCP server may spawn the
   // engine with a node that isn't on PATH. PLUGIN_KEY_FILE (if set by the MCP
   // layer) rides along in ...process.env and is passed explicitly for clarity.
+  //
+  // DAEMON_PORT is only forwarded when the USER set it. Passing the resolved
+  // port would freeze a stale port-file value into the child (a one-time 3457
+  // fallback would become sticky); without it the daemon self-selects starting
+  // at 3456 and republishes whatever it binds.
+  const daemonEnv = {
+    ...process.env,
+    DAEMON_MODE: 'plugin',
+    PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE || ''
+  };
+  if (!process.env.DAEMON_PORT) delete daemonEnv.DAEMON_PORT;
   const child = spawn(process.execPath, [daemonScript], {
     detached: true,
     stdio: 'ignore',
-    env: {
-      ...process.env,
-      DAEMON_PORT: String(DAEMON_PORT),
-      DAEMON_MODE: 'plugin',
-      PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE || ''
-    }
+    env: daemonEnv
   });
   child.unref();
 
@@ -520,8 +528,9 @@ function stopDaemon() {
       } catch {}
       unlinkSync(DAEMON_PID_FILE);
     }
-    // Also try to kill by port
-    try { killPort(DAEMON_PORT); } catch {}
+    // Also try to kill by port (resolved before clearing the port file)
+    try { killPort(getDaemonPort()); } catch {}
+    clearPortFile();
   } catch {}
 }
 
@@ -613,7 +622,7 @@ function figmaEvalSync(code) {
       const payloadFile = join(tmpdir(), `figma-payload-${Date.now()}.json`);
       writeFileSync(payloadFile, payload);
       const result = daemonCurl(
-        ['-X', 'POST', `http://127.0.0.1:${DAEMON_PORT}/exec`,
+        ['-X', 'POST', `http://127.0.0.1:${getDaemonPort()}/exec`,
          '-H', 'Content-Type: application/json', '-d', `@${payloadFile}`],
         { timeout: 60000 }
       );
@@ -727,7 +736,7 @@ function figmaUse(args, options = {}) {
 // the health contract lives in one place.
 function daemonHealthy() {
   try {
-    const health = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
+    const health = daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]);
     const data = JSON.parse(health);
     return data.status === 'ok' && !!data.plugin;
   } catch {
@@ -821,19 +830,16 @@ function generateStrokeCode(color, nodeVar = 'node', weight = 1) {
   };
 }
 
-// Helper: Variable loading code for shadcn collection
+// Helper: Variable loading code — loads ALL local collections. No collection
+// name is privileged: the user's own token set is the only token set.
 function varLoadingCode() {
   return `
 const collections = await figma.variables.getLocalVariableCollectionsAsync();
 const vars = {};
-// Load variables from shadcn collections (shadcn/semantic and shadcn/primitives)
-for (const col of collections) {
-  if (col.name.startsWith('shadcn')) {
-    for (const id of col.variableIds) {
-      const v = await figma.variables.getVariableByIdAsync(id);
-      if (v) vars[v.name] = v;
-    }
-  }
+const allVars = await figma.variables.getLocalVariablesAsync();
+// First-come-wins on name collisions, in Figma's natural collection order.
+for (const v of allVars) {
+  if (!vars[v.name]) vars[v.name] = v;
 }
 const boundFill = (variable) => figma.variables.setBoundVariableForPaint(
   { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', variable
@@ -867,7 +873,7 @@ export {
   CONFIG_DIR,
   CONFIG_FILE,
   DAEMON_PID_FILE,
-  DAEMON_PORT,
+  getDaemonPort,
   DAEMON_TOKEN_FILE,
   GENERIC_NAME_PATTERNS,
   __dirname,

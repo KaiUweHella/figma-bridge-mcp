@@ -18,7 +18,7 @@ import { isPatched, patchFigma, unpatchFigma } from '../figma-patch.js';
 import { convert, detectSourceType } from '../code-import/index.js';
 import {
   program,
-  DAEMON_PORT,
+  getDaemonPort,
   daemonCurl,
   figmaUse,
   getManualStartCommand,
@@ -316,7 +316,7 @@ program.action(async () => {
 
 function showQuickStart() {
   console.log(chalk.white('  Just ask Claude:\n'));
-  console.log(chalk.white('    "Add shadcn colors to my project"'));
+  console.log(chalk.white('    "Import my design tokens from globals.css"'));
   console.log(chalk.white('    "Create a blue card with rounded corners"'));
   console.log(chalk.white('    "Show me what\'s on the canvas"'));
   console.log(chalk.white('    "Export this frame as PNG"'));
@@ -430,7 +430,7 @@ program
     console.log(chalk.green('\n  ✓ Setup complete!\n'));
 
     console.log(chalk.white('  Just ask Claude:\n'));
-    console.log(chalk.white('    "Add shadcn colors to my project"'));
+    console.log(chalk.white('    "Import my design tokens from globals.css"'));
     console.log(chalk.white('    "Create a blue card with rounded corners"'));
     console.log(chalk.white('    "Show me what\'s on the canvas"'));
     console.log(chalk.white('    "Export this frame as PNG"'));
@@ -469,7 +469,7 @@ program
     // "fetch failed".
     const daemonInfo = isDaemonRunning(true);
     if (daemonInfo && daemonInfo.running) {
-      console.log(chalk.green('  ✓ Daemon running') + chalk.gray(` (port ${DAEMON_PORT})`));
+      console.log(chalk.green('  ✓ Daemon running') + chalk.gray(` (port ${getDaemonPort()})`));
     } else if (daemonInfo && daemonInfo.authFailed) {
       console.log(chalk.yellow('  ⚠ Daemon running but token mismatch (auth failed).'));
       console.log(chalk.gray('    Restart with:  figma-cli daemon restart'));
@@ -538,7 +538,7 @@ program
     for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
       await new Promise(r => setTimeout(r, 1000));
       try {
-        const healthRes = daemonCurl([`http://127.0.0.1:${DAEMON_PORT}/health`]);
+        const healthRes = daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]);
         const health = JSON.parse(healthRes);
         if (health.plugin) {
           pluginSpinner.succeed('Plugin connected and authenticated!');

@@ -1,11 +1,6 @@
 // Commands: misc (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
 import * as apiDocs from '../api-docs.js';
-import { listBlocks, getBlock } from '../blocks/index.js';
 import {
   program,
   checkConnection,
@@ -15,82 +10,8 @@ import {
   handleEvalError
 } from '../lib/cli-core.js';
 
-// ============ BLOCKS ============
-
-const blocksCmd = program
-  .command('blocks')
-  .description('Pre-built UI blocks (dashboards, pages, etc.)');
-
-blocksCmd
-  .command('list')
-  .description('List available blocks')
-  .action(() => {
-    const blocks = listBlocks();
-    if (blocks.length === 0) {
-      console.log(chalk.yellow('No blocks available yet.'));
-      return;
-    }
-    console.log(chalk.bold('\nAvailable Blocks:\n'));
-    for (const b of blocks) {
-      console.log(`  ${chalk.cyan(b.id.padEnd(20))} ${b.description}`);
-    }
-    console.log(`\nUsage: ${chalk.green('node src/index.js blocks create <id>')}\n`);
-  });
-
-blocksCmd
-  .command('create <id>')
-  .description('Create a block in Figma')
-  .action(async (id) => {
-    await checkConnection();
-    const block = getBlock(id);
-    if (!block) {
-      console.log(chalk.red(`✗ Block "${id}" not found.`));
-      console.log(`Run ${chalk.cyan('blocks list')} to see available blocks.`);
-      return;
-    }
-
-    const spinner = ora(`Creating ${block.name}...`).start();
-
-    try {
-      // Context helpers for block scripts
-      const context = {
-        // Render JSX via the existing render pipeline
-        renderJsx: async (jsx) => {
-          // Calculate smart position
-          let posX = 0;
-          try {
-            const canvasInfo = await daemonExec('eval', {
-              code: 'var nodes = figma.currentPage.children; var maxX = 0; for (var i = 0; i < nodes.length; i++) { var right = nodes[i].x + nodes[i].width; if (right > maxX) maxX = right; } return maxX;'
-            });
-            if (typeof canvasInfo === 'number' && canvasInfo > 0) posX = canvasInfo + 100;
-          } catch (e) { /* use 0 */ }
-
-          const result = await daemonExec('render', { jsx, x: posX, y: 0 }, 120000);
-          return result;
-        },
-
-        // Eval code from a file path
-        evalFile: async (filePath) => {
-          const code = readFileSync(filePath, 'utf8');
-          return await daemonExec('eval', { code }, 120000);
-        },
-
-        // Write temp file and return path
-        writeTemp: (name, content) => {
-          const tmpDir = join(homedir(), '.figma-ds-cli', 'tmp');
-          if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
-          const tmpPath = join(tmpDir, name);
-          writeFileSync(tmpPath, content);
-          return tmpPath;
-        }
-      };
-
-      const nodeId = await block.create(context);
-      spinner.succeed(`Created ${block.name} (${nodeId})`);
-    } catch (e) {
-      spinner.fail(`Failed to create ${block.name}: ${e.message}`);
-    }
-  });
+// NOTE: there is deliberately NO `blocks` command — this tool ships no
+// pre-built page content. Agents compose layouts themselves via `render`.
 
 
 // ============ DEV RESOURCES ============

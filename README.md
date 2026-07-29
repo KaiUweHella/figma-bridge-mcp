@@ -17,7 +17,7 @@ binary patching of the Figma app.
 MCP client ──stdio──▶ figma-safe-mcp (src/)
                         │  execFile, command allowlist, audit log
                         ▼
-                     vendored engine (engine/)  ──▶  local daemon :3456
+                     vendored engine (engine/)  ──▶  local daemon :3456–3460
                         (Safe-Mode only)                │  HTTP: X-Daemon-Token
                                                         │  WS  : access-key hello
                                                         ▼
@@ -84,11 +84,48 @@ Point your MCP client at the server (adjust the path):
 | `figma_pairing` | Show the access key; `{rotate:true}` generates a fresh one. |
 | `figma_run` | Run any allowlisted engine command, e.g. `{"args":["canvas","info"]}`. |
 | `figma_render` | Render JSX into the open Figma design. |
-| `figma_inspect` | Inspect a node by id (JSON). |
+| `figma_inspect` | Inspect a node by id: geometry, fills/strokes/effects, clip, opacity (YAML). |
+| `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned). |
+| `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
 | `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
+| `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files. `figma_run`/`figma_render` accept a `label` to annotate entries. |
+
+Node ids are accepted in every form a user has at hand: `12:34`, the URL
+form `12-34`, or a full Figma URL (the file key is checked against the
+Safe-Mode "only the open file" constraint and warned about).
 
 Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment.
+
+## Design-to-code workflow
+
+The design is the complete specification — the tooling makes copying it easier
+than interpreting it. Build a screen from Figma in five steps:
+
+1. **`figma_screenshot`** on the target frame, then read the saved PNG — the
+   visual ground truth. Never build from a node tree alone.
+2. **`figma_spec` with `phase: "structure"`** — build the markup skeleton:
+   real text characters, resolved icon/component names (instances are
+   descended into, so overrides and true main-component names appear),
+   hierarchy and flex direction. Copy texts and icons verbatim.
+3. **Export tokens** (`figma_run` with `["export","css"]` or
+   `["export","dtcg"]`) and wire them up as CSS variables / theme. The output
+   names its source Figma file — check it is the file you are building.
+4. **Export assets** (`figma_run` with
+   `["export","assets","<nodeId>","-o","/abs/path/src/assets"]`) — every
+   `→ assets/…` reference in the spec points at a file this writes. Pass an
+   absolute path; large exports keep running in the background ("still
+   RUNNING") — re-run the same call to poll. `assets.json` is merged across
+   runs and byte-identical assets are deduped.
+5. **`figma_spec` with `phase: "style"`** — apply sizes, gaps, padding,
+   alignment, fill/hug sizing, paints incl. gradients (`→ var(name)` marks a
+   design-token binding), radii, shadows, typography, `opacity`, `clip`
+   (overflow hidden) and `abs` positioning. Decorative vectors appear as
+   `vector art → assets/…` lines with placement — place the exported SVGs,
+   never approximate them in CSS.
+6. **Verify** — screenshot your build and compare against the PNG from step 1.
+
+The same spec is available on the CLI as `figma-cli export code-spec <nodeId>`.
 
 ## Security model
 
@@ -105,12 +142,24 @@ Write commands can be gated behind an explicit `confirm:true` by setting
 - **Isolated state** — token, pid, key, and audit log live under
   `~/.figma-safe-mcp/`, separate from any upstream figma-cli install.
 - **Audit log** — every executed command is appended to
-  `~/.figma-safe-mcp/audit.log`.
+  `~/.figma-safe-mcp/audit.log` (with touched node ids and optional labels —
+  the data source for `figma_history`).
+
+**Port fallback.** The daemon binds the first free port in 3456–3460 and
+publishes it in `~/.figma-safe-mcp/daemon-port`; the CLI/MCP layers resolve the
+port per call (env `DAEMON_PORT` > port file > 3456), and the plugin scans the
+whole range, so a foreign process squatting 3456 no longer blocks connecting.
+The squatter check is an *unauthenticated* `/health` probe (the session token is
+never sent to an unknown port). Setting `DAEMON_PORT` explicitly disables the
+fallback; values outside 3456–3460 are unsupported — the plugin manifest is
+Figma-enforced and cannot reach them.
 
 **Residual risk (documented):** a malicious local process that binds port 3456
 *before* the daemon could observe the plugin's `hello` and learn the key. The
 manifest's port lock and the daemon normally holding the port mitigate this; an
-HMAC challenge-response is a possible future hardening.
+HMAC challenge-response is a possible future hardening. (The port fallback does
+not change this: the plugin sends `hello` to whichever range port accepts, so
+the same risk simply applies to the bound port.)
 
 ## Known limitations
 
@@ -127,9 +176,11 @@ HMAC challenge-response is a possible future hardening.
 npm test      # 285 tests: vendored engine + daemon auth + MCP layer
 ```
 
-Do **not** run an upstream `figma-cli` at the same time — both would compete for
-port 3456. This build isolates its own token/pid under `~/.figma-safe-mcp/`, but
-the port is shared by design (the plugin manifest locks it).
+Avoid running an upstream `figma-cli` at the same time. The daemon now falls
+back within 3456–3460 when 3456 is taken, so both *can* coexist, but the plugin
+scans the whole range and the two daemons use different access keys — which one
+the plugin reaches first is a coin toss. This build isolates its own
+token/pid/port files under `~/.figma-safe-mcp/`.
 
 ## Attribution
 

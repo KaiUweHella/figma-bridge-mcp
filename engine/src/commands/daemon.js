@@ -5,7 +5,7 @@ import { getPortPid } from '../platform.js';
 import {
   program,
   DAEMON_PID_FILE,
-  DAEMON_PORT,
+  getDaemonPort,
   daemonExec,
   getDaemonToken,
   getTokenStatus,
@@ -34,7 +34,7 @@ daemon
 
       // Connection status
       if (details.running) {
-        console.log(chalk.green('✓ Daemon:    ') + 'Running on port ' + DAEMON_PORT);
+        console.log(chalk.green('✓ Daemon:    ') + 'Running on port ' + getDaemonPort());
       } else if (details.authFailed) {
         console.log(chalk.red('✗ Daemon:    ') + 'Running but authentication failed (403)');
       } else if (details.error) {
@@ -73,7 +73,7 @@ daemon
     } else {
       // Simple output
       if (details.running) {
-        console.log(chalk.green('✓ Daemon is running on port ' + DAEMON_PORT));
+        console.log(chalk.green('✓ Daemon is running on port ' + getDaemonPort()));
       } else if (details.authFailed) {
         console.log(chalk.red('✗ Daemon running but auth failed (token mismatch)'));
         console.log(chalk.gray('  Fix: node src/index.js daemon restart'));
@@ -108,7 +108,7 @@ daemon
 
     const newDetails = isDaemonRunning(true);
     if (newDetails.running) {
-      console.log(chalk.green('✓ Daemon started on port ' + DAEMON_PORT));
+      console.log(chalk.green('✓ Daemon started on port ' + getDaemonPort()));
     } else if (newDetails.authFailed) {
       console.log(chalk.red('✗ Daemon started but auth failed'));
       console.log(chalk.gray('  Run: node src/index.js daemon diagnose'));
@@ -162,7 +162,7 @@ daemon
       const reconnToken = getDaemonToken();
       const reconnHeaders = {};
       if (reconnToken) reconnHeaders['X-Daemon-Token'] = reconnToken;
-      const response = await fetch(`http://localhost:${DAEMON_PORT}/reconnect`, { headers: reconnHeaders });
+      const response = await fetch(`http://localhost:${getDaemonPort()}/reconnect`, { headers: reconnHeaders });
       const result = await response.json();
       if (result.error) {
         console.log(chalk.red('✗ Reconnect failed: ' + result.error));
@@ -201,11 +201,11 @@ daemon
 
     // Step 2: Check if port is in use
     console.log();
-    console.log(chalk.bold('2. Port ' + DAEMON_PORT));
+    console.log(chalk.bold('2. Port ' + getDaemonPort()));
 
     let portPid = null;
     try {
-      portPid = getPortPid(DAEMON_PORT);
+      portPid = getPortPid(getDaemonPort());
     } catch {}
 
     if (portPid) {

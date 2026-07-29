@@ -117,33 +117,281 @@ export function variableChunkCode(ids, modes) {
  * Eval snippet: walk one page and return its compact node tree.
  * Kept self-contained — no outer-scope references — because it runs in the
  * Figma plugin sandbox.
+ *
+ * Options beyond depth/text:
+ *  - resolveInstances: descend INTO instance subtrees (override characters
+ *    come through automatically) and resolve each instance's main component
+ *    name + variant/text properties. Without this, instances short-circuit to
+ *    their (often stale) layer name — fine for a census, fatal for
+ *    design-to-code where the real content lives inside instances.
+ *  - withIds: carry every node's id so callers can target sub-nodes
+ *    (screenshots, inspect) without re-searching.
+ *  - withVars: resolve boundVariables (fills, gaps, radii, fontSize, …) to
+ *    variable NAMES so specs can say `#ffffff → var(color/surface)`.
  */
-export function walkerCode(pageId, { maxDepth = 8, textLimit = 80 } = {}) {
+export function walkerCode(pageId, {
+  maxDepth = 8, textLimit = 80,
+  resolveInstances = false, withIds = false, withVars = false,
+  includeHidden = false,
+} = {}) {
   return `(async () => {
     const MAX_DEPTH = ${Number(maxDepth)};
     const TEXT_LIMIT = ${Number(textLimit)};
+    const RESOLVE_INSTANCES = ${resolveInstances === true};
+    const WITH_IDS = ${withIds === true};
+    const WITH_VARS = ${withVars === true};
+    const INCLUDE_HIDDEN = ${includeHidden === true};
     const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
     const paints = (arr) => {
       if (!Array.isArray(arr)) return undefined;
       const out = [];
       for (const p of arr) {
         if (p.visible === false) continue;
-        if (p.type === 'SOLID') out.push(hex(p.color) + (p.opacity != null && p.opacity < 1 ? '@' + Math.round(p.opacity * 100) : ''));
-        else out.push(p.type);
+        if (p.type === 'SOLID') {
+          out.push(hex(p.color) + (p.opacity != null && p.opacity < 1 ? '@' + Math.round(p.opacity * 100) : ''));
+        } else if (String(p.type).indexOf('GRADIENT_') === 0 && Array.isArray(p.gradientStops)) {
+          /* A bare type name ("GRADIENT_LINEAR") is not implementable — emit
+             real stops + angle as a css-ready gradient() instead. Angle math
+             mirrors gradient-extractor.js (the writer): it builds
+             gradientTransform [[cos,-sin,tx],[sin,cos,ty]] from rad=(deg-90),
+             so reading back is atan2(t[1][0], t[0][0]) + 90. Scale/shear in
+             hand-drawn gradients is ignored — angle is an approximation,
+             stops are exact. */
+          const kind = p.type === 'GRADIENT_LINEAR' ? 'linear'
+            : p.type === 'GRADIENT_RADIAL' ? 'radial'
+            : p.type === 'GRADIENT_ANGULAR' ? 'conic' : 'diamond';
+          const stops = p.gradientStops.map(s =>
+            hex(s.color) + (s.color.a != null && s.color.a < 1 ? '@' + Math.round(s.color.a * 100) : '')
+            + ' ' + Math.round(s.position * 100) + '%').join(', ');
+          let head = '';
+          if (p.type === 'GRADIENT_LINEAR' && Array.isArray(p.gradientTransform)) {
+            const t = p.gradientTransform;
+            const deg = Math.round((Math.atan2(t[1][0], t[0][0]) * 180 / Math.PI + 90 + 360) % 360);
+            head = deg + 'deg, ';
+          }
+          out.push(kind + '-gradient(' + head + stops + ')');
+        } else {
+          out.push(p.type);
+        }
       }
       return out.length ? out : undefined;
     };
-    const walk = (n, depth) => {
+    const varNameCache = new Map();
+    const varName = async (id) => {
+      if (varNameCache.has(id)) return varNameCache.get(id);
+      let name = null;
+      try { const v = await figma.variables.getVariableByIdAsync(id); if (v) name = v.name; } catch (e) {}
+      varNameCache.set(id, name);
+      return name;
+    };
+    // Shared styles (text styles, color styles): resolve id → { name, bv }.
+    // bv holds the STYLE's own variable bindings (fontSize/fontStyle/… →
+    // variable names) — design systems bind typography tokens inside their
+    // text styles, so without this every text renders as hard values.
+    // Post-transform box of a node RELATIVE to its parent's box. Node w/h and
+    // x/y are pre-rotation — a -90° wave reads as 204×363 while it renders
+    // (and exports) as 363×76. Absolute boxes bake the transform in and also
+    // erase the GROUP-coordinate-space special case. 'render' prefers
+    // absoluteRenderBounds (the pixels actually drawn — matches the exported
+    // SVG); default is absoluteBoundingBox (geometry, no effect bleed).
+    const relBox = (n, prefer) => {
+      const pb = n.parent && n.parent.absoluteBoundingBox;
+      const own = (prefer === 'render' && n.absoluteRenderBounds) ? n.absoluteRenderBounds : n.absoluteBoundingBox;
+      if (!pb || !own) return null;
+      return { x: Math.round(own.x - pb.x), y: Math.round(own.y - pb.y), w: Math.round(own.width), h: Math.round(own.height) };
+    };
+    // Component sets seen while resolving instances: name -> { id, props }.
+    const SETS = new Map();
+    const setsOut = () => {
+      const list = [];
+      for (const entry of SETS.entries()) list.push({ name: entry[0], id: entry[1].id, props: entry[1].props });
+      return list;
+    };
+    const styleCache = new Map();
+    const styleInfo = async (id) => {
+      if (styleCache.has(id)) return styleCache.get(id);
+      let info = null;
+      try {
+        const st = await figma.getStyleByIdAsync(id);
+        if (st) {
+          info = { name: st.name };
+          if (WITH_VARS && st.boundVariables) {
+            const bv = {};
+            for (const entry of Object.entries(st.boundVariables)) {
+              const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
+              if (first && first.id) { const nm = await varName(first.id); if (nm) bv[entry[0]] = nm; }
+            }
+            if (Object.keys(bv).length) info.bv = bv;
+          }
+        }
+      } catch (e) {}
+      styleCache.set(id, info);
+      return info;
+    };
+    const walk = async (n, depth) => {
+      // Invisible nodes do not render — putting them in the spec makes the
+      // consumer build phantom elements (hidden tag pills, notification
+      // bubbles toggled off via BOOLEAN component props: Figma expresses
+      // those as visible=false on the controlled layer, so this one check
+      // covers both cases). Default: drop. --include-hidden keeps them,
+      // marked, for debugging what a toggle would reveal.
+      if (n.visible === false && !INCLUDE_HIDDEN) return null;
       const o = { t: n.type, n: n.name };
+      if (n.visible === false) o.hidden = true;
+      if (WITH_IDS) o.id = n.id;
       if ('width' in n) { o.w = Math.round(n.width); o.h = Math.round(n.height); }
       if ('layoutMode' in n && n.layoutMode !== 'NONE') {
         o.lm = n.layoutMode;
         if (n.itemSpacing) o.gap = n.itemSpacing;
         const pad = [n.paddingTop, n.paddingRight, n.paddingBottom, n.paddingLeft];
         if (pad.some(v => v > 0)) o.pad = pad;
+        if (n.primaryAxisAlignItems && n.primaryAxisAlignItems !== 'MIN') o.ap = n.primaryAxisAlignItems;
+        if (n.counterAxisAlignItems && n.counterAxisAlignItems !== 'MIN') o.ac = n.counterAxisAlignItems;
+        // GRID auto-layout (2025): sidebar/topbar/main shells are grids. The
+        // walker used to know only H/V and silently mislabeled grids as
+        // columns WITHOUT child positions — the "everything collapses into a
+        // stack" shell bug. Property reads are defensive: names come from the
+        // grid API generation and absent ones simply stay unreported (the
+        // free-position fallback below still places every child).
+        if (n.layoutMode === 'GRID') {
+          const g = {};
+          try {
+            if (typeof n.gridRowCount === 'number') g.rows = n.gridRowCount;
+            if (typeof n.gridColumnCount === 'number') g.cols = n.gridColumnCount;
+            if (typeof n.gridRowGap === 'number') g.rowGap = n.gridRowGap;
+            if (typeof n.gridColumnGap === 'number') g.colGap = n.gridColumnGap;
+          } catch (e) {}
+          if (Object.keys(g).length) o.grid = g;
+        }
+      }
+      // Grid CELL of this node (parent is a GRID): anchor indices are
+      // 0-based; spans only when > 1.
+      if (n.parent && n.parent.layoutMode === 'GRID') {
+        const c = {};
+        try {
+          // Anchor -1 = the child is NOT in a grid track (absolutely
+          // positioned overlay inside the grid) — no cell for those.
+          if (typeof n.gridRowAnchorIndex === 'number' && n.gridRowAnchorIndex >= 0) c.r = n.gridRowAnchorIndex;
+          if (typeof n.gridColumnAnchorIndex === 'number' && n.gridColumnAnchorIndex >= 0) c.c = n.gridColumnAnchorIndex;
+          if (typeof n.gridRowSpan === 'number' && n.gridRowSpan > 1) c.rs = n.gridRowSpan;
+          if (typeof n.gridColumnSpan === 'number' && n.gridColumnSpan > 1) c.cs = n.gridColumnSpan;
+        } catch (e) {}
+        if (c.r != null || c.c != null) o.cell = c;
+      }
+      // Sizing modes (fill/hug/fixed) — the classic "hug instead of fill"
+      // layout bug is invisible without them.
+      if ('layoutSizingHorizontal' in n && n.layoutSizingHorizontal && n.layoutSizingHorizontal !== 'FIXED') o.sh = n.layoutSizingHorizontal;
+      if ('layoutSizingVertical' in n && n.layoutSizingVertical && n.layoutSizingVertical !== 'FIXED') o.sv = n.layoutSizingVertical;
+      // Min/max constraints — they bound how fill/hug resolve and were
+      // previously not read at all ("min-width kommt nie an").
+      if (typeof n.minWidth === 'number') o.mnw = Math.round(n.minWidth);
+      if (typeof n.maxWidth === 'number') o.mxw = Math.round(n.maxWidth);
+      if (typeof n.minHeight === 'number') o.mnh = Math.round(n.minHeight);
+      if (typeof n.maxHeight === 'number') o.mxh = Math.round(n.maxHeight);
+      // Rendering modifiers the consumer cannot infer from geometry: layer
+      // opacity, rotation, and frame clipping (CSS: overflow hidden). Without
+      // clip, children overflowing the frame bounds either bleed or get
+      // dropped in a rebuild — Figma cuts them silently.
+      if (typeof n.opacity === 'number' && n.opacity < 1) o.op = Math.round(n.opacity * 100) / 100;
+      if (typeof n.rotation === 'number' && Math.abs(n.rotation) >= 0.5) o.rot = Math.round(n.rotation * 10) / 10;
+      if (n.clipsContent === true) o.clip = true;
+      // Overlays: an ABSOLUTE child inside auto-layout looked like a normal
+      // flow child in the spec — corner badges and bookmarks were rebuilt
+      // in-flow. Capture the anchor (from constraints) and the offset FROM
+      // the anchored edges, so "abs bottom-right 16,16" is buildable as-is.
+      // The same treatment applies to EVERY child of a container that is NOT
+      // a flexbox-like auto-layout (HORIZONTAL/VERTICAL): free frames, GRID
+      // parents, and any future layoutMode. Grid children get their cell AND
+      // their x/y — the offsets double as a cross-check and as the fallback
+      // when the grid template could not be read. A spec without positions
+      // (the Background Pattern / collapsed-shell case) is unbuildable.
+      const parentLm = n.parent && 'layoutMode' in n.parent ? n.parent.layoutMode : null;
+      const freeParent = n.parent && typeof n.parent.width === 'number'
+        && parentLm !== 'HORIZONTAL' && parentLm !== 'VERTICAL';
+      let absBox = null, absPw = 0, absPh = 0;
+      if ((n.layoutPositioning === 'ABSOLUTE' || freeParent)
+          && n.parent && typeof n.parent.width === 'number' && typeof n.x === 'number') {
+        const c = n.constraints || {};
+        const AH = { MIN: 'left', MAX: 'right', CENTER: 'center', STRETCH: 'stretch', SCALE: 'scale' };
+        const AV = { MIN: 'top', MAX: 'bottom', CENTER: 'center', STRETCH: 'stretch', SCALE: 'scale' };
+        const ah = AH[c.horizontal] || 'left';
+        const av = AV[c.vertical] || 'top';
+        // Post-transform box (rotation baked in, GROUP coordinate spaces
+        // normalized). Fallback for boxless environments: raw x/y, with the
+        // GROUP-origin correction (group children share the group's space).
+        let box = relBox(n);
+        if (!box) {
+          const px = n.parent.type === 'GROUP' ? (n.parent.x || 0) : 0;
+          const py = n.parent.type === 'GROUP' ? (n.parent.y || 0) : 0;
+          box = { x: n.x - px, y: n.y - py, w: n.width, h: n.height };
+        }
+        const pb = n.parent.absoluteBoundingBox;
+        const pw = pb ? pb.width : n.parent.width;
+        const ph = pb ? pb.height : n.parent.height;
+        // x/y are offsets from the ANCHORED edge — right/bottom anchors count
+        // from those edges, every other anchor (incl. center/stretch/scale)
+        // counts from left/top so the value is directly CSS-buildable.
+        o.abs = {
+          a: av + '-' + ah,
+          x: Math.round(ah === 'right' ? pw - box.x - box.w : box.x),
+          y: Math.round(av === 'bottom' ? ph - box.y - box.h : box.y),
+        };
+        // STRETCH pins BOTH edges — emit the far edge too (left+right / top+bottom).
+        if (ah === 'stretch') o.abs.r = Math.round(pw - box.x - box.w);
+        if (av === 'stretch') o.abs.b = Math.round(ph - box.y - box.h);
+        absBox = box; absPw = pw; absPh = ph;
+      }
+      // Rendered box for anything that can be (part of) vector art: after a
+      // rotation the exported SVG has these dimensions, not width/height —
+      // the spec must hand out numbers that match the file it points to.
+      const VEC_RB = { VECTOR: 1, BOOLEAN_OPERATION: 1, STAR: 1, POLYGON: 1, LINE: 1, ELLIPSE: 1, RECTANGLE: 1, GROUP: 1 };
+      if (VEC_RB[n.type] || o.rot) {
+        const rb = relBox(n, 'render');
+        if (rb) o.rb = rb;
+      }
+      // Overlay classification, on the RENDERED box when present (only drawn
+      // pixels count — a decorative wave whose geometry box overhangs while
+      // its visible part fits must not be misjudged):
+      //  - inset: covers the parent edge-to-edge (2px tol) — the profile-card
+      //    background case. Emitting fixed offsets made builders pin it
+      //    top-left; inset says: size WITH the parent.
+      //  - ov: extends beyond the parent. Consumers drop exactly these
+      //    ("half outside — must be a mistake") — the flag says whether the
+      //    parent clips it or it stays visible by design (do not drop).
+      if (absBox) {
+        const ob = o.rb || absBox;
+        if (Math.abs(ob.x) <= 2 && Math.abs(ob.y) <= 2
+            && Math.abs(absPw - ob.x - ob.w) <= 2 && Math.abs(absPh - ob.y - ob.h) <= 2) {
+          o.abs.inset = true;
+        } else if (ob.x < -1 || ob.y < -1 || ob.x + ob.w > absPw + 1 || ob.y + ob.h > absPh + 1) {
+          o.ov = n.parent.clipsContent === true ? 'clip' : 'over';
+        }
       }
       try { const f = paints(n.fills); if (f) o.fills = f; } catch (e) {}
-      try { const s = paints(n.strokes); if (s) { o.strokes = s; if (typeof n.strokeWeight === 'number') o.sw = n.strokeWeight; } } catch (e) {}
+      // Shared COLOR style applied to the fill (fillStyleId): its name is the
+      // semantic handle ("Color/Primary") — capture alongside the raw value.
+      if (WITH_VARS && typeof n.fillStyleId === 'string' && n.fillStyleId) {
+        const st = await styleInfo(n.fillStyleId);
+        if (st) o.fs = st.name;
+      }
+      try {
+        const s = paints(n.strokes);
+        if (s) {
+          o.strokes = s;
+          if (typeof n.strokeWeight === 'number') o.sw = n.strokeWeight;
+          else {
+            // Per-side borders: strokeWeight is figma.mixed then, and the
+            // width used to vanish from the spec entirely (the gradient-border
+            // cards). Capture the four sides as [t, r, b, l].
+            const t = n.strokeTopWeight, r = n.strokeRightWeight, b = n.strokeBottomWeight, l = n.strokeLeftWeight;
+            if ([t, r, b, l].some(v => typeof v === 'number')) o.sw = [t || 0, r || 0, b || 0, l || 0];
+          }
+          // Stroke alignment changes geometry: INSIDE (the default, = CSS
+          // border with border-box) is implicit; OUTSIDE/CENTER are emitted.
+          if (n.strokeAlign && n.strokeAlign !== 'INSIDE') o.sa = String(n.strokeAlign).toLowerCase();
+        }
+      } catch (e) {}
+      try { if (Array.isArray(n.dashPattern) && n.dashPattern.length) o.dash = n.dashPattern; } catch (e) {}
       if ('cornerRadius' in n) {
         if (typeof n.cornerRadius === 'number') { if (n.cornerRadius > 0) o.r = n.cornerRadius; }
         else o.r = [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius];
@@ -154,6 +402,14 @@ export function walkerCode(pageId, { maxDepth = 8, textLimit = 80 } = {}) {
             ? { type: e.type, x: e.offset.x, y: e.offset.y, blur: e.radius, spread: e.spread || 0, color: hex(e.color), a: Math.round((e.color.a == null ? 1 : e.color.a) * 100) / 100 }
             : { type: e.type, blur: e.radius });
         if (fx.length) o.fx = fx;
+      }
+      if (WITH_VARS && n.boundVariables) {
+        const bv = {};
+        for (const entry of Object.entries(n.boundVariables)) {
+          const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
+          if (first && first.id) { const nm = await varName(first.id); if (nm) bv[entry[0]] = nm; }
+        }
+        if (Object.keys(bv).length) o.bv = bv;
       }
       if (n.type === 'TEXT') {
         o.txt = { chars: (n.characters || '').slice(0, TEXT_LIMIT) };
@@ -170,6 +426,20 @@ export function walkerCode(pageId, { maxDepth = 8, textLimit = 80 } = {}) {
           }
         }
         if (n.letterSpacing !== figma.mixed && n.letterSpacing && n.letterSpacing.value) o.txt.ls = n.letterSpacing.value;
+        // Applied TEXT STYLE: the style name ("display/medium") is the
+        // semantic identity of this text, and the style's own variable
+        // bindings are where typography tokens usually live. Merge the
+        // style's bindings under the node's (node-level overrides win).
+        if (WITH_VARS && typeof n.textStyleId === 'string' && n.textStyleId) {
+          const st = await styleInfo(n.textStyleId);
+          if (st) {
+            o.txt.ts = st.name;
+            if (st.bv) {
+              o.bv = o.bv || {};
+              for (const k of Object.keys(st.bv)) if (!(k in o.bv)) o.bv[k] = st.bv[k];
+            }
+          }
+        }
       }
       if (n.type === 'COMPONENT_SET') {
         try { o.vp = n.variantGroupProperties; } catch (e) {}
@@ -179,13 +449,58 @@ export function walkerCode(pageId, { maxDepth = 8, textLimit = 80 } = {}) {
         // and publish key (cross-file reuse, only resolvable once published).
         const dv = n.defaultVariant || n.children[0];
         if (dv) { o.id = dv.id; try { o.key = dv.key; } catch (e) {} }
-        if (n.children.length) o.kids = [walk(n.children[0], depth + 1)];
+        if (n.children.length) o.kids = [await walk(n.children[0], depth + 1)].filter(Boolean);
         return o;
       }
-      if (n.type === 'INSTANCE') { o.mc = n.name; return o; }
+      if (n.type === 'INSTANCE') {
+        o.mc = n.name;
+        if (!RESOLVE_INSTANCES) return o;
+        // Truth over layer names: the main component's REAL name (an icon
+        // instance renamed "leaf" may actually instantiate "calendar"), the
+        // parent set, and the instance's variant/text property values.
+        try {
+          const main = await n.getMainComponentAsync();
+          if (main) {
+            o.main = main.name;
+            if (main.parent && main.parent.type === 'COMPONENT_SET') {
+              o.set = main.parent.name;
+              // Set-level variant axes (state=default/hover/…): collected ONCE
+              // per set into the envelope — the screen is only complete when
+              // the interactive variants are built too, and without the axes
+              // nobody knows they exist.
+              if (!SETS.has(main.parent.name)) {
+                let props = null;
+                try {
+                  const vp = main.parent.variantGroupProperties;
+                  if (vp) { props = {}; for (const k of Object.keys(vp)) props[k] = vp[k].values; }
+                } catch (e) {}
+                SETS.set(main.parent.name, { id: main.parent.id, props });
+              }
+            }
+          }
+        } catch (e) {}
+        try {
+          const cp = n.componentProperties;
+          if (cp) {
+            const props = {};
+            for (const entry of Object.entries(cp)) {
+              const d = entry[1];
+              if (d && (d.type === 'VARIANT' || d.type === 'TEXT' || d.type === 'BOOLEAN')) props[entry[0].split('#')[0]] = d.value;
+            }
+            if (Object.keys(props).length) o.props = props;
+          }
+        } catch (e) {}
+        if ('children' in n && n.children.length) {
+          if (depth >= MAX_DEPTH) { o.more = n.children.length; return o; }
+          o.kids = [];
+          for (const c of n.children) { const k = await walk(c, depth + 1); if (k) o.kids.push(k); }
+        }
+        return o;
+      }
       if ('children' in n && n.children.length) {
         if (depth >= MAX_DEPTH) { o.more = n.children.length; return o; }
-        o.kids = n.children.map(c => walk(c, depth + 1));
+        o.kids = [];
+        for (const c of n.children) { const k = await walk(c, depth + 1); if (k) o.kids.push(k); }
       }
       return o;
     };
@@ -195,7 +510,244 @@ export function walkerCode(pageId, { maxDepth = 8, textLimit = 80 } = {}) {
     let visited = 0;
     const count = (n) => { visited++; if ('children' in n) n.children.forEach(count); };
     count(page);
-    return JSON.stringify({ id: page.id, name: page.name, nodeCount: visited, frames: page.children.map(c => walk(c, 0)) });
+    const tops = page.children;
+    const frames = [];
+    for (const c of tops) { const f = await walk(c, 0); if (f) frames.push(f); }
+    return JSON.stringify({ id: page.id, name: page.name, nodeCount: visited, frames, sets: setsOut() });
+  })()`;
+}
+
+/**
+ * Eval snippet: walk a single NODE (not a page) with the same options as
+ * walkerCode. Used by `export code-spec <nodeId>`; wraps the result in the
+ * same { id, name, frames } envelope so downstream formatters are shared.
+ */
+export function nodeWalkerCode(nodeId, opts = {}) {
+  // Reuse walkerCode's body by swapping the page lookup for a node lookup:
+  // walk the one node as the single "frame". The page-level count/loadAsync
+  // is replaced by loading the node's page (dynamic-page requirement).
+  const base = walkerCode('__NODE__', opts);
+  return base.replace(
+    /const page = await figma\.getNodeByIdAsync\("__NODE__"\);[\s\S]*?return JSON\.stringify\(\{ id: page\.id, name: page\.name, nodeCount: visited, frames, sets: setsOut\(\) \}\);/,
+    `const node = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+    if (!node) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop — if this id comes from another file (check the URL file key), open that file first.' });
+    let visited = 0;
+    const count = (n) => { visited++; if ('children' in n) n.children.forEach(count); };
+    count(node);
+    return JSON.stringify({ id: node.id, name: node.name, nodeCount: visited, frames: [await walk(node, 0)].filter(Boolean), sets: setsOut() });`
+  );
+}
+
+/**
+ * Eval snippet: collect ASSET CANDIDATES under a node — no bytes yet, just a
+ * small manifest. The CLI then pulls each asset in its own round-trip
+ * (payload limits: a single eval with 8 artworks of raw bytes would not fit).
+ *
+ * Two kinds:
+ *  - image: any visible node with a visible IMAGE fill. Deduped by imageHash
+ *    — the ORIGINAL bytes are fetched later via getImageByHash, so five
+ *    avatars sharing one photo yield one file.
+ *  - vector: the TOPMOST subtree that is pure vector art (contains at least
+ *    one hard vector — VECTOR/BOOLEAN_OPERATION/STAR/POLYGON — rects and
+ *    ellipses alone are styling, not art). Not descended into.
+ * Hidden nodes are skipped entirely (M1 rule: invisible does not exist).
+ */
+export function assetCollectorCode(nodeId) {
+  return `(async () => {
+    const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+    if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop.' });
+    const SOFT_VEC = { VECTOR: 1, BOOLEAN_OPERATION: 1, STAR: 1, LINE: 1, POLYGON: 1, ELLIPSE: 1, RECTANGLE: 1 };
+    const HARD_VEC = { VECTOR: 1, BOOLEAN_OPERATION: 1, STAR: 1, POLYGON: 1 };
+    const hasImageFill = (n) => {
+      try {
+        return Array.isArray(n.fills) && n.fills.some((f) => f.type === 'IMAGE' && f.visible !== false && f.imageHash);
+      } catch (e) { return false; }
+    };
+    const isVec = (n) => {
+      /* Hidden children are IGNORED, not a veto — one invisible helper layer
+         must not shatter a 232-vector pattern into 232 files. An IMAGE-filled
+         shape is an image, never vector art — it vetoes its group. */
+      if (hasImageFill(n)) return { vec: false, hard: false };
+      if (SOFT_VEC[n.type]) return { vec: true, hard: !!HARD_VEC[n.type] };
+      if ((n.type === 'GROUP' || n.type === 'FRAME') && 'children' in n && n.children.length) {
+        let hard = false, any = false;
+        for (const c of n.children) {
+          if (c.visible === false) continue;
+          any = true;
+          const r = isVec(c);
+          if (!r.vec) return { vec: false, hard: false };
+          hard = hard || r.hard;
+        }
+        return { vec: any, hard };
+      }
+      return { vec: false, hard: false };
+    };
+    const images = new Map(); /* hash -> { hash, nodes: [] } */
+    const vectors = [];
+    const pushVec = (n, ancestors, cluster) => {
+      /* Rendered (post-transform) box: a rotated vector's width/height are
+         pre-rotation and do NOT match the exported SVG. Prefer render bounds;
+         fall back to node dimensions when boxes are unavailable. */
+      const rb = n.absoluteRenderBounds || n.absoluteBoundingBox;
+      const entry = {
+        id: n.id, name: n.name,
+        w: Math.round((rb && rb.width) || n.width || 0), h: Math.round((rb && rb.height) || n.height || 0),
+        parent: ancestors.join(' / '), ancestors,
+      };
+      const pb = n.parent && n.parent.absoluteBoundingBox;
+      if (rb && pb) { entry.x = Math.round(rb.x - pb.x); entry.y = Math.round(rb.y - pb.y); }
+      if (cluster) entry.cluster = cluster;
+      vectors.push(entry);
+    };
+    const walk = (n, ancestors, depth) => {
+      if (n.visible === false) return;
+      try {
+        if (Array.isArray(n.fills)) {
+          for (const f of n.fills) {
+            if (f.type === 'IMAGE' && f.visible !== false && f.imageHash) {
+              if (!images.has(f.imageHash)) images.set(f.imageHash, { hash: f.imageHash, nodes: [] });
+              images.get(f.imageHash).nodes.push({
+                id: n.id, name: n.name, w: Math.round(n.width || 0), h: Math.round(n.height || 0),
+                parent: ancestors.join(' / '), ancestors,
+              });
+            }
+          }
+        }
+      } catch (e) {}
+      /* The requested ROOT is never itself an asset — exporting the whole
+         frame as one file is the job of "export node". Always descend at 0. */
+      if (depth > 0) {
+        const v = isVec(n);
+        if (v.vec && v.hard) {
+          pushVec(n, ancestors);
+          return; /* topmost vector art — internals are the artwork itself */
+        }
+      }
+      if ('children' in n && n.children.length) {
+        /* Cluster rule: a container that is MOSTLY vector art (a pattern of
+           hundreds of shapes with one stray non-vector child) exports as ONE
+           artwork, not one file per shape. */
+        const visible = n.children.filter((c) => c.visible !== false);
+        if (depth > 0 && visible.length >= 6) {
+          let vecKids = 0;
+          for (const c of visible) { const r = isVec(c); if (r.vec && r.hard) vecKids++; }
+          if (vecKids / visible.length >= 0.8) { pushVec(n, ancestors, vecKids); return; }
+        }
+        for (const c of visible) walk(c, ancestors.concat(n.name), depth + 1);
+      }
+    };
+    walk(root, [], 0);
+    return JSON.stringify({ id: root.id, name: root.name, images: [...images.values()], vectors });
+  })()`;
+}
+
+/**
+ * Eval snippet: every variable ACTUALLY BOUND in a node's subtree — the
+ * scoped token set for `export css`/`export dtcg <nodeId>`.
+ *
+ * Why not getLocalVariablesAsync(): that reads the LOCAL collections of the
+ * open file only. A design bound to library tokens returns none of them, and
+ * when the file also carries unrelated local collections (earlier test runs,
+ * another theme) the export silently delivers the wrong system — the exact
+ * failure of the plant-care-vs-DLS token bug. Bound variables resolve through
+ * getVariableByIdAsync, which reaches library variables too.
+ *
+ * Collected: node.boundVariables (fills, strokes, gaps, radii, typography …),
+ * the boundVariables of every applied shared style (text/fill/stroke/effect),
+ * and the full alias chain of each hit (alias targets export as tokens of
+ * their own). Values are first-mode, alias-resolved; COLOR → hex (8-digit
+ * when alpha < 1). Each entry carries its collection name and, when the
+ * variable is itself an alias, the target's name as `ref`.
+ */
+export function usedVariablesCode(nodeId) {
+  return `(async () => {
+    const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+    if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop.' });
+    const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('') + (c.a != null && c.a < 1 ? Math.round(c.a * 255).toString(16).padStart(2, '0') : '');
+    const ids = [];
+    const idSet = new Set();
+    const add = (id) => { if (id && !idSet.has(id)) { idSet.add(id); ids.push(id); } };
+    const addBV = (bv) => {
+      if (!bv) return;
+      for (const key of Object.keys(bv)) {
+        const val = bv[key];
+        const list = Array.isArray(val) ? val : [val];
+        for (const it of list) if (it && it.id) add(it.id);
+      }
+    };
+    const styleIds = new Set();
+    const walk = (n) => {
+      if (n.visible === false) return;
+      try { addBV(n.boundVariables); } catch (e) {}
+      for (const k of ['textStyleId', 'fillStyleId', 'strokeStyleId', 'effectStyleId']) {
+        try { const v = n[k]; if (typeof v === 'string' && v) styleIds.add(v); } catch (e) {}
+      }
+      /* paint-level bindings (a gradient stop bound to a color token) */
+      try { for (const p of (Array.isArray(n.fills) ? n.fills : [])) addBV(p.boundVariables); } catch (e) {}
+      try { for (const p of (Array.isArray(n.strokes) ? n.strokes : [])) addBV(p.boundVariables); } catch (e) {}
+      if ('children' in n) for (const c of n.children) walk(c);
+    };
+    walk(root);
+    for (const sid of styleIds) {
+      try { const st = await figma.getStyleByIdAsync(sid); if (st) addBV(st.boundVariables); } catch (e) {}
+    }
+    const colName = new Map();
+    const collectionName = async (cid) => {
+      if (!cid) return null;
+      if (colName.has(cid)) return colName.get(cid);
+      let name = null;
+      try { const c = await figma.variables.getVariableCollectionByIdAsync(cid); if (c) name = c.name; } catch (e) {}
+      colName.set(cid, name);
+      return name;
+    };
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < ids.length && i < 2000; i++) {
+      const id = ids[i];
+      if (seen.has(id)) continue;
+      seen.add(id);
+      let v = null;
+      try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) {}
+      if (!v) continue;
+      let val = Object.values(v.valuesByMode || {})[0];
+      let ref = null;
+      let guard = 10;
+      while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
+        add(val.id); /* alias target exports as a token of its own */
+        let t = null;
+        try { t = await figma.variables.getVariableByIdAsync(val.id); } catch (e) {}
+        if (!t) { val = null; break; }
+        if (!ref) ref = t.name;
+        val = Object.values(t.valuesByMode || {})[0];
+      }
+      if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
+      if (val && typeof val === 'object') val = null; /* unresolvable */
+      out.push({ name: v.name, type: v.resolvedType, value: val === undefined ? null : val, ref, collection: await collectionName(v.variableCollectionId) });
+    }
+    return JSON.stringify({ file: figma.root.name, node: root.name, id: root.id, vars: out });
+  })()`;
+}
+
+/** Eval snippet: original encoded bytes of one image fill, base64. */
+export function imageBytesCode(hash) {
+  return `(async () => {
+    const img = figma.getImageByHash(${JSON.stringify(String(hash))});
+    if (!img) return JSON.stringify({ error: 'image not found' });
+    const bytes = await img.getBytesAsync();
+    let size = null;
+    try { size = await img.getSizeAsync(); } catch (e) {}
+    return JSON.stringify({ base64: figma.base64Encode(bytes), size });
+  })()`;
+}
+
+/** Eval snippet: SVG markup of one node, base64. */
+export function svgBytesCode(nodeId) {
+  return `(async () => {
+    const n = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+    if (!n) return JSON.stringify({ error: 'node not found' });
+    if (!('exportAsync' in n)) return JSON.stringify({ error: 'node cannot be exported' });
+    const bytes = await n.exportAsync({ format: 'SVG' });
+    return JSON.stringify({ base64: figma.base64Encode(bytes) });
   })()`;
 }
 
@@ -375,8 +927,10 @@ export function nameRadii(radii) {
 
 // ============ Structure formatting ============
 
-/** Signature for dedup: structural identity key (excludes accumulated repeat count). */
-const sibKey = (n) => JSON.stringify({ ...n, repeat: undefined });
+/** Signature for dedup: structural identity key (excludes accumulated repeat
+ * count and node ids — ids are unique by definition and would defeat dedup,
+ * while differing CONTENT (text, icons) intentionally keeps siblings apart). */
+const sibKey = (n) => JSON.stringify(n, (k, v) => (k === 'repeat' || k === 'id') ? undefined : v);
 
 /** Collapse runs of structurally identical siblings into one node + repeat count. */
 export function dedupSiblings(kids) {
@@ -414,7 +968,14 @@ export function formatTree(node, depth) {
   if (ld) bits.push(ld);
   if (node.kids?.length || node.kidCount) bits.push(`${node.kidCount ?? node.kids.length} children`);
   if (node.txt) bits.push(`“${node.txt.chars}”`);
-  if (node.mc) bits.push(`instance of ${node.mc}`);
+  if (node.mc || node.main) {
+    // Prefer the resolved main-component name (truth) over the instance's
+    // layer name (often stale after swaps); qualify with the parent set.
+    const target = node.main || node.mc;
+    const set = node.set && node.set !== target ? `${node.set} / ` : '';
+    bits.push(`instance of ${set}${target}`);
+    if (node.props) bits.push(Object.entries(node.props).map(([k, v]) => `${k}=${v}`).join(', '));
+  }
   if (node.repeat) bits.push(`×${node.repeat}`);
   const lines = [`${indent}- ${bits.join(' · ')}`];
   if (node.kids) {

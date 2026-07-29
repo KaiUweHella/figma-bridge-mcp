@@ -2,12 +2,10 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { join } from 'path';
-import { listComponents, getComponent, getAllComponents, getVariety, VISUAL_COMPONENTS } from '../shadcn.js';
 import {
   program,
   checkConnection,
-  fastEval,
-  fastRender
+  fastEval
 } from '../lib/cli-core.js';
 
 // ============ SIZES ============
@@ -584,107 +582,6 @@ program
     }
   });
 
-// ─── shadcn/ui Component Package ───────────────────────────────────
-const shadcn = program
-  .command('shadcn')
-  .description('Generate shadcn/ui components in Figma (requires: tokens preset shadcn)');
-
-shadcn
-  .command('list')
-  .description('List all available shadcn/ui components')
-  .action(() => {
-    const { available, interactive } = listComponents();
-    console.log(chalk.bold('\n  Available components:\n'));
-    available.forEach(name => {
-      const variants = getComponent(name);
-      console.log(`  ${chalk.green('●')} ${chalk.white(name)} ${chalk.gray(`(${variants.length} variant${variants.length > 1 ? 's' : ''})`)}`);
-    });
-    console.log(chalk.bold('\n  Interactive only (not generated):\n'));
-    console.log(`  ${chalk.gray(interactive.join(', '))}`);
-    console.log();
-  });
-
-shadcn
-  .command('add [names...]')
-  .description('Add shadcn/ui component(s) to Figma canvas. Use --count to add multiple copies of the same component.')
-  .option('--all', 'Add all components')
-  .option('-c, --count <n>', 'Add this many copies of each named component (e.g. --count 3 for 3 cards)', '1')
-  .action(async (names, options) => {
-    checkConnection();
-    const count = Math.max(1, parseInt(options.count) || 1);
-
-    let items;
-    if (options.all) {
-      items = getAllComponents();
-    } else if (names && names.length > 0) {
-      items = [];
-      const userPassedCount = options.count !== undefined && options.count !== '1';
-      for (const name of names) {
-        const comp = getComponent(name);
-        if (!comp) {
-          console.log(chalk.red(`  ✗ Unknown component: ${name}`));
-          console.log(chalk.gray(`  Available: ${VISUAL_COMPONENTS.join(', ')}`));
-          return;
-        }
-        // Semantics:
-        //   `shadcn add button`           → all 9 variants once (the variant gallery)
-        //   `shadcn add button --count 4` → 4 copies of the DEFAULT variant (= comp[0])
-        //                                   (the user asked for 4 buttons, not 4×9=36)
-        if (userPassedCount) {
-          // If this component has a variety pool, N copies means N DIFFERENT
-          // designs (e.g. 4 cards = 4 distinct layouts), not N clones.
-          const varietySet = getVariety(name, count);
-          if (varietySet) {
-            items.push(...varietySet);
-          } else {
-            // No variety pool: the user asked for N "Button"s, not N "Button /
-            // Default"s — the " / Variant" suffix is a gallery-grouping
-            // convention that makes no sense for plain copies. Strip it from the
-            // label and the JSX root-frame name (first name="..." is the root).
-            const base = comp[0];
-            const cleanName = base.name.split(' / ')[0];
-            const cleanItem = {
-              ...base,
-              name: cleanName,
-              jsx: base.jsx.replace(/name="[^"]*"/, `name="${cleanName}"`),
-            };
-            for (let i = 0; i < count; i++) items.push(cleanItem);
-          }
-        } else {
-          items.push(...comp);
-        }
-      }
-    } else {
-      console.log(chalk.yellow('  Specify component names or use --all'));
-      console.log(chalk.gray(`  Example: node src/index.js shadcn add card --count 3`));
-      console.log(chalk.gray(`  Available: ${VISUAL_COMPONENTS.join(', ')}`));
-      return;
-    }
-
-    const label = count > 1 ? ` (${count}x)` : '';
-    const spinner = ora(`Creating ${items.length} shadcn/ui component(s)${label}...`).start();
-    let created = 0;
-    let failed = 0;
-
-    for (const item of items) {
-      try {
-        const result = await fastRender(item.jsx);
-        if (result && result.id) {
-          created++;
-          spinner.text = `Created ${created}/${items.length}: ${item.name}`;
-        } else {
-          failed++;
-        }
-      } catch (err) {
-        failed++;
-        spinner.text = `Failed: ${item.name} (${err.message})`;
-      }
-    }
-
-    if (failed === 0) {
-      spinner.succeed(`Created ${created} shadcn/ui component(s)`);
-    } else {
-      spinner.warn(`Created ${created}, failed ${failed}`);
-    }
-  });
-
+// NOTE: there is deliberately NO `shadcn` generator here — this tool ships
+// no third-party design-system content. `sizes`, `combos` and `variants`
+// below stay: they operate on the USER's own components.

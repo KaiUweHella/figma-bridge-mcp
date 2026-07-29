@@ -140,8 +140,8 @@ program
           try {
             const code = page.selectionIds
               ? walkerCode(page.id, { maxDepth: depth }).replace(
-                  'page.children.map',
-                  `page.children.filter(c => ${JSON.stringify(page.selectionIds)}.includes(c.id)).map`)
+                  'const tops = page.children;',
+                  `const tops = page.children.filter(c => ${JSON.stringify(page.selectionIds)}.includes(c.id));`)
               : walkerCode(page.id, { maxDepth: depth });
             result = parseEvalResult(await fastEval(code));
             if (depth < 8) result.reducedDepth = depth;

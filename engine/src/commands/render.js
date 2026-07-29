@@ -14,6 +14,7 @@ import {
   detectWrapperSplit,
   fastEval,
   figmaEvalSync,
+  getDaemonPort,
   getFigmaClient,
   isDaemonRunning,
   unescapeShell
@@ -651,7 +652,7 @@ program
 
     // 6. Daemon status
     if (isDaemonRunning()) {
-      console.log(chalk.green('✓ Daemon running on port 3456'));
+      console.log(chalk.green(`✓ Daemon running on port ${getDaemonPort()}`));
     } else {
       console.log(chalk.yellow('○ Daemon not running (optional, speeds up commands)'));
     }

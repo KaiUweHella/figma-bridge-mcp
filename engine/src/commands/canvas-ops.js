@@ -1,6 +1,8 @@
 // Commands: canvas-ops (extracted from index.js)
 import chalk from 'chalk';
 import { join } from 'path';
+import { toYaml } from '../lib/yaml.js';
+import { normalizeNodeId } from '../lib/node-id.js';
 import {
   program,
   buildNodeSelector,
@@ -490,20 +492,12 @@ set
 
     let code;
     if (color.startsWith('var:')) {
-      // Variable binding — search ALL local collections so user-imported
-      // design systems (Carbon, Material, custom) resolve, not only shadcn.
+      // Variable binding — search ALL local collections equally; no
+      // collection name is privileged (first exact name match wins).
       const varName = color.slice(4);
       code = `(async () => {
-        const collections = await figma.variables.getLocalVariableCollectionsAsync();
         const allVars = await figma.variables.getLocalVariablesAsync();
-        // Prefer an exact name match in a shadcn collection, then any other.
-        let variable = null;
-        for (const v of allVars) {
-          if (v.name !== ${JSON.stringify(varName)}) continue;
-          const col = collections.find(c => c.id === v.variableCollectionId);
-          if (col && col.name.startsWith('shadcn')) { variable = v; break; }
-        }
-        if (!variable) variable = allVars.find(v => v.name === ${JSON.stringify(varName)});
+        const variable = allVars.find(v => v.name === ${JSON.stringify(varName)});
         if (!variable) return 'Variable ${varName} not found in any local collection';
         ${nodeSelector}
         if (__fillNodes.length === 0) return 'No node found';
@@ -538,19 +532,12 @@ set
 
     let code;
     if (color.startsWith('var:')) {
-      // Variable binding — search ALL local collections so user-imported
-      // design systems (Carbon, Material, custom) resolve, not only shadcn.
+      // Variable binding — search ALL local collections equally; no
+      // collection name is privileged (first exact name match wins).
       const varName = color.slice(4);
       code = `(async () => {
-        const collections = await figma.variables.getLocalVariableCollectionsAsync();
         const allVars = await figma.variables.getLocalVariablesAsync();
-        let variable = null;
-        for (const v of allVars) {
-          if (v.name !== ${JSON.stringify(varName)}) continue;
-          const col = collections.find(c => c.id === v.variableCollectionId);
-          if (col && col.name.startsWith('shadcn')) { variable = v; break; }
-        }
-        if (!variable) variable = allVars.find(v => v.name === ${JSON.stringify(varName)});
+        const variable = allVars.find(v => v.name === ${JSON.stringify(varName)});
         if (!variable) return 'Variable ${varName} not found in any local collection';
         ${nodeSelector}
         if (nodes.length === 0) return 'No node found';
@@ -1154,14 +1141,20 @@ program
 
 program
   .command('inspect <nodeId>')
-  .description('Inspect a node and emit its position as Spec-canonical properties (start/end/centerOffset/etc.). JSON output via --json.')
+  .description('Inspect a node and emit its position as Spec-canonical properties (start/end/centerOffset/etc.). Machine-readable via --format yaml (compact) or --json.')
   .option('--json', 'Output as JSON (machine-readable)')
+  .option('-f, --format <fmt>', 'yaml | json — structured output (yaml is the token-cheaper default for agents)')
   .option('--spec', 'Output only the absolute-positioning spec block (compact)')
   .action(async (nodeId, options) => {
     await checkConnection();
+    {
+      const norm = normalizeNodeId(nodeId);
+      if (norm.warning) console.error(chalk.yellow('⚠ ' + norm.warning));
+      nodeId = norm.id;
+    }
     const code = `(async () => {
       const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '" — Safe Mode only reaches the file open in Figma Desktop.');
       const p = n.parent;
       const out = {
         id: n.id,
@@ -1217,6 +1210,65 @@ program
       // command via componentContextExpr (one resolution).
       const __ctx = ${componentContextExpr('n')};
       if (__ctx && __ctx.role) out.component = __ctx;
+      // Typography context for TEXT nodes: applied text style (resolved to
+      // its name) plus the effective font — makes "is this text styled or
+      // raw?" checkable without opening Figma.
+      if (n.type === 'TEXT') {
+        const styleId = n.textStyleId && n.textStyleId !== figma.mixed ? n.textStyleId : null;
+        let styleName = null;
+        if (styleId) {
+          try {
+            const st = await figma.getStyleByIdAsync(styleId);
+            styleName = st ? st.name : null;
+          } catch (e) {}
+        }
+        out.text = {
+          characters: n.characters.length > 60 ? n.characters.slice(0, 60) + '…' : n.characters,
+          fontSize: n.fontSize === figma.mixed ? 'mixed' : n.fontSize,
+          fontName: n.fontName === figma.mixed ? 'mixed' : n.fontName,
+          textStyle: styleName,
+        };
+      }
+      // Style block: fills/strokes/effects/clip/opacity/radius. Without
+      // these, inspect was geometry-only and useless as a detail tool for
+      // paints ("figma_inspect liefert keine Fills/Effects/clipsContent").
+      const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+      const paints = (arr) => {
+        if (!Array.isArray(arr)) return undefined;
+        const out2 = [];
+        for (const pnt of arr) {
+          if (pnt.visible === false) continue;
+          if (pnt.type === 'SOLID') out2.push(hex(pnt.color) + (pnt.opacity != null && pnt.opacity < 1 ? '@' + Math.round(pnt.opacity * 100) : ''));
+          else if (String(pnt.type).indexOf('GRADIENT_') === 0 && Array.isArray(pnt.gradientStops)) {
+            out2.push(pnt.type.replace('GRADIENT_', '').toLowerCase() + '-gradient(' + pnt.gradientStops.map(s => hex(s.color) + ' ' + Math.round(s.position * 100) + '%').join(', ') + ')');
+          } else out2.push(pnt.type);
+        }
+        return out2.length ? out2 : undefined;
+      };
+      const style = {};
+      try { const f = paints(n.fills); if (f) style.fills = f; } catch (e) {}
+      // Applied shared COLOR style (semantic handle alongside the raw fill).
+      try {
+        if (typeof n.fillStyleId === 'string' && n.fillStyleId) {
+          const fst = await figma.getStyleByIdAsync(n.fillStyleId);
+          if (fst) style.fillStyle = fst.name;
+        }
+      } catch (e) {}
+      try { const s = paints(n.strokes); if (s) { style.strokes = s; if (typeof n.strokeWeight === 'number') style.strokeWeight = n.strokeWeight; } } catch (e) {}
+      if ('cornerRadius' in n) {
+        if (typeof n.cornerRadius === 'number') { if (n.cornerRadius > 0) style.cornerRadius = n.cornerRadius; }
+        else style.cornerRadius = [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius];
+      }
+      if (typeof n.opacity === 'number' && n.opacity < 1) style.opacity = n.opacity;
+      if ('clipsContent' in n) style.clipsContent = n.clipsContent === true;
+      if (typeof n.rotation === 'number' && Math.abs(n.rotation) >= 0.5) style.rotation = Math.round(n.rotation * 10) / 10;
+      if (Array.isArray(n.effects) && n.effects.length) {
+        style.effects = n.effects.filter(e => e.visible !== false).map(e =>
+          (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW')
+            ? { type: e.type, x: e.offset.x, y: e.offset.y, blur: e.radius, spread: e.spread || 0, color: hex(e.color), alpha: e.color.a == null ? 1 : Math.round(e.color.a * 100) / 100 }
+            : { type: e.type, blur: e.radius });
+      }
+      if (Object.keys(style).length) out.style = style;
       // Raw geometry alongside, useful for debugging the spec output
       if ('x' in n) {
         out.raw = { x: n.x, y: n.y, constraints: n.constraints };
@@ -1225,7 +1277,10 @@ program
     })()`;
     try {
       const r = await daemonExec('eval', { code });
-      if (options.json) {
+      const fmt = options.format ? String(options.format).toLowerCase() : null;
+      if (fmt === 'yaml') {
+        console.log(toYaml(r));
+      } else if (options.json || fmt === 'json') {
         console.log(JSON.stringify(r, null, 2));
       } else if (options.spec) {
         console.log(JSON.stringify(r.absolutePositioning, null, 2));
@@ -1237,6 +1292,10 @@ program
           for (const [k, v] of Object.entries(r.absolutePositioning)) {
             if (v !== null) console.log(`    ${k}: ${typeof v === 'string' ? JSON.stringify(v) : v}`);
           }
+        }
+        if (r.style) {
+          console.log(chalk.cyan('  Style:'));
+          for (const [k, v] of Object.entries(r.style)) console.log(`    ${k}: ${JSON.stringify(v)}`);
         }
         if (r.raw) {
           console.log(chalk.gray(`  raw: x=${r.raw.x}, y=${r.raw.y}, constraints=${JSON.stringify(r.raw.constraints)}`));

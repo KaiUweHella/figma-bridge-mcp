@@ -75,7 +75,7 @@ variables
 
 variables
   .command('visualize [collection]')
-  .description('Create color swatches on canvas (shadcn-style layout)')
+  .description('Create color swatches on canvas (grouped palette layout)')
   .action(async (collection, options) => {
     checkConnection();
     const spinner = ora('Creating color palette...').start();
@@ -102,7 +102,8 @@ startX += 100;
 
 let totalSwatches = 0;
 
-// shadcn color order
+// Common palette family names, in display order (only used for stable
+// sorting when these names happen to exist — no palette is created here).
 const colorOrder = ['slate','gray','zinc','neutral','stone','red','orange','amber','yellow','lime','green','emerald','teal','cyan','sky','blue','indigo','violet','purple','fuchsia','pink','rose','white','black'];
 
 for (const col of filteredCols) {
@@ -317,6 +318,28 @@ return 'Created ' + created + ' variables';
   });
 
 variables
+  .command('delete <names...>')
+  .description('Delete specific variables by exact name (e.g. "space/7px"). Safer counterpart to delete-all.')
+  .action((names) => {
+    checkConnection();
+    const code = `(async () => {
+const want = ${JSON.stringify(names)};
+const vars = await figma.variables.getLocalVariablesAsync();
+const deleted = [], missing = [];
+for (const name of want) {
+  const v = vars.find(x => x.name === name);
+  if (!v) { missing.push(name); continue; }
+  try { v.remove(); deleted.push(name); }
+  catch (e) { missing.push(name + ' (' + e.message + ')'); }
+}
+return { deleted, missing };
+})()`;
+    const result = figmaEvalSync(code);
+    if (result.deleted?.length) console.log(chalk.green('✓'), `Deleted: ${result.deleted.join(', ')}`);
+    if (result.missing?.length) console.log(chalk.yellow('⚠'), `Not deleted: ${result.missing.join(', ')}`);
+  });
+
+variables
   .command('delete-all')
   .description('Delete all local variables and collections')
   .option('-c, --collection <name>', 'Only delete variables in this collection')
@@ -481,7 +504,6 @@ if (colFilter) {
   const cols = allCols.filter(c => c.name.toLowerCase() === fl || c.name.toLowerCase().includes(fl));
   scoped = new Set(cols.map(c => c.id));
 }
-const shadcnIds = new Set(allCols.filter(c => c.name.startsWith('shadcn')).map(c => c.id));
 const varCache = {};
 const register = (v) => {
   if (!varCache[v.name]) varCache[v.name] = v;
@@ -502,8 +524,7 @@ for (const v of allVars) {
 if (scoped) {
   for (const v of allVars) if (scoped.has(v.variableCollectionId)) register(v);
 } else {
-  for (const v of allVars) if (shadcnIds.has(v.variableCollectionId)) register(v);
-  for (const v of allVars) if (!shadcnIds.has(v.variableCollectionId)) register(v);
+  for (const v of allVars) register(v);
 }
 const lookupVar = (ref) => {
   // Accept "primary", "colors/primary", "miro:primary" — return Variable or null
