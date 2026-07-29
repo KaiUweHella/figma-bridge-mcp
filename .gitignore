@@ -3,3 +3,5 @@ node_modules/
 *.log
 # downloaded by `figma-cli api setup` (offline API docs; machine-local)
 engine/docs/
+# local working docs (plans, reports, scratch)
+docu/
