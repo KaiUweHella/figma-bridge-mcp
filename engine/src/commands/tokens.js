@@ -8,8 +8,9 @@ import {
   checkConnection,
   daemonExec,
   fastEval,
-  figmaUse,
-  getFigmaClient,
+  evalPrint,
+  listCollections,
+  createCollection,
   handleEvalError,
   hexToRgb
 } from '../lib/cli-core.js';
@@ -26,7 +27,7 @@ collections
   .description('List all collections')
   .action(() => {
     checkConnection();
-    figmaUse('collection list');
+    listCollections();
   });
 
 collections
@@ -34,7 +35,7 @@ collections
   .description('Create a collection')
   .action((name) => {
     checkConnection();
-    figmaUse(`collection create "${name}"`);
+    createCollection(name);
   });
 
 // ============ TOKENS (PRESETS) ============
@@ -85,7 +86,7 @@ return 'Created ' + count + ' spacing variables';
 })()`;
 
     try {
-      const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+      const result = evalPrint(code, { silent: true });
       spinner.succeed(result?.trim() || 'Created spacing scale');
     } catch (error) {
       spinner.fail('Failed to create spacing scale');
@@ -126,7 +127,7 @@ return 'Created ' + count + ' radius variables';
 `;
 
     try {
-      const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+      const result = evalPrint(code, { silent: true });
       spinner.succeed(result?.trim() || 'Created border radii');
     } catch (error) {
       spinner.fail('Failed to create radii');
@@ -231,7 +232,7 @@ return 'Imported ' + count + ' tokens into ' + collectionName;
 })()`;
 
     try {
-      const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+      const result = evalPrint(code, { silent: true });
       spinner.succeed(result?.trim() || 'Tokens imported');
     } catch (error) {
       spinner.fail('Failed to import tokens');
@@ -494,7 +495,7 @@ return 'Created ' + type.toLowerCase() + ' token: ${name}';
 })()`;
 
     try {
-      const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+      const result = evalPrint(code, { silent: true });
       console.log(chalk.green(result?.trim() || `✓ Created token: ${name}`));
     } catch (error) {
       console.log(chalk.red(`✗ Failed to create token: ${name}`));

@@ -68,18 +68,24 @@ describe('file type detection', () => {
 // 3. FigmaClient Properties
 // ----------------------------------------------------------------
 describe('FigmaClient properties', () => {
-  it('should initialize with null pageUrl', () => {
+  // The CDP-era connection state (pageUrl / fileType / pageTitle / ws) is gone
+  // — the class is a pure JSX compiler now. What remains is the variable-
+  // collection filter that var: resolution honors.
+  it('starts with no collection filter', () => {
     const client = new FigmaClient();
-    assert.strictEqual(client.pageUrl, null);
+    assert.strictEqual(client.collectionFilter, null);
   });
 
-  it('should initialize with null fileType', () => {
+  it('setCollection pins and clears the filter', () => {
     const client = new FigmaClient();
-    assert.strictEqual(client.fileType, null);
+    client.setCollection('Brand');
+    assert.strictEqual(client.collectionFilter, 'Brand');
+    client.setCollection(null);
+    assert.strictEqual(client.collectionFilter, null);
   });
 
-  it('should initialize with null pageTitle', () => {
+  it('carries no transport state', () => {
     const client = new FigmaClient();
-    assert.strictEqual(client.pageTitle, null);
+    assert.ok(!('ws' in client), 'no WebSocket state on a pure compiler');
   });
 });

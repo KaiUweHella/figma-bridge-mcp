@@ -11,14 +11,11 @@ import { dirname, join } from 'path';
 import { createInterface } from 'readline';
 import { homedir, tmpdir } from 'os';
 import { createServer } from 'http';
-import { FigJamClient } from '../figjam-client.js';
 import { FigmaClient } from '../figma-client.js';
 import * as apiDocs from '../api-docs.js';
-import { isPatched, patchFigma, unpatchFigma, getFigmaCommand, getCdpPort, getFigmaBinaryPath } from '../figma-patch.js';
 import { extractGradient, extractMesh, buildMeshFromColors, buildFigmaPaint, buildCssString } from '../gradient-extractor.js';
 import {
   nullDevice, killPort, getPortPid, sleepAfterStop,
-  startFigmaApp, killFigmaApp,
   getFigmaVersion, isFigmaRunning, platformName
 } from '../platform.js';
 import { getDaemonPort, clearPortFile } from './daemon-port.js';
@@ -554,26 +551,9 @@ function stopDaemon() {
   } catch {}
 }
 
-// Platform-specific Figma paths and commands
-function getFigmaPath() {
-  // Use centralized path detection from figma-patch.js
-  return getFigmaBinaryPath();
-}
-
-function startFigma() {
-  const port = getCdpPort();
-  const figmaPath = getFigmaPath();
-  startFigmaApp(figmaPath, port);
-}
-
-function killFigma() {
-  killFigmaApp();
-}
-
-function getManualStartCommand() {
-  // Use centralized command from figma-patch.js
-  return getFigmaCommand(getCdpPort());
-}
+// (getFigmaPath / startFigma / killFigma / getManualStartCommand removed:
+// launching Figma with a debug port belongs to the CDP/Yolo path this build
+// does not have. The user opens Figma Desktop normally.)
 
 // NOTE: this file lives in src/lib/ — keep __dirname pointing at src/ so
 // daemon.js / figma-client.js / package.json resolve as before the split.
@@ -615,18 +595,10 @@ function saveConfig(config) {
 const NOT_CONNECTED_MSG =
   'Not connected to Figma. Run figma_connect, then launch the FigCli plugin in Figma Desktop and paste your access key.';
 
-// Helper: Get or create FigmaClient — DISABLED (no direct CDP in Safe Mode)
-async function getFigmaClient() {
-  throw new Error(NOT_CONNECTED_MSG);
-}
+// (getFigmaClient / figmaEval removed: both existed only to reach the CDP
+// transport. Everything goes through daemonExec / fastEval / figmaEvalSync.)
 
-// Helper: Run code in Figma (replaces figma-use eval)
-async function figmaEval(code) {
-  const client = await getFigmaClient();
-  return await client.eval(code);
-}
-
-// Sync wrapper for figmaEval - uses daemon via curl (fast) or fallback to direct connection
+// Sync eval through the daemon (curl); used by the few sync CLI paths.
 function figmaEvalSync(code) {
   // Try daemon first (fast path)
   const daemonRunning = isDaemonRunning();
@@ -664,95 +636,73 @@ function figmaEvalSync(code) {
   throw new Error(NOT_CONNECTED_MSG);
 }
 
-// Compatibility wrapper for old figmaUse calls
-function figmaUse(args, options = {}) {
-  // Parse eval command
-  const evalMatch = args.match(/^eval\s+"(.+)"$/s) || args.match(/^eval\s+'(.+)'$/s);
+// Eval helpers. These replaced `figmaUse`, which took a command STRING,
+// regex-re-parsed an embedded eval payload, un-escaped it and only then
+// evaluated it — three encoding layers that also collapsed newlines (silently
+// breaking `//` comments in generated code). These call the daemon directly.
 
-  if (evalMatch) {
-    // Only unescape quotes, NOT \n (which would break string literals like .join('\n'))
-    const code = evalMatch[1].replace(/\\"/g, '"');
-    try {
-      const result = figmaEvalSync(code);
-      if (!options.silent && result !== undefined) {
-        console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
-      }
-      return typeof result === 'object' ? JSON.stringify(result) : String(result || '');
-    } catch (error) {
-      if (options.silent) return null;
-      throw error;
-    }
+/** Eval `code` in Figma and print the result (unless silent). */
+function evalPrint(code, { silent = false } = {}) {
+  const result = figmaEvalSync(code);
+  if (!silent && result !== undefined) {
+    console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
   }
+  return typeof result === 'object' ? JSON.stringify(result) : String(result || '');
+}
 
-  if (args === 'status' || args.startsWith('status')) {
-    // Safe-Mode build: connection status = daemon health + plugin bridge,
-    // not a CDP page probe.
-    if (daemonHealthy()) {
-      const status = 'Connected to Figma (plugin bridge)';
-      if (!options.silent) console.log(status);
-      return status;
-    }
-    return 'Not connected';
-  }
+/** Select a single node by id. */
+function selectNode(nodeId) {
+  figmaEvalSync(`(async () => {
+    const node = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+    if (node) figma.currentPage.selection = [node];
+  })()`);
+  return 'Selected';
+}
 
-  if (args === 'variable list') {
-    const result = figmaEvalSync(`(async () => {
-      const vars = await figma.variables.getLocalVariablesAsync();
-      return vars.map(v => v.name + ' (' + v.resolvedType + ')').join('\\n');
-    })()`);
-    if (!options.silent) console.log(result);
-    return result;
-  }
+/** List local variables as "name (TYPE)" lines. */
+function listVariables({ silent = false } = {}) {
+  const result = figmaEvalSync(`(async () => {
+    const vars = await figma.variables.getLocalVariablesAsync();
+    return vars.map(v => v.name + ' (' + v.resolvedType + ')').join('\\n');
+  })()`);
+  if (!silent) console.log(result);
+  return result;
+}
 
-  if (args === 'collection list') {
-    const result = figmaEvalSync(`(async () => {
-      const cols = await figma.variables.getLocalVariableCollectionsAsync();
-      return cols.map(c => c.name + ' (' + c.variableIds.length + ' vars)').join('\\n');
-    })()`);
-    if (!options.silent) console.log(result);
-    return result;
-  }
+/** Find local variables by name pattern (`*` allowed). */
+function findVariables(pattern, { silent = false } = {}) {
+  const result = figmaEvalSync(`(async () => {
+    const pattern = ${JSON.stringify(String(pattern))}.replace('*', '.*');
+    const re = new RegExp(pattern, 'i');
+    const vars = await figma.variables.getLocalVariablesAsync();
+    return vars.filter(v => re.test(v.name)).map(v => v.name).join('\\n');
+  })()`);
+  if (!silent) console.log(result);
+  return result;
+}
 
-  if (args.startsWith('collection create ')) {
-    const name = args.replace('collection create ', '').replace(/"/g, '');
-    const result = figmaEvalSync(`
-      const col = figma.variables.createVariableCollection(${JSON.stringify(name)});
-      col.id
-    `);
-    if (!options.silent) console.log(chalk.green('✓ Created collection: ' + name));
-    return result;
-  }
+/** List variable collections as "name (N vars)" lines. */
+function listCollections({ silent = false } = {}) {
+  const result = figmaEvalSync(`(async () => {
+    const cols = await figma.variables.getLocalVariableCollectionsAsync();
+    return cols.map(c => c.name + ' (' + c.variableIds.length + ' vars)').join('\\n');
+  })()`);
+  if (!silent) console.log(result);
+  return result;
+}
 
-  if (args.startsWith('variable find ')) {
-    const pattern = args.replace('variable find ', '').replace(/"/g, '');
-    const result = figmaEvalSync(`(async () => {
-      const pattern = ${JSON.stringify(pattern)}.replace('*', '.*');
-      const re = new RegExp(pattern, 'i');
-      const vars = await figma.variables.getLocalVariablesAsync();
-      return vars.filter(v => re.test(v.name)).map(v => v.name).join('\\n');
-    })()`);
-    if (!options.silent) console.log(result);
-    return result;
-  }
-
-  if (args.startsWith('select ')) {
-    const nodeId = args.replace('select ', '').replace(/"/g, '');
-    figmaEvalSync(`(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (node) figma.currentPage.selection = [node];
-    })()`);
-    return 'Selected';
-  }
-
-  // Fallback warning
-  if (!options.silent) {
-    console.log(chalk.yellow('Command not fully supported: ' + args));
-  }
-  return null;
+/** Create a variable collection; returns its id. */
+function createCollection(name, { silent = false } = {}) {
+  const result = figmaEvalSync(`(() => {
+    const col = figma.variables.createVariableCollection(${JSON.stringify(String(name))});
+    return col.id;
+  })()`);
+  if (!silent) console.log(chalk.green('\u2713 Created collection: ' + name));
+  return result;
 }
 
 // Single source of truth for "daemon up AND plugin bridge connected". All
-// connection checks (checkConnection, figmaUse('status')) go through this so
+// connection checks (checkConnection, `status`) go through this so
 // the health contract lives in one place.
 function daemonHealthy() {
   try {
@@ -906,16 +856,17 @@ export {
   detectWrapperSplit,
   fastEval,
   fastRender,
-  figmaEval,
   figmaEvalSync,
-  figmaUse,
+  evalPrint,
+  selectNode,
+  listVariables,
+  findVariables,
+  listCollections,
+  createCollection,
   generateDaemonToken,
   generateFillCode,
   generateStrokeCode,
   getDaemonToken,
-  getFigmaClient,
-  getFigmaPath,
-  getManualStartCommand,
   getTokenStatus,
   getVarName,
   handleEvalError,
@@ -923,7 +874,6 @@ export {
   isDaemonRunning,
   isFigmaPatched,
   isVarRef,
-  killFigma,
   loadConfig,
   pkg,
   program,
@@ -931,7 +881,6 @@ export {
   saveConfig,
   smartPosCode,
   startDaemon,
-  startFigma,
   stopDaemon,
   unescapeShell,
   varLoadingCode

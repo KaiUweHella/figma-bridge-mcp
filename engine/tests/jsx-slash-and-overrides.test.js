@@ -6,11 +6,10 @@ function assertValidJs(code) {
   assert.doesNotThrow(() => new Function(code), SyntaxError, `Generated code is not valid JS:\n${code}`);
 }
 
-// Offline client: never hit the Iconify network in tests.
+// The client no longer fetches icon SVGs at all (no-network build) — <Icon>
+// always takes the placeholder path, so no stubbing is needed.
 function makeClient() {
-  const client = new FigmaClient();
-  client.prefetchIconSvgs = async () => ({});
-  return client;
+  return new FigmaClient();
 }
 
 // Regression: the self-closing element regexes used [^/]* for the attribute

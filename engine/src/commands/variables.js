@@ -8,7 +8,9 @@ import {
   daemonExec,
   fastEval,
   figmaEvalSync,
-  figmaUse,
+  evalPrint,
+  listVariables,
+  findVariables,
   handleEvalError,
   hexToRgb
 } from '../lib/cli-core.js';
@@ -25,7 +27,7 @@ variables
   .description('List all variables')
   .action(() => {
     checkConnection();
-    figmaUse('variable list');
+    listVariables();
   });
 
 variables
@@ -62,7 +64,7 @@ v.setValueForMode(modeId, figmaValue);
 ` : ''}
 return 'Created ${type.toLowerCase()} variable: ${name}';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 variables
@@ -70,7 +72,7 @@ variables
   .description('Find variables by name pattern')
   .action((pattern) => {
     checkConnection();
-    figmaUse(`variable find "${pattern}"`);
+    findVariables(pattern);
   });
 
 variables

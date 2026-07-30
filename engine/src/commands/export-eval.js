@@ -12,7 +12,7 @@ import {
   daemonExec,
   fastEval,
   figmaEvalSync,
-  figmaUse,
+  evalPrint,
   isDaemonRunning,
   unescapeShell
 } from '../lib/cli-core.js';
@@ -199,7 +199,7 @@ return JSON.stringify({ file: figma.root.name, vars: vars.map(v => {
   return { name: v.name, type: v.resolvedType, value: out === undefined ? null : out };
 }) });
 })()`;
-    const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+    const result = evalPrint(code, { silent: true });
     let parsed;
     try {
       parsed = JSON.parse(result);
@@ -426,7 +426,7 @@ for (const v of vars) {
 }
 return JSON.stringify({ __file: figma.root.name, tree });
 })()`;
-    const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+    const result = evalPrint(code, { silent: true });
     // Unwrap the { __file, tree } envelope; on parse failure (plugin error
     // text) pass the raw output through unchanged.
     let tokenJson = result;
@@ -726,21 +726,105 @@ program
           console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
         }
       } else {
-        // Fallback to sync path
-        figmaUse(`eval "${code.replace(/"/g, '\\"')}"`);
+        // Fallback to the sync path (same daemon, no async wrapper)
+        evalPrint(code);
       }
     } catch (e) {
       console.log(chalk.red('✗ ' + e.message));
     }
   });
 
-// ============ PASSTHROUGH ============
+// (The `raw` passthrough command was removed: it forwarded arbitrary strings
+// to the legacy figma-use command layer, which no longer exists. Use `eval`.)
+
+// ============ EXPORT JSX ============
+// (Moved here from commands/figjam.js — it has nothing to do with FigJam;
+// it exports a node as JSX through the plugin bridge.)
 
 program
-  .command('raw <command...>')
-  .description('Run raw figma-use command')
-  .action((command) => {
-    checkConnection();
-    figmaUse(command.join(' '));
-  });
+  .command('export-jsx [nodeId]')
+  .description('Export node as JSX/React code')
+  .option('-o, --output <file>', 'Output file (otherwise stdout)')
+  .action(async (nodeId, options) => {
+    await checkConnection();
 
+    // Plugin bridge is the only execution path in the Safe-Mode build.
+    {
+      const code = `(async () => {
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
+        const nodes = targetId
+          ? [await figma.getNodeByIdAsync(targetId)]
+          : figma.currentPage.selection;
+
+        if (!nodes.length || !nodes[0]) return 'No node selected';
+
+        function rgbToHex(r, g, b) {
+          return '#' + [r, g, b].map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+        }
+
+        function nodeToJsx(node, indent = 0) {
+          const prefix = '  '.repeat(indent);
+          const props = [];
+
+          // Name
+          if (node.name && !node.name.startsWith('Frame') && !node.name.startsWith('Rectangle')) {
+            props.push('name="' + node.name.replace(/"/g, '\\\\"') + '"');
+          }
+
+          // Size
+          if (node.width) props.push('w={' + Math.round(node.width) + '}');
+          if (node.height) props.push('h={' + Math.round(node.height) + '}');
+
+          // Fill
+          if (node.fills && node.fills.length > 0 && node.fills[0].type === 'SOLID') {
+            const c = node.fills[0].color;
+            props.push('bg="' + rgbToHex(c.r, c.g, c.b) + '"');
+          }
+
+          // Corner radius
+          if (node.cornerRadius && node.cornerRadius > 0) {
+            props.push('rounded={' + Math.round(node.cornerRadius) + '}');
+          }
+
+          // Auto-layout
+          if (node.layoutMode === 'HORIZONTAL') props.push('flex="row"');
+          if (node.layoutMode === 'VERTICAL') props.push('flex="col"');
+          if (node.itemSpacing) props.push('gap={' + Math.round(node.itemSpacing) + '}');
+          if (node.paddingTop) props.push('p={' + Math.round(node.paddingTop) + '}');
+
+          // Text
+          if (node.type === 'TEXT') {
+            const textProps = [];
+            if (node.fontSize) textProps.push('size={' + Math.round(node.fontSize) + '}');
+            if (node.fills && node.fills[0] && node.fills[0].color) {
+              const c = node.fills[0].color;
+              textProps.push('color="' + rgbToHex(c.r, c.g, c.b) + '"');
+            }
+            return prefix + '<Text ' + textProps.join(' ') + '>' + (node.characters || '') + '</Text>';
+          }
+
+          // Frame with children
+          if ('children' in node && node.children.length > 0) {
+            const childJsx = node.children.map(c => nodeToJsx(c, indent + 1)).join('\\n');
+            return prefix + '<Frame ' + props.join(' ') + '>\\n' + childJsx + '\\n' + prefix + '</Frame>';
+          }
+
+          return prefix + '<Frame ' + props.join(' ') + ' />';
+        }
+
+        return nodeToJsx(nodes[0]);
+      })()`;
+
+      try {
+        const result = await fastEval(code);
+        if (options.output) {
+          writeFileSync(options.output, result);
+          console.log(chalk.green(`✓ Exported to ${options.output}`));
+        } else {
+          console.log(result);
+        }
+      } catch (e) {
+        console.log(chalk.red('✗ Export failed: ' + e.message));
+      }
+    }
+  });

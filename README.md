@@ -1,10 +1,8 @@
 # figma-safe-mcp
 
 A **self-contained** MCP server that lets an AI assistant drive **Figma Desktop
-locally** — combining the **efficiency** of [figma-cli](https://github.com/silships/figma-cli)
-(plugin bridge, no Figma API token, terse token-efficient commands) with the
-**security** of a hardened plugin and a **locally generated access key** you paste
-into the plugin once.
+locally** — a plugin bridge with terse, token-efficient commands, hardened by
+a **locally generated access key** you paste into the plugin once.
 
 Everything runs on `127.0.0.1`. No Figma Personal Access Token. No cloud. No
 binary patching of the Figma app.
@@ -203,17 +201,26 @@ the same risk simply applies to the bound port.)
 
 ## Known limitations
 
-- **FigJam commands are unavailable.** `figjam-client.js` uses the (removed) CDP
-  transport; FigJam is not in the allowlist.
-- **`figma_reference` (`api setup`)** downloads the Figma Plugin API docs from the
-  network on first use — the only non-localhost action in the project.
-- **Node 20+ / figma-use.** The upstream `figma-use` dependency is fragile on
-  Node 20+, but all its call sites were Yolo-only and are inert in this build.
+- **FigJam is not supported.** The upstream FigJam commands drove the removed
+  CDP transport and were deleted along with it.
+- **Exactly two non-localhost network actions exist**, both explicit and
+  user-initiated: `api setup` (one-time git clone of the Figma Plugin API docs
+  mirror, for `figma_reference`) and the Storybook index fetch of
+  `import`/`map storybook` (the URL/directory you pass in). Nothing else
+  talks to the network — the upstream's iconify/unsplash/remove.bg/
+  screenshot-url integrations were removed entirely; `<Icon>` in
+  `figma_render` JSX renders as a named placeholder (real icons come out of
+  the Figma file via `export assets`).
+- **One transport, no CDP remnants.** Every command reaches Figma the same
+  way: engine → daemon → plugin eval. The upstream's Chrome-DevTools client,
+  its `figma-use` shell round-trip, the binary-patching `init` wizard and the
+  `figma-use` dependency are all gone (~5,600 lines removed), so there is no
+  second code path that could bypass the plugin bridge.
 
 ## Development
 
 ```bash
-npm test      # 285 tests: vendored engine + daemon auth + MCP layer
+npm test      # 509 tests: vendored engine + daemon auth + MCP layer
 ```
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
@@ -222,9 +229,14 @@ scans the whole range and the two daemons use different access keys — which on
 the plugin reaches first is a coin toss. This build isolates its own
 token/pid/port files under `~/.figma-safe-mcp/`.
 
-## Attribution
+## Inspiration & attribution
 
-The `engine/` directory is derived from **figma-ds-cli v2.1.0**
-(© Sil Bormüller, MIT). See [`NOTICE`](NOTICE) for the exact list of vendored,
-modified, and excluded files, and [`engine/LICENSE`](engine/LICENSE) for the
-upstream license. figma-safe-mcp itself is MIT — see [`LICENSE`](LICENSE).
+Inspired by [figma-cli](https://github.com/silships/figma-cli) — this project
+has since gone its own way (Safe-Mode-only architecture, MCP layer, hardened
+plugin, design-to-code fidelity stack, Storybook mapping) and shares neither
+the Yolo/CDP approach nor the bundled integrations.
+
+Licensing: the `engine/` directory started as a fork of **figma-ds-cli v2.1.0**
+(© Sil Bormüller, MIT) and retains that license — see [`NOTICE`](NOTICE) and
+[`engine/LICENSE`](engine/LICENSE). figma-safe-mcp itself is MIT — see
+[`LICENSE`](LICENSE).

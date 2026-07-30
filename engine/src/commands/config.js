@@ -4,7 +4,7 @@ import {
   program,
   checkConnection,
   daemonExec,
-  figmaUse,
+  evalPrint,
   generateFillCode,
   generateStrokeCode,
   isVarRef,
@@ -23,7 +23,7 @@ const configCmd = program
 
 configCmd
   .command('set <key> <value>')
-  .description('Set a config value (e.g., removebgApiKey)')
+  .description('Set a config value')
   .action((key, value) => {
     const config = loadConfig();
     config[key] = value;
@@ -224,7 +224,7 @@ else if (sel.length === 1) {
   'Component created from ' + sel.length + ' elements: ' + comp.name;
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 create
@@ -243,7 +243,7 @@ else {
   'Grouped ' + sel.length + ' elements';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 create

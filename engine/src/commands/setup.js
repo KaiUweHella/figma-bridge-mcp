@@ -1,12 +1,10 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
 import ora from 'ora';
-import { execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { FigmaClient } from '../figma-client.js';
 
 // Repo root = three levels up from engine/src/commands/setup.js. Used to print
 // the plugin manifest path independent of the process cwd (the MCP server spawns
@@ -14,21 +12,14 @@ import { FigmaClient } from '../figma-client.js';
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PLUGIN_MANIFEST_PATH = join(REPO_ROOT, 'plugin', 'manifest.json');
 import * as apiDocs from '../api-docs.js';
-import { isPatched, patchFigma, unpatchFigma } from '../figma-patch.js';
 import { convert, detectSourceType } from '../code-import/index.js';
 import {
   program,
   getDaemonPort,
   daemonCurl,
-  figmaUse,
-  getManualStartCommand,
   isDaemonRunning,
-  killFigma,
-  loadConfig,
   pkg,
-  saveConfig,
   startDaemon,
-  startFigma,
   stopDaemon
 } from '../lib/cli-core.js';
 
@@ -171,147 +162,30 @@ function _printSupportedFormats() {
   console.error('    • ./storybook-static/                (Storybook — static build directory)');
 }
 
-// Default action when no command is given
+// Default action when no command is given (Safe Mode: no patching, no CDP —
+// the only setup step is `connect`, which starts the daemon and prints the
+// plugin access key).
 program.action(async () => {
   // If user passed an unknown subcommand as first arg, suggest from API docs
   const argv = process.argv.slice(2);
   if (argv.length > 0 && !argv[0].startsWith('-')) {
     const attempted = argv[0];
-    console.error(chalk.red(`✗ unknown command: ${attempted}\n`));
+    console.error(chalk.red(`\u2717 unknown command: ${attempted}\n`));
     apiDocs.suggest(attempted);
     process.exit(1);
   }
 
-  const config = loadConfig();
-
-  // First time? Run init
-  if (!config.patched) {
-    showBanner();
-    console.log(chalk.white('  Welcome! Let\'s get you set up.\n'));
-    console.log(chalk.gray('  This takes about 30 seconds. No API key needed.\n'));
-
-    // Step 1: Check Node version
-    console.log(chalk.blue('Step 1/3: ') + 'Checking Node.js...');
-    const nodeVersion = process.version;
-    const nodeMajor = parseInt(nodeVersion.slice(1).split('.')[0]);
-    if (nodeMajor < 18) {
-      console.log(chalk.red(`  ✗ Node.js ${nodeVersion} is too old. Please upgrade to Node 18+`));
-      process.exit(1);
-    }
-    console.log(chalk.green(`  ✓ Node.js ${nodeVersion}`));
-
-    // Step 2: Patch Figma
-    console.log(chalk.blue('\nStep 2/3: ') + 'Patching Figma Desktop...');
-    if (config.patched) {
-      console.log(chalk.green('  ✓ Figma already patched'));
-    } else {
-      console.log(chalk.gray('  (This allows CLI to connect to Figma)'));
-      const spinner = ora('  Patching...').start();
-      try {
-        const patchStatus = isPatched();
-        if (patchStatus === true) {
-          config.patched = true;
-          saveConfig(config);
-          spinner.succeed('Figma already patched');
-        } else if (patchStatus === false) {
-          patchFigma();
-          config.patched = true;
-          saveConfig(config);
-          spinner.succeed('Figma patched');
-        } else {
-          // Can't determine - assume it's fine (old Figma version)
-          config.patched = true;
-          saveConfig(config);
-          spinner.succeed('Figma ready (no patch needed)');
-        }
-      } catch (error) {
-        spinner.fail('Patch failed: ' + error.message);
-        if ((error.message.includes('EPERM') || error.message.includes('permission') || error.message.includes('access') || error.message.includes('App Management')) && process.platform === 'darwin') {
-          console.log(chalk.yellow('\n  ⚠️  Your terminal needs "App Management" permission to patch Figma.\n'));
-          console.log(chalk.gray('  1. Open System Settings → Privacy & Security → App Management'));
-          console.log(chalk.gray('  2. Enable your terminal (Terminal, iTerm, etc.)'));
-          console.log(chalk.gray('  3. Quit the terminal completely (Cmd+Q)'));
-          console.log(chalk.gray('  4. Reopen it and try again'));
-          console.log(chalk.gray('  (If it still fails, also enable Full Disk Access — or just use Safe Mode: figma-cli connect --safe)\n'));
-        } else if (error.message.includes('EPERM') || error.message.includes('permission')) {
-          console.log(chalk.yellow('\n  Try running as administrator.\n'));
-        }
-      }
-    }
-
-    // Step 3: Start Figma
-    console.log(chalk.blue('\nStep 3/3: ') + 'Starting Figma...');
-    try {
-      killFigma();
-      await new Promise(r => setTimeout(r, 1000));
-      startFigma();
-      console.log(chalk.green('  ✓ Figma started'));
-
-      // Wait for connection
-      const spinner = ora('  Waiting for connection...').start();
-      let connected = false;
-      for (let i = 0; i < 10; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        connected = await FigmaClient.isConnected();
-        if (connected) break;
-      }
-
-      if (connected) {
-        spinner.succeed('Connected to Figma');
-      } else {
-        spinner.warn('Connection pending - open a file in Figma');
-      }
-    } catch (error) {
-      console.log(chalk.yellow('  ! Could not start Figma automatically'));
-      console.log(chalk.gray('    Start manually: ' + getManualStartCommand()));
-    }
-
-    // Done!
-    console.log(chalk.green('\n  ✓ Setup complete!\n'));
-    showQuickStart();
-    return;
-  }
-
-  // Already set up - check connection and show status
   showBanner();
-
-  const connected = await FigmaClient.isConnected();
-  if (connected) {
-    console.log(chalk.green('  ✓ Connected to Figma\n'));
-    try {
-      const client = new FigmaClient();
-      await client.connect();
-      const info = await client.getPageInfo();
-      console.log(chalk.gray(`  File: ${client.pageTitle.replace(' – Figma', '')}`));
-      console.log(chalk.gray(`  Page: ${info.name}`));
-      client.close();
-    } catch {}
-    console.log();
-    showQuickStart();
-  } else {
-    console.log(chalk.yellow('  ⚠ Figma not connected\n'));
-    console.log(chalk.white('  Starting Figma...'));
-    try {
-      killFigma();
-      await new Promise(r => setTimeout(r, 500));
-      startFigma();
-      console.log(chalk.green('  ✓ Figma started\n'));
-
-      const spinner = ora('  Waiting for connection...').start();
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        if (await FigmaClient.isConnected()) {
-          spinner.succeed('Connected to Figma\n');
-          showQuickStart();
-          return;
-        }
-      }
-      spinner.warn('Open a file in Figma to connect\n');
-      showQuickStart();
-    } catch {
-      console.log(chalk.gray('  Start manually: ' + getManualStartCommand() + '\n'));
-    }
-  }
+  const running = isDaemonRunning();
+  console.log(running
+    ? chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`)
+    : chalk.yellow('  \u25cb Daemon not running'));
+  console.log();
+  console.log(chalk.white('  Get started:\n'));
+  console.log(chalk.cyan('    node src/index.js connect') + chalk.gray('   start the daemon + show the plugin access key'));
+  console.log(chalk.cyan('    node src/index.js --help') + chalk.gray('    list every command\n'));
+  console.log(chalk.gray('  In Figma: Plugins \u2192 Development \u2192 FigCli, paste the key once.\n'));
+  showQuickStart();
 });
 
 function showQuickStart() {
@@ -321,7 +195,6 @@ function showQuickStart() {
   console.log(chalk.white('    "Show me what\'s on the canvas"'));
   console.log(chalk.white('    "Export this frame as PNG"'));
   console.log();
-  console.log(chalk.gray('  Learn more: ') + chalk.cyan('https://intodesignsystems.com\n'));
 }
 
 // ============ WELCOME BANNER ============
@@ -335,148 +208,42 @@ function showBanner() {
   ██║     ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║      ██████╔╝███████║      ╚██████╗███████╗██║
   ╚═╝     ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝      ╚═════╝ ╚══════╝       ╚═════╝╚══════╝╚═╝
 `));
-  console.log(chalk.white(`  Design System CLI for Figma ${chalk.gray('v' + pkg.version)}`));
-  console.log(chalk.gray(`  by Sil Bormüller • intodesignsystems.com\n`));
+  console.log(chalk.white(`  Design System CLI for Figma ${chalk.gray('v' + pkg.version)}\n`));
 }
 
-// ============ INIT (Interactive Onboarding) ============
-
-program
-  .command('init')
-  .description('Interactive setup wizard')
-  .action(async () => {
-    showBanner();
-
-    console.log(chalk.white('  Welcome! Let\'s get you set up.\n'));
-    console.log(chalk.gray('  This takes about 30 seconds. No API key needed.\n'));
-
-    // Step 1: Check Node version
-    console.log(chalk.blue('Step 1/4: ') + 'Checking Node.js...');
-    const nodeVersion = process.version;
-    const nodeMajor = parseInt(nodeVersion.slice(1).split('.')[0]);
-    if (nodeMajor < 18) {
-      console.log(chalk.red(`  ✗ Node.js ${nodeVersion} is too old. Please upgrade to Node 18+`));
-      process.exit(1);
-    }
-    console.log(chalk.green(`  ✓ Node.js ${nodeVersion}`));
-
-    // Step 2: Patch Figma
-    console.log(chalk.blue('\nStep 2/3: ') + 'Patching Figma Desktop...');
-    const config = loadConfig();
-    // Verify against the real app.asar, not the cached flag: a Figma update
-    // replaces app.asar and silently reverts the patch, so the cache goes stale.
-    const patchStatus = isPatched();
-    if (patchStatus === true) {
-      config.patched = true;
-      saveConfig(config);
-      console.log(chalk.green('  ✓ Figma already patched'));
-    } else {
-      console.log(chalk.gray('  (This allows CLI to connect to Figma)'));
-      const spinner = ora('  Patching...').start();
-      try {
-        if (patchStatus === false) {
-          patchFigma();
-          config.patched = true;
-          saveConfig(config);
-          spinner.succeed('Figma patched');
-        } else {
-          config.patched = true;
-          saveConfig(config);
-          spinner.succeed('Figma ready (no patch needed)');
-        }
-      } catch (error) {
-        spinner.fail('Patch failed: ' + error.message);
-        if ((error.message.includes('EPERM') || error.message.includes('permission') || error.message.includes('access') || error.message.includes('App Management')) && process.platform === 'darwin') {
-          console.log(chalk.yellow('\n  ⚠️  Your terminal needs "App Management" permission to patch Figma.\n'));
-          console.log(chalk.gray('  1. Open System Settings → Privacy & Security → App Management'));
-          console.log(chalk.gray('  2. Enable your terminal (Terminal, iTerm, etc.)'));
-          console.log(chalk.gray('  3. Quit the terminal completely (Cmd+Q)'));
-          console.log(chalk.gray('  4. Reopen it and try again'));
-          console.log(chalk.gray('  (If it still fails, also enable Full Disk Access — or just use Safe Mode: figma-cli connect --safe)\n'));
-        } else if (error.message.includes('EPERM') || error.message.includes('permission')) {
-          console.log(chalk.yellow('\n  Try running as administrator.\n'));
-        }
-      }
-    }
-
-    // Step 3: Start Figma
-    console.log(chalk.blue('\nStep 3/3: ') + 'Starting Figma...');
-    try {
-      killFigma();
-      await new Promise(r => setTimeout(r, 1000));
-      startFigma();
-      console.log(chalk.green('  ✓ Figma started'));
-
-      // Wait for connection
-      const spinner = ora('  Waiting for connection...').start();
-      let connected = false;
-      for (let i = 0; i < 10; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        connected = await FigmaClient.isConnected();
-        if (connected) break;
-      }
-
-      if (connected) {
-        spinner.succeed('Connected to Figma');
-      } else {
-        spinner.warn('Connection pending - open a file in Figma');
-      }
-    } catch (error) {
-      console.log(chalk.yellow('  ! Could not start Figma automatically'));
-      console.log(chalk.gray('    Start manually: ' + getManualStartCommand()));
-    }
-
-    // Done!
-    console.log(chalk.green('\n  ✓ Setup complete!\n'));
-
-    console.log(chalk.white('  Just ask Claude:\n'));
-    console.log(chalk.white('    "Import my design tokens from globals.css"'));
-    console.log(chalk.white('    "Create a blue card with rounded corners"'));
-    console.log(chalk.white('    "Show me what\'s on the canvas"'));
-    console.log(chalk.white('    "Export this frame as PNG"'));
-    console.log();
-    console.log(chalk.gray('  Learn more: ') + chalk.cyan('https://intodesignsystems.com\n'));
-  });
-
-// ============ SETUP (alias for init) ============
-
-program
-  .command('setup')
-  .description('Setup Figma for CLI access (alias for init)')
-  .action(() => {
-    // Redirect to init
-    execSync('figma-ds-cli init', { stdio: 'inherit' });
-  });
+// (The interactive `init` wizard was removed: it patched the Figma Desktop
+// binary and polled the CDP port — the Yolo path this build exists to avoid.
+// `connect` below is the entire Safe-Mode setup.)
 
 // ============ STATUS ============
 
+// (`setup` was an alias that shelled out to a globally installed
+// `figma-ds-cli init` — a binary this vendored build never installs.)
+
 program
   .command('status')
-  .description('Check connection to Figma (CDP) AND the local daemon')
+  .description('Report daemon + plugin connection state')
   .action(() => {
-    // Check if first run
-    const config = loadConfig();
-    if (!config.patched && !isDaemonRunning()) {
-      console.log(chalk.yellow('\n⚠ First time? Run the setup wizard:\n'));
-      console.log(chalk.cyan('  figma-ds-cli init\n'));
-      return;
-    }
-    figmaUse('status');
-    // The CDP-side "Connected to Figma" line above only tells half the story.
-    // Most CLI commands (render, set-batch, eval …) need the LOCAL daemon
-    // running too. Surface its state right here so the user doesn't get a
-    // misleading green check while every subsequent command fails with
-    // "fetch failed".
     const daemonInfo = isDaemonRunning(true);
     if (daemonInfo && daemonInfo.running) {
-      console.log(chalk.green('  ✓ Daemon running') + chalk.gray(` (port ${getDaemonPort()})`));
+      console.log(chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`));
+      try {
+        const health = JSON.parse(daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]));
+        console.log(health.plugin
+          ? chalk.green('  \u2713 Plugin connected') + chalk.gray(` (mode: ${health.mode})`)
+          : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 FigCli in Figma'));
+        if (!health.keyConfigured) {
+          console.log(chalk.yellow('  \u26a0 No access key configured') + chalk.gray(' \u2014 run: figma-cli connect'));
+        }
+      } catch {
+        console.log(chalk.gray('  (could not read /health)'));
+      }
     } else if (daemonInfo && daemonInfo.authFailed) {
-      console.log(chalk.yellow('  ⚠ Daemon running but token mismatch (auth failed).'));
+      console.log(chalk.yellow('  \u26a0 Daemon running but token mismatch (auth failed).'));
       console.log(chalk.gray('    Restart with:  figma-cli daemon restart'));
     } else {
-      console.log(chalk.yellow('  ⚠ Daemon NOT running'));
-      console.log(chalk.gray('    Most commands (render, set-batch, eval) will fail with "fetch failed".'));
-      console.log(chalk.gray('    Start it with:  figma-cli daemon start'));
+      console.log(chalk.yellow('  \u26a0 Daemon NOT running'));
+      console.log(chalk.gray('    Start it with:  figma-cli connect'));
     }
   });
 

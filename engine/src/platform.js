@@ -64,28 +64,6 @@ export function sleepAfterStop() {
   }
 }
 
-// --- Start Figma ---
-export function startFigmaApp(figmaPath, port) {
-  if (PLATFORM === 'darwin') {
-    execSync(`open -a Figma --args --remote-debugging-port=${port}`, { stdio: 'pipe' });
-  } else {
-    spawn(figmaPath, [`--remote-debugging-port=${port}`], { detached: true, stdio: 'ignore' }).unref();
-  }
-}
-
-// --- Kill Figma ---
-export function killFigmaApp() {
-  try {
-    if (PLATFORM === 'darwin') {
-      execSync('pkill -x Figma 2>/dev/null || true', { stdio: 'pipe' });
-    } else if (PLATFORM === 'win32') {
-      execSync('taskkill /IM Figma.exe /F 2>nul', { stdio: 'pipe' });
-    } else {
-      execSync('pkill -x figma 2>/dev/null || true', { stdio: 'pipe' });
-    }
-  } catch {}
-}
-
 // --- Figma paths (asar, binary, command) ---
 
 // Windows-only helpers (only defined on Windows)
@@ -147,40 +125,6 @@ const ASAR_PATHS = {
   darwin: '/Applications/Figma.app/Contents/Resources/app.asar',
   linux: '/opt/figma/resources/app.asar'
 };
-
-export function getAsarPath() {
-  if (PLATFORM === 'win32') return findWindowsFigmaPath();
-  return ASAR_PATHS[PLATFORM] || null;
-}
-
-export function getFigmaBinaryPath() {
-  switch (PLATFORM) {
-    case 'darwin':
-      return '/Applications/Figma.app/Contents/MacOS/Figma';
-    case 'win32':
-      return findWindowsFigmaExe() || `${process.env.LOCALAPPDATA}\\Figma\\Figma.exe`;
-    case 'linux':
-      return '/usr/bin/figma';
-    default:
-      return null;
-  }
-}
-
-export function getFigmaCommand(port = 9222) {
-  switch (PLATFORM) {
-    case 'darwin':
-      return `open -a Figma --args --remote-debugging-port=${port}`;
-    case 'win32': {
-      const exePath = findWindowsFigmaExe();
-      if (exePath) return `"${exePath}" --remote-debugging-port=${port}`;
-      return `"%LOCALAPPDATA%\\Figma\\Figma.exe" --remote-debugging-port=${port}`;
-    }
-    case 'linux':
-      return `figma --remote-debugging-port=${port}`;
-    default:
-      return null;
-  }
-}
 
 // --- Doctor helpers ---
 export function getFigmaVersion() {

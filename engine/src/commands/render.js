@@ -1,11 +1,9 @@
 // Commands: render (extracted from index.js)
 import chalk from 'chalk';
-import { execSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { FigmaClient } from '../figma-client.js';
-import { getFigmaVersion, isFigmaRunning, platformName } from '../platform.js';
 import {
   program,
   CONFIG_DIR,
@@ -15,7 +13,6 @@ import {
   fastEval,
   figmaEvalSync,
   getDaemonPort,
-  getFigmaClient,
   isDaemonRunning,
   unescapeShell
 } from '../lib/cli-core.js';
@@ -593,88 +590,7 @@ program
     }
   });
 
-// ============ DIAGNOSE ============
-
-program
-  .command('diagnose')
-  .description('Check system compatibility and connection status')
-  .action(async () => {
-    console.log(chalk.cyan('\n🔍 Figma CLI Diagnostics\n'));
-
-    // 1. Node version
-    const nodeVersion = process.version;
-    const nodeMajor = parseInt(nodeVersion.slice(1).split('.')[0]);
-    if (nodeMajor >= 18) {
-      console.log(chalk.green(`✓ Node.js ${nodeVersion}`));
-    } else {
-      console.log(chalk.red(`✗ Node.js ${nodeVersion} (need 18+)`));
-    }
-
-    // 2. Platform
-    console.log(chalk.gray(`  Platform: ${platformName}`));
-
-    // 3. Figma version
-    try {
-      const figmaVersion = getFigmaVersion();
-      const major = parseInt(figmaVersion.split('.')[0]);
-      if (major >= 126) {
-        console.log(chalk.yellow(`⚠ Figma ${figmaVersion} (126+ blocks remote debugging by default)`));
-      } else {
-        console.log(chalk.green(`✓ Figma ${figmaVersion}`));
-      }
-    } catch {
-      console.log(chalk.red('✗ Figma not found'));
-    }
-
-    // 4. Figma running?
-    try {
-      if (isFigmaRunning()) {
-        console.log(chalk.green('✓ Figma is running'));
-      } else {
-        console.log(chalk.red('✗ Figma is not running'));
-      }
-    } catch {
-      console.log(chalk.gray('  Could not check if Figma is running'));
-    }
-
-    // 5. Remote debugging port
-    try {
-      const response = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2000) });
-      if (response.ok) {
-        console.log(chalk.green('✓ Remote debugging enabled (port 9222)'));
-      } else {
-        console.log(chalk.red('✗ Remote debugging port not responding'));
-      }
-    } catch {
-      console.log(chalk.red('✗ Remote debugging not available (port 9222 closed)'));
-      console.log(chalk.gray('  → Run: node src/index.js connect'));
-    }
-
-    // 6. Daemon status
-    if (isDaemonRunning()) {
-      console.log(chalk.green(`✓ Daemon running on port ${getDaemonPort()}`));
-    } else {
-      console.log(chalk.yellow('○ Daemon not running (optional, speeds up commands)'));
-    }
-
-    // 7. figma-use availability
-    try {
-      execSync('which figma-use 2>/dev/null || where figma-use 2>nul', { encoding: 'utf8' });
-      console.log(chalk.green('✓ figma-use installed'));
-    } catch {
-      console.log(chalk.yellow('○ figma-use not in PATH (some features limited)'));
-    }
-
-    // 8. Connection test
-    console.log(chalk.gray('\n  Testing connection...'));
-    try {
-      const client = await getFigmaClient();
-      const result = await client.eval('({ file: figma.root.name, page: figma.currentPage.name })');
-      console.log(chalk.green(`✓ Connected to "${result.file}" / "${result.page}"`));
-    } catch (e) {
-      console.log(chalk.red('✗ Connection failed: ' + e.message));
-    }
-
-    console.log('');
-  });
+// (The `diagnose` command was removed: it probed the CDP port, checked for a
+// `figma-use` binary this build never installs, and opened a FigmaClient
+// connection that always fails in Safe Mode. Use `daemon diagnose` / `status`.)
 

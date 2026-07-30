@@ -5,7 +5,7 @@ import {
   program,
   checkConnection,
   daemonExec,
-  figmaUse,
+  evalPrint,
   generateFillCode,
   getVarName,
   isVarRef,
@@ -56,93 +56,8 @@ return '${name} created at (' + smartX + ', ${options.y})';
     console.log(result);
   });
 
-create
-  .command('icon <name>')
-  .description('Create an icon from Iconify (e.g., lucide:star, mdi:home) - auto-positions')
-  .option('-s, --size <n>', 'Size', '24')
-  .option('-c, --color <color>', 'Color (hex or var:name)', '#000000')
-  .option('-x <n>', 'X position (auto if not set)')
-  .option('-y <n>', 'Y position', '0')
-  .option('--spacing <n>', 'Gap from other elements', '100')
-  .action(async (name, options) => {
-    checkConnection();
-    const spinner = ora(`Fetching icon ${name}...`).start();
-
-    try {
-      // Parse icon name (prefix:name format)
-      const [prefix, iconName] = name.includes(':') ? name.split(':') : ['lucide', name];
-
-      // Fetch SVG from Iconify API (use black for var: refs, actual color otherwise)
-      const size = parseInt(options.size) || 24;
-      const usesVar = isVarRef(options.color);
-      const fetchColor = usesVar ? '#000000' : (options.color || '#000000');
-      const url = `https://api.iconify.design/${prefix}/${iconName}.svg?width=${size}&height=${size}&color=${encodeURIComponent(fetchColor)}`;
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Icon not found: ${name}`);
-      }
-      const svgContent = await response.text();
-
-      if (!svgContent.includes('<svg')) {
-        throw new Error(`Invalid icon: ${name}`);
-      }
-
-      spinner.text = 'Creating in Figma...';
-
-      // Create SVG in Figma via daemon
-      const posX = options.x !== undefined ? parseInt(options.x) : null;
-      const posY = parseInt(options.y) || 0;
-      const spacing = parseInt(options.spacing) || 100;
-
-      // If using var: syntax, we need to bind after creation
-      const varName = usesVar ? getVarName(options.color) : null;
-
-      const code = `
-(async () => {
-  ${usesVar ? varLoadingCode() : ''}
-
-  // Smart positioning
-  let x = ${posX};
-  if (x === null) {
-    x = 0;
-    figma.currentPage.children.forEach(n => {
-      x = Math.max(x, n.x + (n.width || 0));
-    });
-    x += ${spacing};
-  }
-
-  // Create SVG node
-  const node = figma.createNodeFromSvg(${JSON.stringify(svgContent)});
-  node.name = "${name}";
-  node.x = x;
-  node.y = ${posY};
-
-  // Flatten to vector for cleaner result
-  let finalNode = node;
-  if (node.type === 'FRAME' && node.children.length > 0) {
-    finalNode = figma.flatten([node]);
-    finalNode.name = "${name}";
-  }
-
-  ${usesVar ? `
-  // Bind variable to fills
-  if ('fills' in finalNode && vars[${JSON.stringify(varName)}]) {
-    finalNode.fills = [boundFill(vars[${JSON.stringify(varName)}])];
-  }
-  ` : ''}
-
-  return { id: finalNode.id, x: finalNode.x, y: finalNode.y, width: finalNode.width, height: finalNode.height };
-})()`;
-
-      const result = await daemonExec('eval', { code });
-      spinner.succeed(`Created icon: ${name}`);
-      console.log(chalk.gray(`  Position: (${result.x}, ${result.y}), Size: ${result.width}x${result.height}px`));
-    } catch (error) {
-      spinner.fail('Error creating icon');
-      console.error(chalk.red(error.message));
-    }
-  });
+// (create icon removed: it fetched artwork from an external icon CDN.
+// The no-network build gets real icons from the Figma file via `export assets`.)
 
 create
   .command('image <url>')
@@ -201,7 +116,7 @@ create
 `;
 
     try {
-      const result = figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
+      const result = evalPrint(code, { silent: true });
       spinner.succeed('Image created from URL');
       if (result) console.log(chalk.gray(result.trim()));
     } catch (e) {

@@ -3,7 +3,9 @@
   "version": "0.2.0",
   "description": "Self-contained MCP server for controlling Figma locally via a vendored Safe-Mode engine plus a plugin access key. Efficiency of figma-cli, security of a hardened plugin bridge. No Figma API token.",
   "type": "module",
-  "bin": { "figma-safe-mcp": "src/server.js" },
+  "bin": {
+    "figma-safe-mcp": "src/server.js"
+  },
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -13,13 +15,14 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
-    "figma-use": "^0.13.3",
     "jpeg-js": "^0.4.4",
     "ora": "^8.0.0",
     "pngjs": "^7.0.0",
     "ws": "^8.16.0",
     "yaml": "^2.9.0"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "license": "MIT"
 }

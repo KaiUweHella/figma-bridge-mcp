@@ -9,7 +9,8 @@ import {
   checkConnection,
   componentContextExpr,
   daemonExec,
-  figmaUse,
+  evalPrint,
+  selectNode,
   handleEvalError,
   hexToRgb
 } from '../lib/cli-core.js';
@@ -47,7 +48,7 @@ if (children.length === 0) {
   }, null, 2);
 }
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 canvas
@@ -131,7 +132,7 @@ if (children.length === 0) {
   `}
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 // ============ BIND (Variables) ============
@@ -161,7 +162,7 @@ nodes.forEach(n => {
 });
 return 'Bound ' + v.name + ' to fill on ' + nodes.length + ' elements';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 bind
@@ -186,7 +187,7 @@ nodes.forEach(n => {
 });
 return 'Bound ' + v.name + ' to stroke on ' + nodes.length + ' elements';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 bind
@@ -207,7 +208,7 @@ nodes.forEach(n => {
 });
 return 'Bound ' + v.name + ' to radius on ' + nodes.length + ' elements';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 bind
@@ -228,7 +229,7 @@ nodes.forEach(n => {
 });
 return 'Bound ' + v.name + ' to gap on ' + nodes.length + ' elements';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 bind
@@ -254,7 +255,7 @@ nodes.forEach(n => {
 });
 return 'Bound ' + v.name + ' to padding on ' + nodes.length + ' elements';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 bind
@@ -268,7 +269,7 @@ const vars = await figma.variables.getLocalVariablesAsync();
 const filtered = vars${options.type ? `.filter(v => v.resolvedType === ${JSON.stringify(options.type.toUpperCase())})` : ''};
 return filtered.map(v => v.resolvedType.padEnd(8) + ' ' + v.name).join('\\n') || 'No variables';
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 // ============ SIZING ============
@@ -295,7 +296,7 @@ else {
   'Set hug on ' + nodes.length + ' elements';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 sizing
@@ -315,7 +316,7 @@ else {
   'Set fill on ' + nodes.length + ' elements';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 sizing
@@ -336,7 +337,7 @@ else {
   'Set fixed ${width}x${h} on ' + nodes.length + ' elements';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 // ============ LAYOUT SHORTCUTS ============
@@ -364,7 +365,7 @@ else {
   'Set padding on ' + nodes.length + ' elements';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 program
@@ -380,7 +381,7 @@ else {
   'Set gap ${value} on ' + nodes.length + ' elements';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 program
@@ -401,7 +402,7 @@ else {
   'Aligned ' + nodes.length + ' elements to ${alignment}';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 // ============ SELECT ============
@@ -411,7 +412,7 @@ program
   .description('Select a node by ID')
   .action((nodeId) => {
     checkConnection();
-    figmaUse(`select "${nodeId}"`);
+    selectNode(nodeId);
   });
 
 // ============ DELETE ============
@@ -427,14 +428,14 @@ program
 const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
 if (node) { node.remove(); return 'Deleted: ${nodeId}'; } else { return 'Node not found: ${nodeId}'; }
 })()`;
-      figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+      evalPrint(code);
     } else {
       let code = `
 const sel = figma.currentPage.selection;
 if (sel.length === 0) 'No selection';
 else { const count = sel.length; sel.forEach(n => n.remove()); 'Deleted ' + count + ' elements'; }
 `;
-      figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+      evalPrint(code);
     }
   });
 
@@ -452,14 +453,14 @@ program
 const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
 if (node) { const clone = node.clone(); clone.x += ${options.offset}; clone.y += ${options.offset}; figma.currentPage.selection = [clone]; return 'Duplicated: ' + clone.id; } else { return 'Node not found'; }
 })()`;
-      figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+      evalPrint(code);
     } else {
       let code = `
 const sel = figma.currentPage.selection;
 if (sel.length === 0) 'No selection';
 else { const clones = sel.map(n => { const c = n.clone(); c.x += ${options.offset}; c.y += ${options.offset}; return c; }); figma.currentPage.selection = clones; 'Duplicated ' + clones.length + ' elements'; }
 `;
-      figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+      evalPrint(code);
     }
   });
 
@@ -516,7 +517,7 @@ set
         __fillNodes.forEach(n => { if ('fills' in n) n.fills = [{ type: 'SOLID', color: { r: ${r}, g: ${g}, b: ${b} } }]; });
         return 'Fill set on ' + __fillNodes.length + ' elements';
       })()`;
-      figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+      evalPrint(code);
     }
   });
 
@@ -556,7 +557,7 @@ set
         nodes.forEach(n => { if ('strokes' in n) { n.strokes = [{ type: 'SOLID', color: { r: ${r}, g: ${g}, b: ${b} } }]; n.strokeWeight = ${options.weight}; } });
         return 'Stroke set on ' + nodes.length + ' elements';
       })()`;
-      figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+      evalPrint(code);
     }
   });
 
@@ -573,7 +574,7 @@ ${nodeSelector}
 if (nodes.length === 0) 'No node found';
 else { nodes.forEach(n => { if ('cornerRadius' in n) n.cornerRadius = ${value}; }); 'Radius set on ' + nodes.length + ' elements'; }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 set
@@ -589,7 +590,7 @@ ${nodeSelector}
 if (nodes.length === 0) 'No node found';
 else { nodes.forEach(n => { if ('resize' in n) n.resize(${width}, ${height}); }); 'Size set on ' + nodes.length + ' elements'; }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 set
@@ -660,7 +661,7 @@ ${nodeSelector}
 if (nodes.length === 0) 'No node found';
 else { nodes.forEach(n => { n.x = ${x}; n.y = ${y}; }); 'Position set on ' + nodes.length + ' elements'; }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 set
@@ -676,7 +677,7 @@ ${nodeSelector}
 if (nodes.length === 0) 'No node found';
 else { nodes.forEach(n => { if ('opacity' in n) n.opacity = ${value}; }); 'Opacity set on ' + nodes.length + ' elements'; }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 set
@@ -692,7 +693,7 @@ ${nodeSelector}
 if (nodes.length === 0) 'No node found';
 else { nodes.forEach(n => { n.name = ${JSON.stringify(name)}; }); 'Renamed ' + nodes.length + ' elements to ' + ${JSON.stringify(name)}; }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 set
@@ -1395,7 +1396,7 @@ else {
   'Arranged ' + frames.length + ' frames';
 }
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 // ============ GET ============
@@ -1430,7 +1431,7 @@ return JSON.stringify({
   children: node.children?.length
 }, null, 2);
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
 // ============ FIND ============
@@ -1456,6 +1457,6 @@ function search(node) {
 search(figma.currentPage);
 return results.length === 0 ? 'No nodes found matching "${name}"' : results.slice(0, ${options.limit}).map(r => r.id + ' [' + r.type + '] ' + r.name).join('\\n');
 })()`;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    evalPrint(code);
   });
 
