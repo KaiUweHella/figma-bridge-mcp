@@ -6,6 +6,7 @@
  * evaluates inside Figma. The daemon owns the transport.
  */
 
+import { gradientTransformFromCssAngle } from './paint-css.js';
 
 // NOTE: there is deliberately no built-in semantic color table here. An
 // unresolved `var:` reference falls back to neutral grey and is reported via
@@ -1966,17 +1967,11 @@ export class FigmaClient {
     });
     if (stops.length < 2) return null;
 
-    // Compute gradientTransform from angle.
-    // CSS 0deg = bottom-to-top (going up), 180deg = top-to-bottom.
-    // Figma's gradientTransform's gradient line goes (0,0)->(1,0) in transformed coords.
-    // For 180deg (top->bottom): want line direction = (0,1). Use rotation 90deg.
-    const rad = ((angleDeg - 90) * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    // Center the gradient at (0.5, 0.5) before rotating
-    const tx = 0.5 - 0.5 * cos + 0.5 * sin;
-    const ty = 0.5 - 0.5 * sin - 0.5 * cos;
-    const transform = `[[${cos.toFixed(4)},${(-sin).toFixed(4)},${tx.toFixed(4)}],[${sin.toFixed(4)},${cos.toFixed(4)},${ty.toFixed(4)}]]`;
+    // Compute gradientTransform from the CSS angle — shared writer in
+    // lib/paint-css.js (the old inline rotation was vertically mirrored:
+    // a 180deg gradient rendered bottom→top in Figma).
+    const gt = gradientTransformFromCssAngle(angleDeg);
+    const transform = `[[${gt[0].map((v) => v.toFixed(4)).join(',')}],[${gt[1].map((v) => v.toFixed(4)).join(',')}]]`;
 
     const stopsCode = stops.map(s =>
       `{position:${s.position},color:{r:${s.color.r.toFixed(4)},g:${s.color.g.toFixed(4)},b:${s.color.b.toFixed(4)},a:${s.color.a}}}`

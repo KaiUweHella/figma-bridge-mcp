@@ -264,6 +264,11 @@ const TOOLS = [
           type: "number",
           description: "Max tree depth (default 12).",
         },
+        section: {
+          type: "string",
+          description:
+            "Layer name of a child section to spec instead of the node itself (exact name from the structure map; case-insensitive). Saves copying long instance ids: pass the ROOT nodeId + the section's name to get that section in full depth.",
+        },
         format: {
           type: "string",
           enum: ["tree", "yaml", "json"],
@@ -391,7 +396,8 @@ specification — copy it, never interpret it. Follow these steps in order:
      flex columns;
    - borders match stroke width/alignment AND paint: a gradient stroke stays
      a gradient (solid is a silent downgrade); gradient stroke + radius is
-     built with the wrapper/padding or mask pattern, never border-image.
+     built with the mask pattern, never border-image — the style-spec footer
+     ships ready-made CSS for exactly this; use it verbatim.
 
 NEVER estimate colors, fonts, sizes or radii from a screenshot — every exact
 value is in the phase "style" spec. If you only pulled "structure", pull
@@ -399,8 +405,10 @@ value is in the phase "style" spec. If you only pulled "structure", pull
 
 Large screens: do NOT pull one giant style spec. First run figma_spec with
 phase "structure" and depth 3-4 — a map of the screen with the node id of
-every section. Then pull phase "style" PER SECTION (nodeId-scoped) and build
-section by section. figma_spec accepts any sub-node id and a depth limit.
+every section. Then pull phase "style" PER SECTION and build section by
+section. Either pass the section's node id, or keep the ROOT nodeId and pass
+section: "<layer name from the structure map>" — that specs the named child
+in full depth without copying long instance ids.
 
 Only hand-drawn vector shapes export as SVG files. Rectangles/ellipses with
 solid or gradient fills are CSS elements — build them as styled divs exactly
@@ -786,6 +794,12 @@ async function handleTool(name, rawArgs) {
       }
       const args = ["export", "code-spec", nodeId];
       if (input.includeHidden === true) args.push("--include-hidden");
+      if (input.section != null) {
+        if (typeof input.section !== "string" || input.section.length === 0) {
+          return errorResult("section must be a non-empty string (a layer name from the structure map).");
+        }
+        args.push("--section", input.section);
+      }
       if (input.phase != null) args.push("-p", String(input.phase));
       if (input.format != null) {
         const fmt = String(input.format);

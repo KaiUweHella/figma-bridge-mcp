@@ -492,7 +492,7 @@ export function groupInstanceSiblings(kids) {
  * skipped (icon identity lives on the instance). Pure.
  * ctx (optional): style-dedup emission context from newDedupCtx().
  */
-export function specLines(node, depth, phase, ctx = null, ancestors = []) {
+export function specLines(node, depth, phase, ctx = null, ancestors = [], behind = null) {
   const vectorArtLine = (n, extra = '') => {
     const detail = phase !== 'structure';
     // Rendered (post-transform) box wins: after a rotation the node's w/h are
@@ -587,6 +587,13 @@ export function specLines(node, depth, phase, ctx = null, ancestors = []) {
     }
     if (mode === 'define') segs.push(`≡${refId}`);
   }
+  // Fill-less container sitting OVER an absolutely-positioned sibling: say
+  // out loud that it is transparent. Run 7: the menu frame had no fill and
+  // let the background pattern shine through — the spec never said so, the
+  // build gave it an opaque surface and the pattern "vanished".
+  if (detail && behind?.length && !node.fills && node.kids?.length) {
+    segs.push(`fill:none (transparent — ${behind.map((n) => `"${n}"`).join(', ')} behind it stays visible through this frame; do NOT give it an opaque background)`);
+  }
   if (detail && node.id) segs.push(`[${node.id}]`);
   if (node.repeat) segs.push(`×${node.repeat}`);
   const lines = [`${'  '.repeat(depth)}- ${segs.filter(Boolean).join(' · ')}`];
@@ -598,6 +605,9 @@ export function specLines(node, depth, phase, ctx = null, ancestors = []) {
   const kidList = ctx
     ? groupInstanceSiblings(dedupSiblings(rawKids))
     : dedupSiblings(rawKids);
+  // Absolutely-positioned siblings BEHIND each kid (z-order = sibling order):
+  // a later fill-less container must keep them visible through itself.
+  const behindOverlays = [];
   for (const k of kidList) {
     if (k.__diffGroup) {
       // The instance ABOVE this line rendered in full; each sibling here is
@@ -614,7 +624,9 @@ export function specLines(node, depth, phase, ctx = null, ancestors = []) {
       if (ctx) ctx.usedDiff = true;
       continue;
     }
-    lines.push(...specLines(k, depth + 1, phase, ctx, ancestors.concat(node.n)));
+    lines.push(...specLines(k, depth + 1, phase, ctx, ancestors.concat(node.n),
+      behindOverlays.length ? [...behindOverlays] : null));
+    if (k.abs && !k.hidden && !isInvisibleHelper(k)) behindOverlays.push(k.n);
   }
   if (node.more) lines.push(`${'  '.repeat(depth + 1)}- …${node.more} more (depth limit — re-run with -d)`);
   return lines;
@@ -667,6 +679,33 @@ export function countOverlays(frames) {
   return count;
 }
 
+/**
+ * Overlay-visibility relations: for every absolutely-positioned overlay, the
+ * LATER fill-less container siblings it stays visible through (sibling order
+ * = z-order). These are the frames a rebuild must keep transparent — giving
+ * them an opaque surface is exactly how the Run-7 background pattern
+ * vanished. Pure.
+ */
+export function overlayVisibility(frames) {
+  const out = [];
+  const visit = (node) => {
+    if (node.hidden) return;
+    if (isVectorArt(node) || isVectorCluster(node) || isIconInstance(node)) return;
+    const kids = (node.kids || []).filter((k) => !k.hidden && !isInvisibleHelper(k));
+    for (let i = 0; i < kids.length; i++) {
+      const ov = kids[i];
+      if (!ov.abs) continue;
+      const through = kids.slice(i + 1)
+        .filter((s) => !s.fills && s.kids?.length && !isVectorArt(s) && !isVectorCluster(s))
+        .map((s) => s.n);
+      if (through.length) out.push({ overlay: ov.n, through });
+    }
+    for (const k of kids) visit(k);
+  };
+  for (const f of frames || []) visit(f);
+  return out;
+}
+
 /** Stroke facts across the frames — drive the conditional footer hints. Pure. */
 export function strokeFacts(frames) {
   const facts = { perSide: false, align: false, gradient: false };
@@ -678,6 +717,54 @@ export function strokeFacts(frames) {
   };
   (frames || []).forEach(visit);
   return facts;
+}
+
+/**
+ * Distinct gradient-stroke configurations across the frames — one specimen
+ * per (gradient, widths, radius) combination, with the name of the first
+ * node carrying it. These drive the READY-MADE CSS in the footer. Pure.
+ */
+export function gradientStrokeSpecimens(frames) {
+  const seen = new Map();
+  const visit = (n) => {
+    const grad = (n.strokes || []).find((s) => String(s).includes('gradient('));
+    if (grad) {
+      const key = stableStringify([grad, n.sw ?? 1, n.r ?? 0]);
+      if (!seen.has(key)) seen.set(key, { n: n.n, gradient: grad, sw: n.sw ?? 1, r: n.r ?? 0 });
+    }
+    (n.kids || []).forEach(visit);
+  };
+  (frames || []).forEach(visit);
+  return [...seen.values()];
+}
+
+/**
+ * Ready-made CSS for ONE gradient-stroke specimen: the padded-pseudo-element
+ * mask pattern, with the node's real per-side widths as padding and its real
+ * radius. Deterministically generated so the consumer never hand-builds the
+ * error-prone part (border-image ignores border-radius; the wrapper trick
+ * leaks at rounded corners with per-side widths — Run 7, main container). Pure.
+ */
+export function gradientBorderCss(spec, cls) {
+  const px = (v) => (v ? `${v}px` : '0');
+  const radius = Array.isArray(spec.r) ? spec.r.map(px).join(' ') : px(spec.r);
+  const padding = Array.isArray(spec.sw) ? spec.sw.map(px).join(' ') : px(spec.sw);
+  return [
+    `/* ${spec.n} — gradient stroke ${Array.isArray(spec.sw) ? `w${spec.sw.join('/')}` : `w${spec.sw}`}, radius ${Array.isArray(spec.r) ? spec.r.join('/') : spec.r} */`,
+    `.${cls} { position: relative; border-radius: ${radius}; }`,
+    `.${cls}::before {`,
+    '  content: "";',
+    '  position: absolute;',
+    '  inset: 0;',
+    '  border-radius: inherit;',
+    `  padding: ${padding};          /* stroke widths t/r/b/l */`,
+    `  background: ${spec.gradient};`,
+    '  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);',
+    '  mask-composite: exclude;',
+    '  -webkit-mask-composite: xor;',
+    '  pointer-events: none;',
+    '}',
+  ].join('\n');
 }
 
 /**
@@ -756,6 +843,13 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   const overlays = countOverlays(result.frames);
   if (overlays) {
     out.push('', `_${overlays} absolutely-positioned overlay(s) (\`abs\`/\`place\`/\`inset\` lines) — every single one must exist in the build, INCLUDING purely decorative gradient rectangles and background shapes. Check them off one by one; when building section by section, assign each root-level overlay to a section NOW so none goes unowned._`);
+    // Which fill-less siblings each overlay must stay visible through —
+    // without this the relation had to be inferred, and builds painted the
+    // transparent frames opaque (Run 7: the background pattern vanished).
+    const vis = overlayVisibility(result.frames);
+    for (const v of vis) {
+      out.push('', `_Overlay "${v.overlay}" stays visible through ${v.through.map((n) => `"${n}"`).join(', ')} — ${v.through.length === 1 ? 'that sibling has' : 'those siblings have'} NO fill in the design (transparent). Do not give ${v.through.length === 1 ? 'it' : 'them'} an opaque background._`);
+    }
   }
   if (phase !== 'structure') {
     // The fill→fixed-px translation error is the top layout bug of real
@@ -768,7 +862,17 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
       out.push('', '_`stroke … w<t/r/b/l>` = per-side widths (top/right/bottom/left). Strokes sit INSIDE the box unless marked `outside`/`center` — inside = a normal CSS border on a border-box element; outside = `outline` or a 0-blur spread `box-shadow`._');
     }
     if (facts.gradient) {
-      out.push('', '_Gradient stroke + radius: CSS `border-image` IGNORES `border-radius` — never combine them. Build it as a wrapper with the gradient as `background`, `padding` = stroke width and the surface fill on an inner element with radius − stroke width; or a padded pseudo-element with `mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)` and `mask-composite: exclude`._');
+      out.push('', '_Gradient stroke + radius: CSS `border-image` IGNORES `border-radius` — never combine them. Use the ready-made pseudo-element pattern below VERBATIM (values are this screen\'s real ones); the wrapper/padding alternative leaks at rounded corners when widths differ per side._');
+      const specimens = gradientStrokeSpecimens(result.frames);
+      const shown = specimens.slice(0, 3);
+      if (shown.length) {
+        out.push('', '```css');
+        out.push(shown.map((s, i) => gradientBorderCss(s, `gradient-border-${i + 1}`)).join('\n\n'));
+        out.push('```');
+        if (specimens.length > shown.length) {
+          out.push('', `_${specimens.length - shown.length} more gradient-stroke variant(s) on this screen — same pattern, swap radius/padding/background from the node's \`stroke …\` line._`);
+        }
+      }
     }
   }
   if (anyDedup) {
@@ -802,7 +906,7 @@ export function specModel(result, { phase = 'all', dedup = true } = {}) {
   const ids = new Map();
   let next = 1;
 
-  const toNode = (node, ancestors = []) => {
+  const toNode = (node, ancestors = [], behind = null) => {
     // Vector ART nodes are pointer nodes, never dropped: the yaml/json spec
     // used to swallow them entirely (the missing-decor bug class).
     if (isVectorArt(node) || isVectorCluster(node)) {
@@ -840,6 +944,9 @@ export function specModel(result, { phase = 'all', dedup = true } = {}) {
       if (node.w != null) { o.w = node.w; o.h = node.h; }
       if (node.abs) o.abs = node.abs;
       if (node.ov) o.overhang = node.ov === 'clip' ? 'clipped-by-parent' : 'visible-by-design';
+      // Transparent container over abs overlays — same rule as the text
+      // renderer's fill:none note (the vanished-background-pattern bug).
+      if (behind?.length && !node.fills && node.kids?.length) o.seeThrough = behind;
       const fields = styleFields(node);
       if (Object.keys(fields).length) {
         const key = stableStringify(fields);
@@ -857,7 +964,13 @@ export function specModel(result, { phase = 'all', dedup = true } = {}) {
     // Icon instances collapse (identity = main-component name); everything
     // else lists its vector kids as vectorArt pointer nodes.
     const rawKids = isIconInstance(node) ? [] : node.kids || [];
-    const kids = dedupSiblings(rawKids).map((k) => toNode(k, ancestors.concat(node.n))).filter(Boolean);
+    const behindOverlays = [];
+    const kids = [];
+    for (const k of dedupSiblings(rawKids)) {
+      const child = toNode(k, ancestors.concat(node.n), behindOverlays.length ? [...behindOverlays] : null);
+      if (child) kids.push(child);
+      if (k.abs && !k.hidden && !isInvisibleHelper(k)) behindOverlays.push(k.n);
+    }
     if (kids.length) o.kids = kids;
     return o;
   };

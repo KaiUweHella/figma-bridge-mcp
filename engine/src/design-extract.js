@@ -10,6 +10,8 @@
  *     that parseDesignMd() (src/design-md.js) reads back unchanged.
  */
 
+import { paintsSnippetJs } from './lib/paint-css.js';
+
 /** Eval snippet: list all pages of the open file. */
 export function listPagesCode() {
   return `(async () => {
@@ -141,41 +143,11 @@ export function walkerCode(pageId, {
     const WITH_IDS = ${withIds === true};
     const WITH_VARS = ${withVars === true};
     const INCLUDE_HIDDEN = ${includeHidden === true};
-    const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-    const paints = (arr) => {
-      if (!Array.isArray(arr)) return undefined;
-      const out = [];
-      for (const p of arr) {
-        if (p.visible === false) continue;
-        if (p.type === 'SOLID') {
-          out.push(hex(p.color) + (p.opacity != null && p.opacity < 1 ? '@' + Math.round(p.opacity * 100) : ''));
-        } else if (String(p.type).indexOf('GRADIENT_') === 0 && Array.isArray(p.gradientStops)) {
-          /* A bare type name ("GRADIENT_LINEAR") is not implementable — emit
-             real stops + angle as a css-ready gradient() instead. Angle math
-             mirrors gradient-extractor.js (the writer): it builds
-             gradientTransform [[cos,-sin,tx],[sin,cos,ty]] from rad=(deg-90),
-             so reading back is atan2(t[1][0], t[0][0]) + 90. Scale/shear in
-             hand-drawn gradients is ignored — angle is an approximation,
-             stops are exact. */
-          const kind = p.type === 'GRADIENT_LINEAR' ? 'linear'
-            : p.type === 'GRADIENT_RADIAL' ? 'radial'
-            : p.type === 'GRADIENT_ANGULAR' ? 'conic' : 'diamond';
-          const stops = p.gradientStops.map(s =>
-            hex(s.color) + (s.color.a != null && s.color.a < 1 ? '@' + Math.round(s.color.a * 100) : '')
-            + ' ' + Math.round(s.position * 100) + '%').join(', ');
-          let head = '';
-          if (p.type === 'GRADIENT_LINEAR' && Array.isArray(p.gradientTransform)) {
-            const t = p.gradientTransform;
-            const deg = Math.round((Math.atan2(t[1][0], t[0][0]) * 180 / Math.PI + 90 + 360) % 360);
-            head = deg + 'deg, ';
-          }
-          out.push(kind + '-gradient(' + head + stops + ')');
-        } else {
-          out.push(p.type);
-        }
-      }
-      return out.length ? out : undefined;
-    };
+    /* A bare type name ("GRADIENT_LINEAR") is not implementable — paints()
+       emits real stops + angle as a css-ready gradient() instead. One shared
+       serializer (lib/paint-css.js) for walker AND inspect — the two used to
+       drift (mirrored angles here, no angle at all there). */
+    ${paintsSnippetJs}
     const varNameCache = new Map();
     const varName = async (id) => {
       if (varNameCache.has(id)) return varNameCache.get(id);
@@ -372,7 +344,7 @@ export function walkerCode(pageId, {
           o.ov = n.parent.clipsContent === true ? 'clip' : 'over';
         }
       }
-      try { const f = paints(n.fills); if (f) o.fills = f; } catch (e) {}
+      try { const f = paints(n.fills, 'width' in n ? n.width : 0, 'height' in n ? n.height : 0); if (f) o.fills = f; } catch (e) {}
       // Shared COLOR style applied to the fill (fillStyleId): its name is the
       // semantic handle ("Color/Primary") — capture alongside the raw value.
       if (WITH_VARS && typeof n.fillStyleId === 'string' && n.fillStyleId) {
@@ -380,7 +352,7 @@ export function walkerCode(pageId, {
         if (st) o.fs = st.name;
       }
       try {
-        const s = paints(n.strokes);
+        const s = paints(n.strokes, 'width' in n ? n.width : 0, 'height' in n ? n.height : 0);
         if (s) {
           o.strokes = s;
           if (typeof n.strokeWeight === 'number') o.sw = n.strokeWeight;
@@ -561,6 +533,37 @@ export function nodeWalkerCode(nodeId, opts = {}) {
     count(node);
     return JSON.stringify({ id: node.id, name: node.name, nodeCount: visited, frames: [await walk(node, 0)].filter(Boolean), sets: setsOut() });`
   );
+}
+
+/**
+ * Eval snippet: resolve a SECTION by name inside a node's subtree — the
+ * `--section` sugar (Run-7 report: "give me section X in full depth straight
+ * from the root" instead of copying long instance ids around). Breadth-first
+ * so the shallowest hit wins; exact name match (case-insensitive) beats
+ * substring match. Returns { id, name, matches } or { error }.
+ */
+export function sectionFinderCode(nodeId, sectionName) {
+  return `(async () => {
+    const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+    if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '".' });
+    const want = ${JSON.stringify(String(sectionName).toLowerCase())};
+    const queue = 'children' in root ? [...root.children] : [];
+    let exact = null, partial = null, matches = 0;
+    while (queue.length) {
+      const n = queue.shift();
+      if (n.visible === false) continue;
+      const name = String(n.name).toLowerCase();
+      if (name === want || name.includes(want)) {
+        matches++;
+        if (name === want && !exact) exact = n;
+        if (!partial) partial = n;
+      }
+      if ('children' in n) queue.push(...n.children);
+    }
+    const hit = exact || partial;
+    if (!hit) return JSON.stringify({ error: 'no node named like "' + want + '" under ' + root.name + ' — check the structure spec for the exact layer name.' });
+    return JSON.stringify({ id: hit.id, name: hit.name, matches });
+  })()`;
 }
 
 /**

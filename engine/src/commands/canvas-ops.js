@@ -14,6 +14,7 @@ import {
   handleEvalError,
   hexToRgb
 } from '../lib/cli-core.js';
+import { paintsSnippetJs } from '../lib/paint-css.js';
 
 // ============ CANVAS ============
 
@@ -1233,21 +1234,13 @@ program
       // Style block: fills/strokes/effects/clip/opacity/radius. Without
       // these, inspect was geometry-only and useless as a detail tool for
       // paints ("figma_inspect liefert keine Fills/Effects/clipsContent").
-      const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-      const paints = (arr) => {
-        if (!Array.isArray(arr)) return undefined;
-        const out2 = [];
-        for (const pnt of arr) {
-          if (pnt.visible === false) continue;
-          if (pnt.type === 'SOLID') out2.push(hex(pnt.color) + (pnt.opacity != null && pnt.opacity < 1 ? '@' + Math.round(pnt.opacity * 100) : ''));
-          else if (String(pnt.type).indexOf('GRADIENT_') === 0 && Array.isArray(pnt.gradientStops)) {
-            out2.push(pnt.type.replace('GRADIENT_', '').toLowerCase() + '-gradient(' + pnt.gradientStops.map(s => hex(s.color) + ' ' + Math.round(s.position * 100) + '%').join(', ') + ')');
-          } else out2.push(pnt.type);
-        }
-        return out2.length ? out2 : undefined;
-      };
+      // Serialization is the SHARED snippet from lib/paint-css.js — inspect
+      // used to have its own copy that dropped gradient angles entirely
+      // (Run-7, Rectangle 28: spec said 45deg, inspect said nothing).
+      ${paintsSnippetJs}
+      const __w = 'width' in n ? n.width : 0, __h = 'height' in n ? n.height : 0;
       const style = {};
-      try { const f = paints(n.fills); if (f) style.fills = f; } catch (e) {}
+      try { const f = paints(n.fills, __w, __h); if (f) style.fills = f; } catch (e) {}
       // Applied shared COLOR style (semantic handle alongside the raw fill).
       try {
         if (typeof n.fillStyleId === 'string' && n.fillStyleId) {
@@ -1255,7 +1248,7 @@ program
           if (fst) style.fillStyle = fst.name;
         }
       } catch (e) {}
-      try { const s = paints(n.strokes); if (s) { style.strokes = s; if (typeof n.strokeWeight === 'number') style.strokeWeight = n.strokeWeight; } } catch (e) {}
+      try { const s = paints(n.strokes, __w, __h); if (s) { style.strokes = s; if (typeof n.strokeWeight === 'number') style.strokeWeight = n.strokeWeight; } } catch (e) {}
       if ('cornerRadius' in n) {
         if (typeof n.cornerRadius === 'number') { if (n.cornerRadius > 0) style.cornerRadius = n.cornerRadius; }
         else style.cornerRadius = [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius];

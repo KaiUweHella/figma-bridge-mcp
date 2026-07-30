@@ -13,6 +13,7 @@ import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
 import { readFileSync } from 'fs';
 import { extname } from 'path';
+import { gradientTransformFromCssAngle } from './lib/paint-css.js';
 
 export function loadImage(path) {
   const buf = readFileSync(path);
@@ -166,15 +167,9 @@ export function extractGradient(path, opts = {}) {
 }
 
 export function buildFigmaPaint(result) {
-  const angle = result.angle;
-  const rad = ((angle - 90) * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const tx = 0.5 - 0.5 * cos + 0.5 * sin;
-  const ty = 0.5 - 0.5 * sin - 0.5 * cos;
   return {
     type: 'GRADIENT_LINEAR',
-    gradientTransform: [[cos, -sin, tx], [sin, cos, ty]],
+    gradientTransform: gradientTransformFromCssAngle(result.angle),
     gradientStops: result.stops.map((s) => ({
       position: s.position,
       color: { r: s.rgb[0] / 255, g: s.rgb[1] / 255, b: s.rgb[2] / 255, a: 1 },

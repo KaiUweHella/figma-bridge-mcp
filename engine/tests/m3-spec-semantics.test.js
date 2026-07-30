@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { walkerCode, nodeWalkerCode } from '../src/design-extract.js';
+import { gradientTransformFromCssAngle } from '../src/lib/paint-css.js';
 import {
   layoutSeg, paintSeg, instanceDiff, groupInstanceSiblings, specLines,
   formatCodeSpec, newDedupCtx,
@@ -82,11 +83,8 @@ test('walker emits css-ready gradients with stops instead of bare type names', a
         { position: 0, color: { r: 0x21 / 255, g: 0x30 / 255, b: 0x59 / 255, a: 1 } },
         { position: 1, color: { r: 0x13 / 255, g: 0x1c / 255, b: 0x34 / 255, a: 0.5 } },
       ],
-      // writer convention (gradient-extractor.js): deg=135 → rad=45°
-      gradientTransform: [
-        [Math.cos(Math.PI / 4), -Math.sin(Math.PI / 4), 0],
-        [Math.sin(Math.PI / 4), Math.cos(Math.PI / 4), 0],
-      ],
+      // shared writer (lib/paint-css.js): the reader must round-trip it
+      gradientTransform: gradientTransformFromCssAngle(135),
     }],
   };
   const result = JSON.parse(await runWalker(nodeWalkerCode('9:1'), root));

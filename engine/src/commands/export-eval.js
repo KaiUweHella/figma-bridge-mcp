@@ -16,7 +16,7 @@ import {
   isDaemonRunning,
   unescapeShell
 } from '../lib/cli-core.js';
-import { nodeWalkerCode, assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode } from '../design-extract.js';
+import { nodeWalkerCode, assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode, sectionFinderCode } from '../design-extract.js';
 import { formatCodeSpec, specModel } from '../lib/code-spec.js';
 import { formatCssTokens, buildDtcgTree } from '../lib/css-tokens.js';
 import { toYaml } from '../lib/yaml.js';
@@ -486,6 +486,7 @@ exp
   .description('Design-to-code spec of a node (default: selection). Phase structure = hierarchy + real content; style = layout/paints/typography with variable bindings. Descends into instances and resolves real component names.')
   .option('-p, --phase <phase>', 'structure | style | all', 'all')
   .option('-d, --depth <n>', 'Max depth', '12')
+  .option('-s, --section <name>', 'Spec only the child section with this layer name (from the structure map), in full depth — instead of copying its node id')
   .option('--include-hidden', 'Include invisible nodes, marked "(hidden — not rendered)" (default: filtered out)')
   .option('-f, --format <fmt>', 'tree (compact text, default) | yaml | json (structured, with styles map)', 'tree')
   .option('--no-dedup', 'Print every style value inline instead of S<n> bundle refs')
@@ -512,6 +513,17 @@ exp
         nodeId = sel[0];
       } else {
         nodeId = normalizedId(nodeId);
+      }
+      // --section: resolve the named child section and spec THAT node —
+      // saves the copy-the-long-instance-id roundtrip on large screens.
+      if (options.section) {
+        const sec = parse(await fastEval(sectionFinderCode(nodeId, options.section)));
+        if (sec?.error) {
+          console.error(chalk.red('✗ ' + sec.error));
+          process.exit(1);
+        }
+        console.error(chalk.gray(`section "${options.section}" → ${sec.name} [${sec.id}]${sec.matches > 1 ? ` (${sec.matches} name matches — shallowest/exact one taken; pass a node id to target another)` : ''}`));
+        nodeId = sec.id;
       }
       // Instance descent makes trees deep; on payload/timeout errors retry
       // shallower (same strategy as `extract`) so big frames degrade gracefully
