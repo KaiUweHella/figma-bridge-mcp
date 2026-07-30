@@ -140,7 +140,16 @@ export function formatCssTokens(vars) {
 
   const parts = [':root {', ...rules];
   if (fontFamilies.length) {
-    parts.push('', '  /* Font families — load these, do not substitute look-alikes */', ...fontFamilies);
+    // The workflow step, not just the value: a prior acceptance run shipped system-font
+    // fallbacks because nothing SAID to go load the families.
+    parts.push(
+      '',
+      '  /* Font families — REQUIRED STEP before building: load each family',
+      '     from the source named next to it (@font-face or <link>), or ask',
+      '     the user for the font files. Do not substitute look-alikes; a',
+      '     system-font fallback distorts metrics and does not count as done. */',
+      ...fontFamilies,
+    );
   }
   parts.push('}');
   return parts.join('\n');

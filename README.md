@@ -133,14 +133,31 @@ than interpreting it. Build a screen from Figma in five steps:
    `→ assets/…` reference in the spec points at a file this writes. Pass an
    absolute path; large exports keep running in the background ("still
    RUNNING") — re-run the same call to poll. `assets.json` is merged across
-   runs and byte-identical assets are deduped.
+   runs and byte-identical assets are deduped. Each entry carries placement
+   data (`x`/`y` offsets, `parent` name path, `parentId`, `absolutePosition`,
+   `overhang`), so the manifest alone positions an overlay — no spec
+   cross-reference needed. The export summary lists the absolutely-positioned
+   and overhanging files explicitly: those are the ones builds lose.
 5. **`figma_spec` with `phase: "style"`** — apply sizes, gaps, padding,
    alignment, fill/hug sizing, paints incl. gradients (`→ var(name)` marks a
    design-token binding), radii, shadows, typography, `opacity`, `clip`
    (overflow hidden) and `abs` positioning. Decorative vectors appear as
    `vector art → assets/…` lines with placement — place the exported SVGs,
    never approximate them in CSS.
-6. **Verify** — screenshot your build and compare against the PNG from step 1.
+6. **Verify** — screenshot your build and compare against the PNG from step 1,
+   then run the mechanical check:
+
+   ```bash
+   figma-cli verify-build /abs/path/to/project
+   ```
+
+   (via MCP: `figma_run` with `["verify-build","/abs/path/to/project"]`).
+   It greps the project against `assets.json` and lists every exported file
+   that is *not* referenced in the build — with size, offsets and parent, so
+   placing it is one step — plus a `border-image` lint (CSS `border-image`
+   ignores `border-radius`; gradient strokes on rounded boxes need the
+   wrapper or mask pattern). Exit code 1 when files are missing, so it works
+   as a CI gate too.
 
 The same spec is available on the CLI as `figma-cli export code-spec <nodeId>`.
 

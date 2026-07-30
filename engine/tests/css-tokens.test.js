@@ -37,7 +37,10 @@ test('formatCssTokens: every test failure case produces valid CSS', () => {
   assert.match(out, /--icon-strokewidth-xs: 1\.17px;/);
   // font family: grouped, quoted, with a source comment
   assert.match(out, /--font-family-headline-font: "Freight";/);
-  assert.match(out, /Font families — load these/);
+  // The comment is a workflow STEP (load the family, never a look-alike or
+  // system fallback), not just a label — a prior acceptance run shipped system fonts.
+  assert.match(out, /Font families — REQUIRED STEP/);
+  assert.match(out, /system-font fallback distorts metrics/);
   // no property name may contain a space
   for (const line of out.split('\n')) {
     const m = line.match(/^\s*(--[^:]+):/);

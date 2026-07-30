@@ -221,6 +221,23 @@ return JSON.stringify({ file: figma.root.name, vars: vars.map(v => {
 // derivable from those. (Importing an EXISTING tailwind.config.js via
 // `figma-cli import` stays supported — that reads the user's project.)
 
+/**
+ * Placement block of a manifest entry, from a collector node. The manifest
+ * alone must suffice to place an overlay (no spec cross-reference): parent
+ * NODE ID next to the human-readable name path, x/y `place` offsets in the
+ * parent, and the two flags builders need to not lose the asset —
+ * absolutePosition (out of flow) and overhang (renders beyond the parent).
+ */
+function placement(n) {
+  return {
+    ...(n.x != null ? { x: n.x, y: n.y } : {}),
+    parent: n.parent,
+    ...(n.parentId ? { parentId: n.parentId } : {}),
+    ...(n.absolute != null ? { absolutePosition: !!n.absolute } : {}),
+    ...(n.overhang != null ? { overhang: !!n.overhang } : {}),
+  };
+}
+
 exp
   .command('assets <nodeId>')
   .description('Export every image fill and vector artwork under a node as real files (PNG/JPG originals, SVG) plus an assets.json manifest — the spec\'s `→ assets/…` references point at exactly these files')
@@ -300,7 +317,7 @@ exp
             const buf = Buffer.from(res.base64, 'base64');
             const file = writeUnique(base, sniffExt(buf), buf);
             for (const n of job.nodes) {
-              manifest.push({ nodeId: n.id, name: n.name, file, kind: 'image', width: n.w, height: n.h, parent: n.parent });
+              manifest.push({ nodeId: n.id, name: n.name, file, kind: 'image', width: n.w, height: n.h, ...placement(n) });
             }
           } else {
             const res = parse(await fastEval(svgBytesCode(job.id)));
@@ -316,8 +333,7 @@ exp
             manifest.push({
               nodeId: n.id, name: n.name, file, kind: 'vector',
               width: dims ? Math.round(+dims[1]) : n.w, height: dims ? Math.round(+dims[2]) : n.h,
-              ...(n.x != null ? { x: n.x, y: n.y } : {}),
-              parent: n.parent,
+              ...placement(n),
             });
           }
         } catch (e) {
@@ -339,6 +355,21 @@ exp
       console.log(chalk.green('✓'), `${files.size} file(s) → ${outDir}/ (${manifest.length} node reference(s); manifest: ${manifestPath})`);
       for (const f of [...files].slice(0, 30)) console.log('  ' + f);
       if (files.size > 30) console.log(`  … ${files.size - 30} more (see assets.json)`);
+      // The verification checklist lives HERE, in tool output — MCP clients
+      // truncate server instructions (a prior acceptance run lost the whole checklist that
+      // way), but tool results always arrive in full.
+      const flagged = [...new Map(
+        manifest.filter((m) => m.absolutePosition || m.overhang).map((m) => [m.file, m]),
+      ).values()];
+      if (flagged.length) {
+        console.log(chalk.yellow(`⚠ ${flagged.length} of ${files.size} file(s) are absolutely positioned or overhang their parent — exactly these get lost in builds:`));
+        for (const m of flagged) {
+          const at = m.x != null ? ` @ ${m.x},${m.y}` : '';
+          const over = m.overhang ? ' — overhangs, keep visible' : '';
+          console.log(`  - ${m.file}${at} in "${m.parent || 'root'}"${over}`);
+        }
+      }
+      console.log(`Before declaring the build done: every file above must be referenced in the project — run \`verify-build <projectDir>\` to check the whole manifest mechanically (or grep each filename).`);
       if (kept > 0) console.log(chalk.gray(`  manifest merged: ${kept} entr${kept === 1 ? 'y' : 'ies'} from earlier export(s) kept`));
       if (dropped.length) {
         console.log(chalk.yellow(`⚠ --max ${max}: dropped ${dropped.length} smaller asset(s):`),

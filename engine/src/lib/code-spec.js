@@ -743,17 +743,21 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   if (anyNode(result.frames, (n) => n.lm === 'GRID')) {
     out.push('', '_`grid R×C` = a CSS grid (`display: grid`), NOT a flex column — its children are placed by `cell row:N col:M` (`grid-row: N` / `grid-column: M`, `/span S` = `span S`). Cell children additionally carry their `abs left/top` offsets as a cross-check; if template and offsets ever disagree, trust the offsets._');
   }
+  // Completeness yardstick: dropped assets (the overhanging SVGs) are the
+  // top fidelity bug — give the consumer a number to check off against.
+  // Emitted in EVERY phase, structure included: large frames are mapped with
+  // a structure call and then built per section, and overlays hanging off
+  // the layout root belong to no section — without the count here, no build
+  // step ever "owns" them (acceptance evidence, Background Pattern).
+  const assetFiles = countAssetFiles(result.frames);
+  if (assetFiles.size) {
+    out.push('', `_This spec references ${assetFiles.size} distinct asset file(s) under \`assets/\` — EVERY one must appear in the build. After \`export assets\`, check each filename off (\`verify-build <projectDir>\` does this mechanically); the absolutely-positioned / overhanging ones are the ones that get forgotten._`);
+  }
+  const overlays = countOverlays(result.frames);
+  if (overlays) {
+    out.push('', `_${overlays} absolutely-positioned overlay(s) (\`abs\`/\`place\`/\`inset\` lines) — every single one must exist in the build, INCLUDING purely decorative gradient rectangles and background shapes. Check them off one by one; when building section by section, assign each root-level overlay to a section NOW so none goes unowned._`);
+  }
   if (phase !== 'structure') {
-    // Completeness yardstick: dropped assets (the overhanging SVGs) are the
-    // top fidelity bug — give the consumer a number to check off against.
-    const assetFiles = countAssetFiles(result.frames);
-    if (assetFiles.size) {
-      out.push('', `_This spec references ${assetFiles.size} distinct asset file(s) under \`assets/\` — EVERY one must appear in the build. After \`export assets\`, check each filename off; the absolutely-positioned / overhanging ones are the ones that get forgotten._`);
-    }
-    const overlays = countOverlays(result.frames);
-    if (overlays) {
-      out.push('', `_${overlays} absolutely-positioned overlay(s) (\`abs\`/\`place\`/\`inset\` lines) — every single one must exist in the build, INCLUDING purely decorative gradient rectangles and background shapes. Check them off one by one._`);
-    }
     // The fill→fixed-px translation error is the top layout bug of real
     // rebuilds — spell the CSS mapping out instead of assuming it.
     out.push('', '_Sizing: `w:fill` = stretch into the parent (`flex: 1` along the parent’s main axis, `align-self: stretch` across it) — NEVER a fixed px width; `w:hug` = `width: fit-content`; a bare `W×H` with neither marker = fixed px. The same applies to `h:`. `min-w`/`max-w`/`min-h`/`max-h` map to the CSS properties of the same name. Do not replace fill children with `justify-content: space-between` — use it only where `main:between` is stated._');
@@ -776,7 +780,7 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   if (phase === 'structure') {
     // The test run showed what happens without this nudge: the agent built
     // from structure alone and guessed every color, font and radius.
-    out.push('', '_Styles fehlen in dieser Ausgabe — für exakte Farben/Fonts/Radien `--phase style` bzw. `--phase all` nachziehen. Nie aus einem Screenshot schätzen._');
+    out.push('', '_This output has NO styles — pull `--phase style` (or `all`) for exact colors/fonts/radii. Never estimate them from a screenshot._');
   }
   return out.join('\n');
 }

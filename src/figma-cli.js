@@ -70,6 +70,9 @@ export const ALLOWED_COMMANDS = new Set([
   // map writes figma-map.json (Figma↔Storybook component mapping) into the
   // client project — file-write only, never touches the Figma document.
   "map",
+  // verify-build greps a project directory against assets.json — fully
+  // read-only, needs no Figma connection at all.
+  "verify-build",
 ]);
 
 // Discoverability: the top-level help flag is read-only (commander prints the

@@ -208,3 +208,29 @@ test('unknownParamError: wrong parameter names get a "did you mean" instead of s
   // unmatchable junk still names itself
   assert.match(unknownParamError('figma_screenshot', { banana: 1 }), /Unknown parameter "banana"\./);
 });
+
+test('INSTRUCTIONS stay under the 2,048-char client truncation limit', async () => {
+  // MCP clients (Claude Code) cut server instructions at 2,048 characters —
+  // acceptance testing proved everything past that point silently never reaches the
+  // model (the verify checklist was cut off, and exactly its items were the
+  // fidelity bugs that shipped). 2,000 leaves margin for future edits; the
+  // full guide belongs in WORKFLOW_GUIDE (figma_reference "workflow") or in
+  // tool outputs, which are not truncated.
+  const { INSTRUCTIONS, WORKFLOW_GUIDE } = await import('../src/server.js');
+  assert.ok(INSTRUCTIONS.length < 2000,
+    `INSTRUCTIONS is ${INSTRUCTIONS.length} chars — must stay < 2000 (client truncates at 2048). ` +
+    'Move new guidance into WORKFLOW_GUIDE or into tool outputs instead.');
+  // The short form must point at the full guide, and the guide must carry
+  // the checklist that got lost in an acceptance run.
+  assert.match(INSTRUCTIONS, /figma_reference \{name:"workflow"\}/);
+  assert.match(WORKFLOW_GUIDE, /never border-image/);
+  assert.match(WORKFLOW_GUIDE, /verify-build/);
+});
+
+test('verify-build passes the figma_run allowlist as a read-only command', async () => {
+  const { ALLOWED_COMMANDS } = await import('../src/figma-cli.js');
+  const { isWrite } = await import('../src/server.js');
+  assert.ok(ALLOWED_COMMANDS.has('verify-build'));
+  // Read-only: must never trip the write-confirm gate.
+  assert.equal(isWrite(['verify-build', '/some/project']), false);
+});

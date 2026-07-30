@@ -216,11 +216,11 @@ const TOOLS = [
   {
     name: "figma_reference",
     description:
-      "Offline Figma Plugin API reference (one-time 'api setup' needed). Omit name to list.",
+      "Offline Figma Plugin API reference (one-time 'api setup' needed). Omit name to list. Special topic: name \"workflow\" returns the FULL design-to-code workflow guide (the server instructions are a truncation-safe summary of it).",
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Command name to look up." },
+        name: { type: "string", description: "Command name to look up, or \"workflow\" for the full design-to-code guide." },
       },
       additionalProperties: false,
     },
@@ -283,7 +283,54 @@ const TOOLS = [
 ];
 
 // Design-to-code workflow, surfaced to MCP clients via server instructions.
-const INSTRUCTIONS = `Design-to-code workflow (Figma -> code). The design is the complete
+//
+// HARD BUDGET: MCP clients (Claude Code among them) truncate server
+// instructions at 2,048 characters — everything beyond that limit silently
+// never reaches the model (acceptance evidence: 62% of the guidance was cut off, and
+// exactly the cut-off checklist items were the fidelity bugs that shipped).
+// INSTRUCTIONS must stay under 2,000 characters — enforced by a test in
+// tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
+// figma_reference name "workflow") or into tool OUTPUTS, which are never
+// truncated this way.
+export const INSTRUCTIONS = `Design-to-code (Figma -> code). The design is the complete spec — copy it,
+never interpret. Full guide: figma_reference {name:"workflow"}.
+
+1. figma_screenshot, then Read the PNG — the visual ground truth.
+2. figma_spec phase "structure" — skeleton; texts/icon names verbatim, never
+   invented.
+3. figma_run ["export","css","<nodeId>"] — tokens SCOPED to the frame, wired
+   as CSS variables. Load the listed font families from their named sources
+   (or ask the user for files) — a system-font fallback is not done.
+4. figma_run ["export","assets","<nodeId>","-o","/abs/path/src/assets"] —
+   real files + assets.json (absolute path!). Never substitute CSS
+   placeholders. If it returns "still RUNNING", re-run the same call to poll.
+5. figma_spec phase "style" — exact sizes/paints/typography; place every
+   "vector art -> assets/..." SVG at its stated place/abs offsets; keep
+   overlays that overhang their parent.
+6. Implement every flagged interactive state from the "Component sets" spec
+   trailer (hover/active/focus/disabled).
+7. VERIFY before declaring done:
+   - figma_run ["verify-build","/abs/project/dir"] — mechanically finds
+     assets.json files missing from the build (+ border-image lint);
+   - every abs/place/inset overlay exists in the build (file OR styled div)
+     — the spec footer counts them;
+   - no invented values; "w:fill" stays fluid (flex, no fixed px);
+     "grid RxC" is CSS grid, never a flex column;
+   - gradient stroke + radius: wrapper/mask pattern, NEVER border-image.
+
+Large frames: never pull one giant spec — structure at depth 3-4 first, then
+style PER SECTION. NEVER estimate values from a screenshot.
+
+Node ids: "12:34", "12-34", full Figma URLs. Safe Mode reaches only the
+file open in Figma Desktop.
+
+More figma_run commands: ["extract"], ["analyze","colors"], ["verify","<id>"],
+["map","storybook","<url|dir>"] (Figma<->Storybook mapping). --help for syntax.`;
+
+// Long-form workflow guide — the pre-truncation INSTRUCTIONS text, served in
+// full through figma_reference {name:"workflow"} (tool results are not subject
+// to the client's 2,048-character instructions cap).
+export const WORKFLOW_GUIDE = `Design-to-code workflow (Figma -> code). The design is the complete
 specification — copy it, never interpret it. Follow these steps in order:
 
 1. figma_screenshot on the target frame, then Read the saved PNG — the visual
@@ -297,6 +344,10 @@ specification — copy it, never interpret it. Follow these steps in order:
    bound in that subtree — library tokens included. Without a node id you get
    the open file's LOCAL variables, which can belong to a different design
    entirely; the output names its SOURCE file — verify it either way.
+   Fonts: the export names each font family and where to get it (Fontshare/
+   Google/Vercel/...). Load those exact families (download if freely
+   available, otherwise ask the user for the files) — a system-font fallback
+   distorts metrics and does not count as done.
 4. Export the real assets (figma_run: ["export","assets","<nodeId>","-o","/abs/path/to/project/src/assets"])
    — every "-> assets/..." reference in the spec points at a file this writes.
    Pass an ABSOLUTE output path (relative paths resolve against the MCP
@@ -319,9 +370,10 @@ specification — copy it, never interpret it. Follow these steps in order:
    [disabled]. A screen with only default states is incomplete.
 7. Verify: screenshot your build and compare it against the Figma PNG from
    step 1. Then walk this checklist before declaring done:
-   - every file in assets.json is referenced in the build (grep for each
-     filename) — absolutely-positioned/overhanging SVGs are the ones that
-     get lost;
+   - run figma_run ["verify-build","/abs/path/to/project"] — it greps the
+     project against assets.json and lists every unreferenced asset (the
+     absolutely-positioned/overhanging SVGs are the ones that get lost) and
+     flags border-image use near border-radius;
    - every "abs"/"place"/"inset" overlay line from the spec exists in the
      build (as file OR styled div) — decorative gradient rectangles and
      background shapes included; the spec footer tells you how many;
@@ -650,6 +702,12 @@ async function handleTool(name, rawArgs) {
     }
 
     case "figma_reference": {
+      // "workflow" is served straight from this process: the full design-to-
+      // code guide whose short form lives in the (client-truncated) server
+      // instructions. No engine round-trip, works before any setup.
+      if (typeof input.name === "string" && /^workflow$/i.test(input.name.trim())) {
+        return textResult(WORKFLOW_GUIDE);
+      }
       // `api` is figma-cli's offline Figma Plugin API reference.
       // - No name: `api list` enumerates every interface/type.
       // - With a name: `api show <name>` forces a lookup. A bare `api <name>`
@@ -741,6 +799,20 @@ async function handleTool(name, rawArgs) {
       // purely additive, no-op without a figma-map.json in the project.
       const trailer = storybookTrailer(res.stdout || "");
       if (trailer) res.stdout = (res.stdout || "") + trailer;
+      // Oversized specs blow the client's tool-result token limit; the
+      // client's own fallback ("read the file in chunks") sends agents down
+      // the wrong path — the intended workflow for large frames is
+      // per-section pulling. PREPEND the redirect so it survives whatever
+      // truncation or file-dump the client applies (heads survive, tails
+      // don't — the instructions-truncation lesson).
+      const SPEC_SIZE_HINT_CHARS = 60_000;
+      if ((res.stdout || "").length > SPEC_SIZE_HINT_CHARS) {
+        res.stdout =
+          `⚠ This spec is ${res.stdout.length.toLocaleString("en-US")} characters — likely beyond your tool-result limit. ` +
+          `Do NOT read a dumped file in chunks. Instead re-run figma_spec with phase "structure" and depth 3-4 ` +
+          `to map the sections, then pull phase "style" PER SECTION (each section's node id is in the structure map) — ` +
+          `that is the intended workflow for large frames.\n\n` + res.stdout;
+      }
       return resultFromCli(res);
     }
 

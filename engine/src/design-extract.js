@@ -609,6 +609,31 @@ export function assetCollectorCode(nodeId) {
     };
     const images = new Map(); /* hash -> { hash, nodes: [] } */
     const vectors = [];
+    /* Placement facts per node, so the manifest ALONE positions an overlay
+       (no spec cross-reference needed): parent NODE ID, x/y offsets in the
+       parent, absolute-positioning flag (same rule as the spec walker: an
+       explicit ABSOLUTE child, or any child of a non-flex parent) and an
+       overhang flag (rendered pixels extend beyond the parent's box — the
+       assets builders drop first). */
+    const posInfo = (n) => {
+      const out = {};
+      const p = n.parent;
+      if (p && p.id) out.parentId = p.id;
+      const rb = n.absoluteRenderBounds || n.absoluteBoundingBox;
+      const pb = p && p.absoluteBoundingBox;
+      if (rb && pb) {
+        out.x = Math.round(rb.x - pb.x);
+        out.y = Math.round(rb.y - pb.y);
+        out.overhang = rb.x < pb.x - 1 || rb.y < pb.y - 1
+          || rb.x + rb.width > pb.x + pb.width + 1
+          || rb.y + rb.height > pb.y + pb.height + 1;
+      }
+      const parentLm = p && 'layoutMode' in p ? p.layoutMode : null;
+      const freeParent = p && typeof p.width === 'number'
+        && parentLm !== 'HORIZONTAL' && parentLm !== 'VERTICAL';
+      out.absolute = n.layoutPositioning === 'ABSOLUTE' || !!freeParent;
+      return out;
+    };
     const pushVec = (n, ancestors, cluster) => {
       /* Rendered (post-transform) box: a rotated vector's width/height are
          pre-rotation and do NOT match the exported SVG. Prefer render bounds;
@@ -618,9 +643,8 @@ export function assetCollectorCode(nodeId) {
         id: n.id, name: n.name,
         w: Math.round((rb && rb.width) || n.width || 0), h: Math.round((rb && rb.height) || n.height || 0),
         parent: ancestors.join(' / '), ancestors,
+        ...posInfo(n),
       };
-      const pb = n.parent && n.parent.absoluteBoundingBox;
-      if (rb && pb) { entry.x = Math.round(rb.x - pb.x); entry.y = Math.round(rb.y - pb.y); }
       if (cluster) entry.cluster = cluster;
       vectors.push(entry);
     };
@@ -634,6 +658,7 @@ export function assetCollectorCode(nodeId) {
               images.get(f.imageHash).nodes.push({
                 id: n.id, name: n.name, w: Math.round(n.width || 0), h: Math.round(n.height || 0),
                 parent: ancestors.join(' / '), ancestors,
+                ...posInfo(n),
               });
             }
           }
