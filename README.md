@@ -173,31 +173,39 @@ annotate components with `↔ story <id> (<importPath>)` automatically.
 - **Command allowlist** — `figma_run` only accepts a fixed set of subcommands;
   `connect` is *not* on it, so Safe-Mode-only connection is enforced.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
-- **Two-layer daemon auth** — HTTP session token + plugin access key
-  (constant-time compared, `Origin`/`Host` allowlisted).
+- **Two-layer daemon auth** — signed HTTP requests (per-request HMAC over
+  method/path/body, keyed with the session token, nonce replay guard — the
+  token itself never crosses the wire) + plugin access key (constant-time
+  compared, `Origin`/`Host` allowlisted).
 - **Localhost-locked plugin** — `plugin/manifest.json` restricts
   `networkAccess.allowedDomains` to `ws://127.0.0.1:3456–3460`.
 - **Isolated state** — token, pid, key, and audit log live under
   `~/.figma-safe-mcp/`, separate from any upstream figma-cli install.
 - **Audit log** — every executed command is appended to
-  `~/.figma-safe-mcp/audit.log` (with touched node ids and optional labels —
-  the data source for `figma_history`).
+  `~/.figma-safe-mcp/audit.log` (with touched node ids, optional labels, and a
+  completion entry recording success/failure — the data source for
+  `figma_history`). Rotates at 5 MB; one previous generation (`audit.log.1`)
+  is kept and still read by `figma_history`.
 
 **Port fallback.** The daemon binds the first free port in 3456–3460 and
 publishes it in `~/.figma-safe-mcp/daemon-port`; the CLI/MCP layers resolve the
 port per call (env `DAEMON_PORT` > port file > 3456), and the plugin scans the
 whole range, so a foreign process squatting 3456 no longer blocks connecting.
-The squatter check is an *unauthenticated* `/health` probe (the session token is
-never sent to an unknown port). Setting `DAEMON_PORT` explicitly disables the
-fallback; values outside 3456–3460 are unsupported — the plugin manifest is
-Figma-enforced and cannot reach them.
+The squatter check is an *unauthenticated* `/health` probe, and authenticated
+requests are HMAC-signed — a squatter on a range port sees neither the session
+token nor anything replayable (signatures bind timestamp, nonce, method, path
+and body; the daemon rejects reused nonces). Setting `DAEMON_PORT` explicitly
+disables the fallback; values outside 3456–3460 are unsupported — the plugin
+manifest is Figma-enforced and cannot reach them.
 
 **Residual risk (documented):** a malicious local process that binds port 3456
-*before* the daemon could observe the plugin's `hello` and learn the key. The
-manifest's port lock and the daemon normally holding the port mitigate this; an
-HMAC challenge-response is a possible future hardening. (The port fallback does
-not change this: the plugin sends `hello` to whichever range port accepts, so
-the same risk simply applies to the bound port.)
+*before* the daemon could observe the plugin's `hello` and learn the *plugin
+access key* (the HTTP session token is protected by request signing and never
+exposed). The manifest's port lock and the daemon normally holding the port
+mitigate this; a challenge-response handshake for the plugin `hello` is a
+possible future hardening. (The port fallback does not change this: the plugin
+sends `hello` to whichever range port accepts, so the same risk simply applies
+to the bound port.)
 
 ## Known limitations
 

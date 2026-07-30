@@ -40,7 +40,7 @@ program
     '  Supports: DESIGN.md, tailwind.config.js, CSS variables, design-tokens JSON, Storybook URL/build.'
   )
   .option('-c, --collection <name>', 'Variable collection name')
-  .option('--print-context', 'Print figmachat context summary without creating variables')
+  .option('--print-context', 'Print the agent context summary without creating variables')
   .option('--save <file>', 'Write the converted DESIGN.md to this path instead of a temp file')
   .option('--type <type>', 'Override source-type detection (tailwind|css|tokens|storybook|designmd)')
   .action(async (source, options) => {
@@ -229,7 +229,7 @@ program
     if (daemonInfo && daemonInfo.running) {
       console.log(chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`));
       try {
-        const health = JSON.parse(daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]));
+        const health = JSON.parse(daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]));
         console.log(health.plugin
           ? chalk.green('  \u2713 Plugin connected') + chalk.gray(` (mode: ${health.mode})`)
           : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 FigCli in Figma'));
@@ -306,7 +306,7 @@ program
     for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
       await new Promise(r => setTimeout(r, 1000));
       try {
-        const healthRes = daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]);
+        const healthRes = daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]);
         const health = JSON.parse(healthRes);
         if (health.plugin) {
           spinnerSucceed(pluginSpinner, 'Plugin connected and authenticated!');

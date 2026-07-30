@@ -117,8 +117,9 @@ function getNextFreeY(gap = 100) {
   }
 }
 
-// Helper: Extract properties that figma-use doesn't handle correctly
-// Returns array of fixes to apply after render
+// Helper: Extract properties the render path doesn't set correctly
+// (upstream renderer gaps, kept as post-render fixes). Returns array of
+// fixes to apply after render.
 function extractPostProcessFixes(jsx) {
   const fixes = [];
 
@@ -374,8 +375,7 @@ program
       // - var:name syntax for variable binding
       // - <Slot> elements for component slots
       // - <Icon> elements
-      // - Ellipse/Circle arc/innerRadius (rings, spinners, donut/pie) — the
-      //   external figma-use renderer silently drops these, so route to ours
+      // - Ellipse/Circle arc/innerRadius (rings, spinners, donut/pie)
       // - gradient/effects/blur (needs full parser, fast-path doesn't handle them)
       if (jsx.includes('var:') || jsx.includes('<Slot') || jsx.includes('<Icon') ||
           /\barc=|\barcStart=|\binnerRadius=/.test(jsx) ||
@@ -418,7 +418,7 @@ program
         }
       }
 
-      // Extract props that figma-use doesn't handle correctly
+      // Extract props the render action doesn't set correctly (see helper)
       const postProcessFixes = extractPostProcessFixes(jsx);
 
       // Plugin bridge is the only render path in the Safe-Mode build.
@@ -435,7 +435,7 @@ program
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
       recordCreated([result]);
 
-      // Post-process to fix properties figma-use doesn't set correctly
+      // Post-process to fix properties the render action doesn't set correctly
       if (postProcessFixes.length > 0) {
         await applyPostProcessFixes(result.id, postProcessFixes);
       }

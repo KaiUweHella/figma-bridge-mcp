@@ -214,8 +214,8 @@ program
         for (const f of failed) console.log(chalk.yellow(`    - ${f.name}: ${f.error}`));
       }
       console.log(chalk.gray(`  Re-import anytime: figma-cli import ${output || 'DESIGN.md'}`));
-      // When the daemon is down, fastEval falls back to direct CDP websockets
-      // that keep the event loop alive — exit explicitly once the work is done.
+      // Exit explicitly: the extraction is done and nothing else should keep
+      // the event loop (spinners, stray timers) alive.
       process.exit(0);
     } catch (e) {
       spinner.fail(`Extraction failed: ${e.message}`);

@@ -8,7 +8,9 @@
  * WebSocket). This build keeps ONLY the plugin bridge — there is no CDP path.
  *
  * Security features:
- * - Session token authentication on all HTTP routes (X-Daemon-Token header)
+ * - Per-request HMAC signing on all HTTP routes (X-Daemon-Ts/-Nonce/-Auth,
+ *   keyed with the session token — the token itself never crosses the wire,
+ *   so a squatter on a range port cannot harvest and replay it)
  * - Plugin access-key authentication on the WebSocket /plugin upgrade:
  *     · verifyClient: Host + Origin allowlist (blocks DNS rebinding / browsers)
  *     · first-message hello handshake carrying the access key (constant-time
@@ -26,16 +28,23 @@ import { homedir } from 'os';
 import { createHash, timingSafeEqual } from 'crypto';
 import { FigmaClient } from './figma-client.js';
 import { parsePortRange, writePortFile, clearPortFile } from './lib/daemon-port.js';
+import { verifyRequest, AUTH_WINDOW_MS } from './lib/daemon-auth.js';
 import { getPortPid } from './platform.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
 // Without it, the daemon walks the range and binds the first free port, which
 // the plugin's parallel port scan finds on its own.
-const EXPLICIT_PORT = parseInt(process.env.DAEMON_PORT, 10);
-const PORT_CANDIDATES = Number.isInteger(EXPLICIT_PORT) && EXPLICIT_PORT > 0
-  ? [EXPLICIT_PORT]
-  : parsePortRange();
+// Invalid values (non-numeric, > 65535) are warned about and IGNORED — the
+// same silent-discard the resolver in daemon-port.js applies, but named, so
+// the daemon no longer dies later with an opaque ERR_SOCKET_BAD_PORT.
+const EXPLICIT_RAW = process.env.DAEMON_PORT;
+const EXPLICIT_PORT = parseInt(EXPLICIT_RAW, 10);
+const EXPLICIT_VALID = Number.isInteger(EXPLICIT_PORT) && EXPLICIT_PORT > 0 && EXPLICIT_PORT < 65536;
+if (EXPLICIT_RAW && !EXPLICIT_VALID) {
+  console.error(`[daemon] Ignoring invalid DAEMON_PORT="${EXPLICIT_RAW}" (expected 1-65535) — using the default range.`);
+}
+const PORT_CANDIDATES = EXPLICIT_VALID ? [EXPLICIT_PORT] : parsePortRange();
 let boundPort = null; // set once the HTTP server wins a bind
 // Safe-Mode build: the daemon is always the plugin bridge. Kept as a constant
 // (not env-driven) so no configuration can re-enable a CDP path.
@@ -98,27 +107,46 @@ function keyMatches(provided) {
   return timingSafeEqual(a, b);
 }
 
+// Replay guard for the signed-request auth: every accepted nonce is remembered
+// for the freshness window; a verbatim replay of harvested headers is rejected
+// even inside the window. Pruned inline — the map stays tiny (one entry per
+// request per ~60s).
+const seenNonces = new Map(); // nonce → first-seen ms
+function nonceReplayed(nonce, now = Date.now()) {
+  for (const [n, t] of seenNonces) {
+    if (now - t > AUTH_WINDOW_MS * 2) seenNonces.delete(n);
+  }
+  if (seenNonces.has(nonce)) return true;
+  seenNonces.set(nonce, now);
+  return false;
+}
+
 /**
  * Validate HTTP request authentication and origin.
  * Returns null if valid, or an error string if rejected.
+ * `body` must be the exact raw request body ('' for body-less requests) —
+ * the signature binds it, so it has to be read before validation on POSTs.
  */
-function validateRequest(req) {
+function validateRequest(req, body = '') {
   // Layer 1: Host header validation (blocks DNS rebinding)
   const host = req.headers.host || '';
   if (!host.match(/^(localhost|127\.0\.0\.1)(:\d+)?$/)) {
     return 'Invalid host header';
   }
 
-  // Layer 2: Session token (blocks unauthorized local processes).
-  // Read fresh per request so a token rotation under a live daemon heals
-  // instead of wedging every consumer on 403.
-  const token = req.headers['x-daemon-token'];
+  // Layer 2: signed request (blocks unauthorized local processes; the session
+  // token never crosses the wire). Token read fresh per request so a rotation
+  // under a live daemon heals instead of wedging every consumer on 403.
   const sessionToken = readSessionToken();
   if (!sessionToken) {
     return 'No session token configured';
   }
-  if (token !== sessionToken) {
-    return 'Invalid or missing token';
+  const path = (req.url || '').split('?')[0];
+  if (!verifyRequest(sessionToken, req.headers, req.method || 'GET', path, body)) {
+    return 'Invalid or missing request signature';
+  }
+  if (nonceReplayed(req.headers['x-daemon-nonce'])) {
+    return 'Replayed request nonce';
   }
 
   return null; // Valid
@@ -191,6 +219,10 @@ function getMode() {
 
 // ============ HTTP SERVER ============
 
+// In-flight /exec responses. shutdown() drains these before closing the
+// plugin socket — closing it first reset every running eval mid-flight.
+let inFlightExecs = 0;
+
 async function handleRequest(req, res) {
   resetIdleTimer();
 
@@ -201,8 +233,15 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // SECURITY: Validate authentication on all routes
-  const authError = validateRequest(req);
+  // Execute command. The request signature binds the body, so the body must be
+  // collected BEFORE authentication — this route validates itself below.
+  if (req.url === '/exec' && req.method === 'POST') {
+    handleExec(req, res);
+    return;
+  }
+
+  // SECURITY: Validate authentication on all remaining (body-less) routes.
+  const authError = validateRequest(req, '');
   if (authError) {
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized: ' + authError }));
@@ -222,74 +261,6 @@ async function handleRequest(req, res) {
       keyConfigured: !!PLUGIN_KEY,
       idleTimeoutMs: IDLE_TIMEOUT_MS
     }));
-    return;
-  }
-
-  // Execute command
-  if (req.url === '/exec' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      let payload;
-      try {
-        payload = JSON.parse(body);
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON body: ' + e.message }));
-        return;
-      }
-
-      // NO retries for ANY action: every action ultimately evals arbitrary,
-      // usually MUTATING code in the plugin. On a timeout/disconnect the code
-      // may still complete in Figma — re-sending it silently DUPLICATES the
-      // mutation (frames, variables, node edits). The earlier retry loop
-      // exempted only render/render-batch and re-ran evals; that was wrong.
-      try {
-        const { action, code, jsx, jsxArray, gap, vertical, collection } = payload;
-        let result;
-
-        const execWithTimeout = async (fn, timeoutMs = 30000) => {
-          return Promise.race([
-            fn(),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
-            )
-          ]);
-        };
-
-        switch (action) {
-          case 'eval':
-            result = await execWithTimeout(() => executeEval(code));
-            break;
-          case 'render': {
-            // Parse JSX → plugin code, then execute via the plugin bridge.
-            const parser = new FigmaClient();
-            const renderCode = await parser.parseJSX(jsx);
-            result = await execWithTimeout(() => executeEval(renderCode), 90000);
-            break;
-          }
-          case 'render-batch': {
-            const batchParser = new FigmaClient();
-            if (collection) batchParser.setCollection(collection);
-            const batchCode = await batchParser.parseJSXBatch(jsxArray, {
-              gap: gap || 40,
-              vertical: vertical || false
-            });
-            result = await execWithTimeout(() => executeEval(batchCode), 60000);
-            break;
-          }
-          default:
-            throw new Error(`Unknown action: ${action}`);
-        }
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ result, mode: getMode() }));
-      } catch (error) {
-        console.log(`[daemon] /exec failed: ${error.message}`);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: error.message || 'Execution failed' }));
-      }
-    });
     return;
   }
 
@@ -321,6 +292,83 @@ async function handleRequest(req, res) {
   res.end('Not found');
 }
 
+function handleExec(req, res) {
+  let body = '';
+  req.on('data', chunk => body += chunk);
+  req.on('end', async () => {
+    // SECURITY: the signature covers the exact body — validate only now.
+    const authError = validateRequest(req, body);
+    if (authError) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: ' + authError }));
+      return;
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(body);
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body: ' + e.message }));
+      return;
+    }
+
+    // NO retries for ANY action: every action ultimately evals arbitrary,
+    // usually MUTATING code in the plugin. On a timeout/disconnect the code
+    // may still complete in Figma — re-sending it silently DUPLICATES the
+    // mutation (frames, variables, node edits). The earlier retry loop
+    // exempted only render/render-batch and re-ran evals; that was wrong.
+    inFlightExecs++;
+    try {
+      const { action, code, jsx, jsxArray, gap, vertical, collection } = payload;
+      let result;
+
+      const execWithTimeout = async (fn, timeoutMs = 30000) => {
+        return Promise.race([
+          fn(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
+          )
+        ]);
+      };
+
+      switch (action) {
+        case 'eval':
+          result = await execWithTimeout(() => executeEval(code));
+          break;
+        case 'render': {
+          // Parse JSX → plugin code, then execute via the plugin bridge.
+          const parser = new FigmaClient();
+          const renderCode = await parser.parseJSX(jsx);
+          result = await execWithTimeout(() => executeEval(renderCode), 90000);
+          break;
+        }
+        case 'render-batch': {
+          const batchParser = new FigmaClient();
+          if (collection) batchParser.setCollection(collection);
+          const batchCode = await batchParser.parseJSXBatch(jsxArray, {
+            gap: gap || 40,
+            vertical: vertical || false
+          });
+          result = await execWithTimeout(() => executeEval(batchCode), 60000);
+          break;
+        }
+        default:
+          throw new Error(`Unknown action: ${action}`);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ result, mode: getMode() }));
+    } catch (error) {
+      console.log(`[daemon] /exec failed: ${error.message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'Execution failed' }));
+    } finally {
+      inFlightExecs--;
+    }
+  });
+}
+
 // ============ START SERVERS ============
 
 const httpServer = createServer(handleRequest);
@@ -347,8 +395,14 @@ const wss = new WebSocketServer({
 // ws re-emits the underlying server's errors (including the EADDRINUSE of a
 // failed bind attempt) on the WebSocketServer. Without a listener that becomes
 // an uncaught 'error' event and kills the process before the fallback loop in
-// start() can try the next port. The HTTP-server side owns error handling.
-wss.on('error', () => {});
+// start() can try the next port. The HTTP-server side owns PRE-bind error
+// handling — but post-bind ws-server errors must not vanish silently, so they
+// are logged once the daemon holds a port.
+wss.on('error', (err) => {
+  if (boundPort !== null) {
+    console.error('[daemon] WebSocket server error:', err.message);
+  }
+});
 
 const AUTH_TIMEOUT_MS = 5000;
 
@@ -392,9 +446,24 @@ wss.on('connection', (ws) => {
       // Authenticated.
       authenticated = true;
       clearTimeout(authTimer);
+      const displaced = pluginWs;
       pluginWs = ws;
       console.log(`[daemon] Plugin authenticated (version: ${msg.version || 'unknown'})`);
       try { ws.send(JSON.stringify({ type: 'hello-ack' })); } catch {}
+      // Last hello wins. Tell the DISPLACED window it lost the bridge —
+      // without this its UI stayed green while every eval went to the new
+      // window. Its in-flight evals can no longer answer either; fail them
+      // now instead of letting them ride out the 25s timeout.
+      if (displaced && displaced !== ws && displaced.readyState === WebSocket.OPEN) {
+        console.log('[daemon] Previous plugin window superseded');
+        for (const [, pending] of pluginPendingRequests) {
+          clearTimeout(pending.timeout);
+          pending.reject(new Error('Plugin connection superseded by another Figma window'));
+        }
+        pluginPendingRequests.clear();
+        try { displaced.send(JSON.stringify({ type: 'superseded' })); } catch {}
+        try { displaced.close(4409, 'Superseded by another window'); } catch {}
+      }
       return;
     }
 
@@ -587,13 +656,36 @@ start();
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
+// Drain window for in-flight /exec responses on shutdown. A long render can
+// exceed this — the cap keeps `daemon restart` snappy; only shutdowns during
+// an active eval wait at all.
+const SHUTDOWN_DRAIN_MS = 10000;
+let shuttingDown = false;
+
 function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log('[daemon] Shutting down...');
   if (idleTimer) clearTimeout(idleTimer);
-  if (pluginWs) pluginWs.close();
-  // Only clear the port file if it still names our port — a dying old daemon
-  // must not delete a newer daemon's published port.
-  if (boundPort !== null) clearPortFile(process.env, boundPort);
-  httpServer.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000);
+  // Stop accepting new connections; established in-flight responses live on.
+  httpServer.close(() => {});
+  // Keep the plugin socket OPEN until in-flight evals have answered — closing
+  // it first reset every running /exec with a connection error even though the
+  // code kept executing in Figma (duplicate-mutation bait on manual restart).
+  const deadline = Date.now() + SHUTDOWN_DRAIN_MS;
+  const finish = () => {
+    if (inFlightExecs > 0) {
+      console.log(`[daemon] Forcing exit with ${inFlightExecs} eval(s) still in flight`);
+    }
+    if (pluginWs) { try { pluginWs.close(); } catch {} }
+    // Only clear the port file if it still names our port — a dying old daemon
+    // must not delete a newer daemon's published port.
+    if (boundPort !== null) clearPortFile(process.env, boundPort);
+    process.exit(0);
+  };
+  const tick = () => {
+    if (inFlightExecs === 0 || Date.now() >= deadline) return finish();
+    setTimeout(tick, 200);
+  };
+  tick();
 }

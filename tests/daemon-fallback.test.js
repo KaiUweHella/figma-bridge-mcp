@@ -11,6 +11,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signRequest } from '../engine/src/lib/daemon-auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(__dirname, '..', 'engine', 'src', 'daemon.js');
@@ -77,7 +78,7 @@ async function waitForHealth(port, timeoutMs = 8000) {
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/health`, {
-        headers: { 'X-Daemon-Token': TOKEN },
+        headers: signRequest(TOKEN, 'GET', '/health'),
         signal: AbortSignal.timeout(500),
       });
       if (res.ok) return true;

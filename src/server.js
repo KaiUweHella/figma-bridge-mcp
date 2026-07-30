@@ -407,6 +407,11 @@ function previewResult(args) {
 const ASSET_EXPORT_WAIT_MS = Number(process.env.ASSET_EXPORT_WAIT_MS) || 45000;
 const ASSET_EXPORT_TIMEOUT_MS =
   Number(process.env.ASSET_EXPORT_TIMEOUT_MS) || 10 * 60 * 1000;
+// Finished results linger briefly: an agent (or transport) retry of the SAME
+// call right after completion used to find the job already deleted and kicked
+// off a FULL duplicate export. Errors are not cached — a retry after a failure
+// should genuinely try again.
+const ASSET_RESULT_CACHE_MS = 60 * 1000;
 const assetJobs = new Map(); // canonical-args key → job
 
 async function runAssetExport(rawArgs, label) {
@@ -435,9 +440,16 @@ async function runAssetExport(rawArgs, label) {
         `Poll by re-running this exact figma_run call: it attaches to the running job (never starts a duplicate) and returns the final summary when done.`,
     );
   }
-  assetJobs.delete(key);
   if (job.error) {
+    assetJobs.delete(key);
     return errorResult(job.error.stderr || job.error.message || String(job.error));
+  }
+  if (!job.evictAt) {
+    job.evictAt = Date.now() + ASSET_RESULT_CACHE_MS;
+    const evict = setTimeout(() => {
+      if (assetJobs.get(key) === job) assetJobs.delete(key);
+    }, ASSET_RESULT_CACHE_MS);
+    if (typeof evict.unref === "function") evict.unref();
   }
   return resultFromCli(job.result);
 }
@@ -682,11 +694,17 @@ async function handleTool(name, rawArgs) {
       try {
         res = await runCli(args);
       } catch (err) {
-        // One transparent retry: the first verify after an idle stretch
-        // occasionally dies while the daemon self-heals (observed as a bare
-        // "exited with code 1" with no cause); the identical second call
-        // reliably succeeds. If it fails twice, the error propagates WITH
-        // the CLI's stderr attached.
+        // One transparent retry — but ONLY for transient failures: the first
+        // verify after an idle stretch occasionally dies while the daemon
+        // self-heals (observed as a bare "exited with code 1" with no cause);
+        // the identical second call reliably succeeds. Deterministic errors
+        // ("Node not found", bad arguments) used to be retried too, doubling
+        // latency and audit entries for an outcome that cannot change.
+        const detail = String(err.stderr || "").trim();
+        const transient =
+          !detail ||
+          /timeout|timed out|ECONNREFUSED|ECONNRESET|not reachable|Empty response from daemon/i.test(detail);
+        if (!transient) throw err;
         res = await runCli(args);
       }
       return textResult(

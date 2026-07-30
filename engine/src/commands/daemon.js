@@ -2,6 +2,7 @@
 import chalk from 'chalk';
 import { readFileSync } from 'fs';
 import { getPortPid } from '../platform.js';
+import { signRequest } from '../lib/daemon-auth.js';
 import {
   program,
   DAEMON_PID_FILE,
@@ -154,14 +155,14 @@ daemon
   .action(async () => {
     if (!isDaemonRunning()) {
       console.log(chalk.yellow('○ Daemon is not running'));
-      console.log(chalk.gray('  Run "figma-ds-cli connect" first'));
+      console.log(chalk.gray('  Run "node src/index.js connect" first'));
       return;
     }
     console.log(chalk.blue('Reconnecting to Figma...'));
     try {
       const reconnToken = getDaemonToken();
-      const reconnHeaders = {};
-      if (reconnToken) reconnHeaders['X-Daemon-Token'] = reconnToken;
+      // Signed request — the session token itself never crosses the wire.
+      const reconnHeaders = reconnToken ? signRequest(reconnToken, 'GET', '/reconnect', '') : {};
       const response = await fetch(`http://127.0.0.1:${getDaemonPort()}/reconnect`, { headers: reconnHeaders });
       const result = await response.json();
       if (result.error) {

@@ -329,9 +329,9 @@ tokens
 
 tokens
   .command('import-design-md <file>')
-  .description('Import tokens from a DESIGN.md (Figma extraction format with `## 11. Machine-readable tokens` JSON block). Creates color, radius, and typography variables. Also prints a context summary for figmachat.')
+  .description('Import tokens from a DESIGN.md (Figma extraction format with `## 11. Machine-readable tokens` JSON block). Creates color, radius, and typography variables. Also prints a compact context summary for the agent.')
   .option('-c, --collection <name>', 'Collection name (defaults to the design system name)')
-  .option('--print-context', 'Just print the figmachat context summary, do not create variables')
+  .option('--print-context', 'Just print the agent context summary, do not create variables')
   .action(async (file, options) => {
     let parsed;
     try {
@@ -377,7 +377,7 @@ tokens
         process.exit(1);
       }
       console.log();
-      console.log(chalk.cyan('─── figmachat context (drop into /design) ───'));
+      console.log(chalk.cyan('─── agent context summary ───────────'));
       console.log(summarizeForLLM(parsed));
       console.log(chalk.cyan('──────────────────────────────────────────────'));
       return;
@@ -451,7 +451,7 @@ return 'Imported ' + count + ' tokens into ' + collectionName;
     }
 
     console.log();
-    console.log(chalk.cyan('─── figmachat context (drop into /design) ───'));
+    console.log(chalk.cyan('─── agent context summary ───────────'));
     console.log(summarizeForLLM(parsed));
     console.log(chalk.cyan('──────────────────────────────────────────────'));
   });

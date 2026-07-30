@@ -24,7 +24,11 @@ figma.showUI(__html__, { width: 320, height: 240 });
 // `for (…) { … }` block, or multi-statement code without semicolons, became a
 // SyntaxError. Statement code now returns undefined unless it ends with an
 // explicit `return` — which is what every engine call site already does.
-async function executeCode(code, timeoutMs = 25000) {
+// 22s, deliberately BELOW the daemon's 25s eval timeout: with both at 25s the
+// daemon always fired first and the plugin's more precise error message
+// (naming the actual slow API call) never reached anyone. Note the timeout
+// only rejects the promise — the sandboxed eval itself keeps running.
+async function executeCode(code, timeoutMs = 22000) {
   const trimmed = code.trim();
 
   let execPromise;
@@ -118,6 +122,10 @@ figma.on('selectionchange', () => {
   selectionDebounce = setTimeout(pushSelection, 300);
 });
 
+// Eval serialization chain — every handler in it catches its own errors, so
+// the chain itself never rejects (a rejected chain would wedge all later evals).
+let evalChain = Promise.resolve();
+
 // Handle messages from UI (WebSocket bridge)
 figma.ui.onmessage = async (msg) => {
   // --- Access-key bridge (clientStorage is only reachable here) ---
@@ -144,27 +152,39 @@ figma.ui.onmessage = async (msg) => {
   }
 
   // --- Eval bridge ---
+  // Serialized through a promise chain: figma.ui.onmessage is async, so two
+  // evals arriving back-to-back would otherwise interleave at their await
+  // points and mutate shared document state mid-flight. The daemon currently
+  // sends strictly serially, but the plugin must not depend on that.
   if (msg.type === 'eval') {
-    try {
-      const result = await executeCode(msg.code);
-      figma.ui.postMessage({ type: 'result', id: msg.id, result: result });
-    } catch (error) {
-      figma.ui.postMessage({ type: 'result', id: msg.id, error: errorMessage(error) });
-    }
+    const { id, code } = msg;
+    evalChain = evalChain.then(async () => {
+      try {
+        const result = await executeCode(code);
+        figma.ui.postMessage({ type: 'result', id, result });
+      } catch (error) {
+        figma.ui.postMessage({ type: 'result', id, error: errorMessage(error) });
+      }
+    });
+    return;
   }
 
   // Batch eval (execute multiple codes in sequence, return all results)
   if (msg.type === 'eval-batch') {
-    const results = [];
-    for (const code of msg.codes) {
-      try {
-        const result = await executeCode(code);
-        results.push({ success: true, result });
-      } catch (error) {
-        results.push({ success: false, error: errorMessage(error) });
+    const { id, codes } = msg;
+    evalChain = evalChain.then(async () => {
+      const results = [];
+      for (const code of codes) {
+        try {
+          const result = await executeCode(code);
+          results.push({ success: true, result });
+        } catch (error) {
+          results.push({ success: false, error: errorMessage(error) });
+        }
       }
-    }
-    figma.ui.postMessage({ type: 'batch-result', id: msg.id, results: results });
+      figma.ui.postMessage({ type: 'batch-result', id, results });
+    });
+    return;
   }
 
   // --- UI feature bridge ---
@@ -199,6 +219,12 @@ figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'disconnected') {
     figma.notify('FigCli disconnected', { timeout: 2000 });
+  }
+
+  // Another Figma window's plugin authenticated after us — the daemon routes
+  // all evals there now. The UI shows the state; this is just the toast.
+  if (msg.type === 'superseded') {
+    figma.notify('FigCli: another Figma window took over the connection', { timeout: 4000 });
   }
 
   // Fired once per outage, after the UI has scanned all ports for a few

@@ -100,6 +100,7 @@
   <div id="log"></div>
 
   <button id="changeKeyBtn" class="linkish" style="display:none">Change access key</button>
+  <button id="reconnectBtn" class="linkish" style="display:none">Reconnect this window</button>
   <div id="hint" class="hint">Keep this window open while working.</div>
 
   <script>
@@ -127,6 +128,7 @@
     const keyInput = document.getElementById('keyInput');
     const saveBtn = document.getElementById('saveBtn');
     const changeKeyBtn = document.getElementById('changeKeyBtn');
+    const reconnectBtn = document.getElementById('reconnectBtn');
     const hintEl = document.getElementById('hint');
     const pauseBtn = document.getElementById('pauseBtn');
     const selInfoEl = document.getElementById('selInfo');
@@ -253,6 +255,32 @@
       errCount++; renderStats();
     }
 
+    // ============ Superseded state ============
+    // Two Figma windows, last hello wins: the daemon keeps ONE plugin socket.
+    // When another window takes over, it notifies this one (message + close
+    // 4409). Without this state the displaced window stayed green while every
+    // eval silently went elsewhere. No auto-reconnect — that would just
+    // supersede the other window back in an endless tug-of-war; the user
+    // decides via the button.
+    let superseded = false;
+    function onSuperseded() {
+      if (superseded) return;
+      superseded = true;
+      teardown();
+      setStatus('Another Figma window took over', 'error');
+      hintEl.textContent = 'This window no longer receives agent commands. Use "Reconnect this window" to take back over.';
+      hintEl.classList.add('warn');
+      reconnectBtn.style.display = 'block';
+      parent.postMessage({ pluginMessage: { type: 'superseded' } }, '*');
+    }
+    reconnectBtn.onclick = () => {
+      superseded = false;
+      reconnectBtn.style.display = 'none';
+      hintEl.textContent = DEFAULT_HINT;
+      hintEl.classList.remove('warn');
+      connectParallel();
+    };
+
     // ============ Selection display (feature C) ============
     // Selection changes arrive automatically from code.js (debounced
     // selectionchange). Shown here so the user SEES what the agent sees; no
@@ -337,6 +365,8 @@
             opened = true;
             ws = socket;
             authed = false;
+            superseded = false;
+            reconnectBtn.style.display = 'none';
             failedScans = 0;
             unreachableNotified = false;
             connectedPort = port;
@@ -443,6 +473,10 @@
         onAuthFailure(msg.reason);
         return;
       }
+      if (msg.type === 'superseded') {
+        onSuperseded();
+        return;
+      }
 
       if (msg.action === 'eval') {
         if (paused) { rejectPaused(msg); return; }
@@ -465,6 +499,12 @@
     }
 
     function handleClose(event) {
+      // 4409 = displaced by another Figma window (the superseded message may
+      // have been missed if the close raced it). No auto-reconnect.
+      if (superseded || (event && event.code === 4409)) {
+        onSuperseded();
+        return;
+      }
       // Daemon rejects unauthenticated sockets with close code 4401.
       if (event && event.code === 4401) {
         // Reason arrived (or not) via the auth-error message just before the

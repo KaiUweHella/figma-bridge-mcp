@@ -3,9 +3,7 @@
  * Only defines functions for the current platform — no Windows code loaded on Mac, etc.
  */
 
-import { execSync, spawn } from 'child_process';
-import { existsSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { execSync } from 'child_process';
 
 const PLATFORM = process.platform;
 
@@ -64,87 +62,6 @@ export function sleepAfterStop() {
   }
 }
 
-// --- Figma paths (asar, binary, command) ---
-
-// Windows-only helpers (only defined on Windows)
-let findWindowsFigmaPath, findWindowsFigmaExe;
-
-if (PLATFORM === 'win32') {
-  findWindowsFigmaPath = function() {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (!localAppData) return null;
-
-    const figmaBase = join(localAppData, 'Figma');
-    if (!existsSync(figmaBase)) return null;
-
-    try {
-      const entries = readdirSync(figmaBase);
-      const appFolders = entries
-        .filter(e => e.startsWith('app-'))
-        .sort()
-        .reverse();
-
-      for (const folder of appFolders) {
-        const asarPath = join(figmaBase, folder, 'resources', 'app.asar');
-        if (existsSync(asarPath)) return asarPath;
-      }
-
-      const oldPath = join(figmaBase, 'resources', 'app.asar');
-      if (existsSync(oldPath)) return oldPath;
-    } catch {}
-
-    return null;
-  };
-
-  findWindowsFigmaExe = function() {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (!localAppData) return null;
-
-    const figmaBase = join(localAppData, 'Figma');
-    const mainExe = join(figmaBase, 'Figma.exe');
-    if (existsSync(mainExe)) return mainExe;
-
-    try {
-      const entries = readdirSync(figmaBase);
-      const appFolders = entries
-        .filter(e => e.startsWith('app-'))
-        .sort()
-        .reverse();
-
-      for (const folder of appFolders) {
-        const exePath = join(figmaBase, folder, 'Figma.exe');
-        if (existsSync(exePath)) return exePath;
-      }
-    } catch {}
-
-    return null;
-  };
-}
-
-const ASAR_PATHS = {
-  darwin: '/Applications/Figma.app/Contents/Resources/app.asar',
-  linux: '/opt/figma/resources/app.asar'
-};
-
-// --- Doctor helpers ---
-export function getFigmaVersion() {
-  if (PLATFORM === 'darwin') {
-    return execSync('defaults read /Applications/Figma.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null', { encoding: 'utf8' }).trim();
-  } else if (PLATFORM === 'win32') {
-    return execSync('powershell -command "(Get-Item \\"$env:LOCALAPPDATA\\Figma\\Figma.exe\\").VersionInfo.ProductVersion" 2>nul', { encoding: 'utf8' }).trim() || 'unknown';
-  }
-  return 'unknown';
-}
-
-export function isFigmaRunning() {
-  if (PLATFORM === 'darwin' || PLATFORM === 'linux') {
-    const ps = execSync('pgrep -f Figma 2>/dev/null || true', { encoding: 'utf8' });
-    return ps.trim().length > 0;
-  } else if (PLATFORM === 'win32') {
-    const ps = execSync('tasklist /FI "IMAGENAME eq Figma.exe" 2>nul', { encoding: 'utf8' });
-    return ps.includes('Figma.exe');
-  }
-  return false;
-}
-
-export const platformName = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[PLATFORM] || PLATFORM;
+// (The Figma-path helpers — asar locations, Figma.exe discovery — and the
+// doctor probes getFigmaVersion/isFigmaRunning served the removed Yolo/patching
+// path and the removed `doctor` command. Deleted with them.)

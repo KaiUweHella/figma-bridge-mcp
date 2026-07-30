@@ -15,7 +15,7 @@
  *
  * Section 7 ("Components") and the various tables (Color, Typography, Radius)
  * earlier in the file are summarized into a compact context string so the
- * `/design` command in figmachat can drop a token + component list into its
+ * agent tooling can drop a token + component list into its
  * system prompt without bloating it with 7000 lines of structure.
  */
 
@@ -86,7 +86,7 @@ function normalizeYamlSpec(spec) {
     source: spec.name || spec.title,
     generated: spec.version || spec.date,
   };
-  // components (just names — useful for the figmachat context)
+  // components (just names — useful for the agent context)
   if (spec.components && typeof spec.components === 'object') {
     out._componentNames = Object.keys(spec.components);
   }
@@ -165,7 +165,7 @@ const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 /**
  * Format C: prose DESIGN.md (awesome-design-md brand style) with role-labelled
  * color rows but no machine-readable block. Buckets rows by role and assigns
- * the canonical semantic names figma-cli/figmachat expect (canvas, ink,
+ * the canonical semantic names figma-cli expects (canvas, ink,
  * primary, …), falling back to slugged display names for the rest. Returns the
  * normalized token shape, or null if the file isn't a prose design system.
  */
@@ -224,7 +224,7 @@ export function parseDesignMd(filepath) {
       throw new Error(`Token JSON block is not valid JSON: ${e.message}`);
     }
 
-    // Pull the document summary fields too — useful for the figmachat context.
+    // Pull the document summary fields too — useful for the agent context.
     const identityMatch = text.match(/^\*\*In one line:\*\*\s+(.+)$/m);
     const sourceMatch = text.match(/^source:\s+(.+)$/m);
     const componentSections = [...text.matchAll(/^### Page:\s+(.+)$/gm)]
@@ -264,7 +264,7 @@ export function parseDesignMd(filepath) {
   );
 }
 
-/** Produce a one-shot summary string for figmachat to drop into the system prompt. */
+/** Produce a one-shot summary string an agent can drop into its system prompt. */
 export function summarizeForLLM({ tokens, meta }) {
   const colors = Object.entries(tokens.color || {});
   const types = Object.keys(tokens.typography || {});

@@ -2,23 +2,16 @@
 // Extracted from index.js — all command modules import from here.
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
-import { execSync, execFileSync, spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { createInterface } from 'readline';
-import { homedir, tmpdir } from 'os';
-import { createServer } from 'http';
-import { FigmaClient } from '../figma-client.js';
+import { homedir } from 'os';
 import * as apiDocs from '../api-docs.js';
-import { extractGradient, extractMesh, buildMeshFromColors, buildFigmaPaint, buildCssString } from '../gradient-extractor.js';
-import {
-  nullDevice, killPort, getPortPid, sleepAfterStop,
-  getFigmaVersion, isFigmaRunning, platformName
-} from '../platform.js';
+import { nullDevice, killPort, getPortPid, sleepAfterStop } from '../platform.js';
 import { getDaemonPort, clearPortFile } from './daemon-port.js';
+import { signRequest } from './daemon-auth.js';
 // Moved out of this file; re-exported below so command modules keep importing
 // everything from one place.
 import { unescapeShell, detectWrapperSplit } from './jsx-split.js';
@@ -27,8 +20,6 @@ import {
   hexToRgb, isVarRef, getVarName, generateFillCode, generateStrokeCode,
   varLoadingCode, smartPosCode,
 } from './eval-snippets.js';
-// default auto-names — they'd select every unnamed node in the whole tree.
-// have fallen back to 3457-3460 when 3456 was held by a foreign process.
 const DAEMON_PID_FILE = join(homedir(), '.figma-safe-mcp', 'daemon.pid');
 const DAEMON_TOKEN_FILE = join(homedir(), '.figma-safe-mcp', '.daemon-token');
 
@@ -77,21 +68,31 @@ function getTokenStatus() {
 }
 
 // Sync HTTP call to the local daemon: curl via execFileSync with an ARGUMENT
-// ARRAY — never a shell string, so the daemon token can't hit shell parsing.
-// Prepends -s and the X-Daemon-Token header; callers pass the URL and any
-// extra flags. Returns stdout (utf8); throws like execFileSync on failure.
-function daemonCurl(extraArgs, { timeout = 2000, maxBuffer = 64 * 1024 * 1024 } = {}) {
+// ARRAY — never a shell string, so header values can't hit shell parsing.
+// Prepends -s and the signed auth headers (HMAC over method/path/body — the
+// session token itself never crosses the wire, so a squatter on a range port
+// cannot harvest it). `path` and `body` MUST match what the extraArgs URL and
+// payload actually send, or the daemon rejects the signature. A body is fed
+// via stdin (`-d @-`), never a temp file — the old Date.now()-named tmp file
+// collided between concurrent CLI processes and sat in world-writable tmp.
+function daemonCurl(path, extraArgs, { method = 'GET', body = '', timeout = 2000, maxBuffer = 64 * 1024 * 1024 } = {}) {
   const token = getDaemonToken();
   const args = ['-s'];
-  if (token) args.push('-H', `X-Daemon-Token: ${token}`);
+  if (token) {
+    for (const [name, value] of Object.entries(signRequest(token, method, path, body))) {
+      args.push('-H', `${name}: ${value}`);
+    }
+  }
   args.push(...extraArgs);
   // maxBuffer: execFileSync defaults to 1 MB, which any real screenshot
   // response exceeds (ENOBUFS). 64 MB covers 4x exports of large frames.
-  return execFileSync('curl', args, { encoding: 'utf8', stdio: 'pipe', timeout, maxBuffer });
+  return execFileSync('curl', args, {
+    encoding: 'utf8', stdio: 'pipe', input: body || undefined, timeout, maxBuffer,
+  });
 }
 
 // Process-level health cache. A single CLI command checks daemon health 3-4
-// times across checkConnection/fastRender/command-internal guards — each was a
+// times across checkConnection/fastEval/command-internal guards — each was a
 // fresh `curl` subprocess spawn. Since a CLI process is short-lived, caching the
 // boolean result for a brief window collapses those to one spawn. `force` and
 // the detail form always bypass the cache (used by retry/fallback logic that
@@ -114,6 +115,7 @@ function isDaemonRunning(returnDetails = false, force = false) {
   try {
     const token = getDaemonToken();
     const response = daemonCurl(
+      '/health',
       ['-o', nullDevice, '-w', '%{http_code}', `http://127.0.0.1:${port}/health`],
       { timeout: 1000 }
     );
@@ -146,7 +148,6 @@ function isDaemonRunning(returnDetails = false, force = false) {
 // Send command to daemon (uses native fetch in Node 18+)
 async function daemonExec(action, data = {}, timeoutMs = 90000) {
   const token = getDaemonToken();
-  const headers = { 'Content-Type': 'application/json' };
 
   // Fail fast with clear error if token is missing
   if (!token) {
@@ -163,13 +164,17 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
     );
   }
 
-  headers['X-Daemon-Token'] = token;
+  const body = JSON.stringify({ action, ...data });
+  // Signed request headers; the token never rides along in cleartext.
+  const headers = { 'Content-Type': 'application/json', ...signRequest(token, 'POST', '/exec', body) };
 
   try {
-    const response = await fetch(`http://localhost:${getDaemonPort()}/exec`, {
+    // 127.0.0.1, not localhost: the daemon binds IPv4 only, and hosts that
+    // resolve localhost to ::1 first paid an avoidable connection detour.
+    const response = await fetch(`http://127.0.0.1:${getDaemonPort()}/exec`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ action, ...data }),
+      body,
       signal: AbortSignal.timeout(timeoutMs)
     });
 
@@ -192,8 +197,7 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
           if (/Plugin not connected/i.test(errObj.error)) {
             throw new Error(
               'Plugin not connected.\n' +
-              'In Figma: Plugins → Development → FigCli (keep that tab open).\n' +
-              'Or switch to Yolo Mode: node src/index.js connect'
+              'In Figma: Plugins → Development → FigCli (keep that tab open).'
             );
           }
           // Clean up error: remove stack trace line numbers for cleaner output
@@ -251,17 +255,6 @@ async function fastEval(code) {
   }
   // Let a daemon error propagate — the plugin bridge is the only path.
   return await daemonExec('eval', { code });
-}
-
-// Fast render via daemon (plugin bridge only — no direct CDP fallback)
-async function fastRender(jsx) {
-  // The daemon OWNS the render once it's up. A failed daemon call is surfaced
-  // as-is: it may have already created the frame before erroring, and a retry
-  // would silently DUPLICATE it.
-  if (!(await ensureDaemonRunning())) {
-    throw new Error(NOT_CONNECTED_MSG);
-  }
-  return await daemonExec('render', { jsx });
 }
 
 // Start daemon in background. The Safe-Mode build only ever runs the daemon in
@@ -351,19 +344,12 @@ function stopDaemon() {
 // NOTE: this file lives in src/lib/ — keep __dirname pointing at src/ so
 // daemon.js / figma-client.js / package.json resolve as before the split.
 const __dirname = join(dirname(fileURLToPath(import.meta.url)), '..');
-const __filename = join(__dirname, 'index.js');
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
 const CONFIG_DIR = join(homedir(), '.figma-safe-mcp');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const program = new Command();
-
-// Helper: Prompt user
-function prompt(question) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => rl.question(question, answer => { rl.close(); resolve(answer); }));
-}
 
 // Helper: Load config
 function loadConfig() {
@@ -393,40 +379,27 @@ const NOT_CONNECTED_MSG =
 
 // Sync eval through the daemon (curl); used by the few sync CLI paths.
 function figmaEvalSync(code) {
-  // Try daemon first (fast path)
-  const daemonRunning = isDaemonRunning();
-  if (daemonRunning) {
-    try {
-      // Wrap code to ensure return value for plugin mode
-      // CDP returns last expression automatically, plugin needs explicit return
-      let wrappedCode = code.trim();
-      // Don't wrap if already an IIFE or starts with return - plugin handles these
-      // For simple expressions and multi-statement code, just pass through
-      // The plugin will add return to the last statement
-      const payload = JSON.stringify({ action: 'eval', code: wrappedCode });
-      const payloadFile = join(tmpdir(), `figma-payload-${Date.now()}.json`);
-      writeFileSync(payloadFile, payload);
-      const result = daemonCurl(
-        ['-X', 'POST', `http://127.0.0.1:${getDaemonPort()}/exec`,
-         '-H', 'Content-Type: application/json', '-d', `@${payloadFile}`],
-        { timeout: 60000 }
-      );
-      try { unlinkSync(payloadFile); } catch {}
-      if (!result || result.trim() === '') {
-        throw new Error('Empty response from daemon');
-      }
-      const data = JSON.parse(result);
-      if (data.error) throw new Error(data.error);
-      return data.result;
-    } catch (e) {
-      // Safe Mode: the plugin bridge is the only path. Re-throw the daemon
-      // error instead of falling through to a (removed) direct CDP connection.
-      throw e;
-    }
+  if (!isDaemonRunning()) {
+    // Daemon not running — the plugin bridge is the only path in Safe Mode.
+    throw new Error(NOT_CONNECTED_MSG);
   }
-
-  // Daemon not running — no direct CDP fallback exists in the Safe-Mode build.
-  throw new Error(NOT_CONNECTED_MSG);
+  // The plugin adds `return` to the last statement itself — pass code as-is.
+  // Payload rides on curl's STDIN (`-d @-`): no temp file, so concurrent CLI
+  // processes can't clobber each other's payloads and nothing predictable
+  // lands in world-writable tmp.
+  const payload = JSON.stringify({ action: 'eval', code: code.trim() });
+  const result = daemonCurl(
+    '/exec',
+    ['-X', 'POST', `http://127.0.0.1:${getDaemonPort()}/exec`,
+     '-H', 'Content-Type: application/json', '-d', '@-'],
+    { method: 'POST', body: payload, timeout: 60000 }
+  );
+  if (!result || result.trim() === '') {
+    throw new Error('Empty response from daemon');
+  }
+  const data = JSON.parse(result);
+  if (data.error) throw new Error(data.error);
+  return data.result;
 }
 
 /**
@@ -512,7 +485,7 @@ function createCollection(name, { silent = false } = {}) {
 // the health contract lives in one place.
 function daemonHealthy() {
   try {
-    const health = daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]);
+    const health = daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]);
     const data = JSON.parse(health);
     return data.status === 'ok' && !!data.plugin;
   } catch {
@@ -537,13 +510,6 @@ async function checkConnection() {
   process.exit(1);
 }
 
-// Helper: Check if Figma is patched
-function isFigmaPatched() {
-  const config = loadConfig();
-  return config.patched === true;
-}
-
-// Helper: Hex to Figma RGB (handles both #RGB and #RRGGBB)
 // Prints the error, then tries to surface relevant Figma Plugin API docs.
 function handleEvalError(e) {
   console.error(chalk.red('✗'), e.message);
@@ -551,16 +517,13 @@ function handleEvalError(e) {
   process.exit(1);
 }
 
-// Helper: Check if Safe Mode (plugin only)
 export {
   CONFIG_DIR,
-  CONFIG_FILE,
   DAEMON_PID_FILE,
   getDaemonPort,
   DAEMON_TOKEN_FILE,
   GENERIC_NAME_PATTERNS,
   __dirname,
-  __filename,
   buildNodeSelector,
   checkConnection,
   componentContextExpr,
@@ -568,7 +531,6 @@ export {
   daemonExec,
   detectWrapperSplit,
   fastEval,
-  fastRender,
   figmaEvalSync,
   evalPrint,
   spinnerSucceed,
@@ -577,7 +539,6 @@ export {
   findVariables,
   listCollections,
   createCollection,
-  generateDaemonToken,
   generateFillCode,
   generateStrokeCode,
   getDaemonToken,
@@ -586,12 +547,10 @@ export {
   handleEvalError,
   hexToRgb,
   isDaemonRunning,
-  isFigmaPatched,
   isVarRef,
   loadConfig,
   pkg,
   program,
-  prompt,
   saveConfig,
   smartPosCode,
   startDaemon,

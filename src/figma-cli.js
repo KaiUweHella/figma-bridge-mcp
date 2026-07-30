@@ -9,8 +9,10 @@
 //  - Every executed command is appended to an audit log.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { signRequest } from "../engine/src/lib/daemon-auth.js";
 import {
   AUDIT_LOG_PATH,
   EXEC_TIMEOUT_MS,
@@ -82,13 +84,27 @@ export const HELP_TOKENS = new Set(["--help", "-h"]);
 const MAX_ARG_LENGTH = 200000;
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
+// Rotation cap: figma_history reads the log synchronously, and render-JSX
+// args make entries fat — an unbounded log eventually made every history
+// call drag. One rotated generation is kept (audit.log.1) and still read
+// by figma_history, so rotation never visibly truncates recent history.
+const AUDIT_ROTATE_BYTES = 5 * 1024 * 1024;
+
 /**
- * Append a single JSON line to the audit log, creating the directory if needed.
+ * Append a single JSON line to the audit log, creating the directory if
+ * needed and rotating audit.log → audit.log.1 past the size cap.
  * @param {object} entry
  */
 export function appendAudit(entry) {
   try {
     fs.mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });
+    try {
+      if (fs.statSync(AUDIT_LOG_PATH).size >= AUDIT_ROTATE_BYTES) {
+        fs.renameSync(AUDIT_LOG_PATH, AUDIT_LOG_PATH + ".1");
+      }
+    } catch {
+      // ENOENT on first write — nothing to rotate.
+    }
     fs.appendFileSync(AUDIT_LOG_PATH, JSON.stringify(entry) + "\n");
   } catch {
     // Audit logging must never block execution; swallow write errors.
@@ -161,8 +177,13 @@ export async function runCli(args, opts = {}) {
 
   const { cmd, argv } = buildArgv(args);
   // `nodes`/`label` feed figma_history; old {ts, args} lines stay valid.
+  // The entry is written BEFORE execution on purpose (aborted runs must be
+  // auditable too); a matching {id, event:"done"} completion entry records
+  // the outcome so failures stop reading like successes in figma_history.
+  const auditId = randomUUID();
   const nodes = extractNodeIds(args);
   appendAudit({
+    id: auditId,
     ts: isoNow(),
     args,
     ...(nodes.length ? { nodes } : {}),
@@ -177,6 +198,7 @@ export async function runCli(args, opts = {}) {
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
+    appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true });
     return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };
   } catch (err) {
     // execFile rejects on nonzero exit, timeout, or spawn failure.
@@ -184,6 +206,13 @@ export async function runCli(args, opts = {}) {
     const stderr = err.stderr ?? "";
     const stdout = err.stdout ?? "";
     const detail = stderr || err.message || "Unknown error";
+    appendAudit({
+      id: auditId,
+      ts: isoNow(),
+      event: "done",
+      ok: false,
+      error: String(detail).trim().split("\n")[0].slice(0, 200),
+    });
     const wrapped = new Error(`figma-cli exited with code ${code}: ${detail}`);
     wrapped.code = code;
     wrapped.stdout = stdout;
@@ -205,7 +234,8 @@ export async function runCli(args, opts = {}) {
 export async function ensureSafeConnect() {
   const args = ["connect", "--safe"];
   const { cmd, argv } = buildArgv(args);
-  appendAudit({ ts: isoNow(), args });
+  const auditId = randomUUID();
+  appendAudit({ id: auditId, ts: isoNow(), args });
 
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
@@ -215,6 +245,7 @@ export async function ensureSafeConnect() {
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
+    appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true });
     return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };
   } catch (err) {
     const stdout = err.stdout ?? "";
@@ -222,9 +253,17 @@ export async function ensureSafeConnect() {
     // A timeout kill is the expected path: instructions were already printed
     // and the detached daemon lives on. Surface stdout as success.
     if (err.killed || err.signal === "SIGTERM") {
+      appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true });
       return { stdout, stderr, code: 0 };
     }
     const code = typeof err.code === "number" ? err.code : 1;
+    appendAudit({
+      id: auditId,
+      ts: isoNow(),
+      event: "done",
+      ok: false,
+      error: String(stderr || err.message || "connect failed").trim().split("\n")[0].slice(0, 200),
+    });
     const wrapped = new Error(
       `figma-cli connect failed with code ${code}: ${stderr || err.message}`,
     );
@@ -369,7 +408,8 @@ export async function getSelection() {
   const url = `http://${DAEMON_HOST}:${daemonPort}/selection`;
   try {
     const res = await fetch(url, {
-      headers: { "X-Daemon-Token": token, Host: `${DAEMON_HOST}:${daemonPort}` },
+      // Signed request — the session token itself never crosses the wire.
+      headers: { ...signRequest(token, "GET", "/selection", ""), Host: `${DAEMON_HOST}:${daemonPort}` },
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) {
@@ -423,7 +463,8 @@ export async function health() {
   const timer = setTimeout(() => controller.abort(), 3000);
   try {
     const res = await fetch(url, {
-      headers: { "X-Daemon-Token": token, Host: `${DAEMON_HOST}:${daemonPort}` },
+      // Signed request — the session token itself never crosses the wire.
+      headers: { ...signRequest(token, "GET", "/health", ""), Host: `${DAEMON_HOST}:${daemonPort}` },
       signal: controller.signal,
     });
     const raw = await res.json();

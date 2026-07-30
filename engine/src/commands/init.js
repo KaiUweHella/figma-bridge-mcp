@@ -54,7 +54,7 @@ Don't read the structure markdown by hand. Use:
 
 ## Handy commands
 \`\`\`
-figma-cli connect                      # connect to Figma Desktop (yolo)
+figma-cli connect                      # connect to Figma Desktop (Safe Mode)
 figma-cli render '<Frame>...</Frame>'  # one frame
 figma-cli render-batch '[ "<Frame>", ... ]' --direction row
 figma-cli node to-component "<id>"     # promote to a component

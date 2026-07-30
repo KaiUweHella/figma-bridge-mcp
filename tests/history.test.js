@@ -15,7 +15,7 @@ process.env.AUDIT_LOG_PATH = AUDIT;
 process.env.PLUGIN_KEY_FILE = join(tmp, 'plugin-key');
 
 const { extractNodeIds, runCli } = await import('../src/figma-cli.js');
-const { parseAuditLines, entryNodes, filterHistory, gitHistory, formatHistory, buildHistory } =
+const { parseAuditLines, entryNodes, filterHistory, gitHistory, formatHistory, buildHistory, foldCompletions } =
   await import('../src/history.js');
 
 test('extractNodeIds: plain ids, URL form normalized, dedupe, cap', () => {
@@ -30,18 +30,52 @@ test('extractNodeIds: plain ids, URL form normalized, dedupe, cap', () => {
   assert.equal(extractNodeIds(many, 50).length, 50);
 });
 
-test('runCli with label writes an enriched audit line; old lines stay valid', async () => {
+test('runCli with label writes an enriched audit line plus a completion entry', async () => {
   await runCli(['--help'], { label: 'discoverability check' });
   const lines = parseAuditLines(readFileSync(AUDIT, 'utf8'));
-  const entry = lines.at(-1);
+  // Last two lines: the command entry and its {event:"done"} completion.
+  const entry = lines.findLast((e) => Array.isArray(e.args));
   assert.deepEqual(entry.args, ['--help']);
   assert.equal(entry.label, 'discoverability check');
+  assert.ok(entry.id, 'command entries carry an id for completion matching');
   assert.ok(!('nodes' in entry), 'no nodes key when the args contain no ids');
+  const done = lines.findLast((e) => e.event === 'done');
+  assert.equal(done.id, entry.id);
+  assert.equal(done.ok, true);
 
   // A pre-enrichment line {ts, args} flows through entryNodes via re-extraction.
   const legacy = { ts: '2026-01-01T00:00:00.000Z', args: ['inspect', '7:9'] };
   assert.deepEqual(entryNodes(legacy), ['7:9']);
   assert.deepEqual(entryNodes(entry), []);
+});
+
+test('foldCompletions: outcomes attach to commands, failures get marked in markdown', () => {
+  const entries = [
+    { id: 'a', ts: '2026-01-01T00:00:00.000Z', args: ['render', '<Frame/>'], label: 'hero' },
+    { id: 'a', ts: '2026-01-01T00:00:01.000Z', event: 'done', ok: false, error: 'Plugin not connected.' },
+    { id: 'b', ts: '2026-01-02T00:00:00.000Z', args: ['canvas', 'info'] },
+    { id: 'b', ts: '2026-01-02T00:00:01.000Z', event: 'done', ok: true },
+    { ts: '2025-12-31T00:00:00.000Z', args: ['inspect', '1:2'] }, // legacy, no outcome
+  ];
+  const folded = foldCompletions(entries);
+  assert.equal(folded.length, 3, 'completion lines disappear from the listing');
+  assert.equal(folded[0].ok, false);
+  assert.equal(folded[0].error, 'Plugin not connected.');
+  assert.equal(folded[1].ok, true);
+  assert.ok(!('ok' in folded[2]), 'legacy entries stay outcome-less');
+
+  const md = formatHistory(folded.map((e) => ({ ...e, source: 'design' })));
+  assert.match(md, /✗ hero — Plugin not connected\./, 'failures are marked with cause');
+  assert.doesNotMatch(md, /✗ canvas/, 'successes are not marked as failures');
+});
+
+test('buildHistory reads the rotated audit.log.1 generation too', () => {
+  const auditPath = join(tmp, 'rotating.log');
+  writeFileSync(auditPath + '.1', JSON.stringify({ ts: '2026-01-01T00:00:00.000Z', args: ['canvas', 'info'], label: 'old generation' }) + '\n');
+  writeFileSync(auditPath, JSON.stringify({ ts: '2026-01-02T00:00:00.000Z', args: ['inspect', '1:2'], label: 'new generation' }) + '\n');
+  const out = buildHistory({ auditPath });
+  assert.match(out, /old generation/);
+  assert.match(out, /new generation/);
 });
 
 test('parseAuditLines skips malformed/truncated lines', () => {

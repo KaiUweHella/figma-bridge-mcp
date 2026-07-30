@@ -7,7 +7,7 @@ import {
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 
-// ============ NODE OPERATIONS (figma-use) ============
+// ============ NODE OPERATIONS ============
 
 const node = program
   .command('node')

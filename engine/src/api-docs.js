@@ -55,7 +55,7 @@ export async function setup({ update = false } = {}) {
 
 /**
  * How old (in days) the local doc clone is. Returns Infinity if not installed.
- * Used by figmachat to decide whether to trigger an auto-refresh.
+ * Lets callers decide whether to trigger an auto-refresh.
  */
 export function ageInDays() {
   if (!isInstalled()) return Infinity;
@@ -320,7 +320,7 @@ export function suggest(query) {
  * "method" is the literal name as defined under a `### name()` heading,
  * "signature" is the next non-blank source line (typically `> **name**(args): ReturnType`).
  *
- * Used by figmachat's API-doc fallback: when no figma-cli subcommand matches the
+ * API-doc fallback: when no figma-cli subcommand matches the
  * user's intent, search for matching methods so we can synthesize an `eval` call.
  */
 export function searchMethods(keyword) {
@@ -527,7 +527,7 @@ export function buildIndex({ silent = false } = {}) {
 }
 
 /**
- * Read (or build-and-read) the compact index. Used by figmachat at startup
+ * Read (or build-and-read) the compact index. Used at startup
  * and on /learn.
  */
 export function readIndex() {

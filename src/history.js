@@ -30,6 +30,32 @@ export function parseAuditLines(text) {
 }
 
 /**
+ * Fold {event:"done"} completion entries into their command entries (matched
+ * by id): the command entry gains `ok` (and `error` on failure), the
+ * completion line itself disappears from the listing. Entries written before
+ * outcome tracking (no id / no completion) pass through unchanged — their
+ * outcome is simply unknown.
+ * @param {object[]} entries
+ * @returns {object[]}
+ */
+export function foldCompletions(entries) {
+  const done = new Map();
+  const commands = [];
+  for (const e of entries) {
+    if (e.event === "done" && e.id) {
+      done.set(e.id, e);
+      continue;
+    }
+    commands.push(e);
+  }
+  return commands.map((e) => {
+    const d = e.id ? done.get(e.id) : undefined;
+    if (!d) return e;
+    return { ...e, ok: d.ok === true, ...(d.error ? { error: d.error } : {}) };
+  });
+}
+
+/**
  * Node ids an entry touched. Entries written before the enrichment lack a
  * `nodes` field — re-extract from `args` at read time (back-compat shim).
  * @param {object} entry
@@ -131,8 +157,12 @@ export function formatHistory(entries, { format = "markdown" } = {}) {
   ];
   for (const e of entries) {
     const source = e.source === "code" ? "code" : "design";
-    const label = cell(e.source === "code" ? e.label : designLabel(e));
-    lines.push(`| ${cell(e.ts, 40)} | ${source} | ${label} | ${nodesCell(e)} |`);
+    // Failed commands are marked explicitly — without this, an aborted render
+    // read exactly like a successful one. Entries without outcome data (old
+    // log lines, still-running commands) stay unmarked.
+    let labelText = e.source === "code" ? e.label : designLabel(e);
+    if (e.ok === false) labelText = `✗ ${labelText}${e.error ? ` — ${e.error}` : ""}`;
+    lines.push(`| ${cell(e.ts, 40)} | ${source} | ${cell(labelText)} | ${nodesCell(e)} |`);
   }
   return lines.join("\n");
 }
@@ -151,14 +181,18 @@ export function buildHistory({
   gitPaths,
   repoPath = process.cwd(),
 } = {}) {
+  // audit.log.1 is the rotated previous generation (see appendAudit's size
+  // cap) — read it first so rotation never visibly truncates recent history.
   let text = "";
-  try {
-    text = fs.readFileSync(auditPath, "utf8");
-  } catch {
-    // no audit log yet — may still have git history below
+  for (const p of [auditPath + ".1", auditPath]) {
+    try {
+      text += fs.readFileSync(p, "utf8");
+    } catch {
+      // file missing (no log yet / never rotated) — may still have git history
+    }
   }
 
-  const design = filterHistory(parseAuditLines(text), { nodeId, limit }).map((e) => ({
+  const design = filterHistory(foldCompletions(parseAuditLines(text)), { nodeId, limit }).map((e) => ({
     ...e,
     source: "design",
   }));

@@ -2,7 +2,9 @@
 //
 // Spawns engine/src/daemon.js on a scratch port with temp token/key/pid files
 // (all env-overridable) so nothing touches the user's real ~/.figma-safe-mcp
-// state, then exercises the HTTP token gate and the WebSocket access-key gate.
+// state, then exercises the signed-request HTTP gate and the WebSocket
+// access-key gate. HTTP auth is per-request HMAC signing (X-Daemon-Ts/-Nonce/
+// -Auth) — the session token itself never crosses the wire.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -11,6 +13,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signRequest, verifyRequest } from '../engine/src/lib/daemon-auth.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -22,6 +25,11 @@ const KEY = 'test-access-key-0123456789';
 let tmp;
 let child;
 
+// Fresh signed headers per call — nonces are single-use by design.
+function auth(method, path, body = '', token = TOKEN) {
+  return signRequest(token, method, path, body);
+}
+
 function httpHealth(headers = {}) {
   return fetch(`http://127.0.0.1:${PORT}/health`, { headers });
 }
@@ -31,7 +39,7 @@ function waitForListen(timeoutMs = 5000) {
     const start = Date.now();
     const tick = async () => {
       try {
-        const res = await httpHealth({ 'X-Daemon-Token': TOKEN });
+        const res = await httpHealth(auth('GET', '/health'));
         if (res.ok) return resolve();
       } catch {}
       if (Date.now() - start > timeoutMs) return reject(new Error('daemon did not start'));
@@ -77,13 +85,13 @@ after(() => {
   try { rmSync(tmp, { recursive: true, force: true }); } catch {}
 });
 
-test('HTTP /health without token is rejected (403)', async () => {
+test('HTTP /health without signed headers is rejected (403)', async () => {
   const res = await httpHealth();
   assert.equal(res.status, 403);
 });
 
-test('HTTP /health with token succeeds and reports Safe-Mode shape', async () => {
-  const res = await httpHealth({ 'X-Daemon-Token': TOKEN });
+test('HTTP /health with a valid signature succeeds and reports Safe-Mode shape', async () => {
+  const res = await httpHealth(auth('GET', '/health'));
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.cdp, false);
@@ -91,13 +99,64 @@ test('HTTP /health with token succeeds and reports Safe-Mode shape', async () =>
   assert.equal(body.plugin, false); // no plugin connected yet
 });
 
-test('HTTP /exec without token is rejected (403)', async () => {
+test('the raw session token no longer authenticates (legacy header dead)', async () => {
+  const res = await httpHealth({ 'X-Daemon-Token': TOKEN });
+  assert.equal(res.status, 403);
+});
+
+test('replayed signed headers are rejected (nonce cache)', async () => {
+  const headers = auth('GET', '/health');
+  const first = await httpHealth(headers);
+  assert.equal(first.status, 200);
+  const replay = await httpHealth(headers);
+  assert.equal(replay.status, 403, 'verbatim replay must be rejected');
+  const body = await replay.json();
+  assert.match(body.error, /Unauthorized/);
+});
+
+test('signature is bound to method and path', async () => {
+  // Signed for POST — used on a GET route.
+  const wrongMethod = await httpHealth(auth('POST', '/health'));
+  assert.equal(wrongMethod.status, 403);
+  // Signed for another path.
+  const wrongPath = await httpHealth(auth('GET', '/selection'));
+  assert.equal(wrongPath.status, 403);
+});
+
+test('signature is bound to the exact body (POST /exec)', async () => {
+  const body = JSON.stringify({ action: 'eval', code: '1' });
+  const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+    body: JSON.stringify({ action: 'eval', code: '2' }), // tampered
+  });
+  assert.equal(res.status, 403);
+});
+
+test('HTTP /exec without signed headers is rejected (403)', async () => {
   const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'eval', code: '1' }),
   });
   assert.equal(res.status, 403);
+});
+
+test('verifyRequest (unit): freshness window and header shape', () => {
+  const headers = Object.fromEntries(
+    Object.entries(signRequest(TOKEN, 'GET', '/health')).map(([k, v]) => [k.toLowerCase(), v]),
+  );
+  assert.equal(verifyRequest(TOKEN, headers, 'GET', '/health'), true);
+  // Stale: same headers judged from 10 minutes in the future.
+  assert.equal(
+    verifyRequest(TOKEN, headers, 'GET', '/health', '', { now: Date.now() + 10 * 60 * 1000 }),
+    false,
+  );
+  // Wrong token.
+  assert.equal(verifyRequest('other-token', headers, 'GET', '/health'), false);
+  // Malformed headers.
+  assert.equal(verifyRequest(TOKEN, { ...headers, 'x-daemon-auth': 'zz' }, 'GET', '/health'), false);
+  assert.equal(verifyRequest(TOKEN, {}, 'GET', '/health'), false);
 });
 
 test('WS hello with correct key authenticates', async () => {
@@ -116,7 +175,7 @@ test('WS hello with correct key authenticates', async () => {
   assert.equal(acked, true);
 
   // /health now reports an authenticated plugin.
-  const res = await httpHealth({ 'X-Daemon-Token': TOKEN });
+  const res = await httpHealth(auth('GET', '/health'));
   const body = await res.json();
   assert.equal(body.plugin, true);
   assert.equal(body.pluginAuthenticated, true);
@@ -159,14 +218,14 @@ test('WS with a disallowed browser Origin is rejected by verifyClient', async ()
 test('token rotation under a LIVE daemon heals: new token accepted without restart', async () => {
   // startDaemon() rotates the token file before every spawn; a lost spawn
   // race used to wedge the surviving daemon on the old in-memory token
-  // (permanent 403). The daemon now re-reads the file per request.
+  // (permanent 403). The daemon re-reads the file per request.
   const ROTATED = 'rotated-token-xyz';
   writeFileSync(join(tmp, 'token'), ROTATED);
   try {
-    const resNew = await httpHealth({ 'X-Daemon-Token': ROTATED });
-    assert.equal(resNew.status, 200, 'rotated token must be accepted live');
-    const resOld = await httpHealth({ 'X-Daemon-Token': TOKEN });
-    assert.equal(resOld.status, 403, 'old token must now be rejected');
+    const resNew = await httpHealth(auth('GET', '/health', '', ROTATED));
+    assert.equal(resNew.status, 200, 'signature under the rotated token must be accepted live');
+    const resOld = await httpHealth(auth('GET', '/health', '', TOKEN));
+    assert.equal(resOld.status, 403, 'signature under the old token must now be rejected');
   } finally {
     writeFileSync(join(tmp, 'token'), TOKEN); // restore for later tests
   }
@@ -188,10 +247,33 @@ function withAuthedWs(fn) {
   }).finally(() => { try { ws.close(); } catch {} });
 }
 
+test('second window supersedes the first: old socket gets notified and closed with 4409', async () => {
+  await withAuthedWs(async (first) => {
+    const displaced = new Promise((resolve, reject) => {
+      let sawMessage = false;
+      first.on('message', (d) => {
+        const m = JSON.parse(d.toString());
+        if (m.type === 'superseded') sawMessage = true;
+      });
+      first.on('close', (code) => resolve({ code, sawMessage }));
+      setTimeout(() => reject(new Error('first socket was not displaced')), 3000);
+    });
+    // Second window authenticates → last hello wins.
+    await withAuthedWs(async () => {
+      const { code, sawMessage } = await displaced;
+      assert.equal(code, 4409, 'displaced socket must close with 4409');
+      assert.equal(sawMessage, true, 'displaced socket must receive the superseded message');
+      // The daemon now routes to the SECOND socket: health still shows a plugin.
+      const body = await (await httpHealth(auth('GET', '/health'))).json();
+      assert.equal(body.plugin, true);
+    });
+  });
+});
+
 test('/selection: plugin push is cached and served with auth', async () => {
   // Before any push: null selection.
   const empty = await (await fetch(`http://127.0.0.1:${PORT}/selection`, {
-    headers: { 'X-Daemon-Token': TOKEN },
+    headers: auth('GET', '/selection'),
   })).json();
   assert.equal(empty.selection, null);
 
@@ -211,7 +293,7 @@ test('/selection: plugin push is cached and served with auth', async () => {
   });
 
   const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
-    headers: { 'X-Daemon-Token': TOKEN },
+    headers: auth('GET', '/selection'),
   });
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -235,7 +317,7 @@ test('/selection: plugin push is cached and served with auth', async () => {
 test('/reconnect: closes the plugin socket and reports hadPlugin', async () => {
   // Without a plugin: ok:true, hadPlugin:false.
   const idle = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
-    headers: { 'X-Daemon-Token': TOKEN },
+    headers: auth('GET', '/reconnect'),
   })).json();
   assert.equal(idle.ok, true);
   assert.equal(idle.hadPlugin, false);
@@ -244,7 +326,7 @@ test('/reconnect: closes the plugin socket and reports hadPlugin', async () => {
   const closedByDaemon = await withAuthedWs(async (ws) => {
     const closed = new Promise((resolve) => ws.on('close', () => resolve(true)));
     const body = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
-      headers: { 'X-Daemon-Token': TOKEN },
+      headers: auth('GET', '/reconnect'),
     })).json();
     assert.equal(body.ok, true);
     assert.equal(body.hadPlugin, true);

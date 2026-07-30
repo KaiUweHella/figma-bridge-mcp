@@ -672,7 +672,7 @@ apiCmd
 
 apiCmd
   .command('age')
-  .description('Days since the docs repo was last updated. Used by figmachat to decide auto-refresh.')
+  .description('Days since the docs repo was last updated. Lets agent tooling decide when to auto-refresh.')
   .action(() => {
     const days = apiDocs.ageInDays();
     if (days === Infinity) {
@@ -695,7 +695,7 @@ apiCmd
 apiCmd
   .command('search <keyword>')
   .description('Find Plugin API methods/properties whose name contains <keyword> (e.g. "scale", "resize")')
-  .option('--json', 'Output as JSON (used by figmachat for the auto-fallback)')
+  .option('--json', 'Output as JSON (machine-readable, for the API-doc auto-fallback)')
   .option('-l, --limit <n>', 'Max results', '8')
   .action((keyword, options) => {
     const results = apiDocs.searchMethods(keyword);
