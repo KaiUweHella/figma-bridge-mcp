@@ -12,7 +12,8 @@ import {
   listCollections,
   createCollection,
   handleEvalError,
-  hexToRgb
+  hexToRgb,
+  spinnerSucceed
 } from '../lib/cli-core.js';
 
 // ============ COLLECTIONS ============
@@ -25,16 +26,16 @@ const collections = program
 collections
   .command('list')
   .description('List all collections')
-  .action(() => {
-    checkConnection();
+  .action(async () => {
+    await checkConnection();
     listCollections();
   });
 
 collections
   .command('create <name>')
   .description('Create a collection')
-  .action((name) => {
-    checkConnection();
+  .action(async (name) => {
+    await checkConnection();
     createCollection(name);
   });
 
@@ -54,8 +55,8 @@ tokens
   .command('spacing')
   .description('Create spacing scale (4px base)')
   .option('-c, --collection <name>', 'Collection name', 'Spacing')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Creating spacing scale...').start();
 
     const spacings = {
@@ -87,7 +88,7 @@ return 'Created ' + count + ' spacing variables';
 
     try {
       const result = evalPrint(code, { silent: true });
-      spinner.succeed(result?.trim() || 'Created spacing scale');
+      spinnerSucceed(spinner, result?.trim() || 'Created spacing scale');
     } catch (error) {
       spinner.fail('Failed to create spacing scale');
     }
@@ -97,8 +98,8 @@ tokens
   .command('radii')
   .description('Create border radius scale')
   .option('-c, --collection <name>', 'Collection name', 'Radii')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Creating border radii...').start();
 
     const radii = {
@@ -128,7 +129,7 @@ return 'Created ' + count + ' radius variables';
 
     try {
       const result = evalPrint(code, { silent: true });
-      spinner.succeed(result?.trim() || 'Created border radii');
+      spinnerSucceed(spinner, result?.trim() || 'Created border radii');
     } catch (error) {
       spinner.fail('Failed to create radii');
     }
@@ -139,8 +140,8 @@ tokens
   .description('Import tokens from JSON file')
   .option('-c, --collection <name>', 'Collection name')
   .option('--force-slash', 'Allow "/" in --collection (bypasses the LLM-mistake guard)')
-  .action((file, options) => {
-    checkConnection();
+  .action(async (file, options) => {
+    await checkConnection();
     // Guard against LLM-style mistakes: a "/" in the collection name almost
     // always means the caller split one DESIGN.md across multiple `tokens
     // import` runs (e.g. -c "stripe/colors", -c "stripe/radius"). Figma
@@ -233,7 +234,7 @@ return 'Imported ' + count + ' tokens into ' + collectionName;
 
     try {
       const result = evalPrint(code, { silent: true });
-      spinner.succeed(result?.trim() || 'Tokens imported');
+      spinnerSucceed(spinner, result?.trim() || 'Tokens imported');
     } catch (error) {
       spinner.fail('Failed to import tokens');
       console.error(error.message);
@@ -347,7 +348,7 @@ tokens
       return;
     }
 
-    checkConnection();
+    await checkConnection();
     const { toTokensImportJson, summarizeForLLM, variableImportCode } = await import('../design-md.js');
 
     // Authoritative path: the file carries real variable collections (from
@@ -365,10 +366,10 @@ tokens
         const result = await daemonExec('eval', { code: variableImportCode(realVars) });
         const r = typeof result === 'string' ? (() => { try { return JSON.parse(result); } catch { return null; } })() : result;
         if (r) {
-          spinner.succeed(`Created ${r.createdCount} variable(s), wired ${r.aliasCount} alias(es) across ${r.collections} collection(s)`);
+          spinnerSucceed(spinner, `Created ${r.createdCount} variable(s), wired ${r.aliasCount} alias(es) across ${r.collections} collection(s)`);
           if (r.unresolved) console.log(chalk.yellow(`  ⚠ ${r.unresolved} alias value(s) unresolved (target outside this file / type mismatch)`));
         } else {
-          spinner.succeed('Variables imported');
+          spinnerSucceed(spinner, 'Variables imported');
         }
       } catch (error) {
         spinner.fail('Failed to import variable collections');
@@ -442,7 +443,7 @@ return 'Imported ' + count + ' tokens into ' + collectionName;
 
     try {
       const result = await daemonExec('eval', { code });
-      spinner.succeed(result || 'Tokens imported');
+      spinnerSucceed(spinner, result || 'Tokens imported');
     } catch (error) {
       spinner.fail('Failed to import tokens');
       console.error(error.message);
@@ -460,8 +461,8 @@ tokens
   .description('Add a single token')
   .option('-c, --collection <name>', 'Collection name', 'Tokens')
   .option('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN (auto-detected if not set)')
-  .action((name, value, options) => {
-    checkConnection();
+  .action(async (name, value, options) => {
+    await checkConnection();
 
     const code = `(async () => {
 function hexToRgb(hex) {

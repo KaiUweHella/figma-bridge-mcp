@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
-import { program, checkConnection, fastEval } from '../lib/cli-core.js';
+import { program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
 import {
   listPagesCode, walkerCode, variableCollectionsCode, variableChunkCode,
   generateDesignMd, generatePageStructureMd, estimateStructureTokens, ALL_SECTIONS,
@@ -201,7 +201,7 @@ program
 
       const failed = results.filter(r => r.error);
       const totalNodes = results.reduce((a, p) => a + (p.nodeCount || 0), 0);
-      spinner.succeed(`Extracted ${results.length} page(s), ${totalNodes} nodes → ${outPath}`);
+      spinnerSucceed(spinner, `Extracted ${results.length} page(s), ${totalNodes} nodes → ${outPath}`);
       if (variables.length) {
         const varCount = variables.reduce((a, c) => a + (c.variables?.length || 0), 0);
         console.log(chalk.gray(`  Captured ${varCount} variable(s) across ${variables.length} collection(s) — real token names + modes (see § Variables)`));

@@ -18,6 +18,7 @@ import {
   getDaemonPort,
   daemonCurl,
   isDaemonRunning,
+  spinnerSucceed,
   pkg,
   startDaemon,
   stopDaemon
@@ -273,7 +274,7 @@ program
       startDaemon(true, 'plugin');  // Force restart in plugin mode
       await new Promise(r => setTimeout(r, 1000));
       if (isDaemonRunning()) {
-        daemonSpinner.succeed('Daemon running in Safe Mode');
+        spinnerSucceed(daemonSpinner, 'Daemon running in Safe Mode');
       } else {
         daemonSpinner.fail('Daemon failed to start');
         return;
@@ -308,7 +309,7 @@ program
         const healthRes = daemonCurl([`http://127.0.0.1:${getDaemonPort()}/health`]);
         const health = JSON.parse(healthRes);
         if (health.plugin) {
-          pluginSpinner.succeed('Plugin connected and authenticated!');
+          spinnerSucceed(pluginSpinner, 'Plugin connected and authenticated!');
           console.log(chalk.green('\n  ✓ Ready! Safe Mode active.\n'));
           pluginConnected = true;
           break;

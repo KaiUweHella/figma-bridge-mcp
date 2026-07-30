@@ -8,7 +8,8 @@ import { extractGradient, extractMesh, buildMeshFromColors, buildFigmaPaint, bui
 import {
   program,
   checkConnection,
-  fastEval
+  fastEval,
+  spinnerSucceed
 } from '../lib/cli-core.js';
 
 // ============ GRADIENT ============
@@ -85,7 +86,7 @@ gradient
       }
 
       if (options.applyTo) {
-        checkConnection();
+        await checkConnection();
         const paint = buildFigmaPaint(result);
         const code = `
           (async () => {
@@ -108,7 +109,7 @@ gradient
         try {
           const res = await fastEval(code);
           const info = JSON.parse(res);
-          if (spinner) spinner.succeed(`Applied to ${info.name} (${info.type})`);
+          if (spinner) spinnerSucceed(spinner, `Applied to ${info.name} (${info.type})`);
           else if (!options.json) console.log(chalk.green(`  ✓ Applied to ${info.name}`));
         } catch (e) {
           if (spinner) spinner.fail(`Apply failed: ${e.message}`);
@@ -144,7 +145,7 @@ gradient
     }
 
     if (options.applyTo) {
-      checkConnection();
+      await checkConnection();
       const code = `
         (async () => {
           await figma.loadAllPagesAsync();
@@ -185,7 +186,7 @@ gradient
       try {
         const res = await fastEval(code);
         const info = JSON.parse(res);
-        if (spinner) spinner.succeed(`Mesh built on ${info.name} (${info.blobs} blobs, blur ${info.blur}px)`);
+        if (spinner) spinnerSucceed(spinner, `Mesh built on ${info.name} (${info.blobs} blobs, blur ${info.blur}px)`);
         else if (!options.json) console.log(chalk.green(`  ✓ Mesh built on ${info.name}`));
       } catch (e) {
         if (spinner) spinner.fail(`Apply failed: ${e.message}`);
@@ -238,7 +239,7 @@ gradient
       console.log(JSON.stringify(recipe, null, 2));
     }
 
-    checkConnection();
+    await checkConnection();
     let W = 1920, H = 1080;
     const m = (options.size || '').match(/^(\d+)\s*[xX]\s*(\d+)$/);
     if (m) { W = parseInt(m[1], 10); H = parseInt(m[2], 10); }
@@ -302,7 +303,7 @@ gradient
     try {
       const res = await fastEval(code);
       const info = JSON.parse(res);
-      if (spinner) spinner.succeed(`${options.applyTo ? 'Built on' : 'Created'} ${info.name} (${info.w}x${info.h}, ${info.blobs} blobs)`);
+      if (spinner) spinnerSucceed(spinner, `${options.applyTo ? 'Built on' : 'Created'} ${info.name} (${info.w}x${info.h}, ${info.blobs} blobs)`);
       else if (!options.json) console.log(chalk.green(`  ✓ ${info.name} (${info.id})`));
     } catch (e) {
       if (spinner) spinner.fail(`Build failed: ${e.message}`);

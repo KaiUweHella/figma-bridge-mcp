@@ -14,7 +14,7 @@ import {
   daemonExec,
   handleEvalError,
 } from '../lib/cli-core.js';
-import { componentInventoryCode } from './misc.js';
+import { componentInventoryCode } from '../lib/component-inventory.js';
 import { fetchStorybookIndex, parseStorybookIndex } from '../code-import/storybook.js';
 import { matchComponents, mergeMaps } from '../lib/story-match.js';
 

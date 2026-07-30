@@ -5,7 +5,8 @@ import { join } from 'path';
 import {
   program,
   checkConnection,
-  fastEval
+  fastEval,
+  spinnerSucceed
 } from '../lib/cli-core.js';
 
 // ============ SIZES ============
@@ -172,10 +173,10 @@ program
 
       if (result.error) {
         spinner.fail(result.error);
-        return;
+        process.exit(1);
       }
 
-      spinner.succeed(`Created ${result.count} size variants`);
+      spinnerSucceed(spinner, `Created ${result.count} size variants`);
 
       result.components.forEach(c => {
         console.log(chalk.gray(`  ${c.name} (${c.w}×${c.h})`));
@@ -183,6 +184,7 @@ program
 
     } catch (error) {
       spinner.fail('Failed: ' + error.message);
+      process.exit(1);
     }
   });
 
@@ -316,7 +318,7 @@ variantsCmd
         spinner.fail(r.error);
         process.exit(1);
       }
-      spinner.succeed(`Created Variant Set "${r.name}"`);
+      spinnerSucceed(spinner, `Created Variant Set "${r.name}"`);
       if (r.promotedCount > 0) {
         console.log(chalk.gray(`  Promoted ${r.promotedCount} frame(s) to components`));
       }
@@ -434,7 +436,7 @@ program
       spinner.text = `Found ${totalCombos} combinations for ${analysis.properties.length} properties`;
 
       if (options.dryRun) {
-        spinner.succeed(`${totalCombos} combinations (dry run)`);
+        spinnerSucceed(spinner, `${totalCombos} combinations (dry run)`);
         console.log(chalk.cyan('\nProperties:'));
         analysis.properties.forEach(p => {
           console.log(`  ${p.name}: ${p.options.join(', ')}`);
@@ -568,11 +570,11 @@ program
 
       if (result.error) {
         spinner.fail(result.error);
-        return;
+        process.exit(1);
       }
 
       const labelInfo = result.labels > 0 ? ` with ${result.labels} labels` : '';
-      spinner.succeed(`Created ${result.count} components in ${result.gridSize} grid${labelInfo}`);
+      spinnerSucceed(spinner, `Created ${result.count} components in ${result.gridSize} grid${labelInfo}`);
       if (result.components && result.components.length > 0) {
         console.log(chalk.gray(`  ${result.components.map(c => c.name).join(', ')}${result.count > 3 ? ', ...' : ''}`));
       }

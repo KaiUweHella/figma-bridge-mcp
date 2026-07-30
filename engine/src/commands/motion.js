@@ -11,7 +11,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { readFileSync } from 'fs';
-import { program, checkConnection, fastEval } from '../lib/cli-core.js';
+import { program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
 import {
   mapField,
   parseKeys,
@@ -138,7 +138,7 @@ function reportApply(res, spinner) {
     for (const b of bad) printTargetError(b, b.reqId);
     return false;
   }
-  spinner.succeed(`Animated ${ok.length} node${ok.length > 1 ? 's' : ''} · timeline ${res.duration}s`);
+  spinnerSucceed(spinner, `Animated ${ok.length} node${ok.length > 1 ? 's' : ''} · timeline ${res.duration}s`);
   for (const r of ok) {
     const via = r.descended ? chalk.gray(` (via "${r.fromName}")`) : '';
     console.log(chalk.gray(`  ${r.nodeId}  ${r.nodeName}${via} → ${r.applied.join(', ')}`));
@@ -289,7 +289,7 @@ motion
         `return figma.motion.figmaAnimationStyles().map(s => ({ styleId: s.styleId, name: s.name, description: s.description }));`
       ));
       if (printGuardError(res)) { spinner.fail('Motion not available'); return; }
-      spinner.succeed(`${res.length} animation styles`);
+      spinnerSucceed(spinner, `${res.length} animation styles`);
       for (const s of res) {
         const short = String(s.name).replace(/^motion\.preset_name\./, '');
         console.log(chalk.gray(`  ${short.padEnd(12)} ${chalk.dim(s.name)}`));
@@ -336,7 +336,7 @@ return { nodeId: node.id, nodeName: node.name, descended: r.descended || false, 
         return;
       }
       const via = res.descended ? chalk.gray(` (via "${res.fromName}")`) : '';
-      spinner.succeed(`Applied style "${res.styleName.replace(/^motion\.preset_name\./, '')}" to ${res.nodeName}${via}`);
+      spinnerSucceed(spinner, `Applied style "${res.styleName.replace(/^motion\.preset_name\./, '')}" to ${res.nodeName}${via}`);
     } catch (e) {
       spinner.fail(e.message);
     }
@@ -363,8 +363,8 @@ return { nodeId: node.id, timelines: node.timelines };
       const res = await fastEval(evalBody(body));
       if (printTargetError(res, id)) { spinner.fail('No timeline'); return; }
       const tl = (res.timelines || [])[0];
-      if (setDur != null) spinner.succeed(`Timeline set to ${tl ? tl.duration : setDur}s`);
-      else spinner.succeed(`Timeline: ${tl ? tl.duration + 's' : 'none'}`);
+      if (setDur != null) spinnerSucceed(spinner, `Timeline set to ${tl ? tl.duration : setDur}s`);
+      else spinnerSucceed(spinner, `Timeline: ${tl ? tl.duration + 's' : 'none'}`);
     } catch (e) {
       spinner.fail(e.message);
     }
@@ -391,7 +391,7 @@ return {
 `;
       const res = await fastEval(evalBody(body));
       if (printTargetError(res, id)) { spinner.fail('Nothing to inspect'); return; }
-      spinner.succeed(`Motion on ${res.nodeName}${res.descended ? chalk.gray(` (via "${res.fromName}")`) : ''}`);
+      spinnerSucceed(spinner, `Motion on ${res.nodeName}${res.descended ? chalk.gray(` (via "${res.fromName}")`) : ''}`);
       console.log(JSON.stringify({
         timelines: res.timelines,
         manualKeyframeTracks: res.manualKeyframeTracks,
@@ -439,7 +439,7 @@ return { nodeId: node.id, nodeName: node.name };
       const res = await fastEval(evalBody(body));
       if (printTargetError(res, id)) { spinner.fail('Nothing to clear'); return; }
       const what = options.styles ? 'styles' : options.field ? `field ${options.field}` : 'all tracks';
-      spinner.succeed(`Cleared ${what} on ${res.nodeName}`);
+      spinnerSucceed(spinner, `Cleared ${what} on ${res.nodeName}`);
     } catch (e) {
       spinner.fail(e.message);
     }

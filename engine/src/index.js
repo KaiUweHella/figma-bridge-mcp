@@ -28,4 +28,10 @@ import './commands/motion.js';
 import './commands/map.js';
 import { program } from './lib/cli-core.js';
 
-program.parse();
+// parseAsync (not parse): actions are async — they await checkConnection(),
+// which self-heals an idle-shut-down daemon before the command talks to it.
+// With the sync parse(), a rejected action surfaced as an unhandled rejection.
+program.parseAsync().catch((err) => {
+  console.error(err && err.message ? err.message : String(err));
+  process.exit(1);
+});

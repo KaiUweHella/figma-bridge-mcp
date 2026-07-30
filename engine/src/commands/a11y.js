@@ -4,7 +4,8 @@ import { join } from 'path';
 import {
   program,
   checkConnection,
-  fastEval
+  fastEval,
+  handleEvalError
 } from '../lib/cli-core.js';
 
 // ============ ACCESSIBILITY (a11y) ============
@@ -18,6 +19,7 @@ a11y
   .description('Check WCAG contrast ratios for all text/background pairs')
   .option('--level <level>', 'WCAG level: AA or AAA', 'AA')
   .option('--json', 'Output as JSON')
+  .option('--fail-on-issues', 'Exit 1 when issues are found (for CI; the MCP layer never passes this)')
   .action(async (nodeId, options) => {
     await checkConnection();
     const level = options.level.toUpperCase();
@@ -128,7 +130,7 @@ a11y
 
     try {
       const result = await fastEval(code);
-      if (result.error) { console.log(chalk.red('✗ ' + result.error)); return; }
+      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -150,8 +152,12 @@ a11y
       } else {
         console.log(chalk.green('  All text passes WCAG ' + result.level + '! ✓\n'));
       }
+
+      // CI opt-in: turn findings into a nonzero exit. Off by default so the
+      // MCP layer keeps receiving the report instead of an error.
+      if (options.failOnIssues && result.issues.length > 0) process.exitCode = 1;
     } catch (e) {
-      console.log(chalk.red('✗ Contrast check failed: ' + e.message));
+      handleEvalError(e);
     }
   });
 
@@ -314,7 +320,7 @@ a11y
 
     try {
       const result = await fastEval(code);
-      if (result.error) { console.log(chalk.red('✗ ' + result.error)); return; }
+      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -341,7 +347,7 @@ a11y
         console.log(`    ${chalk.gray('ID: ' + clone.id)}\n`);
       }
     } catch (e) {
-      console.log(chalk.red('✗ Vision simulation failed: ' + e.message));
+      handleEvalError(e);
     }
   });
 
@@ -350,6 +356,7 @@ a11y
   .description('Check touch target sizes (WCAG 2.5.8: min 24x24, recommended 44x44)')
   .option('--min <size>', 'Minimum target size in px', '44')
   .option('--json', 'Output as JSON')
+  .option('--fail-on-issues', 'Exit 1 when issues are found (for CI; the MCP layer never passes this)')
   .action(async (nodeId, options) => {
     await checkConnection();
     const minSize = parseInt(options.min) || 44;
@@ -404,7 +411,7 @@ a11y
 
     try {
       const result = await fastEval(code);
-      if (result.error) { console.log(chalk.red('✗ ' + result.error)); return; }
+      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -425,8 +432,12 @@ a11y
       } else {
         console.log(chalk.green('  All interactive elements meet minimum size! ✓\n'));
       }
+
+      // CI opt-in: turn findings into a nonzero exit. Off by default so the
+      // MCP layer keeps receiving the report instead of an error.
+      if (options.failOnIssues && result.issues.length > 0) process.exitCode = 1;
     } catch (e) {
-      console.log(chalk.red('✗ Touch target check failed: ' + e.message));
+      handleEvalError(e);
     }
   });
 
@@ -434,6 +445,7 @@ a11y
   .command('text [nodeId]')
   .description('Check text accessibility (min sizes, line height, paragraph spacing)')
   .option('--json', 'Output as JSON')
+  .option('--fail-on-issues', 'Exit 1 when issues are found (for CI; the MCP layer never passes this)')
   .action(async (nodeId, options) => {
     await checkConnection();
     const code = `(async () => {
@@ -519,7 +531,7 @@ a11y
 
     try {
       const result = await fastEval(code);
-      if (result.error) { console.log(chalk.red('✗ ' + result.error)); return; }
+      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -542,8 +554,12 @@ a11y
       } else {
         console.log(chalk.green('  All text passes accessibility checks! ✓\n'));
       }
+
+      // CI opt-in: turn findings into a nonzero exit. Off by default so the
+      // MCP layer keeps receiving the report instead of an error.
+      if (options.failOnIssues && result.issues.length > 0) process.exitCode = 1;
     } catch (e) {
-      console.log(chalk.red('✗ Text check failed: ' + e.message));
+      handleEvalError(e);
     }
   });
 
@@ -641,7 +657,7 @@ a11y
 
     try {
       const result = await fastEval(code);
-      if (result.error) { console.log(chalk.red('✗ ' + result.error)); return; }
+      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -669,7 +685,7 @@ a11y
       }
       console.log('');
     } catch (e) {
-      console.log(chalk.red('✗ Focus order check failed: ' + e.message));
+      handleEvalError(e);
     }
   });
 
@@ -678,6 +694,7 @@ a11y
   .description('Full accessibility audit (contrast + touch targets + text + focus order)')
   .option('--level <level>', 'WCAG level: AA or AAA', 'AA')
   .option('--json', 'Output as JSON')
+  .option('--fail-on-issues', 'Exit 1 when issues are found (for CI; the MCP layer never passes this)')
   .action(async (nodeId, options) => {
     await checkConnection();
     const level = options.level.toUpperCase();
@@ -824,7 +841,7 @@ a11y
 
     try {
       const result = await fastEval(code);
-      if (result.error) { console.log(chalk.red('✗ ' + result.error)); return; }
+      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -864,8 +881,12 @@ a11y
       } else {
         console.log(chalk.green('\n  Perfect score! No accessibility issues found. ✓\n'));
       }
+
+      // CI opt-in: turn findings into a nonzero exit. Off by default so the
+      // MCP layer keeps receiving the report instead of an error.
+      if (options.failOnIssues && result.issues.length > 0) process.exitCode = 1;
     } catch (e) {
-      console.log(chalk.red('✗ Audit failed: ' + e.message));
+      handleEvalError(e);
     }
   });
 

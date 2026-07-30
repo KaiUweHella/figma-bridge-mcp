@@ -12,7 +12,8 @@ import {
   listVariables,
   findVariables,
   handleEvalError,
-  hexToRgb
+  hexToRgb,
+  spinnerSucceed
 } from '../lib/cli-core.js';
 
 // ============ VARIABLES ============
@@ -25,8 +26,8 @@ const variables = program
 variables
   .command('list')
   .description('List all variables')
-  .action(() => {
-    checkConnection();
+  .action(async () => {
+    await checkConnection();
     listVariables();
   });
 
@@ -36,8 +37,8 @@ variables
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
   .requiredOption('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN')
   .option('-v, --value <value>', 'Initial value')
-  .action((name, options) => {
-    checkConnection();
+  .action(async (name, options) => {
+    await checkConnection();
     const type = options.type.toUpperCase();
     const code = `(async () => {
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
@@ -70,8 +71,8 @@ return 'Created ${type.toLowerCase()} variable: ${name}';
 variables
   .command('find <pattern>')
   .description('Find variables by name pattern')
-  .action((pattern) => {
-    checkConnection();
+  .action(async (pattern) => {
+    await checkConnection();
     findVariables(pattern);
   });
 
@@ -79,7 +80,7 @@ variables
   .command('visualize [collection]')
   .description('Create color swatches on canvas (grouped palette layout)')
   .action(async (collection, options) => {
-    checkConnection();
+    await checkConnection();
     const spinner = ora('Creating color palette...').start();
 
     const code = `(async () => {
@@ -262,7 +263,7 @@ return 'Created ' + totalSwatches + ' color swatches';
 
     try {
       const result = await fastEval(code);
-      spinner.succeed(result || 'Created color palette');
+      spinnerSucceed(spinner, result || 'Created color palette');
     } catch (error) {
       spinner.fail('Failed to create palette');
       console.error(chalk.red(error.message));
@@ -273,8 +274,8 @@ variables
   .command('create-batch <json>')
   .description('Create multiple variables at once (faster than individual calls)')
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
-  .action((json, options) => {
-    checkConnection();
+  .action(async (json, options) => {
+    await checkConnection();
     let vars;
     try {
       vars = JSON.parse(json);
@@ -322,8 +323,8 @@ return 'Created ' + created + ' variables';
 variables
   .command('delete <names...>')
   .description('Delete specific variables by exact name (e.g. "space/7px"). Safer counterpart to delete-all.')
-  .action((names) => {
-    checkConnection();
+  .action(async (names) => {
+    await checkConnection();
     const code = `(async () => {
 const want = ${JSON.stringify(names)};
 const vars = await figma.variables.getLocalVariablesAsync();
@@ -345,8 +346,8 @@ variables
   .command('delete-all')
   .description('Delete all local variables and collections')
   .option('-c, --collection <name>', 'Only delete variables in this collection')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Deleting variables...').start();
 
     const filterCode = options.collection
@@ -371,7 +372,7 @@ return 'Deleted ' + deleted + ' variables and ' + cols.length + ' collections';
 
     try {
       const result = figmaEvalSync(code);
-      spinner.succeed(result);
+      spinnerSucceed(spinner, result);
     } catch (error) {
       spinner.fail('Failed to delete variables');
       console.error(chalk.red(error.message));
@@ -383,8 +384,8 @@ return 'Deleted ' + deleted + ' variables and ' + cols.length + ' collections';
 program
   .command('delete-batch <nodeIds>')
   .description('Delete multiple nodes at once (comma-separated IDs or JSON array)')
-  .action((nodeIds) => {
-    checkConnection();
+  .action(async (nodeIds) => {
+    await checkConnection();
     let ids;
     try {
       ids = JSON.parse(nodeIds);
@@ -412,8 +413,8 @@ return 'Deleted ' + deleted + ' nodes';
 program
   .command('bind-batch <json>')
   .description('Bind variables to multiple nodes at once')
-  .action((json) => {
-    checkConnection();
+  .action(async (json) => {
+    await checkConnection();
     let bindings;
     try {
       bindings = JSON.parse(json);
@@ -606,8 +607,8 @@ return { updated, notFound, errors };
 program
   .command('rename-batch <json>')
   .description('Rename multiple nodes at once. Accepts [{id|nodeId,name}, …] or {"<id>": "<name>", …}.')
-  .action((json) => {
-    checkConnection();
+  .action(async (json) => {
+    await checkConnection();
     let renames;
     try {
       renames = JSON.parse(json);

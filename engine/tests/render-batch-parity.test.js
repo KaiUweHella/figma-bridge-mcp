@@ -109,3 +109,33 @@ describe('single render path unchanged (characterization)', () => {
     assertValidJs(code);
   });
 });
+
+// The two render paths used to carry their own copy of the ~65-line variable
+// preamble — the exact drift this file exists to catch. They now emit one
+// shared snippet (FigmaClient#varPreambleCode).
+describe('variable preamble is emitted from one source', () => {
+  const c = new FigmaClient();
+
+  it('single and batch paths emit a byte-identical preamble', async () => {
+    const jsx = '<Frame name="P" bg="var:color/bg"><Text color="var:color/fg">Hi</Text></Frame>';
+    const single = await c.parseJSX(jsx);
+    const batch = await c.parseJSXBatch([jsx], {});
+    const grab = (code) => {
+      const i = code.indexOf('globalThis.__varsCache');
+      const j = code.indexOf('globalThis.__varsCacheTime = Date.now()');
+      return code.slice(i, j).replace(/\s+/g, ' ').trim();
+    };
+    assert.ok(grab(single).length > 200, 'single path emits a var preamble');
+    assert.strictEqual(grab(single), grab(batch));
+  });
+
+  it('the collection filter reaches both paths', async () => {
+    const jsx = '<Frame name="P" bg="var:color/bg" />';
+    c.setCollection('Brand');
+    const single = await c.parseJSX(jsx);
+    const batch = await c.parseJSXBatch([jsx], {});
+    c.setCollection(null);
+    assert.ok(single.includes('"Brand"'), 'single path scopes to the collection');
+    assert.ok(batch.includes('"Brand"'), 'batch path scopes to the collection');
+  });
+});

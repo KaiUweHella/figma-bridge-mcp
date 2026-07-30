@@ -69,8 +69,8 @@ exp
   .option('-o, --output <file>', 'Output file', 'screenshot.png')
   .option('-s, --scale <number>', 'Export scale (1-4)', '2')
   .option('-f, --format <format>', 'Format: png, jpg, svg, pdf', 'png')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
     const code = `(async () => {
@@ -108,8 +108,8 @@ exp
   .option('-o, --output <file>', 'Output file', 'node-export.png')
   .option('-s, --scale <number>', 'Export scale', '2')
   .option('-f, --format <format>', 'Format: png, svg, pdf, jpg', 'png')
-  .action((nodeId, options) => {
-    checkConnection();
+  .action(async (nodeId, options) => {
+    await checkConnection();
     nodeId = normalizedId(nodeId);
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
@@ -533,8 +533,8 @@ program
   .option('--save [path]', 'Custom PNG path (default: /tmp/figma-verify-{id}.png — save is the DEFAULT)')
   .option('--base64', 'Dump the base64 PNG to stdout instead of saving (token-heavy — opt-in only)')
   .option('--measure', 'Also return real (unscaled) node + child dimensions so size bugs are caught by measurement, not just the screenshot')
-  .action((nodeId, options) => {
-    checkConnection();
+  .action(async (nodeId, options) => {
+    await checkConnection();
     if (nodeId) nodeId = normalizedId(nodeId);
     const scale = parseFloat(options.scale);
     const maxDim = parseInt(options.max);
@@ -653,7 +653,7 @@ program
   .description('Execute JavaScript in Figma plugin context')
   .option('-f, --file <path>', 'Run code from file instead of argument')
   .action(async (code, options) => {
-    checkConnection();
+    await checkConnection();
     let jsCode = code ? unescapeShell(code) : code;
 
     // If --file option provided, read code from file
@@ -712,7 +712,7 @@ program
   .command('run <file>')
   .description('Run JavaScript file in Figma (alias for eval --file)')
   .action(async (file) => {
-    checkConnection();
+    await checkConnection();
     if (!existsSync(file)) {
       console.log(chalk.red('✗ File not found: ' + file));
       return;
