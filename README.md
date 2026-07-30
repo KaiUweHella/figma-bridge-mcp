@@ -159,6 +159,22 @@ than interpreting it. Build a screen from Figma in five steps:
    wrapper or mask pattern). Exit code 1 when files are missing, so it works
    as a CI gate too.
 
+   With a build screenshot it also runs the **visual pass**:
+
+   ```bash
+   figma-cli verify-build /abs/path/to/project --compare /abs/build.png
+   ```
+
+   The reference render is fetched live from Figma (`--node <id>`, default:
+   the manifest's export root) or supplied offline via `--design <png>`.
+   Both images are normalized to a common width and pixel-diffed
+   (antialiasing-tolerant); the output reports the overall diff percentage,
+   a height-mismatch finding (build too tall/short = inserted or dropped
+   block), the worst differing regions in node-pixel coordinates — the same
+   space the spec and `assets.json` use — and writes a diff PNG (red =
+   differing, on the dimmed design). Informational by default;
+   `--max-diff <pct>` gates the exit code.
+
 The same spec is available on the CLI as `figma-cli export code-spec <nodeId>`.
 
 ## Storybook mirroring

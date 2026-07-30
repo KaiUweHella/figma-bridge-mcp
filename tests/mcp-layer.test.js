@@ -234,3 +234,25 @@ test('verify-build passes the figma_run allowlist as a read-only command', async
   // Read-only: must never trip the write-confirm gate.
   assert.equal(isWrite(['verify-build', '/some/project']), false);
 });
+
+test('normalizeOutputArgs: verify-build paths resolve against the client workspace', async () => {
+  const { normalizeOutputArgs } = await import('../src/figma-cli.js');
+  const base = '/work/project';
+  // projectDir positional + every path flag, separated and = forms.
+  assert.deepEqual(
+    normalizeOutputArgs(['verify-build', '.', '--compare', 'shot.png', '--design=fig.png',
+      '--diff-out', 'diff.png', '--node', '12:34', '--max-diff', '5'], base),
+    ['verify-build', '/work/project', '--compare', '/work/project/shot.png',
+      '--design=/work/project/fig.png', '--diff-out', '/work/project/diff.png',
+      '--node', '12:34', '--max-diff', '5'],
+  );
+  // --node/--max-diff values are NOT paths and must never be absolutized —
+  // and the value after them must not be mistaken for the positional.
+  const args = normalizeOutputArgs(['verify-build', '--node', '1:2', 'proj'], base);
+  assert.deepEqual(args, ['verify-build', '--node', '1:2', '/work/project/proj']);
+  // absolute inputs pass through untouched
+  assert.deepEqual(
+    normalizeOutputArgs(['verify-build', '/abs/dir', '--compare', '/abs/b.png'], base),
+    ['verify-build', '/abs/dir', '--compare', '/abs/b.png'],
+  );
+});

@@ -321,6 +321,8 @@ const VALUE_FLAGS = new Set(["--sections", "--pages", "-s", "--scale", "-f", "--
  * file-writing commands against the server's cwd (the client workspace):
  *   - `extract [output]`            (positional, default DESIGN.md)
  *   - `export node|screenshot -o …` (default node-export.png / screenshot.png)
+ *   - `verify-build <dir> …`        (dir positional + --assets/--compare/
+ *                                    --design/--diff-out path flags)
  * All other commands pass through untouched.
  * @param {string[]} rawArgs
  * @param {string} [baseDir]
@@ -355,6 +357,32 @@ export function normalizeOutputArgs(rawArgs, baseDir = process.cwd()) {
       return args;
     }
     args.push("-o", abs(args[1] === "node" ? "node-export.png" : "screenshot.png"));
+    return args;
+  }
+
+  // verify-build takes a project DIRECTORY positional plus several path
+  // flags — all of them must resolve against the client workspace, not the
+  // engine repo (a relative "." used to grep the MCP server's own repo).
+  if (args[0] === "verify-build") {
+    const PATH_FLAGS = new Set(["--assets", "--compare", "--design", "--diff-out"]);
+    const SKIP_VALUE = new Set(["--node", "--max-diff"]);
+    let positionalDone = false;
+    for (let i = 1; i < args.length; i++) {
+      const a = args[i];
+      const eq = a.match(/^(--[a-z-]+)=(.*)$/);
+      if (eq) {
+        if (PATH_FLAGS.has(eq[1])) args[i] = `${eq[1]}=${abs(eq[2])}`;
+        continue;
+      }
+      if (PATH_FLAGS.has(a)) {
+        if (typeof args[i + 1] === "string") args[i + 1] = abs(args[i + 1]);
+        i++;
+        continue;
+      }
+      if (SKIP_VALUE.has(a)) { i++; continue; }
+      if (a.startsWith("-")) continue;
+      if (!positionalDone) { args[i] = abs(a); positionalDone = true; }
+    }
     return args;
   }
 

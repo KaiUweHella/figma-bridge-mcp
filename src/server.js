@@ -374,6 +374,13 @@ specification — copy it, never interpret it. Follow these steps in order:
      project against assets.json and lists every unreferenced asset (the
      absolutely-positioned/overhanging SVGs are the ones that get lost) and
      flags border-image use near border-radius;
+   - then the VISUAL pass: screenshot your running build (your own browser
+     tools, full page, at the design's width) and re-run verify-build with
+     ["verify-build","/abs/project","--compare","/abs/build.png"] — it diffs
+     build vs design (reference fetched live from Figma, or pass
+     "--design","/abs/figma.png" to reuse the step-1 PNG offline), reports
+     the worst differing regions in node pixels and writes a diff PNG —
+     Read it. "--max-diff","<pct>" turns it into a hard gate;
    - every "abs"/"place"/"inset" overlay line from the spec exists in the
      build (as file OR styled div) — decorative gradient rectangles and
      background shapes included; the spec footer tells you how many;
