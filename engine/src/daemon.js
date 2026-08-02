@@ -26,7 +26,6 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { createHash, timingSafeEqual } from 'crypto';
-import { FigmaClient } from './figma-client.js';
 import { parsePortRange, writePortFile, clearPortFile } from './lib/daemon-port.js';
 import { verifyRequest, AUTH_WINDOW_MS } from './lib/daemon-auth.js';
 import { getPortPid } from './platform.js';
@@ -320,37 +319,29 @@ function handleExec(req, res) {
     // exempted only render/render-batch and re-ran evals; that was wrong.
     inFlightExecs++;
     try {
-      const { action, code, jsx, jsxArray, gap, vertical, collection } = payload;
+      const { action, code, timeoutMs } = payload;
       let result;
 
-      const execWithTimeout = async (fn, timeoutMs = 30000) => {
+      const execWithTimeout = async (fn, ms = 30000) => {
         return Promise.race([
           fn(),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
+            setTimeout(() => reject(new Error(`Execution timeout (${ms / 1000}s)`)), ms)
           )
         ]);
       };
 
       switch (action) {
-        case 'eval':
-          result = await execWithTimeout(() => executeEval(code));
-          break;
-        case 'render': {
-          // Parse JSX → plugin code, then execute via the plugin bridge.
-          const parser = new FigmaClient();
-          const renderCode = await parser.parseJSX(jsx);
-          result = await execWithTimeout(() => executeEval(renderCode), 90000);
-          break;
-        }
-        case 'render-batch': {
-          const batchParser = new FigmaClient();
-          if (collection) batchParser.setCollection(collection);
-          const batchCode = await batchParser.parseJSXBatch(jsxArray, {
-            gap: gap || 40,
-            vertical: vertical || false
-          });
-          result = await execWithTimeout(() => executeEval(batchCode), 60000);
+        // 'eval' is the ONLY execution action. The 'render'/'render-batch'
+        // actions that compiled JSX daemon-side were removed: they ran a
+        // potentially stale copy of the compiler (until daemon restart) and
+        // could never carry CLI-side state (image bytes, project icons,
+        // presets) — the CLI now always compiles and sends the code here.
+        // Long renders pass their budget via timeoutMs (clamped: a client
+        // must not be able to disable the timeout entirely).
+        case 'eval': {
+          const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
+          result = await execWithTimeout(() => executeEval(code), ms);
           break;
         }
         default:
