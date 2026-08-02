@@ -1079,18 +1079,25 @@ export class FigmaClient {
           }
           return out;
         };
+        /* Prop keys can't contain spaces, layer names usually do
+           ("Monstera Deliciosa"). Match space-/hyphen-/underscore-
+           insensitively so text:MonsteraDeliciosa and fill:plantphoto find
+           their layers. Shared by all three override helpers below — this
+           regex drifted once when it lived in three copies. */
+        const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
+        const __miss = (key) => {
+          globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+          globalThis.__unresolvedVars.add(key);
+        };
+        const __findLayer = (inst, layerName, pred, missPrefix) => {
+          const t = inst.findOne(n => pred(n) && n.name === layerName)
+            || inst.findOne(n => pred(n) && __norm(n.name) === __norm(layerName));
+          if (!t) __miss(missPrefix + layerName);
+          return t;
+        };
         const __setInstanceText = async (inst, layerName, value) => {
-          /* Prop keys can't contain spaces, layer names usually do
-             ("Monstera Deliciosa"). Match space-insensitively so
-             text:MonsteraDeliciosa="…" finds that layer. */
-          const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
-          const t = inst.findOne(n => n.type === 'TEXT' && n.name === layerName)
-            || inst.findOne(n => n.type === 'TEXT' && __norm(n.name) === __norm(layerName));
-          if (!t) {
-            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-            globalThis.__unresolvedVars.add('text:' + layerName);
-            return;
-          }
+          const t = __findLayer(inst, layerName, n => n.type === 'TEXT', 'text:');
+          if (!t) return;
           try {
             if (t.fontName !== figma.mixed) {
               await figma.loadFontAsync(t.fontName);
@@ -1104,23 +1111,13 @@ export class FigmaClient {
         // fill:<Layer>="#hex | var:name" — recolor a named descendant of the
         // instance (image placeholders, status dots) without detaching.
         const __setInstanceFill = async (inst, layerName, value) => {
-          const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
-          const t = inst.findOne(n => 'fills' in n && n.name === layerName)
-            || inst.findOne(n => 'fills' in n && __norm(n.name) === __norm(layerName));
-          if (!t) {
-            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-            globalThis.__unresolvedVars.add('fill:' + layerName);
-            return;
-          }
+          const t = __findLayer(inst, layerName, n => 'fills' in n, 'fill:');
+          if (!t) return;
           try {
             const v = String(value);
             if (v.startsWith('var:')) {
               const variable = typeof lookupVar === 'function' ? lookupVar(v.slice(4)) : null;
-              if (!variable) {
-                globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-                globalThis.__unresolvedVars.add(v);
-                return;
-              }
+              if (!variable) { __miss(v); return; }
               t.fills = [figma.variables.setBoundVariableForPaint(
                 { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', variable)];
             } else {
@@ -1138,20 +1135,10 @@ export class FigmaClient {
         // swap:<Layer>="Component Name" — replace a nested instance (icon
         // slots) with another component, resolved by name like <Instance>.
         const __swapInstance = async (inst, layerName, componentName) => {
-          const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
-          const t = inst.findOne(n => n.type === 'INSTANCE' && n.name === layerName)
-            || inst.findOne(n => n.type === 'INSTANCE' && __norm(n.name) === __norm(layerName));
-          if (!t) {
-            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-            globalThis.__unresolvedVars.add('swap:' + layerName);
-            return;
-          }
+          const t = __findLayer(inst, layerName, n => n.type === 'INSTANCE', 'swap:');
+          if (!t) return;
           const target = await __resolveComponent(null, String(componentName), null);
-          if (!target) {
-            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-            globalThis.__unresolvedVars.add('swap:' + componentName);
-            return;
-          }
+          if (!target) { __miss('swap:' + componentName); return; }
           try { t.swapComponent(target); } catch (e) {}
         };
     `;
@@ -1502,7 +1489,6 @@ export class FigmaClient {
         ${this.cornerCode(item, `el${idx}`)}
         ${rectFillCode.code}
         ${parentVar}.appendChild(el${idx});
-        ${this.fillSizingCode(item, `el${idx}`, parentFlex)}
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'ellipse') {
           // Ellipse / Circle. arc (sweep degrees) + arcStart (start degrees,
@@ -1531,7 +1517,6 @@ export class FigmaClient {
         ${ellStrokeCode.code}
         ${hasArc ? `try { el${idx}.arcData = { startingAngle: ${startRad}, endingAngle: ${endRad}, innerRadius: ${inner} }; } catch(e) {}` : ''}
         ${parentVar}.appendChild(el${idx});
-        ${this.fillSizingCode(item, `el${idx}`, parentFlex)}
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'image') {
           // Image placeholder (gray rectangle with image icon concept)
@@ -1561,7 +1546,6 @@ export class FigmaClient {
         // sees where a real image belongs (annotations need no plugin).
         try { el${idx}.annotations = [{ labelMarkdown: 'Image placeholder — replace with a real image' }]; } catch (e) {}`}
         ${parentVar}.appendChild(el${idx});
-        ${this.fillSizingCode(item, `el${idx}`, parentFlex)}
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'icon') {
           const icSize = numOr(item.size ?? item.s, 24);
@@ -1907,24 +1891,6 @@ export class FigmaClient {
     `;
   }
 
-  /**
-   * FILL/HUG sizing for leaf elements (Rect/Image/Ellipse). These branches
-   * used to run w/h through numOr() only, so w="fill" silently fell back to
-   * the fixed default width (Image: 200px) and overhung any narrower parent —
-   * found live: PlantCard is 173px wide, its "plant-photo" rendered 200px.
-   * Must run AFTER appendChild (layoutSizing needs an auto-layout parent).
-   */
-  fillSizingCode(item, elVar, parentFlex) {
-    const parentNone = parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free';
-    if (parentNone) return '';
-    const wVal = item.w ?? item.width;
-    const hVal = item.h ?? item.height;
-    const parts = [];
-    if (wVal === 'fill') parts.push(`try { ${elVar}.layoutSizingHorizontal = 'FILL'; } catch (e) {}`);
-    if (hVal === 'fill') parts.push(`try { ${elVar}.layoutSizingVertical = 'FILL'; } catch (e) {}`);
-    return parts.join('\n        ');
-  }
-
   hexToRgb(hex) {
     if (!hex || !hex.startsWith('#')) return null;
     // Valid: #rgb, #rrggbb, #rrggbbaa (alpha handled by callers)
@@ -2238,41 +2204,39 @@ export class FigmaClient {
    * "absolute" maps to layoutPositioning='ABSOLUTE' + x/y.
    */
   /**
-   * min/max size constraints (responsive design carried into Figma).
-   * minW/maxW/minH/maxH were in the validation vocabulary but never applied —
-   * a silently-ignored prop class. Only meaningful on auto-layout frames and
-   * their children; Figma throws elsewhere, hence the try/catch.
+   * Emit `try { var.apiName = <number>; } catch {}` for every prop in `map`
+   * that is set to a finite number. The try/catch is load-bearing: most of
+   * these APIs only exist on auto-layout frames/children and throw elsewhere.
+   * Shared engine behind minMaxCode/cornerCode — props in the validation
+   * vocabulary MUST have an application site, or they become the
+   * silently-ignored class this codebase keeps re-discovering.
    */
-  minMaxCode(item, varName) {
-    const map = { minW: 'minWidth', maxW: 'maxWidth', minH: 'minHeight', maxH: 'maxHeight' };
+  numericPropsCode(item, varName, map, clamp = null) {
     const parts = [];
     for (const [prop, apiName] of Object.entries(map)) {
-      const v = Number(item[prop]);
-      if (item[prop] !== undefined && Number.isFinite(v)) {
-        parts.push(`try { ${varName}.${apiName} = ${v}; } catch (e) {}`);
-      }
+      let v = Number(item[prop]);
+      if (item[prop] === undefined || !Number.isFinite(v)) continue;
+      if (clamp) v = Math.max(clamp[0], Math.min(clamp[1], v));
+      parts.push(`try { ${varName}.${apiName} = ${v}; } catch (e) {}`);
     }
     return parts.join('\n        ');
   }
 
-  /**
-   * Per-corner radii + corner smoothing. Both were in the corners vocabulary
-   * but never applied — same silently-ignored class as minW/maxW.
-   */
+  /** min/max size constraints (responsive design carried into Figma). */
+  minMaxCode(item, varName) {
+    return this.numericPropsCode(item, varName,
+      { minW: 'minWidth', maxW: 'maxWidth', minH: 'minHeight', maxH: 'maxHeight' });
+  }
+
+  /** Per-corner radii + corner smoothing (0..1). */
   cornerCode(item, varName) {
-    const map = { roundedTL: 'topLeftRadius', roundedTR: 'topRightRadius', roundedBL: 'bottomLeftRadius', roundedBR: 'bottomRightRadius' };
-    const parts = [];
-    for (const [prop, api] of Object.entries(map)) {
-      const v = Number(item[prop]);
-      if (item[prop] !== undefined && Number.isFinite(v)) {
-        parts.push(`try { ${varName}.${api} = ${v}; } catch (e) {}`);
-      }
-    }
-    const cs = Number(item.cornerSmoothing);
-    if (item.cornerSmoothing !== undefined && Number.isFinite(cs)) {
-      parts.push(`try { ${varName}.cornerSmoothing = ${Math.max(0, Math.min(1, cs))}; } catch (e) {}`);
-    }
-    return parts.join('\n        ');
+    const corners = this.numericPropsCode(item, varName, {
+      roundedTL: 'topLeftRadius', roundedTR: 'topRightRadius',
+      roundedBL: 'bottomLeftRadius', roundedBR: 'bottomRightRadius',
+    });
+    const smoothing = this.numericPropsCode(item, varName,
+      { cornerSmoothing: 'cornerSmoothing' }, [0, 1]);
+    return [corners, smoothing].filter(Boolean).join('\n        ');
   }
 
   /**
@@ -2293,6 +2257,15 @@ export class FigmaClient {
 
   genCommonNodeProps(item, varName, parentIsNone) {
     const parts = [];
+    // FILL sizing for leaf elements: these branches run w/h through numOr()
+    // only, so w="fill" used to fall back silently to the fixed default
+    // width (Image: 200px) and overhang narrower parents — found live on
+    // PlantCard's 173px card with a 200px photo. layoutSizing needs an
+    // auto-layout parent, and this hook already runs post-appendChild.
+    if (!parentIsNone) {
+      if ((item.w ?? item.width) === 'fill') parts.push(`try { ${varName}.layoutSizingHorizontal = 'FILL'; } catch (e) {}`);
+      if ((item.h ?? item.height) === 'fill') parts.push(`try { ${varName}.layoutSizingVertical = 'FILL'; } catch (e) {}`);
+    }
     const minMax = this.minMaxCode(item, varName);
     if (minMax) parts.push(minMax);
     const blend = this.blendModeCode(item, varName);

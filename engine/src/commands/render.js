@@ -4,6 +4,7 @@ import { basename, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync } from 'fs';
 import { FigmaClient } from '../figma-client.js';
+import { readImageBase64 } from '../lib/image-file.js';
 import {
   program,
   CONFIG_DIR,
@@ -82,11 +83,7 @@ function applyDevicePreset(jsx, presetName) {
   const hasW = /\b(w|width)=/.test(propsStr);
   const hasH = /\b(h|height)=/.test(propsStr);
   if (hasW && hasH) {
-    const wm = propsStr.match(/\bw(?:idth)?="(\d+)"/);
-    const hm = propsStr.match(/\bh(?:eight)?="(\d+)"/);
-    if ((wm && Number(wm[1]) !== pw) || (hm && Number(hm[1]) !== ph)) {
-      console.log(chalk.gray(`\u21b3 preset ${presetName} (${pw}\u00d7${ph}) \u2014 explicit w/h in the JSX wins`));
-    }
+    console.log(chalk.gray(`\u21b3 preset ${presetName} (${pw}\u00d7${ph}) ignored \u2014 the JSX sets explicit w/h`));
     return jsx;
   }
   const inject = `${hasW ? '' : ` w="${pw}"`}${hasH ? '' : ` h="${ph}"`}`;
@@ -97,36 +94,33 @@ function applyDevicePreset(jsx, presetName) {
 // ---- local image + icon-dir loading (Code2Figma: real files into Figma) ----
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
-const IMAGE_HARD_LIMIT = 8 * 1024 * 1024;   // Figma rejects far earlier; keep the eval payload sane
-const IMAGE_WARN_LIMIT = 2 * 1024 * 1024;
+
+// Fresh context for resolveLocalImages: `images` collects key -> base64 for
+// FigmaClient.setImageData(); `pathKeys` dedupes repeated files (a thumbnail
+// used on 6 cards is read and embedded once, not 6 times).
+function newImageContext() {
+  return { images: {}, pathKeys: new Map() };
+}
 
 // Replace local file paths in <Image src="\u2026"> / image="\u2026" with imgref:<key>
-// markers and collect their base64 data for FigmaClient.setImageData().
+// markers, collecting base64 data into ctx. Returns the rewritten JSX.
 // http(s) URLs pass through untouched (plugin-side createImageAsync).
-// `images` may be shared across calls (render-batch): keys keep counting.
-function resolveLocalImages(jsx, images = {}) {
-  let counter = Object.keys(images).length;
-  const out = jsx.replace(/\b(src|image)="([^"]+)"/g, (full, attr, value) => {
+// One ctx may span a whole render-batch: keys keep counting, repeats dedupe.
+function resolveLocalImages(jsx, ctx) {
+  return jsx.replace(/\b(src|image)="([^"]+)"/g, (full, attr, value) => {
     if (/^(https?:|imgref:|data:)/i.test(value)) return full;
     if (!IMAGE_EXT.test(value)) return full; // gradients/keywords on image= stay untouched
     const path = isAbsolute(value) ? value : resolve(process.cwd(), value);
-    if (!existsSync(path)) {
-      console.log(chalk.yellow(`\u26a0 Image file not found: ${value} \u2014 rendering the placeholder instead.`));
-      return ''; // drop the attribute; the element keeps its placeholder fill
+    let key = ctx.pathKeys.get(path);
+    if (key === undefined) {
+      const { b64, error } = readImageBase64(value);
+      if (error) return ''; // drop the attribute; the element keeps its placeholder fill
+      key = `img${ctx.pathKeys.size}`;
+      ctx.pathKeys.set(path, key);
+      ctx.images[key] = b64;
     }
-    const size = statSync(path).size;
-    if (size > IMAGE_HARD_LIMIT) {
-      console.log(chalk.yellow(`\u26a0 ${value} is ${(size / 1048576).toFixed(1)} MB (> 8 MB) \u2014 skipped, placeholder kept. Downscale it first (Figma caps images at 4096px anyway).`));
-      return '';
-    }
-    if (size > IMAGE_WARN_LIMIT) {
-      console.log(chalk.gray(`\u21b3 ${basename(value)}: ${(size / 1048576).toFixed(1)} MB \u2014 large images slow the plugin bridge; consider downscaling.`));
-    }
-    const key = `img${counter++}`;
-    images[key] = readFileSync(path).toString('base64');
     return `${attr}="imgref:${key}"`;
   });
-  return { jsx: out, images };
 }
 
 // Load every *.svg in a directory as icon name -> markup (name = filename
@@ -437,20 +431,15 @@ program
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .action(async (rawJsx, options) => {
     let jsx = unescapeShell(rawJsx);
-    if (options.preset) jsx = applyDevicePreset(jsx, options.preset);
-    // Local images: read files CLI-side, embed as imgref markers (the plugin
-    // has no filesystem access — bytes must travel with the eval).
-    const { jsx: jsxWithImages, images } = resolveLocalImages(jsx);
-    jsx = jsxWithImages;
-    const customIcons = options.icons ? loadIconDir(options.icons) : null;
-    warnUnknownProps([jsx]);
-    if (options.asComponent) warnUnnamedComponentTexts(jsx);
     await checkConnection();
 
     // Auto-split: if the caller passed a layout-only outer Frame with N child
     // Frames, treat it as render-batch. This is the canonical "N buttons / N
     // cards" intent — independent items, not a single bagged Frame. Opt out
-    // with --keep-wrapper.
+    // with --keep-wrapper. Runs BEFORE preset/image/icon processing: those
+    // belong to the path that actually renders, and render-batch re-does
+    // them per child (an imgref: rewritten here would arrive in the batch
+    // without its bytes).
     if (!options.keepWrapper) {
       const split = detectWrapperSplit(jsx);
       if (split) {
@@ -462,10 +451,22 @@ program
         ];
         if (options.asComponent) args.push('--as-component');
         if (options.collection) args.push('--collection', options.collection);
+        if (options.preset) args.push('--preset', options.preset);
+        if (options.icons) args.push('--icons', options.icons);
         await program.parseAsync(args, { from: 'user' });
         return;
       }
     }
+
+    if (options.preset) jsx = applyDevicePreset(jsx, options.preset);
+    // Local images: read files CLI-side, embed as imgref markers (the plugin
+    // has no filesystem access — bytes must travel with the eval).
+    const imageCtx = newImageContext();
+    jsx = resolveLocalImages(jsx, imageCtx);
+    const images = imageCtx.images;
+    const customIcons = options.icons ? loadIconDir(options.icons) : null;
+    warnUnknownProps([jsx]);
+    if (options.asComponent) warnUnnamedComponentTexts(jsx);
 
     try {
       // Helper: convert a rendered frame to a Figma component if --as-component was passed
@@ -514,10 +515,11 @@ program
       // - <Icon> elements
       // - Ellipse/Circle arc/innerRadius (rings, spinners, donut/pie)
       // - gradient/effects/blur (needs full parser, fast-path doesn't handle them)
-      // imgref:/--icons force this path too: the daemon-side compiler has no
-      // access to the CLI-side image bytes / icon dir.
+      // src= (which resolveLocalImages rewrites to imgref:) and --icons force
+      // this path too: the daemon-side compiler has no access to the
+      // CLI-side image bytes / icon dir.
       if (jsx.includes('var:') || jsx.includes('<Slot') || jsx.includes('<Icon') ||
-          jsx.includes('imgref:') || jsx.includes('src=') || customIcons ||
+          jsx.includes('src=') || customIcons ||
           /\barc=|\barcStart=|\binnerRadius=/.test(jsx) ||
           /-gradient\s*\(/i.test(jsx) || jsx.includes('shadow=') || jsx.includes('innerShadow=') ||
           jsx.includes('blur=') || jsx.includes('bgBlur=') || jsx.includes('image=') ||
@@ -624,11 +626,12 @@ program
       if (!Array.isArray(jsxArray)) {
         throw new Error('Argument must be a JSON array of JSX strings');
       }
-      const images = {};
+      const imageCtx = newImageContext();
       jsxArray = jsxArray.map(j => {
         const jsx = options.preset ? applyDevicePreset(j, options.preset) : j;
-        return resolveLocalImages(jsx, images).jsx;
+        return resolveLocalImages(jsx, imageCtx);
       });
+      const images = imageCtx.images;
       const customIcons = options.icons ? loadIconDir(options.icons) : null;
       warnUnknownProps(jsxArray);
       if (options.asComponent) jsxArray.forEach(warnUnnamedComponentTexts);

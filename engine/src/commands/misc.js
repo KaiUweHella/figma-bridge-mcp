@@ -2,6 +2,7 @@
 import chalk from 'chalk';
 import * as apiDocs from '../api-docs.js';
 import { componentInventoryCode } from '../lib/component-inventory.js';
+import { normalizeNodeId } from '../lib/node-id.js';
 import {
   program,
   checkConnection,
@@ -128,6 +129,28 @@ const sectionCmd = program
   .command('section')
   .description('Manage Figma sections (organize frames into named groups)');
 
+// The one place the section geometry lives: wrap section `s` around its
+// children (relative coords) with PAD margin + HEADER allowance, shifting
+// the children by the inverse so nothing moves on the canvas. Shared by
+// `create` and `fit` — two copies of this math drift, and a drifted copy
+// means sections that jump or overlap on every reflow.
+const SECTION_HEADER = 40;
+function sectionFitSnippet(padExpr) {
+  return `
+      const PAD = ${padExpr}, HEADER = ${SECTION_HEADER};
+      const minX = Math.min(...s.children.map(c => c.x));
+      const minY = Math.min(...s.children.map(c => c.y));
+      const maxX = Math.max(...s.children.map(c => c.x + c.width));
+      const maxY = Math.max(...s.children.map(c => c.y + c.height));
+      const dx = minX - PAD;
+      const dy = minY - PAD - HEADER;
+      s.x += dx;
+      s.y += dy;
+      s.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
+      for (const c of s.children) { c.x -= dx; c.y -= dy; }
+`;
+}
+
 sectionCmd
   .command('create <name> [nodeIds]')
   .description('Create a section, optionally moving comma-separated node IDs into it')
@@ -136,38 +159,21 @@ sectionCmd
     const ids = nodeIds ? JSON.stringify(nodeIds.split(',').map(s => s.trim())) : '[]';
     const code = `(async () => {
       const ids = ${ids};
-      const nodes = [];
+      const s = figma.createSection();
+      s.name = ${JSON.stringify(name)};
       for (const id of ids) {
         const n = await figma.getNodeByIdAsync(id);
         if (!n) throw new Error('Node not found: ' + id);
-        nodes.push(n);
-      }
-      // Capture absolute positions BEFORE reparenting: appendChild keeps the
-      // node's x/y numbers, which become section-relative — without this the
-      // children visually jump and the section stays a 496x496 box at (0,0)
-      // on top of whatever already lives there.
-      const abs = nodes.map(n => {
+        // Preserve the node's visual position across reparenting: appendChild
+        // keeps x/y numbers, which become section-relative.
         const b = n.absoluteBoundingBox;
-        return b ? { x: b.x, y: b.y, w: b.width, h: b.height } : { x: n.x, y: n.y, w: n.width, h: n.height };
-      });
-      const section = figma.createSection();
-      section.name = ${JSON.stringify(name)};
-      const PAD = 64, HEADER = 40;
-      if (nodes.length > 0) {
-        const minX = Math.min(...abs.map(b => b.x));
-        const minY = Math.min(...abs.map(b => b.y));
-        const maxX = Math.max(...abs.map(b => b.x + b.w));
-        const maxY = Math.max(...abs.map(b => b.y + b.h));
-        section.x = minX - PAD;
-        section.y = minY - PAD - HEADER;
-        section.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
-        nodes.forEach((n, i) => {
-          section.appendChild(n);
-          n.x = abs[i].x - section.x;
-          n.y = abs[i].y - section.y;
-        });
+        s.appendChild(n);
+        if (b) { n.x = b.x - s.x; n.y = b.y - s.y; }
       }
-      return { id: section.id, name: section.name, count: ids.length };
+      if (s.children.length > 0) {
+        ${sectionFitSnippet(64)}
+      }
+      return { id: s.id, name: s.name, count: ids.length };
     })()`;
     try {
       const r = await daemonExec('eval', { code });
@@ -185,24 +191,11 @@ sectionCmd
     await checkConnection();
     const pad = Number(options.pad) || 64;
     const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(sectionId)});
+      const s = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(sectionId).id)});
       if (!s) throw new Error('Section not found: ${sectionId}');
       if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
       if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
-      const PAD = ${pad}, HEADER = 40;
-      // Child x/y are section-relative. Shift the section to the children's
-      // bounding box, then shift every child by the inverse so nothing moves
-      // on the canvas.
-      const minX = Math.min(...s.children.map(c => c.x));
-      const minY = Math.min(...s.children.map(c => c.y));
-      const maxX = Math.max(...s.children.map(c => c.x + c.width));
-      const maxY = Math.max(...s.children.map(c => c.y + c.height));
-      const dx = minX - PAD;
-      const dy = minY - PAD - HEADER;
-      s.x += dx;
-      s.y += dy;
-      s.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
-      for (const c of s.children) { c.x -= dx; c.y -= dy; }
+      ${sectionFitSnippet(pad)}
       return { id: s.id, name: s.name, width: s.width, height: s.height };
     })()`;
     try {
@@ -227,11 +220,11 @@ sectionCmd
     const gap = Number(options.gap) || 48;
     const pad = Number(options.pad) || 64;
     const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(sectionId)});
+      const s = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(sectionId).id)});
       if (!s) throw new Error('Section not found: ${sectionId}');
       if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
       if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
-      const COLS = ${cols}, GAP = ${gap}, PAD = ${pad}, HEADER = 40;
+      const COLS = ${cols}, GAP = ${gap}, PAD = ${pad}, HEADER = ${SECTION_HEADER};
       const GROUP = ${options.groupRows === true};
       // --group-rows: one row per node type keeps a design-system section
       // scannable (variant sets together, loose components together).

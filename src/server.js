@@ -58,17 +58,38 @@ const READ_SUBCOMMANDS = {
   canvas: new Set(["info", "pages", "page", "next"]),
 };
 
+// Commands that never touch the Figma document (exports/analysis write repo
+// files at most — FIGMA_WRITE_CONFIRM protects the design, not the
+// filesystem). Everything NOT enumerated here, in READ_SUBCOMMANDS or in
+// ALWAYS_WRITE defaults to WRITE: an unlisted future command group must not
+// ship ungated — that is exactly how `canvas page-create` slipped through.
+const READ_ONLY_COMMANDS = new Set([
+  "a11y",
+  "analyze",
+  "api",
+  "export",
+  "extract",
+  "find",
+  "inspect",
+  "map",
+  "spec",
+  "verify",
+  "verify-build",
+]);
+
 export function isWrite(args) {
   if (!Array.isArray(args) || args.length === 0) return false;
   // A help flag anywhere makes commander print usage and exit — never a write.
   if (args.includes("--help") || args.includes("-h")) return false;
   const [cmd, sub] = args;
   if (ALWAYS_WRITE.has(cmd)) return true;
+  if (READ_ONLY_COMMANDS.has(cmd)) return false;
   // Bare group command or a leading flag → usage output, not an action.
   const subIsAction = sub !== undefined && !sub.startsWith("-");
   if (cmd === "tokens") return subIsAction && sub !== "overlap";
   if (cmd in READ_SUBCOMMANDS) return subIsAction && !READ_SUBCOMMANDS[cmd].has(sub);
-  return false;
+  // Unknown command: WRITE — the safe direction for a confirm gate.
+  return true;
 }
 
 // Server version for figma_status: package version + short git SHA. A status

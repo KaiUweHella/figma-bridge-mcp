@@ -193,6 +193,28 @@ if (children.length > 0) {
 }
 
 
+/**
+ * Build the snippet that resolves a page from a user query into `target`
+ * (id match → exact name → unique substring → ambiguity/not-found error).
+ * Shared by `canvas page`, `canvas page-create` and `node move --page` so
+ * the matching semantics and error wording cannot drift.
+ */
+function pageLookupCode(query) {
+  return `
+      const q = ${JSON.stringify(String(query))};
+      const pages = figma.root.children;
+      let target = pages.find(p => p.id === q) || pages.find(p => p.name === q);
+      if (!target) {
+        const matches = pages.filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
+        if (matches.length === 1) target = matches[0];
+        else if (matches.length > 1) {
+          throw new Error('Ambiguous page name "' + q + '": ' + matches.map(p => p.name).join(', '));
+        }
+      }
+      if (!target) throw new Error('Page not found: ' + q);
+`;
+}
+
 // Shared error handler for commands that hit Figma's API via daemonExec.
 export {
   GENERIC_NAME_PATTERNS,
@@ -205,4 +227,5 @@ export {
   generateStrokeCode,
   varLoadingCode,
   smartPosCode,
+  pageLookupCode,
 };

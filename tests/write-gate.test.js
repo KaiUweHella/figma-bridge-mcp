@@ -90,6 +90,27 @@ test('unknown subcommands of gated groups default to WRITE (safe direction)', ()
   assert.equal(isWrite(['tokens', 'future-subcommand']), true);
 });
 
+test('unknown command GROUPS default to WRITE — an unlisted group must not ship ungated', () => {
+  assert.equal(isWrite(['future-command', 'anything']), true);
+  assert.equal(isWrite(['future-command']), true);
+});
+
+test('read-only commands stay ungated', () => {
+  for (const args of [
+    ['export', 'css', '1:2'],
+    ['extract'],
+    ['find', 'Button'],
+    ['inspect', '1:2'],
+    ['spec', '1:2'],
+    ['verify', '1:2'],
+    ['analyze', 'colors'],
+    ['a11y', '1:2'],
+    ['api', 'setup'],
+  ]) {
+    assert.equal(isWrite(args), false, args.join(' '));
+  }
+});
+
 test('map writes a repo file (figma-map.json), never the design — not gated', () => {
   assert.equal(isWrite(['map', 'storybook', 'http://localhost:6006']), false);
   assert.equal(isWrite(['map']), false);

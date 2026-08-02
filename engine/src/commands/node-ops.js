@@ -1,13 +1,13 @@
 // Commands: node-ops (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, readFileSync, statSync } from 'fs';
-import { isAbsolute, resolve } from 'path';
 import {
   program,
   checkConnection,
   fastEval
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
+import { generateFillCode, isVarRef, pageLookupCode, varLoadingCode } from '../lib/eval-snippets.js';
+import { readImageBase64 } from '../lib/image-file.js';
 
 // ============ NODE OPERATIONS ============
 
@@ -196,23 +196,15 @@ node
       const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
       if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
       if (!('x' in node)) throw new Error('Node has no position: ' + node.type);
-      const pageQuery = ${JSON.stringify(options.page || null)};
-      if (pageQuery) {
-        const pages = figma.root.children;
-        let target = pages.find(p => p.id === pageQuery) || pages.find(p => p.name === pageQuery);
-        if (!target) {
-          const matches = pages.filter(p => p.name.toLowerCase().includes(pageQuery.toLowerCase()));
-          if (matches.length === 1) target = matches[0];
-          else if (matches.length > 1) throw new Error('Ambiguous page name "' + pageQuery + '": ' + matches.map(p => p.name).join(', '));
-        }
-        if (!target) throw new Error('Page not found: ' + pageQuery);
+      ${options.page ? `{
+        ${pageLookupCode(options.page)}
         await target.loadAsync();
         target.appendChild(node);
         // Top level of a page: x/y ARE absolute, set directly.
         node.x = ${targetX};
         node.y = ${targetY};
         return { id: node.id, name: node.name, x: node.x, y: node.y, page: target.name };
-      }
+      }` : ''}
       // node.x/y are parent-relative; translate the absolute target into the
       // parent's coordinate space so the command means the same thing at any
       // nesting depth.
@@ -326,34 +318,27 @@ node
   .action(async (nodeId, color) => {
     await checkConnection();
     const value = String(color).trim();
-    const isVar = value.startsWith('var:');
-    if (!isVar && !/^#?[0-9a-fA-F]{6}$/.test(value)) {
+    if (!isVarRef(value) && !/^#?[0-9a-fA-F]{6}$/.test(value)) {
       console.log(chalk.red('✗ color must be #RRGGBB or var:<name>'));
+      return;
+    }
+    // Shared fill semantics: hex parsed CLI-side, var: bound via the same
+    // vars/boundFill preamble every other set-style command emits.
+    let fill;
+    try {
+      fill = generateFillCode(value, 'node');
+    } catch (e) {
+      console.log(chalk.red('✗ ' + e.message));
       return;
     }
     const code = `(async () => {
       const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
       if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
       if (!('fills' in node)) throw new Error('Node has no fills: ' + node.type);
-      ${isVar ? `
-      const wanted = ${JSON.stringify(value.slice(4))};
-      const vars = await figma.variables.getLocalVariablesAsync('COLOR');
-      const v = vars.find(x => x.name === wanted) || vars.find(x => x.name.toLowerCase() === wanted.toLowerCase());
-      if (!v) throw new Error('Color variable not found: ' + wanted);
-      const paint = figma.variables.setBoundVariableForPaint(
-        { type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', v);
-      node.fills = [paint];
-      return { id: node.id, name: node.name, fill: 'var:' + v.name };
-      ` : `
-      const hex = ${JSON.stringify(value.replace(/^#/, ''))};
-      const rgb = {
-        r: parseInt(hex.slice(0, 2), 16) / 255,
-        g: parseInt(hex.slice(2, 4), 16) / 255,
-        b: parseInt(hex.slice(4, 6), 16) / 255,
-      };
-      node.fills = [{ type: 'SOLID', color: rgb }];
-      return { id: node.id, name: node.name, fill: '#' + hex };
-      `}
+      ${fill.usesVars ? `${varLoadingCode()}
+      if (!vars[${JSON.stringify(value.slice(4))}]) throw new Error('Color variable not found: ' + ${JSON.stringify(value.slice(4))});` : ''}
+      ${fill.code}
+      return { id: node.id, name: node.name, fill: ${JSON.stringify(value)} };
     })()`;
     try {
       const r = await fastEval(code);
@@ -369,19 +354,10 @@ node
   .option('--scale <mode>', 'Scale mode: FILL, FIT, CROP, TILE', 'FILL')
   .action(async (nodeId, file, options) => {
     await checkConnection();
-    const path = isAbsolute(file) ? file : resolve(process.cwd(), file);
-    if (!existsSync(path)) {
-      console.log(chalk.red(`✗ File not found: ${file}`));
-      return;
-    }
-    const size = statSync(path).size;
-    if (size > 8 * 1024 * 1024) {
-      console.log(chalk.red(`✗ ${file} is ${(size / 1048576).toFixed(1)} MB (> 8 MB) — downscale it first (Figma caps images at 4096px anyway).`));
-      return;
-    }
+    const { b64, error } = readImageBase64(file);
+    if (error) return;
     const mode = String(options.scale || 'FILL').toUpperCase();
     const finalMode = ['FILL', 'FIT', 'CROP', 'TILE'].includes(mode) ? mode : 'FILL';
-    const b64 = readFileSync(path).toString('base64');
     const code = `(async () => {
       const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
       if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});

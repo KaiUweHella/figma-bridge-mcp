@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { join } from 'path';
 import { toYaml } from '../lib/yaml.js';
 import { normalizeNodeId } from '../lib/node-id.js';
+import { pageLookupCode } from '../lib/eval-snippets.js';
 import {
   program,
   buildNodeSelector,
@@ -113,17 +114,7 @@ canvas
   .action(async (nameOrId) => {
     await checkConnection();
     const code = `(async () => {
-      const q = ${JSON.stringify(nameOrId)};
-      const pages = figma.root.children;
-      let target = pages.find(p => p.id === q) || pages.find(p => p.name === q);
-      if (!target) {
-        const matches = pages.filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
-        if (matches.length === 1) target = matches[0];
-        else if (matches.length > 1) {
-          throw new Error('Ambiguous page name "' + q + '": ' + matches.map(p => p.name).join(', '));
-        }
-      }
-      if (!target) throw new Error('Page not found: ' + q);
+      ${pageLookupCode(nameOrId)}
       await figma.setCurrentPageAsync(target);
       return { id: target.id, name: target.name };
     })()`;
