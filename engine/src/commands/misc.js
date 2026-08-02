@@ -135,19 +135,128 @@ sectionCmd
     await checkConnection();
     const ids = nodeIds ? JSON.stringify(nodeIds.split(',').map(s => s.trim())) : '[]';
     const code = `(async () => {
-      const section = figma.createSection();
-      section.name = ${JSON.stringify(name)};
       const ids = ${ids};
+      const nodes = [];
       for (const id of ids) {
         const n = await figma.getNodeByIdAsync(id);
         if (!n) throw new Error('Node not found: ' + id);
-        section.appendChild(n);
+        nodes.push(n);
+      }
+      // Capture absolute positions BEFORE reparenting: appendChild keeps the
+      // node's x/y numbers, which become section-relative — without this the
+      // children visually jump and the section stays a 496x496 box at (0,0)
+      // on top of whatever already lives there.
+      const abs = nodes.map(n => {
+        const b = n.absoluteBoundingBox;
+        return b ? { x: b.x, y: b.y, w: b.width, h: b.height } : { x: n.x, y: n.y, w: n.width, h: n.height };
+      });
+      const section = figma.createSection();
+      section.name = ${JSON.stringify(name)};
+      const PAD = 64, HEADER = 40;
+      if (nodes.length > 0) {
+        const minX = Math.min(...abs.map(b => b.x));
+        const minY = Math.min(...abs.map(b => b.y));
+        const maxX = Math.max(...abs.map(b => b.x + b.w));
+        const maxY = Math.max(...abs.map(b => b.y + b.h));
+        section.x = minX - PAD;
+        section.y = minY - PAD - HEADER;
+        section.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
+        nodes.forEach((n, i) => {
+          section.appendChild(n);
+          n.x = abs[i].x - section.x;
+          n.y = abs[i].y - section.y;
+        });
       }
       return { id: section.id, name: section.name, count: ids.length };
     })()`;
     try {
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Created section "${r.name}" (${r.id}) with ${r.count} child(ren)`);
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+sectionCmd
+  .command('fit <sectionId>')
+  .description('Shrink/grow a section to wrap its children (children stay visually in place)')
+  .option('--pad <n>', 'Padding around children', '64')
+  .action(async (sectionId, options) => {
+    await checkConnection();
+    const pad = Number(options.pad) || 64;
+    const code = `(async () => {
+      const s = await figma.getNodeByIdAsync(${JSON.stringify(sectionId)});
+      if (!s) throw new Error('Section not found: ${sectionId}');
+      if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
+      if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
+      const PAD = ${pad}, HEADER = 40;
+      // Child x/y are section-relative. Shift the section to the children's
+      // bounding box, then shift every child by the inverse so nothing moves
+      // on the canvas.
+      const minX = Math.min(...s.children.map(c => c.x));
+      const minY = Math.min(...s.children.map(c => c.y));
+      const maxX = Math.max(...s.children.map(c => c.x + c.width));
+      const maxY = Math.max(...s.children.map(c => c.y + c.height));
+      const dx = minX - PAD;
+      const dy = minY - PAD - HEADER;
+      s.x += dx;
+      s.y += dy;
+      s.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
+      for (const c of s.children) { c.x -= dx; c.y -= dy; }
+      return { id: s.id, name: s.name, width: s.width, height: s.height };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      if (r.empty) console.log(chalk.yellow('⚠'), `Section "${r.name}" is empty — nothing to fit`);
+      else console.log(chalk.green('✓'), `Fitted "${r.name}" to ${Math.round(r.width)}×${Math.round(r.height)}`);
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+sectionCmd
+  .command('arrange <sectionId>')
+  .description('Arrange a section\'s children in a grid (reading order: current y, then x), then fit the bounds')
+  .option('-c, --cols <n>', 'Number of columns', '4')
+  .option('-g, --gap <n>', 'Gap between children', '48')
+  .option('--pad <n>', 'Padding around children', '64')
+  .option('--group-rows', 'Start a new row per node type (component sets, then components, instances, frames), sorted by name within each group')
+  .action(async (sectionId, options) => {
+    await checkConnection();
+    const cols = Math.max(1, parseInt(options.cols) || 4);
+    const gap = Number(options.gap) || 48;
+    const pad = Number(options.pad) || 64;
+    const code = `(async () => {
+      const s = await figma.getNodeByIdAsync(${JSON.stringify(sectionId)});
+      if (!s) throw new Error('Section not found: ${sectionId}');
+      if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
+      if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
+      const COLS = ${cols}, GAP = ${gap}, PAD = ${pad}, HEADER = 40;
+      const GROUP = ${options.groupRows === true};
+      // --group-rows: one row per node type keeps a design-system section
+      // scannable (variant sets together, loose components together).
+      const rank = t => ({ COMPONENT_SET: 0, COMPONENT: 1, INSTANCE: 2, FRAME: 3 })[t] ?? 4;
+      const kids = GROUP
+        ? [...s.children].sort((a, b) => (rank(a.type) - rank(b.type)) || a.name.localeCompare(b.name))
+        : [...s.children].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+      let x = PAD, y = PAD + HEADER, rowH = 0, col = 0, maxRight = 0, prevType = null;
+      for (const c of kids) {
+        const typeBreak = GROUP && prevType !== null && c.type !== prevType;
+        if (col === COLS || typeBreak) { col = 0; x = PAD; y += rowH + GAP; rowH = 0; }
+        c.x = x; c.y = y;
+        maxRight = Math.max(maxRight, x + c.width);
+        rowH = Math.max(rowH, c.height);
+        x += c.width + GAP;
+        col++;
+        prevType = c.type;
+      }
+      s.resizeWithoutConstraints(maxRight + PAD, y + rowH + PAD);
+      return { id: s.id, name: s.name, width: s.width, height: s.height, count: kids.length };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      if (r.empty) console.log(chalk.yellow('⚠'), `Section "${r.name}" is empty — nothing to arrange`);
+      else console.log(chalk.green('✓'), `Arranged ${r.count} children in "${r.name}" (${Math.round(r.width)}×${Math.round(r.height)})`);
     } catch (e) {
       handleEvalError(e);
     }
@@ -190,7 +299,14 @@ sectionCmd
       for (const id of ids) {
         const n = await figma.getNodeByIdAsync(id);
         if (!n) throw new Error('Node not found: ' + id);
+        // Preserve the node's visual position across reparenting — x/y are
+        // parent-relative, so a raw appendChild makes the node jump.
+        const b = n.absoluteBoundingBox;
         s.appendChild(n);
+        if (b && s.absoluteBoundingBox) {
+          n.x = b.x - s.absoluteBoundingBox.x;
+          n.y = b.y - s.absoluteBoundingBox.y;
+        }
       }
       return { id: s.id, name: s.name, count: s.children.length };
     })()`;

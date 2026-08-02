@@ -27,7 +27,11 @@ canvas
   .description('Show canvas info (bounds, element count, free space)')
   .action(async () => {
     await checkConnection();
-    let code = `(function() {
+    let code = `(async function() {
+// Dynamic page loading: right after a page switch, children is incomplete
+// until the page is loaded — measuring then reports bounds that are far too
+// small and smart positioning drops new renders onto existing content.
+await figma.currentPage.loadAsync();
 const children = figma.currentPage.children;
 if (children.length === 0) {
   return JSON.stringify({ empty: true, message: 'Canvas is empty', nextX: 0, nextY: 0 });
@@ -82,6 +86,28 @@ canvas
   });
 
 canvas
+  .command('page-create <name>')
+  .description('Create a new page and switch to it')
+  .option('--no-switch', 'Create the page without switching to it')
+  .action(async (name, options) => {
+    await checkConnection();
+    const code = `(async () => {
+      const existing = figma.root.children.find(p => p.name === ${JSON.stringify(name)});
+      if (existing) throw new Error('Page already exists: ' + ${JSON.stringify(name)} + ' (' + existing.id + ')');
+      const page = figma.createPage();
+      page.name = ${JSON.stringify(name)};
+      ${options.switch === false ? '' : 'await figma.setCurrentPageAsync(page);'}
+      return { id: page.id, name: page.name, switched: ${options.switch !== false} };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓') + ` Created page: ${r.name} ${chalk.gray('(' + r.id + ')')}${r.switched ? ' — now current' : ''}`);
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+canvas
   .command('page <nameOrId>')
   .description('Switch the current page (by exact id, exact name, or unique substring)')
   .action(async (nameOrId) => {
@@ -116,23 +142,26 @@ canvas
   .option('-d, --direction <dir>', 'Direction: right, below', 'right')
   .action(async (options) => {
     await checkConnection();
-    let code = `
+    let code = `(async function() {
+// Same dynamic-page-loading caveat as \`canvas info\`: measure only after
+// the page is fully loaded, or the "free" position lands on real content.
+await figma.currentPage.loadAsync();
 const children = figma.currentPage.children;
 const gap = ${options.gap};
 if (children.length === 0) {
-  JSON.stringify({ x: 0, y: 0 });
+  return JSON.stringify({ x: 0, y: 0 });
 } else {
   ${options.direction === 'below' ? `
   let maxY = -Infinity;
   children.forEach(n => { maxY = Math.max(maxY, n.y + n.height); });
-  JSON.stringify({ x: 0, y: Math.round(maxY + gap) });
+  return JSON.stringify({ x: 0, y: Math.round(maxY + gap) });
   ` : `
   let maxX = -Infinity;
   children.forEach(n => { maxX = Math.max(maxX, n.x + n.width); });
-  JSON.stringify({ x: Math.round(maxX + gap), y: 0 });
+  return JSON.stringify({ x: Math.round(maxX + gap), y: 0 });
   `}
 }
-`;
+})()`;
     evalPrint(code);
   });
 

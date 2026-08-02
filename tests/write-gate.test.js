@@ -43,6 +43,10 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['var', 'find', 'color'],
     ['tokens'],                    // bare = export (read)
     ['tokens', 'overlap', 'a', 'b'],
+    ['canvas', 'info'],
+    ['canvas', 'pages'],
+    ['canvas', 'page', 'Page 1'],  // switch only — content untouched
+    ['canvas', 'next'],
   ]) {
     assert.equal(isWrite(args), false, args.join(' '));
   }
@@ -67,6 +71,15 @@ test('write subcommands of gated groups require confirm', () => {
     ['tokens', 'add', 'x', '4'],       // was ungated
     ['tokens', 'import', 'f.json'],
     ['tokens', 'import-design-md', 'DESIGN.md'],  // was ungated (exact-match miss)
+    ['canvas', 'page-create', 'New Page'],        // creates a page — was ungated group
+    ['node', 'move', '1:2', '0', '0'],
+    ['node', 'resize', '1:2', '100', '100'],
+    ['node', 'rename', '1:2', 'X'],
+    ['node', 'set-text', '1:2', 'Hello'],
+    ['node', 'set-fill', '1:2', '#fff000'],
+    ['node', 'set-image', '1:2', 'photo.png'],
+    ['section', 'fit', '1:2'],
+    ['section', 'arrange', '1:2'],
   ]) {
     assert.equal(isWrite(args), true, args.join(' '));
   }

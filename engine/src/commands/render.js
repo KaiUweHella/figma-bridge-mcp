@@ -1,8 +1,8 @@
 // Commands: render (extracted from index.js)
 import chalk from 'chalk';
-import { join } from 'path';
+import { basename, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync } from 'fs';
 import { FigmaClient } from '../figma-client.js';
 import {
   program,
@@ -42,6 +42,134 @@ function printUnresolvedVars(unresolved) {
   console.log(chalk.yellow(`\n\u26a0 ${unresolved.length} variable reference(s) could not be resolved:`));
   console.log(chalk.yellow('  ' + unresolved.join(', ')));
   console.log(chalk.gray('  These bindings rendered as grey placeholders. Check `figma-cli var list` (optionally with --collection).'));
+}
+
+// Content taller than a fixed-height frame is invisible with clip=true and
+// easy to miss on a screenshot \u2014 surface the measured spill right away.
+function printOverflow(result) {
+  if (!result || !result.overflow) return;
+  console.log(chalk.yellow(`\u26a0 Content overflows the fixed frame height by ${result.overflow}px` +
+    ' \u2014 shrink a child (e.g. the hero image) or raise the frame h.'));
+}
+
+// Device presets: default w/h for the ROOT frame when the JSX doesn't set
+// them. Keeps the "match the reference frame's format" decision explicit.
+const DEVICE_PRESETS = {
+  'macbook-14': [1512, 982],
+  'macbook-16': [1728, 1117],
+  'desktop': [1440, 1024],
+  'desktop-hd': [1920, 1080],
+  'iphone-15': [393, 852],
+  'iphone-15-pro-max': [430, 932],
+  'iphone-se': [375, 667],
+  'android': [360, 800],
+  'ipad-11': [834, 1194],
+  'ipad-13': [1024, 1366],
+};
+
+// Inject preset w/h into the first <Frame ...> when missing. Explicit w/h in
+// the JSX always wins (with a note when it disagrees with the preset).
+function applyDevicePreset(jsx, presetName) {
+  const preset = DEVICE_PRESETS[presetName];
+  if (!preset) {
+    console.error(chalk.red('\u2717'), `Unknown preset "${presetName}". Available: ${Object.keys(DEVICE_PRESETS).join(', ')}`);
+    process.exit(1);
+  }
+  const [pw, ph] = preset;
+  const m = jsx.match(/<Frame\b([^>]*)>/);
+  if (!m) return jsx;
+  const propsStr = m[1];
+  const hasW = /\b(w|width)=/.test(propsStr);
+  const hasH = /\b(h|height)=/.test(propsStr);
+  if (hasW && hasH) {
+    const wm = propsStr.match(/\bw(?:idth)?="(\d+)"/);
+    const hm = propsStr.match(/\bh(?:eight)?="(\d+)"/);
+    if ((wm && Number(wm[1]) !== pw) || (hm && Number(hm[1]) !== ph)) {
+      console.log(chalk.gray(`\u21b3 preset ${presetName} (${pw}\u00d7${ph}) \u2014 explicit w/h in the JSX wins`));
+    }
+    return jsx;
+  }
+  const inject = `${hasW ? '' : ` w="${pw}"`}${hasH ? '' : ` h="${ph}"`}`;
+  console.log(chalk.gray(`\u21b3 preset ${presetName}: root frame ${pw}\u00d7${ph}`));
+  return jsx.replace(/<Frame\b/, `<Frame${inject} `);
+}
+
+// ---- local image + icon-dir loading (Code2Figma: real files into Figma) ----
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
+const IMAGE_HARD_LIMIT = 8 * 1024 * 1024;   // Figma rejects far earlier; keep the eval payload sane
+const IMAGE_WARN_LIMIT = 2 * 1024 * 1024;
+
+// Replace local file paths in <Image src="\u2026"> / image="\u2026" with imgref:<key>
+// markers and collect their base64 data for FigmaClient.setImageData().
+// http(s) URLs pass through untouched (plugin-side createImageAsync).
+// `images` may be shared across calls (render-batch): keys keep counting.
+function resolveLocalImages(jsx, images = {}) {
+  let counter = Object.keys(images).length;
+  const out = jsx.replace(/\b(src|image)="([^"]+)"/g, (full, attr, value) => {
+    if (/^(https?:|imgref:|data:)/i.test(value)) return full;
+    if (!IMAGE_EXT.test(value)) return full; // gradients/keywords on image= stay untouched
+    const path = isAbsolute(value) ? value : resolve(process.cwd(), value);
+    if (!existsSync(path)) {
+      console.log(chalk.yellow(`\u26a0 Image file not found: ${value} \u2014 rendering the placeholder instead.`));
+      return ''; // drop the attribute; the element keeps its placeholder fill
+    }
+    const size = statSync(path).size;
+    if (size > IMAGE_HARD_LIMIT) {
+      console.log(chalk.yellow(`\u26a0 ${value} is ${(size / 1048576).toFixed(1)} MB (> 8 MB) \u2014 skipped, placeholder kept. Downscale it first (Figma caps images at 4096px anyway).`));
+      return '';
+    }
+    if (size > IMAGE_WARN_LIMIT) {
+      console.log(chalk.gray(`\u21b3 ${basename(value)}: ${(size / 1048576).toFixed(1)} MB \u2014 large images slow the plugin bridge; consider downscaling.`));
+    }
+    const key = `img${counter++}`;
+    images[key] = readFileSync(path).toString('base64');
+    return `${attr}="imgref:${key}"`;
+  });
+  return { jsx: out, images };
+}
+
+// Load every *.svg in a directory as icon name -> markup (name = filename
+// without extension). Used by `render --icons <dir>`.
+function loadIconDir(dir) {
+  const path = isAbsolute(dir) ? dir : resolve(process.cwd(), dir);
+  if (!existsSync(path)) {
+    console.error(chalk.red('\u2717'), `Icon directory not found: ${dir}`);
+    process.exit(1);
+  }
+  const icons = {};
+  for (const file of readdirSync(path)) {
+    if (extname(file).toLowerCase() !== '.svg') continue;
+    const full = join(path, file);
+    if (statSync(full).size > 100 * 1024) {
+      console.log(chalk.yellow(`\u26a0 ${file} > 100 KB \u2014 skipped (icons should be small vectors).`));
+      continue;
+    }
+    icons[basename(file, extname(file))] = readFileSync(full, 'utf8');
+  }
+  if (Object.keys(icons).length === 0) {
+    console.log(chalk.yellow(`\u26a0 No .svg files found in ${dir}.`));
+  } else {
+    console.log(chalk.gray(`\u21b3 ${Object.keys(icons).length} project icon(s) loaded from ${dir}`));
+  }
+  return icons;
+}
+
+// Component text layers without an explicit name= get named after their
+// content \u2014 `text:` overrides then need the (often unwieldy) content string
+// as the key. Warn while the component is being created, not when the first
+// override fails.
+function warnUnnamedComponentTexts(jsx) {
+  const unnamed = [];
+  const re = /<Text\b([^>]*?)\/?>/g;
+  let m;
+  while ((m = re.exec(jsx)) !== null) {
+    if (!/\bname=/.test(m[1])) unnamed.push(m[0].slice(0, 60));
+  }
+  if (unnamed.length > 0) {
+    console.log(chalk.yellow(`\u26a0 ${unnamed.length} <Text> layer(s) without name= in a component render.`));
+    console.log(chalk.gray('  They will be named after their content \u2014 give stable names (name="label") so `text:` overrides stay short and robust.'));
+  }
 }
 
 // Remember what the last render created so `figma-cli undo` can remove
@@ -305,9 +433,18 @@ program
   .option('--keep-wrapper', 'Keep an outer flex Frame as a parent — disables the auto-split that turns "N items in a flex wrapper" into independent canvas items')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `figma-cli verify` roundtrip')
+  .option('--preset <device>', `Root frame size preset when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
+  .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .action(async (rawJsx, options) => {
-    const jsx = unescapeShell(rawJsx);
+    let jsx = unescapeShell(rawJsx);
+    if (options.preset) jsx = applyDevicePreset(jsx, options.preset);
+    // Local images: read files CLI-side, embed as imgref markers (the plugin
+    // has no filesystem access — bytes must travel with the eval).
+    const { jsx: jsxWithImages, images } = resolveLocalImages(jsx);
+    jsx = jsxWithImages;
+    const customIcons = options.icons ? loadIconDir(options.icons) : null;
     warnUnknownProps([jsx]);
+    if (options.asComponent) warnUnnamedComponentTexts(jsx);
     await checkConnection();
 
     // Auto-split: if the caller passed a layout-only outer Frame with N child
@@ -377,7 +514,10 @@ program
       // - <Icon> elements
       // - Ellipse/Circle arc/innerRadius (rings, spinners, donut/pie)
       // - gradient/effects/blur (needs full parser, fast-path doesn't handle them)
+      // imgref:/--icons force this path too: the daemon-side compiler has no
+      // access to the CLI-side image bytes / icon dir.
       if (jsx.includes('var:') || jsx.includes('<Slot') || jsx.includes('<Icon') ||
+          jsx.includes('imgref:') || jsx.includes('src=') || customIcons ||
           /\barc=|\barcStart=|\binnerRadius=/.test(jsx) ||
           /-gradient\s*\(/i.test(jsx) || jsx.includes('shadow=') || jsx.includes('innerShadow=') ||
           jsx.includes('blur=') || jsx.includes('bgBlur=') || jsx.includes('image=') ||
@@ -388,12 +528,15 @@ program
         const { FigmaClient } = await import('../figma-client.js');
         const client = new FigmaClient();
         if (options.collection) client.setCollection(options.collection);
+        client.setImageData(images);
+        if (customIcons) client.setIcons(customIcons);
         const code = await client.parseJSX(jsx);
         const result = await daemonExec('eval', { code });
         if (result && result.id) {
           console.log(chalk.green('✓ Rendered: ' + result.id));
           if (result.name) console.log(chalk.gray('  name: ' + result.name));
           printUnresolvedVars(result.unresolved);
+          printOverflow(result);
           recordCreated([result]);
           await maybeAsComponent(result.id);
           if (options.verify) await verifyRendered(result.id);
@@ -433,6 +576,7 @@ program
 
       console.log(chalk.green('✓ Rendered: ' + result.id));
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
+      printOverflow(result);
       recordCreated([result]);
 
       // Post-process to fix properties the render action doesn't set correctly
@@ -471,25 +615,47 @@ program
   .option('--as-component', 'After rendering, convert each resulting frame to a Figma component')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
+  .option('--preset <device>', `Root frame size preset per frame when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
+  .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .action(async (jsxArrayStr, options) => {
     await checkConnection();
     try {
-      const jsxArray = JSON.parse(jsxArrayStr);
+      let jsxArray = JSON.parse(jsxArrayStr);
       if (!Array.isArray(jsxArray)) {
         throw new Error('Argument must be a JSON array of JSX strings');
       }
+      const images = {};
+      jsxArray = jsxArray.map(j => {
+        const jsx = options.preset ? applyDevicePreset(j, options.preset) : j;
+        return resolveLocalImages(jsx, images).jsx;
+      });
+      const customIcons = options.icons ? loadIconDir(options.icons) : null;
       warnUnknownProps(jsxArray);
+      if (options.asComponent) jsxArray.forEach(warnUnnamedComponentTexts);
 
       const gap = parseInt(options.gap) || 40;
       const vertical = options.direction === 'col' || options.direction === 'column' || options.direction === 'vertical';
 
-      // Single daemon call for ALL frames (10x faster)
-      let results = await daemonExec('render-batch', {
-        jsxArray,
-        gap,
-        vertical,
-        collection: options.collection || undefined,
-      });
+      let results;
+      if (options.preset || customIcons || Object.keys(images).length > 0) {
+        // Parity with `render`: presets, project icons and local image bytes
+        // exist only CLI-side — compile here and eval, instead of the
+        // daemon-side compiler (which also lags behind until restart).
+        const client = new FigmaClient();
+        if (options.collection) client.setCollection(options.collection);
+        client.setImageData(images);
+        if (customIcons) client.setIcons(customIcons);
+        const code = await client.parseJSXBatch(jsxArray, { gap, vertical });
+        results = await daemonExec('eval', { code });
+      } else {
+        // Single daemon call for ALL frames (10x faster)
+        results = await daemonExec('render-batch', {
+          jsxArray,
+          gap,
+          vertical,
+          collection: options.collection || undefined,
+        });
+      }
       // Unwrap the wrapped form returned when there are unresolved vars.
       let unresolvedVars = null;
       if (results && !Array.isArray(results) && Array.isArray(results.frames)) {

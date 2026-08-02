@@ -6,12 +6,14 @@ function assertValidJs(code) {
   assert.doesNotThrow(() => new Function(code), SyntaxError, `Generated code is not valid JS:\n${code}`);
 }
 
-// Helper: pull the generated block for a named child frame.
+// Helper: pull the generated block for a named child frame. The window must
+// be generous: conditional template slots (corners/blendMode/rotate/image)
+// leave blank lines that grow the block without changing behavior.
 function blockFor(code, name) {
   const lines = code.split('\n');
   const i = lines.findIndex(l => l.includes(`"${name}"`));
   assert.ok(i >= 0, `no generated block for "${name}"`);
-  return lines.slice(i, i + 30).join('\n');
+  return lines.slice(i, i + 45).join('\n');
 }
 
 // Regression: a thin divider used to render at the 100px frame default and

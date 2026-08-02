@@ -592,6 +592,17 @@ program
       if (!node) return { error: ${nodeId
         ? `'Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only access the file open in Figma Desktop — if this id comes from another file (check the URL file key), open that file first.'`
         : `'Nothing selected in Figma — select a frame or pass a node id.'`} };
+      if (node.type === 'PAGE' || node.type === 'DOCUMENT') {
+        // Pages have no width/height — the old fallback (100 * scale) exported
+        // a useless 50x50 tile. Point at the page's top-level containers instead.
+        if (node.type === 'PAGE') await node.loadAsync();
+        const kids = (node.children || [])
+          .filter(n => n.type === 'SECTION' || n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'COMPONENT_SET')
+          .slice(0, 12)
+          .map(n => '  ' + n.type + '  ' + n.id + '  "' + n.name + '"');
+        return { error: 'Cannot screenshot a whole ' + node.type + ' — pass a frame or section id instead.'
+          + (kids.length ? ' Top-level candidates:\\n' + kids.join('\\n') : '') };
+      }
       if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
 
       // Calculate optimal scale to stay under max dimension

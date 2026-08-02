@@ -52,6 +52,10 @@ const READ_SUBCOMMANDS = {
   grid: new Set(["list"]),
   col: new Set(["list"]),
   var: new Set(["list", "find"]),
+  // `canvas` was ungated while it only measured and switched pages;
+  // page-create mutates the document, so the group is gated now with the
+  // pre-existing subcommands enumerated as reads (page = switch only).
+  canvas: new Set(["info", "pages", "page", "next"]),
 };
 
 export function isWrite(args) {
@@ -434,7 +438,57 @@ and its story title after the Figma component/set name from the spec (the
 "Component sets used" trailer, or the main/set fields on instances) — e.g.
 Figma set "Button" → story title "Components/Button". Matching is name-based;
 matching names give high-confidence automatic links. Run map storybook as the
-LAST step, once the stories exist.`;
+LAST step, once the stories exist.
+
+=== Code-to-Figma workflow (code -> Figma) ===
+
+The reverse direction: build designs IN Figma from code. Order matters —
+tokens first, then components, then screens:
+
+1. Format first: read the reference frame's dimensions from figma_selection
+   before rendering anything. figma_run ["render","--preset","macbook-14",...]
+   (or iphone-15, ipad-11, ...) sets the root frame size when the JSX has no
+   w/h — never guess mobile vs desktop.
+2. Tokens: figma_run ["tokens","import","<file.json>","-c","<Collection>"]
+   creates the collection + variables in one call (nested JSON flattens to
+   a/b/c names). Reference them in JSX as var:<name>; pass
+   ["render","-c","<Collection>"] to pin resolution.
+3. Components: render each variant as "axis=value" named frames with
+   --as-component, then ["component","combine","<ids>","-n","Name"] into a
+   variant set. Give EVERY <Text> a name= (name="label") — text: overrides
+   key on layer names; content-derived names make overrides brittle (a
+   warning fires on --as-component renders without them).
+4. Screens: compose <Instance component="Name" variant="axis=value"> with
+   overrides — text:<layer>, prop:<property>, fill:<layer> (hex or var:),
+   swap:<layer> ("Other Component"). Layer matching is case-, space- and
+   hyphen-insensitive (text:plantphoto matches "plant-photo").
+5. Images: <Image src="/abs/or/relative.png" imageScale="FILL|FIT|CROP|TILE">
+   imports the actual file (CLI reads it, no plugin network). Without src=
+   you get a named grey placeholder carrying an "Image placeholder"
+   annotation; fill it later with ["node","set-image","<id>","photo.png"].
+   Files > 8 MB are refused — downscale first (Figma caps images at 4096px).
+6. Icons: <Icon name="check"> renders ~40 built-in geometry vectors
+   (check/x/plus/chevrons/arrows/search/bell/droplet/sun/home/settings/...,
+   aliases like close/back/gear). Project icons: ["render","--icons","<dir>"]
+   loads every *.svg (name = file basename) and overrides built-ins.
+   Unknown names stay grey placeholder boxes.
+7. Responsive by construction: size every container deliberately — w="fill"
+   (stretch), w="hug" (wrap content) or a fixed number; leaf elements
+   (Image/Rect/Ellipse) take w="fill" too. Add minW/maxW/minH/maxH where a
+   fluid element has real limits (cards in a grid: w="fill" minW="140"
+   maxW="240"). A fixed-size element inside a fluid parent is usually a
+   bug — the PlantCard photo overhang came from exactly that.
+8. Fix-ups without re-rendering: ["node","move","<id>","<x>","<y>"]
+   (--page reparents across pages), ["node","resize","<id>","<w|keep|fill|hug>","<h|keep|fill|hug>"],
+   ["node","rename"], ["node","set-text"], ["node","set-fill","<id>","#hex|var:name"],
+   ["node","set-image"]. Find ids via ["node","tree","<id>","--ids"] or
+   ["find","<name>"]. A fixed-height render prints an overflow warning with
+   the measured spill — fix it right then.
+9. Organize: ["canvas","page-create","<name>"] for a fresh page,
+   ["section","create","<name>","<ids>"] to group,
+   ["section","arrange","<id>","--cols","4"] to tidy,
+   ["section","fit","<id>"] after manual moves. ["render","--verify"]
+   returns a screenshot in the same call — always look at it.`;
 
 function textResult(text) {
   return { content: [{ type: "text", text: text || "" }] };

@@ -7,6 +7,7 @@
  */
 
 import { gradientTransformFromCssAngle } from './paint-css.js';
+import { getBuiltinIconSvg } from './builtin-icons.js';
 
 // NOTE: there is deliberately no built-in semantic color table here. An
 // unresolved `var:` reference falls back to neutral grey and is reported via
@@ -30,11 +31,28 @@ export class FigmaClient {
     // Set via setCollection() or directly. Per-attribute `var:collection:name`
     // in JSX overrides this. nullish = all collections, natural order.
     this.collectionFilter = null;
+    // Local image bytes keyed by `imgref:<key>` markers in the JSX. The CLI
+    // reads the files (this module stays I/O-free) and hands the base64 in;
+    // codegen embeds it as figma.createImage(figma.base64Decode(...)).
+    this.imageData = {};
+    // Project icon SVGs (name -> svg markup) from `render --icons <dir>`.
+    // Highest priority in the icon lookup, before built-ins.
+    this.customIcons = {};
   }
 
   /** Pin variable lookups to a specific collection (by case-insensitive name match). */
   setCollection(name) {
     this.collectionFilter = name || null;
+  }
+
+  /** Provide base64 image data for imgref: markers (key -> base64 string). */
+  setImageData(map) {
+    this.imageData = map || {};
+  }
+
+  /** Provide project icon SVGs (name -> svg markup). */
+  setIcons(map) {
+    this.customIcons = map || {};
   }
 
   // (The Chrome DevTools transport — listPages / isConnected / connect / send /
@@ -59,10 +77,10 @@ export class FigmaClient {
       return { props, children: childElements };
     });
 
-    // No-network build: <Icon> elements render as named placeholder
-    // rectangles (design-to-code pulls real icons from the file via
-    // `export assets`; nothing is fetched from external icon CDNs).
-    const iconSvgMap = {};
+    // No network: only project icons injected via setIcons() (render --icons)
+    // land here; the codegen additionally falls back to the built-in
+    // geometry set, then to a named placeholder rectangle.
+    const iconSvgMap = { ...this.customIcons };
 
     // Collect all fonts needed ({ family, style } pairs, deduped)
     const allFontMap = new Map();
@@ -167,6 +185,9 @@ export class FigmaClient {
         f${frameIdx}.y = posY;
         f${frameIdx}.cornerRadius = ${this.spacingRaw(rounded)};
         ${this.spacingBind(`f${frameIdx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], rounded, 'radius')}
+        ${this.cornerCode(props, `f${frameIdx}`)}
+        ${this.blendModeCode(props, `f${frameIdx}`)}
+        ${props.rotate !== undefined ? `f${frameIdx}.rotation = ${Number(props.rotate)};` : ''}
         ${fillCode.code}
         ${strokeCode.code}
         ${effectsCode}
@@ -186,6 +207,7 @@ export class FigmaClient {
         ${wrap && flex === 'row' && wrapGap > 0 ? `f${frameIdx}.counterAxisSpacing = ${wrapGap};
         ${this.spacingBind(`f${frameIdx}`, ['counterAxisSpacing'], wrapGap, 'space')}` : ''}`}
         f${frameIdx}.clipsContent = ${clip};
+        ${this.minMaxCode(props, `f${frameIdx}`)}
         ${opacity !== null ? `f${frameIdx}.opacity = ${opacity};` : ''}
         ${visible === false ? `f${frameIdx}.visible = false;` : ''}
         ${locked === true ? `f${frameIdx}.locked = true;` : ''}
@@ -260,8 +282,9 @@ export class FigmaClient {
       console.warn('[render] Supported elements: <Frame>, <Text>, <Rectangle>, <Rect>, <Image>, <Icon>');
     }
 
-    // No-network build: <Icon> renders as a named placeholder rectangle.
-    const iconSvgMap = {};
+    // No network: project icons from setIcons() win, then built-ins, then
+    // the named placeholder rectangle.
+    const iconSvgMap = { ...this.customIcons };
 
     // Generate code
     return this.generateCode(props, childElements, iconSvgMap);
@@ -330,16 +353,19 @@ export class FigmaClient {
     const known = {
       Frame: [...layout, ...paint, ...corners, ...effects],
       Text: ['name', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
+        'minW', 'maxW', 'minH', 'maxH',
         'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines', 'style'],
-      Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
-      Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
+      Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position', 'opacity', 'rotate'],
+      Rect: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'rounded', 'radius',
+        'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing', 'blendMode', 'opacity', 'x', 'y', 'position'],
       Rectangle: null, // alias of Rect, filled below
-      Ellipse: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign',
+      Ellipse: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign',
         'arc', 'arcStart', 'innerRadius', 'opacity', 'x', 'y', 'position'],
       Circle: null,    // alias of Ellipse, filled below
-      Image: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
+      Image: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'rounded', 'radius',
+        'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing', 'blendMode', 'opacity', 'x', 'y', 'position', 'src', 'imageScale'],
       Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
-      Instance: ['name', 'component', 'id', 'variant', 'w', 'h', 'width', 'height'],
+      Instance: ['name', 'component', 'id', 'variant', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH'],
     };
     known.Rectangle = known.Rect;
     known.Circle = known.Ellipse;
@@ -381,8 +407,10 @@ export class FigmaClient {
       const props = this.parseProps(m[2] || '');
       for (const prop of Object.keys(props)) {
         if (valid.includes(prop)) continue;
-        // Instance override props are dynamic by design: text:<Layer>, prop:<Property>
-        if (tag === 'Instance' && (prop.startsWith('text:') || prop.startsWith('prop:'))) continue;
+        // Instance override props are dynamic by design:
+        // text:<Layer>, prop:<Property>, fill:<Layer>, swap:<Layer>
+        if (tag === 'Instance' && (prop.startsWith('text:') || prop.startsWith('prop:')
+          || prop.startsWith('fill:') || prop.startsWith('swap:'))) continue;
         let suggestion = aliases[prop] || null;
         if (!suggestion) {
           // Typo detection: closest known prop within edit distance 2
@@ -666,6 +694,10 @@ export class FigmaClient {
           if (item.stroke) check(item.stroke);
         } else if (item._type === 'instance') {
           usesInstances = true;
+          // fill:<Layer>="var:…" needs the variable cache like any other bg.
+          for (const k of Object.keys(item)) {
+            if (k.startsWith('fill:')) check(item[k]);
+          }
         }
         if (item._children) walk(item._children);
       });
@@ -1051,7 +1083,7 @@ export class FigmaClient {
           /* Prop keys can't contain spaces, layer names usually do
              ("Monstera Deliciosa"). Match space-insensitively so
              text:MonsteraDeliciosa="…" finds that layer. */
-          const __norm = s => String(s).toLowerCase().replace(/\\s+/g, '');
+          const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
           const t = inst.findOne(n => n.type === 'TEXT' && n.name === layerName)
             || inst.findOne(n => n.type === 'TEXT' && __norm(n.name) === __norm(layerName));
           if (!t) {
@@ -1068,6 +1100,59 @@ export class FigmaClient {
             }
             t.characters = String(value);
           } catch (e) {}
+        };
+        // fill:<Layer>="#hex | var:name" — recolor a named descendant of the
+        // instance (image placeholders, status dots) without detaching.
+        const __setInstanceFill = async (inst, layerName, value) => {
+          const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
+          const t = inst.findOne(n => 'fills' in n && n.name === layerName)
+            || inst.findOne(n => 'fills' in n && __norm(n.name) === __norm(layerName));
+          if (!t) {
+            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+            globalThis.__unresolvedVars.add('fill:' + layerName);
+            return;
+          }
+          try {
+            const v = String(value);
+            if (v.startsWith('var:')) {
+              const variable = typeof lookupVar === 'function' ? lookupVar(v.slice(4)) : null;
+              if (!variable) {
+                globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+                globalThis.__unresolvedVars.add(v);
+                return;
+              }
+              t.fills = [figma.variables.setBoundVariableForPaint(
+                { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', variable)];
+            } else {
+              const m = /^#?([0-9a-f]{6})$/i.exec(v);
+              if (!m) return;
+              const h = m[1];
+              t.fills = [{ type: 'SOLID', color: {
+                r: parseInt(h.slice(0, 2), 16) / 255,
+                g: parseInt(h.slice(2, 4), 16) / 255,
+                b: parseInt(h.slice(4, 6), 16) / 255,
+              } }];
+            }
+          } catch (e) {}
+        };
+        // swap:<Layer>="Component Name" — replace a nested instance (icon
+        // slots) with another component, resolved by name like <Instance>.
+        const __swapInstance = async (inst, layerName, componentName) => {
+          const __norm = s => String(s).toLowerCase().replace(/[\\s_-]+/g, '');
+          const t = inst.findOne(n => n.type === 'INSTANCE' && n.name === layerName)
+            || inst.findOne(n => n.type === 'INSTANCE' && __norm(n.name) === __norm(layerName));
+          if (!t) {
+            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+            globalThis.__unresolvedVars.add('swap:' + layerName);
+            return;
+          }
+          const target = await __resolveComponent(null, String(componentName), null);
+          if (!target) {
+            globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+            globalThis.__unresolvedVars.add('swap:' + componentName);
+            return;
+          }
+          try { t.swapComponent(target); } catch (e) {}
         };
     `;
   }
@@ -1132,12 +1217,17 @@ export class FigmaClient {
         ${tLetterSpacing ? `try { el${idx}.letterSpacing = ${tLetterSpacing}; } catch(e) {}` : ''}
         ${tAlign ? `el${idx}.textAlignHorizontal = '${tAlign}';` : ''}
         el${idx}.characters = ${JSON.stringify(item.content)};
+        ${item.name ? `el${idx}.name = ${JSON.stringify(item.name)};` : ''}
         ${textFillCode.code}
         ${sizeVarName ? `{ const __v = lookupVar(${JSON.stringify(sizeVarName)}); if (__v) { try { el${idx}.setBoundVariable('fontSize', __v); } catch (e) {} } else { globalThis.__unresolvedVars.add(${JSON.stringify(sizeVarName)}); } }` : ''}
         ${textStyleName ? `await __applyTextStyle(el${idx}, ${JSON.stringify(textStyleName)});` : ''}
         ${autoStyle ? `await __ensureTextStyle(el${idx}, ${JSON.stringify(family)}, ${JSON.stringify(style)}, ${size});` : ''}
         ${parentVar}.appendChild(el${idx});
+        ${this.minMaxCode(item, `el${idx}`)}
         ${fillWidth && !parentNone ? `el${idx}.layoutSizingHorizontal = 'FILL'; el${idx}.textAutoResize = 'HEIGHT';` : ''}
+        ${!fillWidth && Number.isFinite(Number(item.w ?? item.width)) ?
+          `el${idx}.textAutoResize = 'HEIGHT'; el${idx}.resize(${Number(item.w ?? item.width)}, el${idx}.height);` : ''}
+        ${item.grow !== undefined ? `try { el${idx}.layoutGrow = ${Number(item.grow) || 0}; } catch (e) {}` : ''}
         ${autoFill ? `// Auto-FILL: text in col layout needs FILL for Safe Mode wrapping
         if (${parentVar}.layoutMode === 'VERTICAL' && (${parentVar}.counterAxisSizingMode === 'FIXED' || ${parentVar}.primaryAxisSizingMode === 'FIXED')) {
           try { el${idx}.layoutSizingHorizontal = 'FILL'; el${idx}.textAutoResize = 'HEIGHT'; } catch(e) {}
@@ -1301,9 +1391,13 @@ export class FigmaClient {
         ${this.spacingBind(`el${idx}`, ['paddingRight'], fPr, 'space')}`}
         el${idx}.cornerRadius = ${this.spacingRaw(fRounded)};
         ${this.spacingBind(`el${idx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], fRounded, 'radius')}
+        ${this.cornerCode(item, `el${idx}`)}
+        ${this.blendModeCode(item, `el${idx}`)}
+        ${item.rotate !== undefined ? `el${idx}.rotation = ${Number(item.rotate)};` : ''}
         ${frameFillCode.code}
         ${frameStrokeCode.code}
         ${frameEffectsCode}
+        ${item.image ? this.generateImageFillCode(item.image, `el${idx}`, item.imageScale) : ''}
         ${isNone ? '' : `el${idx}.primaryAxisAlignItems = '${fJustifyVal}';
         el${idx}.counterAxisAlignItems = '${fAlignVal}';`}
         el${idx}.clipsContent = ${fClip};
@@ -1313,6 +1407,7 @@ export class FigmaClient {
         ${parentVar}.appendChild(el${idx});
         ${parentIsNone ? '' : `el${idx}.layoutSizingHorizontal = '${hSizing}';
         el${idx}.layoutSizingVertical = '${vSizing}';`}
+        ${this.minMaxCode(item, `el${idx}`)}
         ${pctW !== null || pctH !== null ? `try {
           const _pp = el${idx}.parent;
           if (_pp && 'width' in _pp) {
@@ -1404,8 +1499,10 @@ export class FigmaClient {
         el${idx}.resize(${rWidth}, ${rHeight});
         el${idx}.cornerRadius = ${this.spacingRaw(rRounded)};
         ${this.spacingBind(`el${idx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], rRounded, 'radius')}
+        ${this.cornerCode(item, `el${idx}`)}
         ${rectFillCode.code}
         ${parentVar}.appendChild(el${idx});
+        ${this.fillSizingCode(item, `el${idx}`, parentFlex)}
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'ellipse') {
           // Ellipse / Circle. arc (sweep degrees) + arcStart (start degrees,
@@ -1434,6 +1531,7 @@ export class FigmaClient {
         ${ellStrokeCode.code}
         ${hasArc ? `try { el${idx}.arcData = { startingAngle: ${startRad}, endingAngle: ${endRad}, innerRadius: ${inner} }; } catch(e) {}` : ''}
         ${parentVar}.appendChild(el${idx});
+        ${this.fillSizingCode(item, `el${idx}`, parentFlex)}
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'image') {
           // Image placeholder (gray rectangle with image icon concept)
@@ -1443,6 +1541,12 @@ export class FigmaClient {
           const iRounded = item.rounded || item.radius || 8;
           const iName = item.name || 'Image';
           const imgFillCode = this.generateFillCode(iBg, `el${idx}`);
+          // src="…" carries a real image: an imgref: marker (local file,
+          // pre-read by the CLI) or an http(s) URL. With a real image there
+          // is no placeholder to annotate; the base fill stays underneath as
+          // loading fallback.
+          const iSrc = item.src || null;
+          const imgSrcCode = iSrc ? this.generateImageFillCode(iSrc, `el${idx}`, item.imageScale) : '';
 
           return `
         const el${idx} = figma.createRectangle();
@@ -1450,14 +1554,22 @@ export class FigmaClient {
         el${idx}.resize(${iWidth}, ${iHeight});
         el${idx}.cornerRadius = ${this.spacingRaw(iRounded)};
         ${this.spacingBind(`el${idx}`, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], iRounded, 'radius')}
+        ${this.cornerCode(item, `el${idx}`)}
         ${imgFillCode.code}
+        ${imgSrcCode}
+        ${iSrc ? '' : `// Mark the placeholder in the file itself, so whoever opens the design
+        // sees where a real image belongs (annotations need no plugin).
+        try { el${idx}.annotations = [{ labelMarkdown: 'Image placeholder — replace with a real image' }]; } catch (e) {}`}
         ${parentVar}.appendChild(el${idx});
+        ${this.fillSizingCode(item, `el${idx}`, parentFlex)}
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'icon') {
           const icSize = numOr(item.size ?? item.s, 24);
           const icBg = item.color || item.c || '#71717a';
           const icName = item.name || 'Icon';
-          const svgData = ctx.iconSvgMap[icName];
+          // File-provided icons win; otherwise try the built-in geometry set
+          // (check, chevrons, arrows, …) before falling back to a grey box.
+          const svgData = ctx.iconSvgMap[icName] || getBuiltinIconSvg(icName);
 
           if (svgData) {
             // Real SVG icon from Iconify
@@ -1495,7 +1607,8 @@ export class FigmaClient {
         el${idx}.fills = [];
         el${idx}.resize(${icSize}, ${icSize});
         ${colorCode}${varColorCode}
-        ${parentVar}.appendChild(el${idx});`;
+        ${parentVar}.appendChild(el${idx});
+        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
           } else {
             // Fallback: placeholder rectangle
             const iconFillCode = this.generateFillCode(icBg, `el${idx}`);
@@ -1505,7 +1618,8 @@ export class FigmaClient {
         el${idx}.resize(${icSize}, ${icSize});
         el${idx}.cornerRadius = ${Math.round(icSize / 4)};
         ${iconFillCode.code}
-        ${parentVar}.appendChild(el${idx});`;
+        ${parentVar}.appendChild(el${idx});
+        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
           }
         } else if (item._type === 'instance') {
           // Component instance. `id` (or an id-shaped `component` value, kept
@@ -1522,9 +1636,13 @@ export class FigmaClient {
           const variantStr = item.variant || null;
           const textOverrides = {};
           const propOverrides = {};
+          const fillOverrides = {};
+          const swapOverrides = {};
           for (const k of Object.keys(item)) {
             if (k.startsWith('text:')) textOverrides[k.slice(5)] = item[k];
             else if (k.startsWith('prop:')) propOverrides[k.slice(5)] = item[k];
+            else if (k.startsWith('fill:')) fillOverrides[k.slice(5)] = item[k];
+            else if (k.startsWith('swap:')) swapOverrides[k.slice(5)] = item[k];
           }
           const isNum = v => v !== undefined && v !== 'fill' && v !== 'hug' && !isNaN(parseFloat(v));
           const instW = isNum(item.w) ? numOr(item.w, null) : isNum(item.width) ? numOr(item.width, null) : null;
@@ -1533,6 +1651,10 @@ export class FigmaClient {
           const fillH = item.h === 'fill' || item.height === 'fill';
           const textCode = Object.entries(textOverrides).map(([k, v]) =>
             `await __setInstanceText(el${idx}, ${JSON.stringify(k)}, ${JSON.stringify(v)});`).join('\n          ');
+          const fillCode = Object.entries(fillOverrides).map(([k, v]) =>
+            `await __setInstanceFill(el${idx}, ${JSON.stringify(k)}, ${JSON.stringify(v)});`).join('\n          ');
+          const swapCode = Object.entries(swapOverrides).map(([k, v]) =>
+            `await __swapInstance(el${idx}, ${JSON.stringify(k)}, ${JSON.stringify(v)});`).join('\n          ');
           return `
         __currentNode = ${JSON.stringify('Instance: ' + String(compName || compId))};
         const comp${idx} = await __resolveComponent(${JSON.stringify(compId)}, ${JSON.stringify(compName)}, ${JSON.stringify(variantStr)});
@@ -1543,9 +1665,12 @@ export class FigmaClient {
           ${variantStr ? `try { el${idx}.setProperties(__variantPairs(${JSON.stringify(variantStr)})); } catch (e) {}` : ''}
           ${Object.keys(propOverrides).length ? `try { el${idx}.setProperties(await __mapProps(el${idx}, ${JSON.stringify(propOverrides)})); } catch (e) {}` : ''}
           ${textCode}
+          ${fillCode}
+          ${swapCode}
           ${instW !== null && instH !== null ? `try { el${idx}.resize(${instW}, ${instH}); } catch (e) {}` : ''}
           ${fillW ? `try { el${idx}.layoutSizingHorizontal = 'FILL'; } catch (e) {}` : ''}
           ${fillH ? `try { el${idx}.layoutSizingVertical = 'FILL'; } catch (e) {}` : ''}
+          ${this.minMaxCode(item, `el${idx}`)}
         } else {
           globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
           globalThis.__unresolvedVars.add('component:' + ${JSON.stringify(compName || compId)});
@@ -1719,6 +1844,9 @@ export class FigmaClient {
         frame.y = ${y};
         frame.cornerRadius = ${this.spacingRaw(rounded)};
         ${this.spacingBind('frame', ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], rounded, 'radius')}
+        ${this.cornerCode(props, 'frame')}
+        ${this.blendModeCode(props, 'frame')}
+        ${props.rotate !== undefined ? `frame.rotation = ${Number(props.rotate)};` : ''}
         ${rootFillCode.code}
         ${rootStrokeCode.code}
         ${rootEffectsCode}
@@ -1741,6 +1869,7 @@ export class FigmaClient {
         ${fillHeight ? `frame.layoutSizingVertical = 'FILL';` : ''}
         ${wrap && flex === 'row' && wrapGap > 0 ? `frame.counterAxisSpacing = ${wrapGap};` : ''}`}
         frame.clipsContent = ${clip};
+        ${this.minMaxCode(props, 'frame')}
         ${opacity !== null ? `frame.opacity = ${opacity};` : ''}
         ${visible === false ? `frame.visible = false;` : ''}
         ${locked === true ? `frame.locked = true;` : ''}
@@ -1752,9 +1881,21 @@ export class FigmaClient {
         const __unresolved = globalThis.__unresolvedVars
           ? [...globalThis.__unresolvedVars].sort() : [];
         if (globalThis.__unresolvedVars) globalThis.__unresolvedVars = new Set();
-        return __unresolved.length > 0
-          ? { id: frame.id, name: frame.name, unresolved: __unresolved }
-          : { id: frame.id, name: frame.name };
+        // Fixed-height frame: measure whether the laid-out content spills past
+        // the bottom edge. With clip=true the spill is invisible in the file
+        // and easy to miss on a screenshot — the number exists right here.
+        const __overflowPx = (() => {
+          if (!${hasExplicitHeight && !hugHeight && !fillHeight}) return 0;
+          if (frame.layoutMode === 'NONE' || frame.children.length === 0) return 0;
+          let bottom = 0;
+          for (const c of frame.children) bottom = Math.max(bottom, c.y + c.height);
+          const ov = Math.round(bottom + frame.paddingBottom - frame.height);
+          return ov > 1 ? ov : 0;
+        })();
+        const __result = { id: frame.id, name: frame.name };
+        if (__unresolved.length > 0) __result.unresolved = __unresolved;
+        if (__overflowPx > 0) __result.overflow = __overflowPx;
+        return __result;
         } catch(e) {
           // frame may be undeclared if createFrame() itself threw — a bare
           // frame.remove() there raises a ReferenceError that masks the real
@@ -1764,6 +1905,24 @@ export class FigmaClient {
         }
       })()
     `;
+  }
+
+  /**
+   * FILL/HUG sizing for leaf elements (Rect/Image/Ellipse). These branches
+   * used to run w/h through numOr() only, so w="fill" silently fell back to
+   * the fixed default width (Image: 200px) and overhung any narrower parent —
+   * found live: PlantCard is 173px wide, its "plant-photo" rendered 200px.
+   * Must run AFTER appendChild (layoutSizing needs an auto-layout parent).
+   */
+  fillSizingCode(item, elVar, parentFlex) {
+    const parentNone = parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free';
+    if (parentNone) return '';
+    const wVal = item.w ?? item.width;
+    const hVal = item.h ?? item.height;
+    const parts = [];
+    if (wVal === 'fill') parts.push(`try { ${elVar}.layoutSizingHorizontal = 'FILL'; } catch (e) {}`);
+    if (hVal === 'fill') parts.push(`try { ${elVar}.layoutSizingVertical = 'FILL'; } catch (e) {}`);
+    return parts.join('\n        ');
   }
 
   hexToRgb(hex) {
@@ -1891,6 +2050,23 @@ export class FigmaClient {
     const validModes = ['FILL', 'FIT', 'CROP', 'TILE'];
     const finalMode = validModes.includes(mode) ? mode : 'FILL';
     const safeName = elementVar.replace(/[^a-zA-Z0-9]/g, '');
+    // Local file path, pre-read by the CLI into base64 (imgref:<key> marker).
+    // Embedded bytes instead of a URL fetch: the plugin needs no network and
+    // the image works offline. Oversized/corrupt data degrades to the grey
+    // placeholder and is reported via __unresolvedVars.
+    if (url.startsWith('imgref:')) {
+      const key = url.slice(7);
+      const b64 = this.imageData[key];
+      if (!b64) return '';
+      return `
+      try {
+        const __img${safeName} = figma.createImage(figma.base64Decode(${JSON.stringify(b64)}));
+        ${elementVar}.fills = [{ type: 'IMAGE', imageHash: __img${safeName}.hash, scaleMode: '${finalMode}' }];
+      } catch (e) {
+        globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+        globalThis.__unresolvedVars.add('image:' + ${JSON.stringify(key)} + ' (' + e.message + ')');
+      }`;
+    }
     // Image REPLACES fills (not appends) — user expects bg-style behavior
     return `
       const __img${safeName} = await figma.createImageAsync(${JSON.stringify(url)});
@@ -2061,8 +2237,66 @@ export class FigmaClient {
    * auto-layout), so we set x/y directly. In an auto-layout parent, position=
    * "absolute" maps to layoutPositioning='ABSOLUTE' + x/y.
    */
+  /**
+   * min/max size constraints (responsive design carried into Figma).
+   * minW/maxW/minH/maxH were in the validation vocabulary but never applied —
+   * a silently-ignored prop class. Only meaningful on auto-layout frames and
+   * their children; Figma throws elsewhere, hence the try/catch.
+   */
+  minMaxCode(item, varName) {
+    const map = { minW: 'minWidth', maxW: 'maxWidth', minH: 'minHeight', maxH: 'maxHeight' };
+    const parts = [];
+    for (const [prop, apiName] of Object.entries(map)) {
+      const v = Number(item[prop]);
+      if (item[prop] !== undefined && Number.isFinite(v)) {
+        parts.push(`try { ${varName}.${apiName} = ${v}; } catch (e) {}`);
+      }
+    }
+    return parts.join('\n        ');
+  }
+
+  /**
+   * Per-corner radii + corner smoothing. Both were in the corners vocabulary
+   * but never applied — same silently-ignored class as minW/maxW.
+   */
+  cornerCode(item, varName) {
+    const map = { roundedTL: 'topLeftRadius', roundedTR: 'topRightRadius', roundedBL: 'bottomLeftRadius', roundedBR: 'bottomRightRadius' };
+    const parts = [];
+    for (const [prop, api] of Object.entries(map)) {
+      const v = Number(item[prop]);
+      if (item[prop] !== undefined && Number.isFinite(v)) {
+        parts.push(`try { ${varName}.${api} = ${v}; } catch (e) {}`);
+      }
+    }
+    const cs = Number(item.cornerSmoothing);
+    if (item.cornerSmoothing !== undefined && Number.isFinite(cs)) {
+      parts.push(`try { ${varName}.cornerSmoothing = ${Math.max(0, Math.min(1, cs))}; } catch (e) {}`);
+    }
+    return parts.join('\n        ');
+  }
+
+  /**
+   * blendMode — validated but never applied before. Accepts Figma enums and
+   * CSS-style names (soft-light -> SOFT_LIGHT); unknown values are dropped
+   * (grey fallback would be wrong here — no blend IS the neutral state).
+   */
+  blendModeCode(item, varName) {
+    if (item.blendMode === undefined || item.blendMode === null) return '';
+    const mode = String(item.blendMode).toUpperCase().replace(/-/g, '_');
+    const valid = ['NORMAL', 'DARKEN', 'MULTIPLY', 'LINEAR_BURN', 'COLOR_BURN',
+      'LIGHTEN', 'SCREEN', 'LINEAR_DODGE', 'COLOR_DODGE', 'OVERLAY',
+      'SOFT_LIGHT', 'HARD_LIGHT', 'DIFFERENCE', 'EXCLUSION',
+      'HUE', 'SATURATION', 'COLOR', 'LUMINOSITY', 'PASS_THROUGH'];
+    if (!valid.includes(mode)) return '';
+    return `try { ${varName}.blendMode = '${mode}'; } catch (e) {}`;
+  }
+
   genCommonNodeProps(item, varName, parentIsNone) {
     const parts = [];
+    const minMax = this.minMaxCode(item, varName);
+    if (minMax) parts.push(minMax);
+    const blend = this.blendModeCode(item, varName);
+    if (blend) parts.push(blend);
     if (item.opacity !== undefined && item.opacity !== null) parts.push(`${varName}.opacity = ${Number(item.opacity)};`);
     if (item.visible === false || item.visible === 'false') parts.push(`${varName}.visible = false;`);
     if (item.rotate !== undefined) parts.push(`${varName}.rotation = ${Number(item.rotate)};`);
