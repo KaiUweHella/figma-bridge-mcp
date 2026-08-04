@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// figma-ds-cli entry point. The CLI core (daemon plumbing, eval helpers,
+// figma-bridge-engine entry point. The CLI core (daemon plumbing, eval helpers,
 // config, the Commander program) lives in lib/cli-core.js; every command
 // group registers itself as an import side effect, in the original order.
 import './lib/cli-core.js';

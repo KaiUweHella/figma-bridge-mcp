@@ -1173,7 +1173,7 @@ export function generateDesignMd(extraction, options = {}) {
   out.push(`scope: ${extraction.pages.length} page(s)`);
   out.push(`date: ${extraction.date}`);
   out.push(`nodes-scanned: ${extraction.pages.reduce((a, p) => a + (p.nodeCount || 0), 0)}`);
-  out.push(`generator: figma-cli extract`);
+  out.push(`generator: figma-bridge-engine extract`);
   out.push('-->', '');
 
   let num = 0;
@@ -1212,7 +1212,7 @@ export function generateDesignMd(extraction, options = {}) {
       if (!resolvedVars.length) {
         out.push('_no local variables found — this file has no variable collections, the palette above is sampled from raw fills_', '');
       } else {
-        out.push('Real Figma variable collections — the authoritative tokens (names, modes, values). These come straight from the file, unlike the sampled palette above. `figma-cli import` can recreate them as variables.', '');
+        out.push('Real Figma variable collections — the authoritative tokens (names, modes, values). These come straight from the file, unlike the sampled palette above. figma_run ["import", "<this file>"] can recreate them as variables.', '');
         for (const col of resolvedVars) {
           out.push(`### Collection: ${col.name}  ·  ${col.variables.length} variables  ·  modes: ${col.modes.join(', ')}`, '');
           out.push(`| Variable | Type | ${col.modes.map(mdCell).join(' | ')} |`);
@@ -1308,7 +1308,7 @@ export function generateDesignMd(extraction, options = {}) {
     if (key === 'extending') {
       header(key);
       out.push('### How to reuse this DESIGN.md', '');
-      out.push('Import into Figma with `figma-cli import <this file>` — colors, radii and typography become variables.', '');
+      out.push('Import into Figma with figma_run ["import", "<this file>"] — colors, radii and typography become variables.', '');
       out.push('### When to add a new token vs reuse', '');
       out.push('Reuse the closest existing token; add a new one only when a new semantic role appears.', '');
     }

@@ -51,7 +51,7 @@ program
   .action(async (component, options) => {
     const file = locateDesignMd(options.file);
     if (!file) {
-      console.error(chalk.red('✗ No DESIGN.md found.'), 'Pass --file <path> or run from a folder that has one (try `figma-cli extract` first).');
+      console.error(chalk.red('✗ No DESIGN.md found.'), 'Pass --file <path> or run from a folder that has one (try figma_run ["extract"] first).');
       process.exit(1);
     }
     const md = readFileSync(file, 'utf8');
@@ -76,7 +76,7 @@ program
         const meta = [s.lm === 'HORIZONTAL' ? 'row' : s.lm === 'VERTICAL' ? 'col' : null, s.gap != null ? `gap ${s.gap}` : null, s.pad ? `pad ${s.pad.join('/')}` : null, s.children?.length ? `${s.children.length} children` : null].filter(Boolean).join(', ');
         console.log(chalk.gray(`sample: ${s.name} → ${s.w}×${s.h}${meta ? ` (${meta})` : ''}`));
       }
-      console.log(chalk.gray(`\nbuild to this, then enforce: figma-cli spec "${spec.name}" --check <nodeId>`));
+      console.log(chalk.gray(`\nbuild to this, then enforce: figma_run ["spec","${spec.name}","--check","<nodeId>"]`));
       // Also emit JSON on the last line for programmatic use.
       console.log(JSON.stringify({ spec }));
       return;

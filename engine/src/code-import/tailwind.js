@@ -57,7 +57,7 @@ export async function parseTailwindConfig(configPath) {
     throw new Error(
       `Cannot load ${abs}: ${err.message}. ` +
       `If this is a Tailwind v4 project, import the CSS file with @theme instead ` +
-      `(figma-cli import styles.css), or export your tokens as JSON.`
+      `(figma_run ["import", "styles.css"]), or export your tokens as JSON.`
     );
   }
 
@@ -178,7 +178,7 @@ export async function parseTailwindConfig(configPath) {
     throw new Error(
       `Cannot load ${abs}: all theme values are dynamic functions. ` +
       `If this is a Tailwind v4 project, import the CSS file with @theme instead ` +
-      `(figma-cli import styles.css), or export your tokens as JSON.`
+      `(figma_run ["import", "styles.css"]), or export your tokens as JSON.`
     );
   }
 

@@ -1,7 +1,7 @@
 /**
  * Figma Plugin API documentation lookup.
  *
- * Reads from docs/figma-api/ (cloned via `figma-cli api setup`).
+ * Reads from docs/figma-api/ (cloned via the `api setup` command).
  * Source: https://github.com/iamtekeste/figma (Figma Plugin API as markdown)
  */
 
@@ -36,7 +36,7 @@ export async function setup({ update = false } = {}) {
       return;
     } catch (e) {
       console.error('✗ git pull failed:', e.message);
-      console.error('  If the repo is dirty, delete docs/figma-api/ and re-run `figma-cli api setup`.');
+      console.error('  If the repo is dirty, delete docs/figma-api/ and re-run figma_run ["api","setup"].');
       process.exit(1);
     }
   }
@@ -46,7 +46,7 @@ export async function setup({ update = false } = {}) {
     execSync(`git clone --depth 1 ${REPO} "${DOCS_DIR}"`, { stdio: 'inherit' });
     // Build the compact index on first install
     try { buildIndex({ silent: true }); } catch {}
-    console.log('✓ done. Try: figma-cli api Frame  or  figma-cli api index');
+    console.log('✓ done. Try: figma_run ["api","Frame"]  or  figma_run ["api","index"]');
   } catch (e) {
     console.error('✗ clone failed:', e.message);
     process.exit(1);
@@ -83,7 +83,7 @@ function listAll() {
 export function list(filter) {
   const all = listAll();
   if (!all) {
-    console.error('✗ docs not installed. Run: figma-cli api setup');
+    console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
     process.exit(1);
   }
   const items = filter
@@ -168,11 +168,11 @@ function compactMarkdown(md) {
 export function show(query, opts = {}) {
   const all = listAll();
   if (!all) {
-    console.error('✗ docs not installed. Run: figma-cli api setup');
+    console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
     process.exit(1);
   }
   if (!query) {
-    console.error('Usage: figma-cli api <name>   (e.g. figma-cli api FrameNode)');
+    console.error('Usage: figma_run ["api","<name>"]   (e.g. figma_run ["api","FrameNode"])');
     process.exit(1);
   }
   const ranked = all
@@ -181,7 +181,7 @@ export function show(query, opts = {}) {
     .sort((a, b) => b.s - a.s);
   if (ranked.length === 0) {
     console.log(`No interface or type matching "${query}".`);
-    console.log('Try: figma-cli api list ' + query);
+    console.log(`Try: figma_run ["api","list","${query}"]`);
     return;
   }
   const top = ranked[0];
@@ -190,7 +190,7 @@ export function show(query, opts = {}) {
     for (const r of ranked.slice(0, 8)) {
       console.log(`  ${r.kind.padEnd(10)} ${r.name}`);
     }
-    console.log(`\nUse: figma-cli api <exact-name>`);
+    console.log(`\nUse: figma_run ["api","<exact-name>"]`);
     return;
   }
   const md = fs.readFileSync(top.file, 'utf-8');
@@ -198,7 +198,7 @@ export function show(query, opts = {}) {
     console.log(md);
   } else {
     console.log(compactMarkdown(md));
-    console.log('\n(compact view — full docs: figma-cli api ' + top.name + ' --full)');
+    console.log(`\n(compact view — full docs: figma_run ["api","${top.name}","--full"])`);
   }
 }
 
@@ -281,7 +281,7 @@ export function suggestFromError(message) {
     let tag = '';
     if (r.source === 'definition') tag = ` (defines "${r.matchedTerm}")`;
     else if (r.source === 'mention') tag = ` (mentions "${r.matchedTerm}")`;
-    console.error(`    figma-cli api ${r.name}${tag}`);
+    console.error(`    figma_run ["api","${r.name}"]${tag}`);
   }
   return true;
 }
@@ -294,8 +294,8 @@ export function suggest(query) {
   if (!query) return;
   const all = listAll();
   if (!all) {
-    console.error('  → run `figma-cli --help` to see available commands');
-    console.error('  → or `figma-cli api setup` to enable offline Figma API lookup');
+    console.error('  → run figma_run ["--help"] to see available commands');
+    console.error('  → or figma_run ["api","setup"] to enable offline Figma API lookup');
     return;
   }
   const ranked = all
@@ -304,14 +304,14 @@ export function suggest(query) {
     .sort((a, b) => b.s - a.s)
     .slice(0, 5);
   if (ranked.length === 0) {
-    console.error('  → run `figma-cli --help` to see available commands');
+    console.error('  → run figma_run ["--help"] to see available commands');
     return;
   }
   console.error('  Did you mean one of these Figma Plugin API references?');
   for (const r of ranked) {
-    console.error(`    figma-cli api ${r.name}`);
+    console.error(`    figma_run ["api","${r.name}"]`);
   }
-  console.error('  Or run `figma-cli --help` for actual CLI commands.');
+  console.error('  Or run figma_run ["--help"] for the actual command list.');
 }
 
 /**
@@ -320,7 +320,7 @@ export function suggest(query) {
  * "method" is the literal name as defined under a `### name()` heading,
  * "signature" is the next non-blank source line (typically `> **name**(args): ReturnType`).
  *
- * API-doc fallback: when no figma-cli subcommand matches the
+ * API-doc fallback: when no engine subcommand matches the
  * user's intent, search for matching methods so we can synthesize an `eval` call.
  */
 export function searchMethods(keyword) {
@@ -384,7 +384,7 @@ export function searchMethods(keyword) {
 export function gap() {
   const all = listAll();
   if (!all) {
-    console.error('✗ docs not installed. Run: figma-cli api setup');
+    console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
     process.exit(1);
   }
   // Read figma-cli's main entry and check which Figma API names appear used vs. defined
@@ -450,7 +450,7 @@ export function gap() {
     console.log();
   }
 
-  console.log('Tip: figma-cli api <Name>   to read the full spec for any of these.');
+  console.log('Tip: figma_run ["api","<Name>"]   to read the full spec for any of these.');
 }
 
 /** Path to the compact index. Rebuilt by buildIndex(); lives alongside the docs. */
@@ -467,7 +467,7 @@ const INDEX_PATH = path.resolve(__dirname, '..', 'docs', 'figma-api-INDEX.md');
  */
 export function buildIndex({ silent = false } = {}) {
   if (!isInstalled()) {
-    if (!silent) console.error('✗ docs not installed. Run: figma-cli api setup');
+    if (!silent) console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
     process.exit(1);
   }
   const all = listAll();
@@ -545,7 +545,7 @@ export function readIndex() {
  */
 export function getContext(topic) {
   if (!isInstalled()) {
-    return '(Figma API docs not installed — run `figma-cli api setup` first.)';
+    return '(Figma API docs not installed — run figma_run ["api","setup"] first.)';
   }
   const idx = readIndex();
   if (!topic || !topic.trim()) return idx;

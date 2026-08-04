@@ -69,7 +69,7 @@ historyCmd
       if (pruned.length) {
         console.log(chalk.gray(`  pruned ${pruned.length} older snapshot(s)`));
       }
-      console.log(chalk.gray('\n  Diff against it later with: figma-cli history diff latest live'));
+      console.log(chalk.gray('\n  Diff against it later with: figma_run ["history","diff","latest","live"]'));
     } catch (e) {
       handleEvalError(e);
     }
@@ -89,7 +89,7 @@ historyCmd
     const snaps = listSnapshots(fileKey);
     if (!snaps.length) {
       console.log(chalk.yellow('No snapshots yet for this file.'));
-      console.log(chalk.gray('  Record one with: figma-cli history snapshot'));
+      console.log(chalk.gray('  Record one with: figma_run ["history","snapshot"]'));
       return;
     }
     console.log(chalk.white(`${snaps.length} snapshot(s) in ${snapshotDir(fileKey)}\n`));
@@ -139,10 +139,10 @@ historyCmd
         const available = listSnapshots(fileKey);
         console.error(chalk.red(`✗ No snapshot matches "${ref}" (${side} side).`));
         if (!available.length) {
-          console.error(chalk.yellow('  There are no snapshots for this file yet — run: figma-cli history snapshot'));
+          console.error(chalk.yellow('  There are no snapshots for this file yet — run: figma_run ["history","snapshot"]'));
         } else {
-          console.error(chalk.yellow(`  ${available.length} available; list them with: figma-cli history list`));
-          console.error(chalk.gray('  Or compare against the live document: figma-cli history diff latest live'));
+          console.error(chalk.yellow(`  ${available.length} available; list them with: figma_run ["history","list"]`));
+          console.error(chalk.gray('  Or compare against the live document: figma_run ["history","diff","latest","live"]'));
         }
         process.exit(1);
       }

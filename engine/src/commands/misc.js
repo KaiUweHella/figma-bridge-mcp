@@ -539,8 +539,8 @@ propCmd
     if (apiType === 'VARIANT') {
       console.error(chalk.red('✗'), 'VARIANT properties cannot be added directly. Create variants by:');
       console.error('  1. Render multiple components (one per variant)');
-      console.error('  2. Convert each: figma-cli node to-component <id>');
-      console.error('  3. Combine: figma-cli component combine <id1,id2,id3> --name "MyComponent"');
+      console.error('  2. Convert each: figma_run ["node","to-component","<id>"]');
+      console.error('  3. Combine: figma_run ["component","combine","<id1,id2,id3>","--name","MyComponent"]');
       process.exit(1);
     }
     const code = `(async () => {
@@ -798,7 +798,7 @@ apiCmd
 
 apiCmd
   .command('gap')
-  .description('Show Figma Plugin API capabilities not yet exposed by figma-cli')
+  .description('Show Figma Plugin API capabilities this engine does not expose yet')
   .action(() => apiDocs.gap());
 
 apiCmd
@@ -828,7 +828,7 @@ apiCmd
       console.log(`  ${chalk.cyan(r.method)}  ${chalk.dim('on ' + r.interface)}`);
       if (r.signature) console.log(`    ${chalk.gray(r.signature)}`);
     }
-    console.log('\nTip: use these inside a `figma-cli eval "..."` call when no subcommand fits.');
+    console.log('\nTip: these are the raw Figma API calls the commands above are built from.');
   });
 
 // (Unknown-command handling lives inside the default program.action)

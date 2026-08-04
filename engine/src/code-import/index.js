@@ -106,7 +106,7 @@ function renderDesignMd(tokens, meta, type) {
   // Extraction-meta comment block (source: line matched by sourceMatch regex)
   lines.push('<!--');
   lines.push(`source: ${name}`);
-  lines.push(`generator: figma-cli import (${type})`);
+  lines.push(`generator: figma-bridge-engine import (${type})`);
   lines.push(`generated: ${generated}`);
   lines.push('-->');
   lines.push('');

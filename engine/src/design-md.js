@@ -4,7 +4,7 @@
  * Parses the "Machine-readable tokens" JSON block at the end of a DESIGN.md
  * (the format produced by Figma extraction tools like figma-extract.md, the
  * `tokens-studio` exporter, and similar). Returns a normalized token map
- * ready for figma-cli's `tokens import` pipeline.
+ * ready for the `tokens import` pipeline.
  *
  * Expected document layout:
  *   ## 11. Machine-readable tokens
@@ -54,7 +54,7 @@ function normalizeYamlSpec(spec) {
     colorRows.push({ name: k, color: hex, role });
   }
   out.color = assignCanonical(colorRows);
-  // typography — figma-cli's importer expects { fontFamily, fontSize, fontWeight, lineHeight, letterSpacing }
+  // typography — the importer expects { fontFamily, fontSize, fontWeight, lineHeight, letterSpacing }
   const ty = spec.typography || {};
   for (const [name, t] of Object.entries(ty)) {
     if (typeof t !== 'object') continue;
@@ -127,7 +127,7 @@ function yamlRole(key) {
 }
 
 // Shared canonical vocabulary. EVERY design system imports under these same
-// names so `figma-cli use <collection>` can switch a design cleanly between
+// names so a theme switch can move a design cleanly between
 // brands (cursor ↔ stripe ↔ apple) — name-matching only works if names match.
 const CANON_NAMES = {
   bg: ['canvas', 'canvas-subtle'],
@@ -165,7 +165,7 @@ const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 /**
  * Format C: prose DESIGN.md (awesome-design-md brand style) with role-labelled
  * color rows but no machine-readable block. Buckets rows by role and assigns
- * the canonical semantic names figma-cli expects (canvas, ink,
+ * the canonical semantic names the engine expects (canvas, ink,
  * primary, …), falling back to slugged display names for the rest. Returns the
  * normalized token shape, or null if the file isn't a prose design system.
  */
@@ -284,7 +284,7 @@ export function summarizeForLLM({ tokens, meta }) {
       .map(([k, v]) => `var:${k}=${v}`)
       .join(', ');
     lines.push(`Color tokens (${colors.length} total, top by usage): ${sample}`);
-    if (colors.length > 40) lines.push(`  …and ${colors.length - 40} more — call \`figma-cli var list\` for the full set.`);
+    if (colors.length > 40) lines.push(`  …and ${colors.length - 40} more — call figma_run ["var", "list"] for the full set.`);
   }
   if (types.length) lines.push(`Typography tokens (${types.length}): ${types.join(', ')}`);
   if (radii.length) lines.push(`Radius tokens (${radii.length}): ${radii.join(', ')}`);
@@ -302,13 +302,13 @@ export function summarizeForLLM({ tokens, meta }) {
   lines.push(`- ALWAYS use \`bg="var:<name>"\` / \`color="var:<name>"\` for colors, never raw hex.`);
   lines.push(`- For text styles, match by purpose to the typography token names above.`);
   lines.push(`- For radii, match by name (e.g. radius-md = 2px).`);
-  lines.push(`- If the user asks for a component already listed under "Existing component pages", PREFER using the existing component over creating a new one. Hint: 'figma-cli find "<name>"' to locate it.`);
+  lines.push(`- If the user asks for a component already listed under "Existing component pages", PREFER using the existing component over creating a new one. Hint: figma_run ["find", "<name>"] to locate it.`);
   return lines.join('\n');
 }
 
-/** Build the JSON payload that figma-cli's `tokens import` already consumes. */
+/** Build the JSON payload that `tokens import` already consumes. */
 export function toTokensImportJson({ tokens }) {
-  // figma-cli `tokens import` accepts a flat or nested map. We flatten color
+  // `tokens import` accepts a flat or nested map. We flatten color
   // / radius into the W3C-token-spec-ish shape it already understands.
   const out = {
     color: {},

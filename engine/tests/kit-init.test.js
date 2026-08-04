@@ -110,7 +110,7 @@ test('a missing project directory is refused with the fix', async (t) => {
   const res = await runKit([join(tmpdir(), 'definitely-not-here-' + process.pid)], port);
   assert.equal(res.code, 1);
   assert.match(res.out, /Project directory not found/);
-  assert.match(res.out, /kit init \.\/my-app/);
+  assert.match(res.out, /\["kit","init","\.\/my-app"\]/);
 });
 
 test('a failing step is reported, and the run continues to the next one', async (t) => {

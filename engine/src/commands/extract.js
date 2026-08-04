@@ -37,7 +37,7 @@ function parseEvalResult(res) {
 
 program
   .command('extract [output]')
-  .description('Scan the open Figma file (all pages) and write a DESIGN.md — tokens, structure, component variant matrices. Roundtrips with `figma-cli import`.')
+  .description('Scan the open Figma file (all pages) and write a DESIGN.md — tokens, structure, component variant matrices. Roundtrips with the `import` command.')
   .option('--sections <list>', `comma list of sections (${ALL_SECTIONS.join(',')})`)
   .option('--pages <list>', 'only pages whose name matches one of these (comma list, case-insensitive substring)')
   .option('--selection', 'only the currently selected nodes (overrides --pages)')
@@ -213,7 +213,7 @@ program
         console.log(chalk.yellow(`  ⚠ ${failed.length} page(s) skipped:`));
         for (const f of failed) console.log(chalk.yellow(`    - ${f.name}: ${f.error}`));
       }
-      console.log(chalk.gray(`  Re-import anytime: figma-cli import ${output || 'DESIGN.md'}`));
+      console.log(chalk.gray(`  Re-import anytime: figma_run ["import","${output || 'DESIGN.md'}"]`));
       // Exit explicitly: the extraction is done and nothing else should keep
       // the event loop (spinners, stray timers) alive.
       process.exit(0);

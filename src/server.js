@@ -631,8 +631,8 @@ function resultFromCli({ stdout, stderr }) {
 function previewResult(args) {
   return textResult(
     "Write-confirm mode is on. Planned command:\n" +
-      "  figma-cli " +
-      args.join(" ") +
+      "  figma_run " +
+      JSON.stringify(args) +
       "\n\nRe-run with confirm:true to execute.",
   );
 }
@@ -1175,8 +1175,8 @@ export async function handleTool(name, rawArgs) {
       } catch (err) {
         const msg = `${err.stderr || ""}${err.stdout || ""}${err.message || ""}`;
         if (msg.includes("docs not installed")) {
-          // The engine's hint says `figma-cli api setup`, which an MCP agent
-          // cannot type. Translate it into the tool call that actually works.
+          // The engine already names the right call; this adds the one thing
+          // it cannot know — that the download is a bounded, one-time cost.
           return errorResult(
             "The offline API docs are not installed yet (one-time download, ~5 MB).\n" +
               'Run: figma_run with args ["api", "setup"] — then retry figma_reference.',

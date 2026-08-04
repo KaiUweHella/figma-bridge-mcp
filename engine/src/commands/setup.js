@@ -44,20 +44,20 @@ import {
 } from '../lib/cli-core.js';
 
 program
-  .name('figma-ds-cli')
-  .description('CLI for managing Figma design systems')
+  .name('figma-bridge-engine')
+  .description('The Figma-facing engine behind figma-bridge-mcp. Normally driven by the MCP server, not typed by hand.')
   .version(pkg.version)
   // Global, because it applies to every command that reaches Figma rather than
   // to any one of them. Only needed when more than one Figma window has the
   // plugin running: with a single window the daemon routes there anyway, and
   // with several it refuses to guess. There is deliberately no "--all-files".
   //
-  // NOT `--file`: eval, spec and instantiate already own `-f, --file <path>`
-  // for a local file path, and commander would resolve the global as theirs —
-  // silently dropping the target and failing with an ambiguity error instead.
+  // NOT `--file`: eval and spec already own `-f, --file <path>` for a local
+  // file path, and commander would resolve the global as theirs — silently
+  // dropping the target and failing with an ambiguity error instead.
   .option('--figma-file <keyOrUrl>', 'Target a specific connected Figma file (see `status`)');
 
-// Top-level shortcut: `figma-cli import <source>` — auto-detects the source
+// Top-level shortcut: `import <source>` — auto-detects the source
 // type and routes to the right importer.
 // Supported: DESIGN.md (Figma extraction format), Tailwind config, CSS custom
 // properties, W3C design-tokens JSON, Storybook (URL or static build).
@@ -145,7 +145,7 @@ program
       console.log(chalk.green('✓'), `Component context saved to ${designMdPath}`);
     } else {
       // Tokens present: use a temp file (not permanent unless --save given)
-      designMdPath = join(tmpdir(), `figma-cli-import-${Date.now()}.md`);
+      designMdPath = join(tmpdir(), `figma-bridge-import-${Date.now()}.md`);
       writeFileSync(designMdPath, designMd, 'utf-8');
     }
 
@@ -173,16 +173,16 @@ program
         chalk.yellow('\nStorybook gives component context, not design tokens.') +
         chalk.gray(' Combine with:')
       );
-      console.log(chalk.cyan('  figma-cli import tailwind.config.js'));
-      console.log(chalk.cyan('  figma-cli import src/globals.css'));
-      console.log(chalk.cyan('  figma-cli import tokens.json'));
+      console.log(chalk.cyan('  figma_run ["import","tailwind.config.js"]'));
+      console.log(chalk.cyan('  figma_run ["import","src/globals.css"]'));
+      console.log(chalk.cyan('  figma_run ["import","tokens.json"]'));
     } else {
       console.log(chalk.yellow('⚠'), 'No tokens or components found in source.');
     }
   });
 
 function _printSupportedFormats() {
-  console.error(chalk.yellow('  Supported sources for `figma-cli import`:'));
+  console.error(chalk.yellow('  Supported sources for `import`:'));
   console.error('    • DESIGN.md       (## Machine-readable tokens block, YAML frontmatter, or prose rows)');
   console.error('    • tailwind.config.js / .cjs / .ts   (Tailwind color/radius/spacing/font config)');
   console.error('    • globals.css / styles.css           (CSS custom properties, @theme, shadcn HSL)');
@@ -225,7 +225,7 @@ program.action(async () => {
 // ============ STATUS ============
 
 // (`setup` was an alias that shelled out to a globally installed
-// `figma-ds-cli init` — a binary this vendored build never installs.)
+// `figma-ds-cli init` — a binary this build never installs.)
 
 program
   .command('status')
@@ -240,7 +240,7 @@ program
           ? chalk.green('  \u2713 Plugin connected') + chalk.gray(` (mode: ${health.mode})`)
           : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 Figma Bridge in Figma'));
         if (!health.keyConfigured) {
-          console.log(chalk.yellow('  \u26a0 No access key configured') + chalk.gray(' \u2014 run: figma-cli connect'));
+          console.log(chalk.yellow('  \u26a0 No access key configured') + chalk.gray(' \u2014 run figma_connect'));
         }
         // With more than one window connected, commands must name a file \u2014
         // so the list has to be reachable from here.
@@ -251,7 +251,7 @@ program
             console.log('    ' + chalk.cyan(c.fileKey || '(unidentified)')
               + chalk.gray('  ' + [c.fileName, c.editorType].filter(Boolean).join('  ')));
           }
-          console.log(chalk.gray('\n  Target one with --figma-file <key>, e.g. figma-cli --figma-file '
+          console.log(chalk.gray('\n  Target one with --figma-file <key>, e.g. --figma-file '
             + (conns[0].fileKey || '<key>') + ' canvas info'));
         } else if (conns.length === 1 && conns[0].fileName) {
           console.log(chalk.gray(`    ${conns[0].fileName}`
@@ -262,10 +262,10 @@ program
       }
     } else if (daemonInfo && daemonInfo.authFailed) {
       console.log(chalk.yellow('  \u26a0 Daemon running but token mismatch (auth failed).'));
-      console.log(chalk.gray('    Restart with:  figma-cli daemon restart'));
+      console.log(chalk.gray('    Restart with:  figma_run ["daemon","restart"]'));
     } else {
       console.log(chalk.yellow('  \u26a0 Daemon NOT running'));
-      console.log(chalk.gray('    Start it with:  figma-cli connect'));
+      console.log(chalk.gray('    Start it with:  figma_connect'));
     }
   });
 

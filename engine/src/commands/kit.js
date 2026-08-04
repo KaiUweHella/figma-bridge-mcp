@@ -1,6 +1,6 @@
 // Command: kit — get an existing design system agent-ready in one step.
 //
-// The answer to "but figma-cli ships shadcn" is not to ship a design system of
+// The answer to "but the other tools ship shadcn" is not to ship a design system of
 // our own. It is to make the user's OWN system usable by an agent quickly:
 // a DESIGN.md to read, tokens to bind, a component inventory with stable
 // publish keys, and — if there is a Storybook — the Figma↔code mapping.
@@ -66,7 +66,7 @@ kit
     const root = resolvePath(projectDir || '.');
     if (!existsSync(root)) {
       console.error(chalk.red(`✗ Project directory not found: ${root}`));
-      console.error(chalk.yellow('  Pass the path to your code project, e.g. figma-cli kit init ./my-app'));
+      console.error(chalk.yellow('  Pass the path to your code project, e.g. figma_run ["kit","init","./my-app"]'));
       process.exit(1);
     }
     const outDir = resolvePath(join(root, options.out));
@@ -125,7 +125,7 @@ kit
       console.log(chalk.white('\n  Components:'));
       for (const line of lines.slice(0, 15)) console.log(`    ${line}`);
       if (lines.length > 15) {
-        console.log(chalk.gray(`    … ${lines.length - 15} more — figma-cli component list`));
+        console.log(chalk.gray(`    … ${lines.length - 15} more — figma_run ["component","list"]`));
       }
     }
 
@@ -151,7 +151,7 @@ kit
       }
     }
     if (existsSync(tokensFile)) {
-      gaps.push(`Keep tokens in step with: figma-cli tokens sync ${tokensFile}`);
+      gaps.push(`Keep tokens in step with: figma_run ["tokens","sync","${tokensFile}"]`);
     }
 
     if (gaps.length) {

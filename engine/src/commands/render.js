@@ -38,7 +38,7 @@ function printUnresolvedVars(unresolved) {
   if (!unresolved || unresolved.length === 0) return;
   console.log(chalk.yellow(`\n\u26a0 ${unresolved.length} variable reference(s) could not be resolved:`));
   console.log(chalk.yellow('  ' + unresolved.join(', ')));
-  console.log(chalk.gray('  These bindings rendered as grey placeholders. Check `figma-cli var list` (optionally with --collection).'));
+  console.log(chalk.gray('  These bindings rendered as grey placeholders. Check figma_run ["var", "list"] (optionally with --collection).'));
 }
 
 // Content taller than a fixed-height frame is invisible with clip=true and
@@ -166,7 +166,7 @@ function warnUnnamedComponentTexts(jsx) {
 // command could find the nodes to remove. Render already returns the ids it
 // created, which is what a caller deletes with.)
 
-// Screenshot a freshly rendered node (same export logic as `figma-cli verify`)
+// Screenshot a freshly rendered node (same export logic as the `verify` command)
 // so render --verify gives Claude the visual check in a single roundtrip.
 async function verifyRendered(nodeId) {
   try {
@@ -204,7 +204,7 @@ program
   .option('--as-component', 'After rendering, convert the resulting frame to a Figma component')
   .option('--keep-wrapper', 'Keep an outer flex Frame as a parent — disables the auto-split that turns "N items in a flex wrapper" into independent canvas items')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
-  .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `figma-cli verify` roundtrip')
+  .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `verify` roundtrip')
   .option('--preset <device>', `Root frame size preset when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .action(async (rawJsx, options) => {
@@ -396,7 +396,7 @@ program
         if (unresolvedVars && unresolvedVars.length > 0) {
           console.log(chalk.yellow(`\n⚠ ${unresolvedVars.length} variable reference(s) could not be resolved:`));
           console.log(chalk.yellow('  ' + unresolvedVars.join(', ')));
-          console.log(chalk.gray('  These bindings rendered as grey placeholders. Check `figma-cli var list` (optionally with --collection).'));
+          console.log(chalk.gray('  These bindings rendered as grey placeholders. Check figma_run ["var", "list"] (optionally with --collection).'));
         }
 
         if (options.asComponent) {

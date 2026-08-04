@@ -219,7 +219,7 @@ return JSON.stringify({ file: figma.root.name, vars: vars.map(v => {
 // NOTE: there is deliberately NO `export tailwind` — the neutral token
 // formats are `export css` and `export dtcg`; framework-specific configs are
 // derivable from those. (Importing an EXISTING tailwind.config.js via
-// `figma-cli import` stays supported — that reads the user's project.)
+// the `import` command stays supported — that reads the user's project.)
 
 /**
  * Placement block of a manifest entry, from a collector node. The manifest
@@ -388,7 +388,7 @@ exp
 
 exp
   .command('dtcg [output] [nodeId]')
-  .description('Export design tokens as W3C Design Tokens (DTCG) JSON. With a node id/URL (either argument position): only the variables actually BOUND in that subtree, library tokens included. Without: all LOCAL variables of the open file. Import side: figma-cli import tokens.json')
+  .description('Export design tokens as W3C Design Tokens (DTCG) JSON. With a node id/URL (either argument position): only the variables actually BOUND in that subtree, library tokens included. Without: all LOCAL variables of the open file. Import side: figma_run ["import", "tokens.json"]')
   .action(async (output, nodeId) => {
     await checkConnection();
     // Node id in the first slot ("dtcg 34-6455") — output is optional, the

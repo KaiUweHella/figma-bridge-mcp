@@ -61,7 +61,7 @@ const tokens = program
 // no tailwind/shadcn/radix/material palettes, no branded starter kits. This
 // tool ships neutral scales only (spacing, radii); bring your own system via
 // `tokens import`, `tokens import-design-md` or
-// `figma-cli import <tailwind.config|css|tokens|storybook>`.
+// `import <tailwind.config|css|tokens|storybook>`.
 
 tokens
   .command('spacing')
@@ -162,7 +162,7 @@ tokens
     if (options.collection && options.collection.includes('/')) {
       console.error(chalk.yellow(`⚠ Collection name "${options.collection}" contains "/".`));
       console.error(chalk.yellow('  Figma does not nest collections. "/" creates flat sibling collections.'));
-      console.error(chalk.gray('  If this is a DESIGN.md file, use `figma-cli import <path>` instead — it imports the whole system into one collection atomically.'));
+      console.error(chalk.gray('  If this is a DESIGN.md file, use figma_run ["import", "<path>"] instead — it imports the whole system into one collection atomically.'));
       console.error(chalk.gray('  To proceed anyway, re-run with --force-slash.'));
       if (!options.forceSlash) process.exit(1);
     }
@@ -539,12 +539,12 @@ tokens
 
 tokens
   .command('overlap <collections...>')
-  .description('Compare token names across N local variable collections. Shows common core (switchable subset) + per-collection unique names. Useful before `figma-cli use` to know which tokens swap cleanly.')
+  .description('Compare token names across N local variable collections. Shows common core (switchable subset) + per-collection unique names. Useful before a theme switch, to know which tokens swap cleanly.')
   .option('--json', 'Output as JSON')
   .action(async (collectionNames, options) => {
     await checkConnection();
     if (collectionNames.length < 2) {
-      console.error(chalk.red('✗'), 'Pass at least two collection names. Example: figma-cli tokens overlap airbnb cursor stripe');
+      console.error(chalk.red('✗'), 'Pass at least two collection names. Example: figma_run ["tokens","overlap","airbnb","cursor","stripe"]');
       process.exit(1);
     }
     const code = `(async () => {
@@ -648,7 +648,7 @@ tokens
     const { toTokensImportJson, summarizeForLLM, variableImportCode } = await import('../design-md.js');
 
     // Authoritative path: the file carries real variable collections (from
-    // `figma-cli extract`). Recreate them faithfully — names, modes, alias
+    // the `extract` command). Recreate them faithfully — names, modes, alias
     // chains — instead of the lossy single-mode palette derived from fills.
     const realVars = parsed.tokens.variables;
     if (realVars && Object.keys(realVars).length) {
