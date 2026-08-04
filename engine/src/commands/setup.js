@@ -46,7 +46,12 @@ import {
 program
   .name('figma-ds-cli')
   .description('CLI for managing Figma design systems')
-  .version(pkg.version);
+  .version(pkg.version)
+  // Global, because it applies to every command that reaches Figma rather than
+  // to any one of them. Only needed when more than one Figma window has the
+  // plugin running: with a single window the daemon routes there anyway, and
+  // with several it refuses to guess. There is deliberately no "--all-files".
+  .option('--file <keyOrUrl>', 'Target a specific connected Figma file (see `status`)');
 
 // Top-level shortcut: `figma-cli import <source>` — auto-detects the source
 // type and routes to the right importer.
@@ -254,6 +259,21 @@ program
           : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 Figma Bridge in Figma'));
         if (!health.keyConfigured) {
           console.log(chalk.yellow('  \u26a0 No access key configured') + chalk.gray(' \u2014 run: figma-cli connect'));
+        }
+        // With more than one window connected, commands must name a file \u2014
+        // so the list has to be reachable from here.
+        const conns = Array.isArray(health.connections) ? health.connections : [];
+        if (conns.length > 1) {
+          console.log(chalk.white(`\n  ${conns.length} Figma windows connected:`));
+          for (const c of conns) {
+            console.log('    ' + chalk.cyan(c.fileKey || '(unidentified)')
+              + chalk.gray('  ' + [c.fileName, c.editorType].filter(Boolean).join('  ')));
+          }
+          console.log(chalk.gray('\n  Target one with --file <key>, e.g. figma-cli --file '
+            + (conns[0].fileKey || '<key>') + ' canvas info'));
+        } else if (conns.length === 1 && conns[0].fileName) {
+          console.log(chalk.gray(`    ${conns[0].fileName}`
+            + (conns[0].fileKey ? ` (${conns[0].fileKey})` : '')));
         }
       } catch {
         console.log(chalk.gray('  (could not read /health)'));

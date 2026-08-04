@@ -181,6 +181,11 @@ export const TOOLS = [
           type: "string",
           description: "Optional short intent note stored in the local history/audit log (see figma_history).",
         },
+        fileKey: {
+          type: "string",
+          description:
+            "Which connected Figma window to run against. Only needed when the user has the plugin open in more than one file — figma_status lists them. Accepts a bare key or a Figma URL.",
+        },
       },
       required: ["args"],
       additionalProperties: false,
@@ -812,14 +817,22 @@ export async function handleTool(name, rawArgs) {
       // Which editor the bridge is attached to. Design commands and `jam`
       // target different editors, and "it just failed" is much easier to act
       // on when the agent can see which kind of file it is talking to.
-      const sel = await getSelection().catch(() => null);
-      const editor = sel && sel.selection && sel.selection.editorType;
-      if (editor) {
+      const conns = Array.isArray(raw.connections) ? raw.connections : [];
+      if (conns.length > 1) {
+        lines.push(`${conns.length} Figma windows connected — pass fileKey to figma_run to pick one:`);
+        for (const c of conns) {
+          lines.push(`  ${c.fileKey || "(unidentified)"}  ${[c.fileName, c.editorType].filter(Boolean).join("  ")}`);
+        }
+      } else if (conns.length === 1) {
+        const c = conns[0];
+        const editor = c.editorType;
         lines.push(
-          `editor: ${editor}${editor === "figjam"
-            ? " — use figma_run [\"jam\", …]; design commands need a Figma file"
-            : ""}`,
+          `file: ${c.fileName || "(unnamed)"}${c.fileKey ? ` (${c.fileKey})` : ""}`
+          + (editor ? `, ${editor}` : ""),
         );
+        if (editor === "figjam") {
+          lines.push("  FigJam board — use figma_run [\"jam\", …]; design commands need a Figma file.");
+        }
       }
       // Optional REST layer: report presence and validity (lazy, 5-min cached)
       // without ever echoing the token. The open file lets the check fall back
@@ -874,7 +887,7 @@ export async function handleTool(name, rawArgs) {
       // extract / export node|screenshot write files — resolve their output
       // paths against the client workspace, not the engine's repo cwd.
       const normalized = normalizeOutputArgs(args);
-      const res = await runCli(normalized, { label: input.label });
+      const res = await runCli(normalized, { label: input.label, fileKey: input.fileKey });
       // Library-metadata enrichment (opt-in REST layer): after a successful
       // `map storybook` run, upgrade the written figma-map.json with the
       // published components' description/documentation links — a stronger
@@ -902,6 +915,17 @@ export async function handleTool(name, rawArgs) {
     case "figma_selection": {
       const sel = await getSelection();
       if (!sel.ok) return errorResult(sel.message);
+      // Several windows connected and none named: reporting one of them would
+      // be arbitrary, so say which files are open and let the caller pick.
+      if (sel.ambiguous) {
+        const list = (sel.connections || [])
+          .map((c) => `  ${c.fileKey || "(unidentified)"}  ${c.fileName || ""}`.trimEnd())
+          .join("\n");
+        return textResult(
+          `${(sel.connections || []).length} Figma windows are connected, so "the selection" is ambiguous:\n${list}\n\n`
+          + "Ask the user which file they mean, then pass fileKey to figma_run.",
+        );
+      }
       if (!sel.selection) {
         return textResult(
           sel.pluginConnected

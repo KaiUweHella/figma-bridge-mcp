@@ -174,9 +174,11 @@ function validateArgs(args) {
 /**
  * Run an allowlisted figma-cli command.
  * @param {string[]} args
- * @param {{timeoutMs?: number, label?: string}} [opts] - per-call timeout
- *   override (long-running exports need more than the default EXEC_TIMEOUT_MS);
- *   `label` is a short human intent note stored in the audit/history log.
+ * @param {{timeoutMs?: number, label?: string, fileKey?: string, okExitCodes?: number[]}} [opts]
+ *   `timeoutMs` overrides the default EXEC_TIMEOUT_MS (long exports need more);
+ *   `label` is a short human intent note stored in the audit/history log;
+ *   `fileKey` targets one of several connected Figma windows;
+ *   `okExitCodes` names exit codes that are an ANSWER rather than a failure.
  * @returns {Promise<{stdout: string, stderr: string, code: number}>}
  */
 export async function runCli(args, opts = {}) {
@@ -191,7 +193,7 @@ export async function runCli(args, opts = {}) {
     );
   }
 
-  const { cmd, argv } = buildArgv(args);
+  const { cmd, argv } = buildArgv(args, { fileKey: opts.fileKey });
   // `nodes`/`label` feed figma_history; old {ts, args} lines stay valid.
   // The entry is written BEFORE execution on purpose (aborted runs must be
   // auditable too); a matching {id, event:"done"} completion entry records
@@ -204,6 +206,9 @@ export async function runCli(args, opts = {}) {
     args,
     ...(nodes.length ? { nodes } : {}),
     ...(opts.label ? { label: String(opts.label).slice(0, 200) } : {}),
+    // Which Figma window this ran against, when the user has several open.
+    // Without it, a multi-file history reads as one undifferentiated stream.
+    ...(opts.fileKey ? { fileKey: String(opts.fileKey).slice(0, 64) } : {}),
   });
 
   try {
@@ -480,6 +485,10 @@ export async function getSelection() {
       ok: true,
       selection: raw.selection || null,
       pluginConnected: raw.pluginConnected === true,
+      // Present when several windows are connected and none was named: there
+      // is no single "the selection" to report.
+      ambiguous: raw.ambiguous === true,
+      connections: Array.isArray(raw.connections) ? raw.connections : [],
       message: "",
     };
   } catch (err) {

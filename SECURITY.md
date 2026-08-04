@@ -61,9 +61,12 @@ this; the plugin has no route to any external host, so nothing in your document
 can be exfiltrated through it. `tests/plugin-sync.test.js` fails the build if a
 non-loopback entry is ever added.
 
-**Only the open file is reachable.** The bridge talks to the plugin running in
-one Figma Desktop window. There is no multi-file fan-out and no API surface that
-could reach a file you have not opened.
+**Only files you opened yourself are reachable.** The bridge holds one
+connection per Figma window in which *you* started the plugin — the consent is
+physical, not configured. With several connected, a command must name its
+target; there is no "all files" switch and no fan-out, so one mistaken command
+cannot sweep a library. A file you have not opened is unreachable: Figma's REST
+API cannot write document content, so no code path exists to it.
 
 **No shell, and a fixed command surface.** The engine is spawned with
 `execFile` (`shell: false`). `figma_run` accepts only allowlisted first tokens.

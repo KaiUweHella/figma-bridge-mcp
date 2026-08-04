@@ -235,6 +235,35 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## Several files at once
+
+The bridge holds one connection per Figma window in which you started the
+plugin. That is the consent model: a file is reachable because *you* opened it
+and launched the plugin there — not because a flag widened the scope.
+
+- **One window** — nothing changes. Commands go there.
+- **Several windows** — a command must name its target, or it fails with the
+  list of connected files:
+
+  ```bash
+  figma-cli status                       # lists every connected window
+  figma-cli --file GY5SasBJ… canvas info
+  ```
+
+  Via MCP: `figma_run {args: […], fileKey: "GY5SasBJ…"}`. `figma_status` lists
+  them, and `figma_selection` says which files are open rather than guessing
+  which selection you meant.
+
+There is deliberately **no "all files" option**. Every write names one file, so
+a mistaken command cannot fan out across a library. Two windows on the *same*
+file are indistinguishable for routing, so the newer one takes over and the
+older is told it lost the bridge. Audit entries carry the file key, so
+`figma_history` stays readable when several files are in play.
+
+Reaching files you have *not* opened is out of scope: Figma's REST API cannot
+write document content, so a bulk rename across thirty library files is not
+something this tool can honestly offer.
+
 ## FigJam
 
 The plugin runs in FigJam boards too, over the same bridge — no second

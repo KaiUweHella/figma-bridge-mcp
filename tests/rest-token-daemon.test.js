@@ -164,6 +164,9 @@ test('/health and hello-ack report restTokenConfigured:true once saved', async (
 });
 
 test('selection whitelist: fileKey/fileName pass through capped; junk is dropped', async () => {
+  // Read while the window is still connected: the selection lives WITH its
+  // connection now, so a closed window reports nothing rather than something
+  // stale.
   await withWs(true, async (ws) => {
     ws.send(JSON.stringify({
       type: 'selection',
@@ -176,14 +179,15 @@ test('selection whitelist: fileKey/fileName pass through capped; junk is dropped
     }));
     // The daemon caches synchronously on receipt; give the event loop a beat.
     await new Promise((r) => setTimeout(r, 150));
+
+    const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+      headers: signRequest(TOKEN, 'GET', '/selection', ''),
+    });
+    const body = await res.json();
+    assert.equal(body.selection.fileKey, 'K'.repeat(64), 'capped at 64 chars');
+    assert.equal(body.selection.fileName, 'My File');
+    assert.equal('evil' in body.selection, false, 'unknown fields are dropped');
   });
-  const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
-    headers: signRequest(TOKEN, 'GET', '/selection', ''),
-  });
-  const body = await res.json();
-  assert.equal(body.selection.fileKey, 'K'.repeat(64), 'capped at 64 chars');
-  assert.equal(body.selection.fileName, 'My File');
-  assert.equal('evil' in body.selection, false, 'unknown fields are dropped');
 });
 
 test('selection whitelist: non-string fileKey is dropped, not coerced', async () => {
@@ -193,12 +197,17 @@ test('selection whitelist: non-string fileKey is dropped, not coerced', async ()
       selection: { page: 'P', total: 0, nodes: [], fileKey: 12345 },
     }));
     await new Promise((r) => setTimeout(r, 150));
+
+    const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+      headers: signRequest(TOKEN, 'GET', '/selection', ''),
+    });
+    const body = await res.json();
+    assert.equal('fileKey' in body.selection, false);
+    // A connection whose file could not be identified is still listed, so the
+    // user can see that something is attached.
+    assert.equal(body.connections.length, 1);
+    assert.equal(body.connections[0].fileKey, null);
   });
-  const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
-    headers: signRequest(TOKEN, 'GET', '/selection', ''),
-  });
-  const body = await res.json();
-  assert.equal('fileKey' in body.selection, false);
 });
 
 test('empty value clears the token file and acks configured:false', async () => {

@@ -216,21 +216,78 @@ resetIdleTimer();
 
 // ============ PLUGIN MODE (SAFE) ============
 
-// Only an authenticated plugin socket is stored here.
-let pluginWs = null;
-let pluginPendingRequests = new Map();
+// Every authenticated plugin socket, one entry per open Figma window.
+//
+// Multiple windows are allowed, but they are NOT a fan-out: each one is a
+// separate document the user themselves opened and started the plugin in, so
+// the consent is physical rather than configured, and a command still has to
+// name which file it means. There is deliberately no "all files" switch.
+//
+// File identity arrives with the first selection push (the plugin sends one
+// immediately on connect) — the handshake itself carries no file information,
+// and adding it there would mean signing data the transcript does not cover.
+const conns = new Map(); // ws → { fileKey, fileName, editorType, selection, connectedAt }
+let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
-// Last selection pushed by the plugin UI (null until the first push).
-let lastSelection = null;
 
-function isPluginConnected() {
-  return !!(pluginWs && pluginWs.readyState === WebSocket.OPEN);
+function openConns() {
+  return [...conns.entries()].filter(([ws]) => ws.readyState === WebSocket.OPEN);
 }
 
-async function evalViaPlugin(code) {
-  if (!isPluginConnected()) {
+function isPluginConnected() {
+  return openConns().length > 0;
+}
+
+/** Public shape of the connection list — no socket, no internals. */
+function connectionList() {
+  return openConns().map(([, c]) => ({
+    fileKey: c.fileKey ?? null,
+    fileName: c.fileName ?? null,
+    editorType: c.editorType ?? null,
+    connectedAt: c.connectedAt,
+  }));
+}
+
+/**
+ * Pick the socket a command should go to.
+ *
+ * One connection: it wins, named or not — the single-file case must not get
+ * harder just because the daemon can now hold several.
+ * Several: `fileKey` is required, and an unmatched or missing one is an error
+ * that lists what IS connected. Guessing here would run an agent's write
+ * against whichever window happened to connect last.
+ */
+function resolveTarget(fileKey) {
+  const open = openConns();
+  if (!open.length) {
     throw new Error('Plugin not connected. Launch the Figma Bridge plugin in Figma and paste your access key.');
   }
+  const wanted = fileKey ? String(fileKey) : null;
+
+  if (wanted) {
+    const hit = open.find(([, c]) => c.fileKey === wanted);
+    if (hit) return hit[0];
+    const known = connectionList()
+      .map((c) => `  ${c.fileKey || '(unidentified)'}  ${c.fileName || ''}`.trimEnd())
+      .join('\n');
+    throw new Error(
+      `No connected Figma window has file key "${wanted}". Connected:\n${known}`,
+    );
+  }
+
+  if (open.length === 1) return open[0][0];
+
+  const known = connectionList()
+    .map((c) => `  ${c.fileKey || '(unidentified)'}  ${c.fileName || ''}`.trimEnd())
+    .join('\n');
+  throw new Error(
+    `${open.length} Figma windows are connected — name one with fileKey. Connected:\n${known}\n`
+    + 'There is no "all files" option: each file is targeted explicitly.',
+  );
+}
+
+async function evalViaPlugin(code, fileKey = null) {
+  const ws = resolveTarget(fileKey);
 
   return new Promise((resolve, reject) => {
     const id = ++pluginMsgId;
@@ -239,10 +296,10 @@ async function evalViaPlugin(code) {
       reject(new Error('Plugin execution timeout (25s)'));
     }, 25000);
 
-    pluginPendingRequests.set(id, { resolve, reject, timeout });
+    pluginPendingRequests.set(id, { resolve, reject, timeout, ws });
 
     try {
-      pluginWs.send(JSON.stringify({ action: 'eval', id, code }));
+      ws.send(JSON.stringify({ action: 'eval', id, code }));
     } catch (sendError) {
       clearTimeout(timeout);
       pluginPendingRequests.delete(id);
@@ -253,9 +310,9 @@ async function evalViaPlugin(code) {
 
 // ============ UNIFIED EVAL ============
 
-async function executeEval(code) {
+async function executeEval(code, fileKey = null) {
   // Plugin handles its own top-level-return wrapping — send code as-is.
-  return evalViaPlugin(code);
+  return evalViaPlugin(code, fileKey);
 }
 
 function getMode() {
@@ -293,8 +350,15 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // Routes below may carry a ?fileKey= query, so match on the path alone —
+  // the same path validateRequest() signs over (queries are outside the
+  // signature). That is deliberate and not an escalation: the query only
+  // selects WHICH connected window to read, and every connected window is
+  // equally authorised. Anything that grants access stays in the signed part.
+  const path = (req.url || '').split('?')[0];
+
   // Health check
-  if (req.url === '/health') {
+  if (path === '/health') {
     const pluginConnected = isPluginConnected();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -305,18 +369,37 @@ async function handleRequest(req, res) {
       cdp: false,                            // no CDP path in the Safe-Mode build
       keyConfigured: !!PLUGIN_KEY,
       restTokenConfigured: restTokenConfigured(),
+      // One entry per open Figma window. Callers that see more than one must
+      // name a fileKey; there is no implicit "all of them".
+      connections: connectionList(),
       idleTimeoutMs: IDLE_TIMEOUT_MS
     }));
     return;
   }
 
   // Last selection the plugin UI pushed (button or selectionchange event).
-  // Read by the MCP tool figma_selection.
-  if (req.url === '/selection') {
+  // Read by the MCP tool figma_selection. With several windows connected the
+  // caller may name one; without a name the single connection wins and
+  // anything else is ambiguous rather than arbitrary.
+  if (path === '/selection') {
+    const wanted = new URL(req.url, 'http://localhost').searchParams.get('fileKey');
+    const open = openConns();
+    let selection = null;
+    let ambiguous = false;
+    if (wanted) {
+      const hit = open.find(([, c]) => c.fileKey === wanted);
+      selection = hit ? hit[1].selection ?? null : null;
+    } else if (open.length === 1) {
+      selection = open[0][1].selection ?? null;
+    } else if (open.length > 1) {
+      ambiguous = true;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      selection: lastSelection,
+      selection,
       pluginConnected: isPluginConnected(),
+      connections: connectionList(),
+      ...(ambiguous ? { ambiguous: true } : {}),
     }));
     return;
   }
@@ -324,13 +407,14 @@ async function handleRequest(req, res) {
   // Force the plugin to reconnect: close its socket — the plugin UI re-scans
   // the whole port range automatically. Used by `daemon reconnect` (this route
   // did not exist before; the command always failed on the 404 fallthrough).
-  if (req.url === '/reconnect') {
-    const hadPlugin = isPluginConnected();
-    if (hadPlugin) {
-      try { pluginWs.close(); } catch {}
+  if (path === '/reconnect') {
+    const wanted = new URL(req.url, 'http://localhost').searchParams.get('fileKey');
+    const targets = openConns().filter(([, c]) => !wanted || c.fileKey === wanted);
+    for (const [ws] of targets) {
+      try { ws.close(); } catch {}
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, hadPlugin }));
+    res.end(JSON.stringify({ ok: true, hadPlugin: targets.length > 0, closed: targets.length }));
     return;
   }
 
@@ -366,7 +450,7 @@ function handleExec(req, res) {
     // exempted only render/render-batch and re-ran evals; that was wrong.
     inFlightExecs++;
     try {
-      const { action, code, timeoutMs } = payload;
+      const { action, code, timeoutMs, fileKey } = payload;
       let result;
 
       const execWithTimeout = async (fn, ms = 30000) => {
@@ -388,7 +472,7 @@ function handleExec(req, res) {
         // must not be able to disable the timeout entirely).
         case 'eval': {
           const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
-          result = await execWithTimeout(() => executeEval(code), ms);
+          result = await execWithTimeout(() => executeEval(code, fileKey || null), ms);
           break;
         }
         default:
@@ -448,7 +532,7 @@ wss.on('connection', (ws) => {
   // Each socket starts unauthenticated. The daemon speaks first with a random
   // challenge; the FIRST message back must be a {type:'hello'} carrying a proof
   // over (our nonce, their nonce, our bound port, their version). Until that
-  // verifies, the socket is not registered as pluginWs and cannot drive any
+  // verifies, the socket is not registered in `conns` and cannot drive any
   // eval. See lib/plugin-handshake.js for why the port is in the transcript.
   let authenticated = false;
 
@@ -516,12 +600,16 @@ wss.on('connection', (ws) => {
         return reject('invalid-key', 'Invalid access key');
       }
 
-      // Authenticated.
+      // Authenticated. Registered without a file identity: that arrives with
+      // the first selection push, which the plugin sends as soon as it is
+      // connected.
       authenticated = true;
       clearTimeout(authTimer);
-      const displaced = pluginWs;
-      pluginWs = ws;
-      console.log(`[daemon] Plugin authenticated (version: ${version})`);
+      conns.set(ws, {
+        fileKey: null, fileName: null, editorType: null,
+        selection: null, connectedAt: new Date().toISOString(),
+      });
+      console.log(`[daemon] Plugin authenticated (version: ${version}) — ${openConns().length} window(s) connected`);
       // Prove ourselves back before the plugin will accept a single eval.
       try {
         ws.send(JSON.stringify({
@@ -535,20 +623,6 @@ wss.on('connection', (ws) => {
           restTokenConfigured: restTokenConfigured(),
         }));
       } catch {}
-      // Last hello wins. Tell the DISPLACED window it lost the bridge —
-      // without this its UI stayed green while every eval went to the new
-      // window. Its in-flight evals can no longer answer either; fail them
-      // now instead of letting them ride out the 25s timeout.
-      if (displaced && displaced !== ws && displaced.readyState === WebSocket.OPEN) {
-        console.log('[daemon] Previous plugin window superseded');
-        for (const [, pending] of pluginPendingRequests) {
-          clearTimeout(pending.timeout);
-          pending.reject(new Error('Plugin connection superseded by another Figma window'));
-        }
-        pluginPendingRequests.clear();
-        try { displaced.send(JSON.stringify({ type: 'superseded' })); } catch {}
-        try { displaced.close(4409, 'Superseded by another window'); } catch {}
-      }
       return;
     }
 
@@ -599,7 +673,7 @@ wss.on('connection', (ws) => {
     // figma_selection can read it. Only the authenticated socket reaches
     // this handler.
     if (msg.type === 'selection' && msg.selection && typeof msg.selection === 'object') {
-      lastSelection = {
+      const selection = {
         page: String(msg.selection.page || ''),
         total: Number(msg.selection.total) || 0,
         // File identity (needs enablePrivatePluginApi in the plugin manifest;
@@ -629,20 +703,49 @@ wss.on('connection', (ws) => {
           : [],
         receivedAt: new Date().toISOString(),
       };
+      // The selection is what tells the daemon WHICH file this socket belongs
+      // to; the handshake carries no file identity. Two windows on the same
+      // file would be indistinguishable for routing, so the newcomer takes
+      // over and the older one is told it lost the bridge — the same
+      // last-one-wins rule as before, now scoped per file instead of globally.
+      const conn = conns.get(ws);
+      if (conn) {
+        const key = selection.fileKey ?? null;
+        if (key && conn.fileKey !== key) {
+          for (const [other, c] of conns) {
+            if (other === ws || c.fileKey !== key) continue;
+            if (other.readyState !== WebSocket.OPEN) continue;
+            console.log(`[daemon] Superseding an older window on file ${key}`);
+            for (const [id, pending] of pluginPendingRequests) {
+              if (pending.ws !== other) continue;
+              clearTimeout(pending.timeout);
+              pending.reject(new Error('Plugin connection superseded by another Figma window'));
+              pluginPendingRequests.delete(id);
+            }
+            try { other.send(JSON.stringify({ type: 'superseded' })); } catch {}
+            try { other.close(4409, 'Superseded by another window'); } catch {}
+          }
+        }
+        conn.fileKey = key;
+        conn.fileName = selection.fileName ?? null;
+        conn.editorType = selection.editorType ?? null;
+        conn.selection = selection;
+      }
     }
   });
 
   ws.on('close', () => {
     clearTimeout(authTimer);
-    // Only clear shared state if THIS socket was the authenticated one.
-    if (ws === pluginWs) {
-      console.log('[daemon] Plugin disconnected');
-      pluginWs = null;
-      for (const [, pending] of pluginPendingRequests) {
+    if (conns.delete(ws)) {
+      console.log(`[daemon] Plugin disconnected — ${openConns().length} window(s) left`);
+      // Only this socket's in-flight evals die with it; another window's
+      // requests must not be collateral damage.
+      for (const [id, pending] of pluginPendingRequests) {
+        if (pending.ws !== ws) continue;
         clearTimeout(pending.timeout);
         pending.reject(new Error('Plugin disconnected'));
+        pluginPendingRequests.delete(id);
       }
-      pluginPendingRequests.clear();
     }
   });
 
@@ -790,7 +893,7 @@ function shutdown() {
     if (inFlightExecs > 0) {
       console.log(`[daemon] Forcing exit with ${inFlightExecs} eval(s) still in flight`);
     }
-    if (pluginWs) { try { pluginWs.close(); } catch {} }
+    for (const [ws] of conns) { try { ws.close(); } catch {} }
     // Only clear the port file if it still names our port — a dying old daemon
     // must not delete a newer daemon's published port.
     if (boundPort !== null) clearPortFile(process.env, boundPort);

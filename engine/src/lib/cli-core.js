@@ -248,13 +248,27 @@ async function ensureDaemonRunning(maxWaitMs = 5000) {
   return false;
 }
 
+/**
+ * Which connected Figma file a command targets, from the global `--file`.
+ * Accepts a bare key or a full Figma URL, so a user can paste what they have.
+ * Null means "the only connected window", which the daemon resolves; with
+ * several connected it refuses rather than picking one.
+ */
+function targetFileKey() {
+  let raw = null;
+  try { raw = program.opts().file || null; } catch { raw = null; }
+  if (!raw) return null;
+  const url = /figma\.com\/(?:file|design|board|proto)\/([A-Za-z0-9]+)/.exec(String(raw));
+  return url ? url[1] : String(raw).trim();
+}
+
 // Fast eval via daemon (plugin bridge only — no direct CDP fallback)
 async function fastEval(code) {
   if (!(await ensureDaemonRunning())) {
     throw new Error(NOT_CONNECTED_MSG);
   }
   // Let a daemon error propagate — the plugin bridge is the only path.
-  return await daemonExec('eval', { code });
+  return await daemonExec('eval', { code, fileKey: targetFileKey() });
 }
 
 // Start daemon in background. The Safe-Mode build only ever runs the daemon in
@@ -387,7 +401,12 @@ function figmaEvalSync(code) {
   // Payload rides on curl's STDIN (`-d @-`): no temp file, so concurrent CLI
   // processes can't clobber each other's payloads and nothing predictable
   // lands in world-writable tmp.
-  const payload = JSON.stringify({ action: 'eval', code: code.trim() });
+  const fileKey = targetFileKey();
+  const payload = JSON.stringify({
+    action: 'eval',
+    code: code.trim(),
+    ...(fileKey ? { fileKey } : {}),
+  });
   const result = daemonCurl(
     '/exec',
     ['-X', 'POST', `http://127.0.0.1:${getDaemonPort()}/exec`,

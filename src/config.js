@@ -71,11 +71,18 @@ export const WRITE_CONFIRM = process.env.FIGMA_WRITE_CONFIRM === "1";
  * Always uses the current node binary + the vendored entry point.
  *
  * @param {string[]} userArgs - the engine subcommand + flags (already an array).
+ * @param {{fileKey?: string|null}} [opts] - `fileKey` targets one of several
+ *   connected Figma windows. It is prepended as the GLOBAL `--file` option,
+ *   because commander requires global options before the command name — and it
+ *   is added here, after the caller's allowlist check has already seen the real
+ *   command, so a leading flag can never smuggle past that check.
  * @returns {{cmd: string, argv: string[]}}
  */
-export function buildArgv(userArgs) {
+export function buildArgv(userArgs, opts = {}) {
   if (!Array.isArray(userArgs)) {
     throw new Error("buildArgv: userArgs must be an array");
   }
-  return { cmd: process.execPath, argv: [ENGINE_ENTRY, ...userArgs] };
+  const key = opts.fileKey ? String(opts.fileKey).trim() : "";
+  const global = key ? ["--file", key] : [];
+  return { cmd: process.execPath, argv: [ENGINE_ENTRY, ...global, ...userArgs] };
 }

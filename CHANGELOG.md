@@ -28,6 +28,14 @@ the plugin window. The panel will tell you if you forget.
 
 ### Added
 
+- **Several Figma windows at once.** The daemon now keeps one connection per
+  window in which the plugin was started, instead of letting the newest
+  displace all others. With one window nothing changes; with several, a command
+  must name its file (`--file <key>`, or `fileKey` on `figma_run`) and gets the
+  list of connected files if it does not. There is no "all files" option —
+  every write names one file, so a mistaken command cannot fan out across a
+  library. Two windows on the *same* file still supersede each other. Audit
+  entries carry the file key.
 - **FigJam is back**, as the `jam` command group — stickies (single and
   batched), shapes, connectors, tables, sections, code blocks, a board readout
   and a grid arrange. It runs over the existing plugin bridge; the manifest

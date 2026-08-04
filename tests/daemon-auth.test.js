@@ -405,8 +405,45 @@ async function withAuthedWs(fn) {
   }
 }
 
-test('second window supersedes the first: old socket gets notified and closed with 4409', async () => {
-  await withAuthedWs(async (first) => {
+/** Announce a socket's file identity the way the plugin does — via selection. */
+function pushSelection(ws, { fileKey, fileName = 'Test File', page = 'Page 1', nodes = [] }) {
+  ws.send(JSON.stringify({
+    type: 'selection',
+    selection: { page, total: nodes.length, nodes, fileKey, fileName, editorType: 'figma' },
+  }));
+  return new Promise((r) => setTimeout(r, 150)); // let the daemon process it
+}
+
+test('two windows on DIFFERENT files coexist and are both listed', async () => {
+  const a = openWs();
+  await handshake(a);
+  const b = openWs();
+  await handshake(b);
+  try {
+    await pushSelection(a, { fileKey: 'FILE_A', fileName: 'Alpha' });
+    await pushSelection(b, { fileKey: 'FILE_B', fileName: 'Beta' });
+
+    const body = await (await httpHealth(auth('GET', '/health'))).json();
+    assert.equal(body.plugin, true);
+    assert.equal(body.connections.length, 2);
+    assert.deepEqual(
+      body.connections.map((c) => c.fileKey).sort(),
+      ['FILE_A', 'FILE_B'],
+    );
+  } finally {
+    a.close(); b.close();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+});
+
+test('a second window on the SAME file supersedes the first (4409)', async () => {
+  // Two windows on one file are indistinguishable for routing, so the newcomer
+  // takes over — the same last-one-wins rule as before, now scoped per file.
+  const first = openWs();
+  try {
+    await handshake(first);
+    await pushSelection(first, { fileKey: 'FILE_SAME' });
+
     const displaced = new Promise((resolve, reject) => {
       let sawMessage = false;
       first.on('message', (d) => {
@@ -416,29 +453,92 @@ test('second window supersedes the first: old socket gets notified and closed wi
       first.on('close', (code) => resolve({ code, sawMessage }));
       setTimeout(() => reject(new Error('first socket was not displaced')), 3000);
     });
-    // Second window authenticates → last hello wins.
-    await withAuthedWs(async () => {
-      const { code, sawMessage } = await displaced;
-      assert.equal(code, 4409, 'displaced socket must close with 4409');
-      assert.equal(sawMessage, true, 'displaced socket must receive the superseded message');
-      // The daemon now routes to the SECOND socket: health still shows a plugin.
-      const body = await (await httpHealth(auth('GET', '/health'))).json();
-      assert.equal(body.plugin, true);
+
+    const second = openWs();
+    await handshake(second);
+    await pushSelection(second, { fileKey: 'FILE_SAME' });
+
+    const { code, sawMessage } = await displaced;
+    assert.equal(code, 4409, 'displaced socket must close with 4409');
+    assert.equal(sawMessage, true, 'displaced socket must receive the superseded message');
+
+    const body = await (await httpHealth(auth('GET', '/health'))).json();
+    assert.equal(body.connections.filter((c) => c.fileKey === 'FILE_SAME').length, 1);
+    second.close();
+    await new Promise((r) => setTimeout(r, 100));
+  } finally {
+    try { first.close(); } catch {}
+  }
+});
+
+test('with several windows, /exec must name a file — and there is no "all"', async () => {
+  const a = openWs();
+  await handshake(a);
+  const b = openWs();
+  await handshake(b);
+  try {
+    await pushSelection(a, { fileKey: 'FILE_A' });
+    await pushSelection(b, { fileKey: 'FILE_B' });
+
+    const body = JSON.stringify({ action: 'eval', code: '1' });
+    const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
     });
+    assert.equal(res.status, 500);
+    const err = (await res.json()).error;
+    assert.match(err, /name one with fileKey/);
+    // The connected files are listed, so the caller can act on the error.
+    assert.match(err, /FILE_A/);
+    assert.match(err, /FILE_B/);
+    assert.match(err, /no "all files" option/);
+
+    // An unknown key is rejected the same way rather than falling back.
+    const body2 = JSON.stringify({ action: 'eval', code: '1', fileKey: 'NOPE' });
+    const res2 = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body2) },
+      body: body2,
+    });
+    assert.match((await res2.json()).error, /No connected Figma window has file key "NOPE"/);
+  } finally {
+    a.close(); b.close();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+});
+
+test('a single window still needs no fileKey', async () => {
+  // The common case must not get harder just because the daemon can hold more.
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'ONLY_ONE' });
+    const body = JSON.stringify({ action: 'eval', code: '1' });
+    const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    // The stub socket never answers the eval, so this times out rather than
+    // succeeding — what matters is that it was ROUTED, not rejected.
+    const err = (await res.json()).error || '';
+    assert.doesNotMatch(err, /name one with fileKey/);
   });
 });
 
-test('/selection: plugin push is cached and served with auth', async () => {
+test('/selection: plugin push is served with auth, per connection', async () => {
   // Before any push: null selection.
   const empty = await (await fetch(`http://127.0.0.1:${PORT}/selection`, {
     headers: auth('GET', '/selection'),
   })).json();
   assert.equal(empty.selection, null);
 
+  // The selection now lives WITH its connection rather than in one global
+  // slot, so it is read while the window is still connected — a selection
+  // from a window the user has since closed would be a stale answer.
   await withAuthedWs(async (ws) => {
     ws.send(JSON.stringify({
       type: 'selection',
-      selection: { page: 'Page 1', total: 2, nodes: [
+      selection: { page: 'Page 1', total: 2, fileKey: 'SELFILE', nodes: [
         { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 },
         // Component identity fields must pass the whitelist; junk must not,
         // and over-length keys are truncated.
@@ -448,24 +548,37 @@ test('/selection: plugin push is cached and served with auth', async () => {
       ] },
     }));
     await new Promise((r) => setTimeout(r, 150)); // let the daemon process it
+
+    const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+      headers: auth('GET', '/selection'),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.selection.page, 'Page 1');
+    assert.equal(body.selection.total, 2);
+    assert.equal(body.selection.nodes.length, 2);
+    assert.deepEqual(body.selection.nodes[0], { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 });
+    const inst = body.selection.nodes[1];
+    assert.equal(inst.componentKey, 'k'.repeat(128)); // truncated to cap
+    assert.equal(inst.setKey, 'sk1');
+    assert.equal(inst.mainName, 'Primary');
+    assert.equal(inst.setName, 'Button');
+    assert.ok(!('evil' in inst), 'unknown fields are dropped');
+    assert.ok(body.selection.receivedAt);
+
+    // Naming the file explicitly reaches the same connection.
+    const byKey = await (await fetch(`http://127.0.0.1:${PORT}/selection?fileKey=SELFILE`, {
+      headers: auth('GET', '/selection'),
+    })).json();
+    assert.equal(byKey.selection.page, 'Page 1');
   });
 
-  const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+  // After the window closed, there is nothing to report — better a null than
+  // a selection from a file that may no longer be open.
+  const after = await (await fetch(`http://127.0.0.1:${PORT}/selection`, {
     headers: auth('GET', '/selection'),
-  });
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.selection.page, 'Page 1');
-  assert.equal(body.selection.total, 2);
-  assert.equal(body.selection.nodes.length, 2);
-  assert.deepEqual(body.selection.nodes[0], { id: '1:2', name: 'Hero', type: 'FRAME', width: 100, height: 50 });
-  const inst = body.selection.nodes[1];
-  assert.equal(inst.componentKey, 'k'.repeat(128)); // truncated to cap
-  assert.equal(inst.setKey, 'sk1');
-  assert.equal(inst.mainName, 'Primary');
-  assert.equal(inst.setName, 'Button');
-  assert.ok(!('evil' in inst), 'unknown fields are dropped');
-  assert.ok(body.selection.receivedAt);
+  })).json();
+  assert.equal(after.selection, null);
 
   // Unauthenticated read is rejected like every other route.
   const noAuth = await fetch(`http://127.0.0.1:${PORT}/selection`);
