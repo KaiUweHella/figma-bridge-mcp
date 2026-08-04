@@ -24,7 +24,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
                         (Safe-Mode only)                │  HTTP: X-Daemon-Token
                                                         │  WS  : access-key hello
                                                         ▼
-                                              FigCli plugin in Figma Desktop
+                                              Figma Bridge plugin in Figma Desktop
                                                 (evals code in the Figma sandbox)
 ```
 
@@ -97,7 +97,7 @@ npm install
 2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
    and choose **`~/.figma-bridge-mcp/plugin/manifest.json`** (the path
    `figma_connect` printed — stable across npx updates).
-3. Launch the plugin: `Plugins → Development → FigCli Bridge`. **Paste the
+3. Launch the plugin: `Plugins → Development → Figma Bridge`. **Paste the
    access key** into its input and click *Save & connect*. The key is stored in
    the plugin (`figma.clientStorage`) and reused every session.
 4. The plugin shows **“Connected (authenticated)”**. Verify with **`figma_status`**.
@@ -130,19 +130,24 @@ mutations like `node delete`, `combos`, or `tokens spacing` require confirm.
 
 ## Plugin window
 
-The FigCli plugin window is more than the connection status:
+The Figma Bridge plugin window is more than the connection status:
 
-- **Activity log** (Log ▾) — every command the agent runs, live, with
-  duration and ok/error; writes are highlighted. The connected port and
-  round-trip latency show next to the status dot.
-- **⏸ Pause** — a kill switch: while paused, the plugin rejects every
+- **Activity** — every command the agent runs, live, with duration and
+  ok/error; writes are highlighted. The collapsed row carries the tally
+  (`12 ok · 1 failed`); the connected port and round-trip latency sit in the
+  title bar.
+- **Pause agent** — a kill switch: while paused, the plugin rejects every
   incoming agent command with an explicit error.
+- **Save version** — writes a labeled entry into Figma's own version history
+  (`Figma Bridge — <timestamp>`) as a manual restore point before letting the
+  agent loose. There is no restore API for plugins: you roll back through
+  Figma's version history panel.
 - **Selection readout** — whatever the user selects is pushed to the agent
-  automatically (debounced) and shown in the window ("▸ Selected: …"), so
-  the user always sees what `figma_selection` will return. Select a frame,
-  say "build this" — no node-id copying.
-- **Checkpoint** — saves a labeled entry in Figma's native version history
-  as a manual safety net before letting the agent loose.
+  automatically (debounced) and shown as "Agent sees: …", so the user always
+  sees what `figma_selection` will return. Select a frame, say "build this" —
+  no node-id copying.
+- **Setup** — access key and the optional REST token, always reachable
+  whether or not the bridge is connected.
 
 ## Design-to-code workflow
 
@@ -246,7 +251,7 @@ be unlocked with a personal access token:
    access tokens) with scopes: **File content (read)**, **File versions
    (read)**, **Comments (read and write)**. *Current user (read)* is optional —
    it only makes `figma_status` show your handle.
-2. Open the **FigCli Bridge plugin** in Figma Desktop, connect (the field
+2. Open the **Figma Bridge plugin** in Figma Desktop, connect (the field
    appears once the plugin is authenticated), and expand **“REST token
    (optional)”**. Paste the token, *Save token*.
 3. `figma_status` now reports `REST token: configured (@your-handle)`, or

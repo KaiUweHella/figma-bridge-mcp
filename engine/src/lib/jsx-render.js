@@ -2,7 +2,7 @@
  * JSX → Figma plugin-code compiler.
  *
  * Pure transformation, no I/O: `parseJSX` / `parseJSXBatch` turn the JSX
- * dialect used by `figma render` into the JavaScript the FigCli plugin
+ * dialect used by `figma render` into the JavaScript the Figma Bridge plugin
  * evaluates inside Figma. The daemon owns the transport.
  */
 

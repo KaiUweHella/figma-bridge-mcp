@@ -212,7 +212,7 @@ function isPluginConnected() {
 
 async function evalViaPlugin(code) {
   if (!isPluginConnected()) {
-    throw new Error('Plugin not connected. Launch the FigCli plugin in Figma and paste your access key.');
+    throw new Error('Plugin not connected. Launch the Figma Bridge plugin in Figma and paste your access key.');
   }
 
   return new Promise((resolve, reject) => {

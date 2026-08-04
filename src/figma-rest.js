@@ -42,7 +42,7 @@ export function readRestToken(env = process.env) {
 /** One-paragraph setup pointer used by every tool when no token is present. */
 export const NOT_CONFIGURED_MSG =
   "Figma REST access is not configured (optional). To enable version history, " +
-  "comments and library metadata: open the FigCli plugin in Figma Desktop and " +
+  "comments and library metadata: open the Figma Bridge plugin in Figma Desktop and " +
   "paste a Figma personal access token into 'REST token (optional)' — it is " +
   "stored 0600 on this machine only. Headless alternative: set the " +
   "FIGMA_REST_TOKEN environment variable. Required scopes: file content " +
@@ -107,7 +107,7 @@ export async function resolveFileKey(explicit) {
  */
 function restErrorMessage(status, path, headers) {
   if (status === 401)
-    return "Figma REST: token invalid or expired (401). Re-paste a fresh personal access token in the FigCli plugin UI (or update FIGMA_REST_TOKEN).";
+    return "Figma REST: token invalid or expired (401). Re-paste a fresh personal access token in the Figma Bridge plugin UI (or update FIGMA_REST_TOKEN).";
   if (status === 403) {
     // Name the ONE scope this path needs — the generic list sent people
     // hunting through settings for scopes their call never touched.

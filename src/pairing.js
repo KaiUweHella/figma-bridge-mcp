@@ -3,7 +3,7 @@
 // The access key authenticates the Figma plugin's WebSocket connection to the
 // local daemon. It is generated here (MCP layer), stored 0600, and:
 //   - passed to the daemon via the PLUGIN_KEY_FILE env var (see config.js), and
-//   - displayed once to the user so they can paste it into the FigCli plugin.
+//   - displayed once to the user so they can paste it into the Figma Bridge plugin.
 //
 // This is the "security of figma-console-mcp" half of the design: without a
 // matching key, no local process can drive Figma through the plugin bridge.

@@ -1,5 +1,5 @@
 /**
- * FigCli (Safe/Hardened) Bridge Plugin
+ * Figma Bridge (Safe/Hardened) Plugin
  *
  * Safe Mode: connects to the local figma-bridge-mcp daemon over WebSocket.
  * No debug port, no app patching. The connection is authenticated with an
@@ -11,7 +11,7 @@
 const KEY_STORAGE = 'daemonKey';
 
 // Visible UI: connection status, access-key entry, activity log, pause switch,
-// selection push, checkpoint. The UI may grow itself via the `resize` message.
+// selection push, save version. The UI may grow itself via the `resize` message.
 figma.showUI(__html__, { width: 360, height: 220 });
 
 // Execute code with auto-return and timeout protection.
@@ -201,41 +201,41 @@ figma.ui.onmessage = async (msg) => {
     return;
   }
 
-  // Checkpoint (UI feature D): a labeled entry in Figma's native version
-  // history. No restore API exists — this is a safety net the user can
-  // restore from via Figma's own version history UI.
-  if (msg.type === 'checkpoint') {
+  // Save version (UI feature D): a labeled entry in Figma's native version
+  // history. No restore API exists — this is a safety net the user restores
+  // from via Figma's own version history panel.
+  if (msg.type === 'save-version') {
     try {
-      await figma.saveVersionHistoryAsync('FigCli checkpoint ' + new Date().toISOString());
-      figma.ui.postMessage({ type: 'checkpoint-done' });
-      figma.notify('✓ Checkpoint saved to version history', { timeout: 2000 });
+      await figma.saveVersionHistoryAsync('Figma Bridge — ' + new Date().toISOString());
+      figma.ui.postMessage({ type: 'version-saved' });
+      figma.notify('✓ Version saved to Figma’s version history', { timeout: 2000 });
     } catch (e) {
-      figma.ui.postMessage({ type: 'checkpoint-done', error: errorMessage(e) });
-      figma.notify('FigCli: checkpoint failed — ' + errorMessage(e), { error: true });
+      figma.ui.postMessage({ type: 'version-saved', error: errorMessage(e) });
+      figma.notify('Figma Bridge: saving the version failed — ' + errorMessage(e), { error: true });
     }
     return;
   }
 
   if (msg.type === 'connected') {
-    figma.notify('✓ FigCli connected', { timeout: 2000 });
+    figma.notify('✓ Figma Bridge connected', { timeout: 2000 });
     // Seed the daemon with the current selection right away.
     pushSelection();
   }
 
   if (msg.type === 'disconnected') {
-    figma.notify('FigCli disconnected', { timeout: 2000 });
+    figma.notify('Figma Bridge disconnected', { timeout: 2000 });
   }
 
   // Another Figma window's plugin authenticated after us — the daemon routes
   // all evals there now. The UI shows the state; this is just the toast.
   if (msg.type === 'superseded') {
-    figma.notify('FigCli: another Figma window took over the connection', { timeout: 4000 });
+    figma.notify('Figma Bridge: another Figma window took over the connection', { timeout: 4000 });
   }
 
   // Fired once per outage, after the UI has scanned all ports for a few
   // seconds without finding the daemon.
   if (msg.type === 'daemon-unreachable') {
-    figma.notify('FigCli: daemon not reachable — run figma_connect to restart it', {
+    figma.notify('Figma Bridge: daemon not reachable — run figma_connect to restart it', {
       error: true,
       timeout: 5000,
     });
@@ -246,17 +246,17 @@ figma.ui.onmessage = async (msg) => {
     // Re-entering the key only helps for invalid-key.
     const reason = msg.reason || 'invalid-key';
     if (reason === 'no-key-configured') {
-      figma.notify('FigCli: daemon has no access key configured — run figma_connect', { error: true });
+      figma.notify('Figma Bridge: daemon has no access key configured — run figma_connect', { error: true });
     } else if (reason === 'timeout') {
-      figma.notify('FigCli: auth handshake timed out — reconnecting', { error: true, timeout: 3000 });
+      figma.notify('Figma Bridge: auth handshake timed out — reconnecting', { error: true, timeout: 3000 });
     } else {
-      figma.notify('FigCli: access key rejected — re-enter it', { error: true });
+      figma.notify('Figma Bridge: access key rejected — re-enter it', { error: true });
     }
   }
 
   if (msg.type === 'error') {
-    figma.notify('FigCli: ' + msg.message, { error: true });
+    figma.notify('Figma Bridge: ' + msg.message, { error: true });
   }
 };
 
-console.log('FigCli (Safe/Hardened) plugin started');
+console.log('Figma Bridge (Safe/Hardened) plugin started');

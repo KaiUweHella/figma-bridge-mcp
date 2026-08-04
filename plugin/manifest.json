@@ -1,5 +1,5 @@
 {
-  "name": "FigCli Bridge",
+  "name": "Figma Bridge",
   "id": "figma-safe-mcp-bridge",
   "api": "1.0.0",
   "main": "code.js",

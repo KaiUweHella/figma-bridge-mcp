@@ -3,7 +3,7 @@
 <head>
   <style>
     /* Palette in OKLCH: perceptually even steps, every foreground/background
-       pair below verified >= 4.5:1. One accent hue (185, the FigCli teal)
+       pair below verified >= 4.5:1. One accent hue (185, the Figma Bridge teal)
        carries brand AND "connected"; amber and red are the only other hues,
        each with exactly one meaning. */
     :root {
@@ -59,7 +59,7 @@
     .mark {
       width: 12px; height: 12px; flex: none; border-radius: 3px;
       background: var(--accent);
-      /* Notch cut out of the square: a bracket, the CLI's mark. */
+      /* Notch cut out of the square: a bracket — the bridge's mark. */
       clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 70%, 55% 70%, 55% 30%, 0 30%);
     }
     .wordmark { font-size: var(--fs-title); font-weight: 600; letter-spacing: 0.01em; }
@@ -194,7 +194,7 @@
 <body>
   <header class="topbar">
     <span class="mark" aria-hidden="true"></span>
-    <h1 class="wordmark">FigCli</h1>
+    <h1 class="wordmark">Figma Bridge</h1>
     <span id="connMeta" class="meta"></span>
   </header>
 
@@ -213,7 +213,7 @@
 
   <div class="actions">
     <button id="pauseBtn" type="button">Pause agent</button>
-    <button id="checkpointBtn" type="button">Save version</button>
+    <button id="saveVersionBtn" type="button">Save version</button>
   </div>
 
   <section class="section">
@@ -281,7 +281,7 @@
     const hintEl = document.getElementById('hint');
     const pauseBtn = document.getElementById('pauseBtn');
     const selInfoEl = document.getElementById('selInfo');
-    const checkpointBtn = document.getElementById('checkpointBtn');
+    const saveVersionBtn = document.getElementById('saveVersionBtn');
     const logBtn = document.getElementById('logBtn');
     const statsEl = document.getElementById('stats');
     const lastErrorEl = document.getElementById('lastError');
@@ -436,7 +436,7 @@
       }
     };
     function rejectPaused(msg) {
-      const error = 'Paused by user in the FigCli plugin UI — press Resume there to continue.';
+      const error = 'Paused by user in the Figma Bridge plugin UI — press Resume there to continue.';
       const reply = msg.action === 'eval-batch'
         ? { type: 'batch-result', id: msg.id, results: (msg.codes || []).map(() => ({ success: false, error })) }
         : { type: 'result', id: msg.id, error };
@@ -498,12 +498,12 @@
       if (!wasShown) syncSize();
     }
 
-    // ============ Checkpoint (feature D) ============
+    // ============ Save version (feature D) ============
     // Named entry in Figma's own version history — the restore point for the
     // agent's writes, which are otherwise not undoable from here.
-    checkpointBtn.onclick = () => {
-      parent.postMessage({ pluginMessage: { type: 'checkpoint' } }, '*');
-      addLog({ id: 'cp' + Date.now(), t0: Date.now(), label: 'version save requested', kind: 'meta', status: 'ok', ms: 0 });
+    saveVersionBtn.onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'save-version' } }, '*');
+      addLog({ id: 'v' + Date.now(), t0: Date.now(), label: 'saving version…', kind: 'meta', status: 'ok', ms: 0 });
     };
 
     // --- Access-key bootstrap: ask code.js (clientStorage lives there) ---
@@ -841,9 +841,9 @@
         }
       }
 
-      if (msg.type === 'checkpoint-done') {
-        if (msg.error) showError('Checkpoint failed: ' + msg.error);
-        else addLog({ id: 'cpd' + Date.now(), t0: Date.now(), label: 'checkpoint saved ✓', kind: 'meta', status: 'ok', ms: 0 });
+      if (msg.type === 'version-saved') {
+        if (msg.error) showError('Saving the version failed: ' + msg.error);
+        else addLog({ id: 'vd' + Date.now(), t0: Date.now(), label: 'version saved ✓', kind: 'meta', status: 'ok', ms: 0 });
       }
     };
 

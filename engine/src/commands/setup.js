@@ -204,7 +204,7 @@ program.action(async () => {
   console.log(chalk.white('  Get started:\n'));
   console.log(chalk.cyan('    node src/index.js connect') + chalk.gray('   start the daemon + show the plugin access key'));
   console.log(chalk.cyan('    node src/index.js --help') + chalk.gray('    list every command\n'));
-  console.log(chalk.gray('  In Figma: Plugins \u2192 Development \u2192 FigCli, paste the key once.\n'));
+  console.log(chalk.gray('  In Figma: Plugins \u2192 Development \u2192 Figma Bridge, paste the key once.\n'));
   showQuickStart();
 });
 
@@ -251,7 +251,7 @@ program
         const health = JSON.parse(daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]));
         console.log(health.plugin
           ? chalk.green('  \u2713 Plugin connected') + chalk.gray(` (mode: ${health.mode})`)
-          : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 FigCli in Figma'));
+          : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 Figma Bridge in Figma'));
         if (!health.keyConfigured) {
           console.log(chalk.yellow('  \u26a0 No access key configured') + chalk.gray(' \u2014 run: figma-cli connect'));
         }
@@ -305,7 +305,7 @@ program
 
     // Show plugin setup instructions
     console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
-    console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the FigCli plugin                           ') + chalk.hex('#FF6B35')('│'));
+    console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the Figma Bridge plugin                      ') + chalk.hex('#FF6B35')('│'));
     console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
 
     console.log(chalk.white.bold('  ONE-TIME SETUP:\n'));
@@ -315,7 +315,7 @@ program
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
 
     console.log(chalk.white.bold('  EACH SESSION:\n'));
-    console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → FigCli'));
+    console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → Figma Bridge'));
     console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
 
     // Wait for the plugin to connect AND authenticate.
@@ -342,7 +342,7 @@ program
     if (!pluginConnected) {
       pluginSpinner.warn('Plugin not detected yet — daemon is still listening.');
       console.log(chalk.gray('\n  The daemon stays running in the background.'));
-      console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → FigCli') + chalk.gray(' in Figma and paste your access key —'));
+      console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → Figma Bridge') + chalk.gray(' in Figma and paste your access key —'));
       console.log(chalk.gray('  the next command will connect automatically.\n'));
     }
   });

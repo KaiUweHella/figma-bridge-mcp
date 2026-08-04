@@ -127,7 +127,7 @@ const TOOLS = [
   {
     name: "figma_pairing",
     description:
-      "Show the Figma plugin access key (paste it into the FigCli plugin). Pass rotate:true to generate a fresh key (requires reconnect).",
+      "Show the Figma plugin access key (paste it into the Figma Bridge plugin). Pass rotate:true to generate a fresh key (requires reconnect).",
     inputSchema: {
       type: "object",
       properties: {
@@ -190,7 +190,7 @@ const TOOLS = [
   {
     name: "figma_selection",
     description:
-      "The nodes the user currently has selected in Figma — pushed automatically by the FigCli plugin on every selection change. Use this instead of asking the user to copy node ids: they select in Figma, you read the ids here and feed them to figma_inspect/figma_spec/figma_screenshot.",
+      "The nodes the user currently has selected in Figma — pushed automatically by the Figma Bridge plugin on every selection change. Use this instead of asking the user to copy node ids: they select in Figma, you read the ids here and feed them to figma_inspect/figma_spec/figma_screenshot.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -554,7 +554,7 @@ tokens first, then components, then screens:
 === Optional REST add-on (Figma personal access token) ===
 
 Opt-in extras the local plugin bridge cannot reach. Setup: the user pastes a
-Figma personal access token into the FigCli plugin's "REST token (optional)"
+Figma personal access token into the Figma Bridge plugin's "REST token (optional)"
 field (stored 0600 on this machine; FIGMA_REST_TOKEN env for headless runs).
 figma_status reports whether a token is configured and working.
 
@@ -743,7 +743,7 @@ export async function handleTool(name, rawArgs) {
         "\n────────────────────────────────────────\n" +
         `  Plugin access key${created ? " (newly generated)" : ""}:\n\n` +
         `    ${key}\n\n` +
-        "  Paste this into the FigCli plugin's access-key field in Figma\n" +
+        "  Paste this into the Figma Bridge plugin's access-key field in Figma\n" +
         "  the first time you launch it. It is stored in the plugin and\n" +
         "  reused across sessions.\n" +
         "────────────────────────────────────────\n";
@@ -763,7 +763,7 @@ export async function handleTool(name, rawArgs) {
         headline =
           "Access key is configured — only the daemon/plugin link is down. " +
           "Run figma_connect (restarts the daemon), then in Figma Desktop launch " +
-          "Plugins → Development → FigCli; it reconnects with the stored key.";
+          "Plugins → Development → Figma Bridge; it reconnects with the stored key.";
       }
       const lines = [
         headline,
@@ -793,7 +793,7 @@ export async function handleTool(name, rawArgs) {
         );
       } else {
         lines.push(
-          "REST token: not set (optional) — paste a Figma personal access token into the FigCli plugin's 'REST token' field, or set FIGMA_REST_TOKEN. Unlocks figma_comments and figma_history {includeVersions:true}.",
+          "REST token: not set (optional) — paste a Figma personal access token into the Figma Bridge plugin's 'REST token' field, or set FIGMA_REST_TOKEN. Unlocks figma_comments and figma_history {includeVersions:true}.",
         );
       }
       return textResult(lines.join("\n"));
@@ -806,14 +806,14 @@ export async function handleTool(name, rawArgs) {
           `New plugin access key generated:\n\n    ${key}\n\n` +
             `Stored at: ${keyPath()}\n\n` +
             "The old key is now invalid. Run figma_connect to restart the daemon\n" +
-            "with the new key, then paste it into the FigCli plugin.",
+            "with the new key, then paste it into the Figma Bridge plugin.",
         );
       }
       const { key, created } = ensureKey();
       return textResult(
         `Plugin access key${created ? " (newly generated)" : ""}:\n\n    ${key}\n\n` +
           `Stored at: ${keyPath()}\n\n` +
-          "Paste it into the FigCli plugin's access-key field in Figma.",
+          "Paste it into the Figma Bridge plugin's access-key field in Figma.",
       );
     }
 
@@ -862,8 +862,8 @@ export async function handleTool(name, rawArgs) {
       if (!sel.selection) {
         return textResult(
           sel.pluginConnected
-            ? "No selection pushed yet. Ask the user to select something in Figma — the plugin pushes every selection change automatically. If selecting changes nothing here, the plugin needs a reload (Plugins → Development → FigCli)."
-            : "Plugin not connected — launch Plugins → Development → FigCli in Figma first.",
+            ? "No selection pushed yet. Ask the user to select something in Figma — the plugin pushes every selection change automatically. If selecting changes nothing here, the plugin needs a reload (Plugins → Development → Figma Bridge)."
+            : "Plugin not connected — launch Plugins → Development → Figma Bridge in Figma first.",
         );
       }
       const s = sel.selection;

@@ -197,7 +197,7 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
           if (/Plugin not connected/i.test(errObj.error)) {
             throw new Error(
               'Plugin not connected.\n' +
-              'In Figma: Plugins → Development → FigCli (keep that tab open).'
+              'In Figma: Plugins → Development → Figma Bridge (keep that tab open).'
             );
           }
           // Clean up error: remove stack trace line numbers for cleaner output
@@ -372,7 +372,7 @@ function saveConfig(config) {
 // all former "direct fallback" paths flowed through, so neutering it here turns
 // every stray CDP fallback into one clear, actionable error.
 const NOT_CONNECTED_MSG =
-  'Not connected to Figma. Run figma_connect, then launch the FigCli plugin in Figma Desktop and paste your access key.';
+  'Not connected to Figma. Run figma_connect, then launch the Figma Bridge plugin in Figma Desktop and paste your access key.';
 
 // (getFigmaClient / figmaEval removed: both existed only to reach the CDP
 // transport. Everything goes through daemonExec / fastEval / figmaEvalSync.)
@@ -505,7 +505,7 @@ async function checkConnection() {
 
   // No direct CDP fallback in Safe Mode — the plugin bridge must be connected.
   console.log(chalk.red('\n✗ Not connected to Figma\n'));
-  console.log(chalk.white('  Run figma_connect, then launch the FigCli plugin'));
+  console.log(chalk.white('  Run figma_connect, then launch the Figma Bridge plugin'));
   console.log(chalk.white('  in Figma Desktop and paste your access key.\n'));
   process.exit(1);
 }

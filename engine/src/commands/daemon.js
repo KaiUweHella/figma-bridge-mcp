@@ -170,7 +170,7 @@ daemon
       } else if (result.hadPlugin) {
         console.log(chalk.green('✓ Plugin socket closed — the plugin reconnects automatically'));
       } else {
-        console.log(chalk.yellow('○ No plugin was connected. Open Plugins → Development → FigCli in Figma.'));
+        console.log(chalk.yellow('○ No plugin was connected. Open Plugins → Development → Figma Bridge in Figma.'));
       }
     } catch (e) {
       console.log(chalk.red('✗ Failed: ' + e.message));

@@ -487,7 +487,7 @@ export async function health() {
       plugin: false,
       raw: null,
       message:
-        "Daemon not started (no token file). Run figma_connect first, then launch the FigCli plugin in Figma.",
+        "Daemon not started (no token file). Run figma_connect first, then launch the Figma Bridge plugin in Figma.",
     };
   }
 
@@ -522,7 +522,7 @@ export async function health() {
       raw,
       message: plugin
         ? `plugin connected (mode: ${raw.mode})`
-        : `daemon running (${raw.status}, mode: ${raw.mode}) — plugin NOT connected. Launch Plugins → Development → FigCli in Figma.`,
+        : `daemon running (${raw.status}, mode: ${raw.mode}) — plugin NOT connected. Launch Plugins → Development → Figma Bridge in Figma.`,
     };
   } catch (err) {
     return {
