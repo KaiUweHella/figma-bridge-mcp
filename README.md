@@ -122,8 +122,8 @@ npm install
 | `figma_comments` | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`). |
 
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
-form `12-34`, or a full Figma URL (the file key is checked against the
-Safe-Mode "only the open file" constraint and warned about).
+form `12-34`, or a full Figma URL (whose file key is checked against the files
+you actually have open — see [Several files at once](#several-files-at-once)).
 
 Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
