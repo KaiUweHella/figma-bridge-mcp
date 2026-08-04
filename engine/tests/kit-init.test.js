@@ -142,7 +142,7 @@ test('--out places the files where asked', async (t) => {
 });
 
 test('kit is allowlisted for MCP and counts as a read of the design', async () => {
-  const { ALLOWED_COMMANDS } = await import('../../src/figma-cli.js');
+  const { ALLOWED_COMMANDS } = await import('../../src/engine.js');
   const { isWrite } = await import('../../src/server.js');
   assert.ok(ALLOWED_COMMANDS.has('kit'));
   // It only runs read commands; the files it writes land in the user's repo.

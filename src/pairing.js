@@ -5,8 +5,8 @@
 //   - passed to the daemon via the PLUGIN_KEY_FILE env var (see config.js), and
 //   - displayed once to the user so they can paste it into the Figma Bridge plugin.
 //
-// This is the "security of figma-console-mcp" half of the design: without a
-// matching key, no local process can drive Figma through the plugin bridge.
+// The key is the whole access control on the bridge: without a matching one,
+// no local process can drive Figma through the plugin.
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";

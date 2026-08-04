@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// figma-bridge-mcp — MCP stdio server. Small, token-efficient tool surface over
-// figma-cli running in Safe Mode.
+// figma-bridge-mcp — MCP stdio server. Small, token-efficient tool surface
+// over the vendored engine, which reaches Figma through the plugin bridge.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -12,7 +12,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, withAbsoluteOutputDir, normalizeOutputArgs } from "./figma-cli.js";
+import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, withAbsoluteOutputDir, normalizeOutputArgs } from "./engine.js";
 import { buildHistory } from "./history.js";
 import { annotationFor, storybookTrailer } from "./figma-map.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
@@ -164,7 +164,7 @@ export const TOOLS = [
   {
     name: "figma_run",
     description:
-      `Run an allowlisted figma-cli command. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}. ` +
+      `Run an allowlisted engine command. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}. ` +
       "Append --help to any command for its syntax. " +
       "Note: node tree defaults to depth 3 — pass -d <n> for deeper trees.",
     inputSchema: {
@@ -173,7 +173,7 @@ export const TOOLS = [
         args: {
           type: "array",
           items: { type: "string" },
-          description: "figma-cli subcommand and flags, e.g. [\"canvas\",\"info\"].",
+          description: "Engine subcommand and flags, e.g. [\"canvas\",\"info\"].",
         },
         confirm: {
           type: "boolean",

@@ -62,3 +62,20 @@ Node's. If you touch the handshake, both sides and that test move together.
 Some things cannot be proven by unit tests. If your change touches the plugin
 panel, the handshake, or anything that writes to a document, verify it against
 a real Figma Desktop and say so in the PR — what you ran and what you saw.
+
+## Attribution
+
+`engine/` began as a fork of figma-ds-cli v2.1.0 (MIT, © Sil Bormüller). Four
+files are still byte-identical to upstream; the rest has been rewritten. Two
+things must stay regardless of how far the fork travels:
+
+- `engine/LICENSE` — the upstream MIT text, verbatim.
+- `NOTICE` — what was derived and what changed. If you delete or rewrite a
+  file that `NOTICE` names, update `NOTICE` in the same commit.
+
+`tests/packaging.test.js` asserts both ship in the npm tarball. That test is
+the guard; do not relax it.
+
+Third-party material embedded in source (currently Feather icon paths in
+`engine/src/lib/builtin-icons.js`) belongs in `NOTICE` too — add it when you
+add the code, not later.

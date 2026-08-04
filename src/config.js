@@ -1,7 +1,7 @@
 // Central configuration for the self-contained figma-bridge-mcp server.
 //
 // The engine is vendored under ../engine and run as a child process with the
-// SAME node binary that runs this server. There is no external figma-cli to
+// SAME node binary that runs this server. There is no external CLI to
 // locate — the FIGMA_CLI_BIN / FIGMA_CLI_ENTRY / FIGMA_CLI_CWD indirection of
 // the old wrapper is gone.
 import path from "node:path";
@@ -76,7 +76,7 @@ export const WRITE_CONFIRM = process.env.FIGMA_WRITE_CONFIRM === "1";
  *   since commander requires global options before the command name — and added
  *   here, after the caller's allowlist check has already seen the real command,
  *   so a leading flag can never smuggle past that check. The name avoids
- *   `--file`, which eval/spec/instantiate already use for a local path.
+ *   `--file`, which eval and spec already use for a local path.
  * @returns {{cmd: string, argv: string[]}}
  */
 export function buildArgv(userArgs, opts = {}) {

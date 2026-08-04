@@ -1,38 +1,56 @@
 figma-bridge-mcp
-==============
+================
 
-This product includes software vendored from a third party.
+This product includes third-party material.
 
-engine/
--------
-The contents of the `engine/` directory are derived from:
+
+engine/ — derived from figma-ds-cli
+-----------------------------------
+
+The `engine/` directory began in July 2026 as a vendored copy of:
 
     figma-ds-cli (a.k.a. "figma-cli")
     Version:  2.1.0
     Author:   Sil Bormüller (Into Design Systems)
     Source:   https://github.com/silships/figma-cli
-    License:  MIT (see engine/LICENSE)
+    License:  MIT — retained in full at engine/LICENSE
 
-The engine was vendored in a "Safe-Mode-only" form: the Chrome DevTools
-Protocol / binary-patching capability ("Yolo mode") of the upstream project
-has been removed, and a plugin access-key handshake has been added to the
-local WebSocket bridge.
+It has since diverged, and is maintained as part of this project under its
+own name (`figma-bridge-engine`) and its own version. Of the files vendored
+at 2.1.0, four are still byte-identical: `code-import/css.js`,
+`code-import/w3c-tokens.js`, `lib/design-md-locate.js`, `lib/motion-core.js`.
+Everything else was rewritten, replaced, or removed. No byte-level parity
+with upstream is maintained, and no upstream re-sync is planned.
 
-Files modified relative to upstream v2.1.0 (all other files are byte-identical
-to upstream, to keep future upstream syncs a targeted re-diff):
+Substantive changes relative to 2.1.0:
 
-    engine/src/figma-patch.js       — replaced with a neutered Safe-Mode stub
-    engine/src/daemon.js            — CDP removed; plugin-mode only; WS access-key auth added
-    engine/src/lib/cli-core.js      — plugin-mode daemon spawn; CDP fallbacks removed; key env pass-through; isolated state paths
-    engine/src/commands/setup.js    — connect flow is Safe-Mode-only; unpatch removed
-    engine/src/commands/misc.js     — `plugins` (voice) command removed
+  removed   the Chrome DevTools Protocol transport and the binary-patching
+            installer ("Yolo mode") — roughly 5,600 lines, along with the
+            `figma-use` shell round-trip and the voice-plugin command group
+  removed   every command not reachable through the MCP allowlist
+  added     a mutual challenge-response handshake on the plugin WebSocket,
+            so the access key never crosses the wire
+  added     multi-file targeting, structural history snapshots and diffs,
+            two-way token sync with a lockfile, FigJam authoring, Storybook
+            mapping, and a design-to-code stack (extract / spec / code-spec /
+            assets / verify-build)
+  replaced  the JSX-to-plugin-code compiler, which now lives in
+            `lib/jsx-render.js` and carries no transport of its own
 
-Files excluded from the vendored copy relative to upstream:
+Roughly 21,500 lines in `engine/` today; the majority is original to this
+project. The upstream copyright and license notice above is retained for the
+parts that are not, as MIT requires.
 
-    src/figma-patch.js (replaced by stub)   plugins.js / plugins/voice/
-    examples/   plant-care-dashboard/   docs/   CLAUDE.md
-    src/.figma-client-*.mjs (generated temp artifact)
-    upstream plugin/ (superseded by this repo's hardened plugin/)
 
-figma-bridge-mcp itself (everything outside engine/) is Copyright its authors and
-licensed MIT (see LICENSE).
+Feather Icons
+-------------
+
+`engine/src/lib/builtin-icons.js` embeds SVG path data from Feather Icons,
+Copyright (c) Cole Bemis, MIT License — https://feathericons.com
+
+
+Everything else
+---------------
+
+Everything outside `engine/` is original to figma-bridge-mcp, Copyright (c)
+figma-bridge-mcp contributors, MIT License (see LICENSE).

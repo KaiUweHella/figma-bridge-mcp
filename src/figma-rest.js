@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { REST_TOKEN_FILE } from "./config.js";
-import { appendAudit, getSelection } from "./figma-cli.js";
+import { appendAudit, getSelection } from "./engine.js";
 
 const BASE_URL = "https://api.figma.com";
 const TIMEOUT_MS = 10000;

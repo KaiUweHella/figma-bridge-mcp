@@ -184,11 +184,10 @@ than interpreting it. Build a screen from Figma in five steps:
 6. **Verify** — screenshot your build and compare against the PNG from step 1,
    then run the mechanical check:
 
-   ```bash
-   figma-cli verify-build /abs/path/to/project
+   ```
+   figma_run ["verify-build", "/abs/path/to/project"]
    ```
 
-   (via MCP: `figma_run` with `["verify-build","/abs/path/to/project"]`).
    It greps the project against `assets.json` and lists every exported file
    that is *not* referenced in the build — with size, offsets and parent, so
    placing it is one step — plus a `border-image` lint (CSS `border-image`
@@ -198,8 +197,8 @@ than interpreting it. Build a screen from Figma in five steps:
 
    With a build screenshot it also runs the **visual pass**:
 
-   ```bash
-   figma-cli verify-build /abs/path/to/project --compare /abs/build.png
+   ```
+   figma_run ["verify-build", "/abs/path/to/project", "--compare", "/abs/build.png"]
    ```
 
    The reference render is fetched live from Figma (`--node <id>`, default:
@@ -212,7 +211,7 @@ than interpreting it. Build a screen from Figma in five steps:
    differing, on the dimmed design). Informational by default;
    `--max-diff <pct>` gates the exit code.
 
-The same spec is available on the CLI as `figma-cli export code-spec <nodeId>`.
+The same spec is available as `figma_run ["export", "code-spec", "<nodeId>"]`.
 
 ## Storybook mirroring
 
@@ -223,11 +222,10 @@ list`, `figma_inspect`, and DESIGN.md.
 
 To link them to their code mirror:
 
-```bash
-figma-cli map storybook http://localhost:6006
+```
+figma_run ["map", "storybook", "http://localhost:6006"]
 ```
 
-(or via MCP: `figma_run` with `["map","storybook","http://localhost:6006"]`).
 This matches the file's components against the Storybook index by normalized
 name and writes **`figma-map.json`** into your project: Figma key ↔ story id /
 import path, with a `confidence` per match plus both unmatched lists. Edit
@@ -242,8 +240,8 @@ pack. That is deliberate: a bundled system is someone else's opinion rendered
 into your file. What it ships instead is a way to make *your* system legible to
 an agent in one command:
 
-```bash
-figma-cli kit init ./my-app --storybook http://localhost:6006
+```
+figma_run ["kit", "init", "./my-app", "--storybook", "http://localhost:6006"]
 ```
 
 Four reads, one report:
@@ -271,17 +269,15 @@ and launched the plugin there — not because a flag widened the scope.
 - **Several windows** — a command must name its target, or it fails with the
   list of connected files:
 
-  ```bash
-  figma-cli status                             # lists every connected window
-  figma-cli --figma-file GY5SasBJ… canvas info
+  ```
+  figma_status                                        # lists every connected window
+  figma_run {args: ["canvas","info"], fileKey: "GY5SasBJ…"}
   ```
 
-  (`--figma-file`, not `--file`: `eval`, `spec` and `instantiate` already use
-  `-f, --file` for a local path.)
-
-  Via MCP: `figma_run {args: […], fileKey: "GY5SasBJ…"}`. `figma_status` lists
-  them, and `figma_selection` says which files are open rather than guessing
-  which selection you meant.
+  `figma_selection` says which files are open rather than guessing which
+  selection you meant. On the engine's own command line the flag is
+  `--figma-file`, not `--file`: `eval` and `spec` already use `-f, --file`
+  for a local path.
 
 There is deliberately **no "all files" option**. Every write names one file, so
 a mistaken command cannot fan out across a library. Two windows on the *same*
@@ -298,14 +294,14 @@ something this tool can honestly offer.
 The plugin runs in FigJam boards too, over the same bridge — no second
 transport, no extra permission:
 
-```bash
-figma-cli jam sticky "Ship the handshake" --color green
-figma-cli jam stickies '["Discovery","Build","Ship"]' --columns 3
-figma-cli jam shape "Decide?" --type DIAMOND
-figma-cli jam connector 1:2 3:4 --text yes
-figma-cli jam table 3 4 --data '[["Step","Owner"],["Handshake","Kai"]]'
-figma-cli jam board          # read everything back, with connectors
-figma-cli jam arrange        # tidy loose nodes onto a grid
+```
+figma_run ["jam", "sticky", "Ship the handshake", "--color", "green"]
+figma_run ["jam", "stickies", "[\"Discovery\",\"Build\",\"Ship\"]", "--columns", "3"]
+figma_run ["jam", "shape", "Decide?", "--type", "DIAMOND"]
+figma_run ["jam", "connector", "1:2", "3:4", "--text", "yes"]
+figma_run ["jam", "table", "3", "4", "--data", "[[\"Step\",\"Owner\"],[\"Handshake\",\"Alex\"]]"]
+figma_run ["jam", "board"]      # read everything back, with connectors
+figma_run ["jam", "arrange"]    # tidy loose nodes onto a grid
 ```
 
 New nodes land to the right of whatever is already on the board unless you pass
@@ -320,9 +316,9 @@ figma file, not a FigJam board" rather than failing on an undefined API.
 existing Figma variable and a value edited in Figma never reaches code.
 `tokens sync` closes that loop:
 
-```bash
-figma-cli tokens sync src/tokens.json                    # plan only
-figma-cli tokens sync src/tokens.json --apply            # write it
+```
+figma_run ["tokens", "sync", "src/tokens.json"]              # plan only
+figma_run ["tokens", "sync", "src/tokens.json", "--apply"]   # write it
 ```
 
 Formats: **DTCG / W3C design tokens** (`.json`, what `export dtcg` emits) and
@@ -370,10 +366,10 @@ since this morning" has no answer from the bridge alone. `history` supplies one
 without any credential: record the structure of a subtree, record it again
 later, diff the two.
 
-```bash
-figma-cli history snapshot --label "before refactor"
+```
+figma_run ["history", "snapshot", "--label", "before refactor"]
 # … agent works …
-figma-cli history diff latest live
+figma_run ["history", "diff", "latest", "live"]
 ```
 
 A snapshot stores one normalized record per node — geometry, layout, paints,
@@ -476,7 +472,7 @@ read every file its account can access — keep the scopes minimal.
 - **Localhost-locked plugin** — `plugin/manifest.json` restricts
   `networkAccess.allowedDomains` to `ws://127.0.0.1:3456–3460`.
 - **Isolated state** — token, pid, key, and audit log live under
-  `~/.figma-bridge-mcp/`, separate from any upstream figma-cli install.
+  `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install.
 - **Audit log** — every executed command is appended to
   `~/.figma-bridge-mcp/audit.log` (with touched node ids, optional labels, and a
   completion entry recording success/failure — the data source for
@@ -567,12 +563,26 @@ token/pid/port files under `~/.figma-bridge-mcp/`.
 
 ## Inspiration & attribution
 
-Inspired by [figma-cli](https://github.com/silships/figma-cli) — this project
-has since gone its own way (Safe-Mode-only architecture, MCP layer, hardened
-plugin, design-to-code fidelity stack, Storybook mapping) and shares neither
-the Yolo/CDP approach nor the bundled integrations.
+Two projects shaped this one, in different ways.
 
-Licensing: the `engine/` directory started as a fork of **figma-ds-cli v2.1.0**
-(© Sil Bormüller, MIT) and retains that license — see [`NOTICE`](NOTICE) and
-[`engine/LICENSE`](engine/LICENSE). figma-bridge-mcp itself is MIT — see
-[`LICENSE`](LICENSE).
+[**figma-cli**](https://github.com/silships/figma-cli) (Sil Bormüller) is where
+the `engine/` directory comes from: it was vendored at v2.1.0 in July 2026 and
+has diverged since — the CDP transport and the binary-patching installer are
+gone, the plugin socket is authenticated, and most of what the engine does now
+was written here. Four files remain byte-identical to upstream. The upstream
+MIT license is retained in full at [`engine/LICENSE`](engine/LICENSE), and
+[`NOTICE`](NOTICE) records what changed.
+
+[**figma-console-mcp**](https://github.com/southleft/figma-console-mcp)
+contributed an idea rather than code: that a Figma bridge can be genuinely
+local — a plugin socket on the loopback interface, no cloud relay, no patched
+binary. Nothing here is derived from its source; the tool surfaces, the
+transport and the plugin are unrelated. Where this project differs is that the
+socket also proves who is on the other end of it.
+
+figma-bridge-mcp itself is MIT — see [`LICENSE`](LICENSE).
+
+**Why the plugin id says `figma-safe-mcp-bridge`.** Figma keys a plugin's
+`clientStorage` — where the paired access key lives — on the plugin id.
+Renaming it to match the project would sign every existing user out and force
+them to pair again, so it stays as it is.

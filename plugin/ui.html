@@ -760,7 +760,7 @@
           failedScans++;
           if (failedScans >= UNREACHABLE_AFTER_SCANS) {
             setStatus('Daemon not reachable', 'error');
-            hintEl.textContent = 'Start it from Claude with figma_connect (or: figma-cli connect). Reconnects automatically.';
+            hintEl.textContent = 'Start it from Claude with figma_connect. Reconnects automatically.';
             if (!unreachableNotified) {
               unreachableNotified = true;
               parent.postMessage({ pluginMessage: { type: 'daemon-unreachable' } }, '*');

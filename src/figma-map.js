@@ -1,5 +1,5 @@
 // figma-map.json reader — the Figma↔Storybook mapping written by
-// `figma-cli map storybook`. Server-side only (never spawns the engine):
+// the engine's `map storybook`. Server-side only (never spawns the engine):
 // annotates figma_selection and figma_spec output with the mirroring story.
 // Missing/corrupt file → null, silently: the annotation is a bonus, never
 // a failure mode.

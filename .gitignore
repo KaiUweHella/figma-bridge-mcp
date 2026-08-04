@@ -1,7 +1,7 @@
 node_modules/
 .DS_Store
 *.log
-# downloaded by `figma-cli api setup` (offline API docs; machine-local)
+# downloaded by figma_run ["api","setup"] (offline API docs; machine-local)
 engine/docs/
 # local working docs (plans, reports, scratch)
 docu/

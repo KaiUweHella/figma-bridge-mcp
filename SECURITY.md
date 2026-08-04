@@ -7,7 +7,7 @@ what it does *not* protect against.
 Everything here is checkable against the source: the daemon is
 `engine/src/daemon.js`, the handshake is `engine/src/lib/plugin-handshake.js`,
 the request signing is `engine/src/lib/daemon-auth.js`, the command allowlist is
-`src/figma-cli.js`, and the write gate is `src/server.js`.
+`src/engine.js`, and the write gate is `src/server.js`.
 
 ## Reporting a vulnerability
 

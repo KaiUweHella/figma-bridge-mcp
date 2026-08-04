@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { AUDIT_LOG_PATH } from "./config.js";
-import { extractNodeIds } from "./figma-cli.js";
+import { extractNodeIds } from "./engine.js";
 
 /**
  * Parse audit-log JSONL text into entries, silently skipping malformed lines

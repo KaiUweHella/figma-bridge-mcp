@@ -14,7 +14,7 @@ const AUDIT = join(tmp, 'audit.log');
 process.env.AUDIT_LOG_PATH = AUDIT;
 process.env.PLUGIN_KEY_FILE = join(tmp, 'plugin-key');
 
-const { extractNodeIds, runCli } = await import('../src/figma-cli.js');
+const { extractNodeIds, runCli } = await import('../src/engine.js');
 const { parseAuditLines, entryNodes, filterHistory, gitHistory, formatHistory, buildHistory, foldCompletions } =
   await import('../src/history.js');
 

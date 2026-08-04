@@ -1,4 +1,4 @@
-// Safe execution wrapper around figma-cli.
+// Safe execution wrapper around the vendored engine.
 //
 // Security invariants:
 //  - Never runs through a shell (execFile, shell:false) -> no command injection.
@@ -175,7 +175,7 @@ function validateArgs(args) {
 }
 
 /**
- * Run an allowlisted figma-cli command.
+ * Run an allowlisted engine command.
  * @param {string[]} args
  * @param {{timeoutMs?: number, label?: string, fileKey?: string, okExitCodes?: number[]}} [opts]
  *   `timeoutMs` overrides the default EXEC_TIMEOUT_MS (long exports need more);
@@ -245,7 +245,7 @@ export async function runCli(args, opts = {}) {
       ok: false,
       error: String(detail).trim().split("\n")[0].slice(0, 200),
     });
-    const wrapped = new Error(`figma-cli exited with code ${code}: ${detail}`);
+    const wrapped = new Error(`the engine exited with code ${code}: ${detail}`);
     wrapped.code = code;
     wrapped.stdout = stdout;
     wrapped.stderr = stderr;
@@ -297,7 +297,7 @@ export async function ensureSafeConnect() {
       error: String(stderr || err.message || "connect failed").trim().split("\n")[0].slice(0, 200),
     });
     const wrapped = new Error(
-      `figma-cli connect failed with code ${code}: ${stderr || err.message}`,
+      `connect failed with code ${code}: ${stderr || err.message}`,
     );
     wrapped.code = code;
     wrapped.stdout = stdout;
@@ -436,7 +436,7 @@ export function normalizeOutputArgs(rawArgs, baseDir = process.cwd()) {
 }
 
 /**
- * Read the daemon session token written by figma-cli (0600 file). Returns null
+ * Read the daemon session token written by the engine (0600 file). Returns null
  * if it does not exist yet (daemon never started).
  * @returns {string|null}
  */

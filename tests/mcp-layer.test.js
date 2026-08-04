@@ -19,7 +19,7 @@ test('buildArgv resolves to the vendored engine entry with the current node', as
 });
 
 test('connect is NOT in the command allowlist (Yolo unreachable via figma_run)', async () => {
-  const { ALLOWED_COMMANDS, runCli } = await import('../src/figma-cli.js');
+  const { ALLOWED_COMMANDS, runCli } = await import('../src/engine.js');
   assert.equal(ALLOWED_COMMANDS.has('connect'), false);
   await assert.rejects(() => runCli(['connect', '--safe']), /Command not allowed: connect/);
 });
@@ -27,13 +27,13 @@ test('connect is NOT in the command allowlist (Yolo unreachable via figma_run)',
 test('design-system generators stay out of the allowlist (neutral-tool policy)', async () => {
   // The engine ships no third-party design-system content — shadcn and
   // blocks were removed on purpose and must not silently return.
-  const { ALLOWED_COMMANDS } = await import('../src/figma-cli.js');
+  const { ALLOWED_COMMANDS } = await import('../src/engine.js');
   assert.equal(ALLOWED_COMMANDS.has('shadcn'), false);
   assert.equal(ALLOWED_COMMANDS.has('blocks'), false);
 });
 
 test('help flags pass the allowlist gate (discoverability), connect stays blocked', async () => {
-  const { HELP_TOKENS, runCli } = await import('../src/figma-cli.js');
+  const { HELP_TOKENS, runCli } = await import('../src/engine.js');
   // --help / -h are read-only listings; runCli must not reject them at the
   // allowlist gate. Only flag forms are allowed — the engine has no `help`
   // command, so a bare "help" token would hit its unknown-command exit path.
@@ -45,7 +45,7 @@ test('help flags pass the allowlist gate (discoverability), connect stays blocke
 });
 
 test('runCli rejects non-array / empty / non-string args', async () => {
-  const { runCli } = await import('../src/figma-cli.js');
+  const { runCli } = await import('../src/engine.js');
   await assert.rejects(() => runCli([]), /non-empty array/);
   await assert.rejects(() => runCli('canvas'), /non-empty array/);
   await assert.rejects(() => runCli([123]), /must be strings/);
@@ -68,7 +68,7 @@ test('pairing: ensureKey persists a stable base64url key, rotate changes it', as
 });
 
 test('rejection names the full allowlist so agents stop guessing commands', async () => {
-  const { ALLOWED_COMMANDS, runCli } = await import('../src/figma-cli.js');
+  const { ALLOWED_COMMANDS, runCli } = await import('../src/engine.js');
   // "style" was one of the real guesses from the test session.
   await assert.rejects(() => runCli(['style']), (err) => {
     assert.match(err.message, /Command not allowed: style\. Allowed: /);
@@ -79,7 +79,7 @@ test('rejection names the full allowlist so agents stop guessing commands', asyn
 });
 
 test('export assets output dirs resolve against the CLIENT workspace, never the engine repo', async () => {
-  const { withAbsoluteOutputDir } = await import('../src/figma-cli.js');
+  const { withAbsoluteOutputDir } = await import('../src/engine.js');
   // Relative -o → absolute against the given base (the MCP server's cwd).
   const rel = withAbsoluteOutputDir(['export', 'assets', '1:2', '-o', 'src/assets'], '/work/project');
   assert.equal(rel.outDir, '/work/project/src/assets');
@@ -98,7 +98,7 @@ test('export assets output dirs resolve against the CLIENT workspace, never the 
 });
 
 test('withAbsoluteOutputDir handles the combined --output=dir form', async () => {
-  const { withAbsoluteOutputDir } = await import('../src/figma-cli.js');
+  const { withAbsoluteOutputDir } = await import('../src/engine.js');
   // Commander accepts --output=dir; the old findIndex missed it and silently
   // redirected the export to the default assets dir.
   const eq = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output=src/assets'], '/work/project');
@@ -109,7 +109,7 @@ test('withAbsoluteOutputDir handles the combined --output=dir form', async () =>
 });
 
 test('normalizeOutputArgs anchors extract / export node|screenshot outputs to the client workspace', async () => {
-  const { normalizeOutputArgs } = await import('../src/figma-cli.js');
+  const { normalizeOutputArgs } = await import('../src/engine.js');
   const base = '/work/project';
 
   // extract: positional output, also after value-taking flags
@@ -142,7 +142,7 @@ test('figma_selection tool schema exists and takes no parameters', async () => {
 });
 
 test('normalizeOutputArgs anchors map storybook output to the client workspace', async () => {
-  const { normalizeOutputArgs } = await import('../src/figma-cli.js');
+  const { normalizeOutputArgs } = await import('../src/engine.js');
   const base = '/work/project';
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base).slice(-2),
     ['-o', '/work/project/figma-map.json']);
@@ -228,7 +228,7 @@ test('INSTRUCTIONS stay under the 2,048-char client truncation limit', async () 
 });
 
 test('verify-build passes the figma_run allowlist as a read-only command', async () => {
-  const { ALLOWED_COMMANDS } = await import('../src/figma-cli.js');
+  const { ALLOWED_COMMANDS } = await import('../src/engine.js');
   const { isWrite } = await import('../src/server.js');
   assert.ok(ALLOWED_COMMANDS.has('verify-build'));
   // Read-only: must never trip the write-confirm gate.
@@ -236,7 +236,7 @@ test('verify-build passes the figma_run allowlist as a read-only command', async
 });
 
 test('okExitCodes lets a command use its exit code as an answer, not a failure', async () => {
-  const { runCli } = await import('../src/figma-cli.js');
+  const { runCli } = await import('../src/engine.js');
   const { mkdtempSync, rmSync } = await import('node:fs');
   // verify-build exits 1 when a project is missing exported assets, and
   // history diff exits 1 when the design changed — in both cases the code IS
@@ -260,7 +260,7 @@ test('okExitCodes lets a command use its exit code as an answer, not a failure',
 });
 
 test('motion is allowlisted, is a real engine command, and is gated as a write', async () => {
-  const { ALLOWED_COMMANDS } = await import('../src/figma-cli.js');
+  const { ALLOWED_COMMANDS } = await import('../src/engine.js');
   const { isWrite } = await import('../src/server.js');
   assert.ok(ALLOWED_COMMANDS.has('motion'), 'motion must be reachable through figma_run');
 
@@ -286,7 +286,7 @@ test('motion is allowlisted, is a real engine command, and is gated as a write',
 });
 
 test('normalizeOutputArgs: verify-build paths resolve against the client workspace', async () => {
-  const { normalizeOutputArgs } = await import('../src/figma-cli.js');
+  const { normalizeOutputArgs } = await import('../src/engine.js');
   const base = '/work/project';
   // projectDir positional + every path flag, separated and = forms.
   assert.deepEqual(

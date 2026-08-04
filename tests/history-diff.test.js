@@ -17,7 +17,7 @@ const { test, after } = await import("node:test");
 const assert = (await import("node:assert/strict")).default;
 const { handleTool } = await import("../src/server.js");
 const { NOT_CONFIGURED_MSG } = await import("../src/figma-rest.js");
-const { ALLOWED_COMMANDS } = await import("../src/figma-cli.js");
+const { ALLOWED_COMMANDS } = await import("../src/engine.js");
 const { isWrite } = await import("../src/server.js");
 
 after(() => {
