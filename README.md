@@ -388,6 +388,44 @@ TARGET_COLLECTION values — no redesign. It plans by default; `--apply` writes.
 with no counterpart in the target are listed and left pointing where they were,
 so a partial theme is a report rather than a half-broken design.
 
+`node set` changes properties on nodes that already exist — `fill`, `stroke`,
+`strokeWidth`, `radius`, `opacity`, `x`, `y`, `width`/`height`, `name`,
+`visible` — one node at a time or many through `--batch`, which matters because
+the batch form is **one** round-trip:
+
+```
+figma_run ["node", "set", "12:34", "--name", "Card", "--radius", "12"]
+figma_run ["node", "set", "--batch", "[{\"node\":\"12:35\",\"fill\":\"var:sage/50\",\"name\":\"Badge\"}]"]
+```
+
+A colour takes a hex or `var:<name>`. The difference is not cosmetic: a hex is
+frozen, a `var:` reference stays **bound**, so a later `tokens rebind` can still
+move it.
+
+### Finding what needs fixing
+
+```
+figma_run ["analyze", "lint", "--node", "12:34"]
+```
+
+One pass for the four things a design-system review acts on: colours that match
+an existing variable but are not bound to it, layers still carrying a default
+name, text with no style, text under 12px. `--fail-on-issues` makes it a CI
+gate; `--kind` narrows it; `--json` never truncates.
+
+A hardcoded colour is only reported **when a variable already holds that exact
+value** — otherwise the finding is noise you cannot act on. Because the match
+is known, each one arrives with the command that fixes it:
+
+```
+unbound token colour — 1
+  12:35    Badge  fill is #8a9a8d, which is sage/400
+    fix: node bind 12:35 fill "sage/400" --collection "Sprout Primitives"
+```
+
+`analyze colors|typography|spacing` still give the full census. Lint is the
+pass that answers whether anything needs doing at all.
+
 ## Version history and diffs
 
 Figma's plugin API can *write* a version but not read one back, so "what changed

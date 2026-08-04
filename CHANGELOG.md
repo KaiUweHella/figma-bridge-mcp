@@ -34,6 +34,18 @@ the plugin window. The panel will tell you if you forget.
   was no way to write one. An ambiguous variable name is refused with both
   candidates named rather than resolved by whichever came first, and the
   variable's type is checked against the property before the plugin sees it.
+- **`node set`** — change properties on existing nodes (fill, stroke,
+  strokeWidth, radius, opacity, x, y, width/height, name, visible), one node or
+  many through `--batch`. The batch form is one round-trip, which is the point:
+  renaming forty layers used to be forty daemon calls. Colours take a hex or
+  `var:<name>`; a `var:` reference stays bound, so `tokens rebind` can still
+  move it later.
+- **`analyze lint`** — one pass for the four things a design-system review acts
+  on: colours matching an existing variable but not bound to it, default layer
+  names, text without a style, text under 12px. A colour is only reported when a
+  variable already holds that value, so every finding is actionable — and
+  arrives with the `node bind` call that fixes it. `--fail-on-issues` makes it a
+  CI gate.
 - **`tokens rebind <collection>`** — the theme switch: walk a subtree and
   repoint every variable binding at the same-named variable in a target
   collection. Plans by default, writes under `--apply`; tokens with no

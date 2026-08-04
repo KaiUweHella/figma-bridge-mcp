@@ -567,3 +567,227 @@ node
       process.exit(1);
     }
   });
+
+// ============ SET (properties, by node id) ============
+//
+// Rebuilt from the deleted `set-batch`, which was registered top-level rather
+// than under `variables` — so the allowlisted `var` alias never reached it and
+// nothing could call it.
+//
+// The point of the batch form is one eval instead of N round-trips: renaming
+// forty layers used to be forty daemon calls. `node rename`, `node move` and
+// `node resize` still exist for the single-property case.
+//
+// Colours accept a hex OR `var:<name>`; a var: reference stays BOUND, so a
+// later `tokens rebind` can still move it. Resolution goes through the same
+// helper as `node bind`, which means an ambiguous name is reported instead of
+// silently resolved to whichever collection came first.
+
+const SET_PROPS = {
+  fill:        'paint',
+  stroke:      'paint',
+  strokeWidth: 'number',
+  radius:      'number',
+  opacity:     'number',
+  x:           'number',
+  y:           'number',
+  width:       'number',
+  height:      'number',
+  name:        'string',
+  visible:     'boolean',
+};
+
+/**
+ * Normalize one set request. Pure — exported for tests.
+ * Tolerates the spellings an LLM reaches for: id/nodeId/node, w/h for
+ * width/height, newName/label for name.
+ */
+export function parseSetRequest(entry) {
+  const rawId = entry.node ?? entry.nodeId ?? entry.id;
+  if (!rawId) throw new Error('missing node id');
+
+  const alias = {
+    w: 'width', h: 'height',
+    newName: 'name', label: 'name',
+    cornerRadius: 'radius', strokeWeight: 'strokeWidth',
+  };
+  const props = {};
+  for (const [rawKey, value] of Object.entries(entry)) {
+    if (['node', 'nodeId', 'id'].includes(rawKey)) continue;
+    if (value === undefined) continue;
+    const key = alias[rawKey] ?? rawKey;
+    if (!(key in SET_PROPS)) {
+      throw new Error(`unknown property "${rawKey}". Known: ${Object.keys(SET_PROPS).join(', ')}`);
+    }
+    const want = SET_PROPS[key];
+    if (want === 'number') {
+      const n = Number(value);
+      if (!Number.isFinite(n)) throw new Error(`${key} must be a number, got ${JSON.stringify(value)}`);
+      props[key] = n;
+    } else if (want === 'boolean') {
+      props[key] = value === true || value === 'true';
+    } else {
+      props[key] = String(value);
+    }
+  }
+  if (Object.keys(props).length === 0) throw new Error('no properties to set');
+  // width and height must move together: resize() takes both.
+  if (('width' in props) !== ('height' in props)) {
+    throw new Error('width and height must be set together (Figma resizes in one call)');
+  }
+  return { nodeId: normalizeNodeId(String(rawId)).id, props };
+}
+
+/** Build the eval for a batch of already-parsed set requests. Exported for tests. */
+export function setCode(requests, collection) {
+  return `(async () => {
+${varResolverCode()}
+const requests = ${JSON.stringify(requests)};
+const collection = ${JSON.stringify(collection ?? null)};
+
+const hexToRgb = (hex) => {
+  const m = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(String(hex));
+  return m ? { r: parseInt(m[1], 16) / 255, g: parseInt(m[2], 16) / 255, b: parseInt(m[3], 16) / 255 } : null;
+};
+
+// hex → frozen paint; var:<name> → BOUND paint (survives a later rebind).
+const toPaint = (input) => {
+  if (typeof input === 'string' && input.startsWith('var:')) {
+    const ref = input.slice(4);
+    const res = __resolveVar(ref, collection);
+    if (res.badCollection) return { _err: 'no collection matching "' + res.badCollection + '"' };
+    if (!res.variable) {
+      if (res.matches.length === 0) return { _err: 'no variable named "' + ref + '"' };
+      return { _err: res.matches.length + ' variables match "' + ref + '" — narrow with --collection: '
+                     + res.matches.map(m => m.name + ' in ' + m.collection).join(', ') };
+    }
+    if (res.variable.resolvedType !== 'COLOR') {
+      return { _err: '"' + ref + '" is ' + res.variable.resolvedType + ', not a COLOR' };
+    }
+    return figma.variables.setBoundVariableForPaint(
+      { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', res.variable);
+  }
+  const rgb = hexToRgb(input);
+  return rgb ? { type: 'SOLID', color: rgb } : { _err: 'not a hex colour or var: reference: ' + input };
+};
+
+const done = [];
+const failed = [];
+
+for (const req of requests) {
+  const node = await figma.getNodeByIdAsync(req.nodeId);
+  if (!node) { failed.push({ nodeId: req.nodeId, reason: 'node not found' }); continue; }
+
+  const applied = [];
+  const skipped = [];
+  const p = req.props;
+
+  for (const key of ['fill', 'stroke']) {
+    if (!(key in p)) continue;
+    const field = key === 'fill' ? 'fills' : 'strokes';
+    if (!(field in node)) { skipped.push(key + ' (' + node.type + ' has no ' + field + ')'); continue; }
+    const paint = toPaint(p[key]);
+    if (paint._err) { failed.push({ nodeId: req.nodeId, reason: key + ': ' + paint._err }); continue; }
+    node[field] = [paint];
+    applied.push(key);
+  }
+
+  const scalars = [
+    ['strokeWidth', 'strokeWeight'], ['radius', 'cornerRadius'], ['opacity', 'opacity'],
+    ['x', 'x'], ['y', 'y'], ['name', 'name'], ['visible', 'visible'],
+  ];
+  for (const [key, field] of scalars) {
+    if (!(key in p)) continue;
+    if (!(field in node)) { skipped.push(key + ' (' + node.type + ' has no ' + field + ')'); continue; }
+    try { node[field] = p[key]; applied.push(key); }
+    catch (e) { failed.push({ nodeId: req.nodeId, reason: key + ': ' + e.message }); }
+  }
+
+  if ('width' in p && 'height' in p) {
+    if (!('resize' in node)) skipped.push('size (' + node.type + ' cannot resize)');
+    else {
+      try { node.resize(p.width, p.height); applied.push('size'); }
+      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'resize: ' + e.message }); }
+    }
+  }
+
+  if (applied.length) done.push({ nodeId: req.nodeId, name: node.name, applied, skipped });
+  else if (skipped.length) failed.push({ nodeId: req.nodeId, reason: 'nothing applied — ' + skipped.join(', ') });
+}
+return { done, failed };
+})()`;
+}
+
+node
+  .command('set [nodeId]')
+  .description(`Set properties on a node, or on many at once with --batch. Properties: ${Object.keys(SET_PROPS).join(', ')}. Colours take a hex or var:<name> — a var: reference stays bound.`)
+  .option('--fill <color>', 'Hex ("#ff0000") or var:<name>')
+  .option('--stroke <color>', 'Hex or var:<name>')
+  .option('--stroke-width <n>', 'Stroke weight')
+  .option('--radius <n>', 'Corner radius')
+  .option('--opacity <n>', 'Opacity, 0–1')
+  .option('--x <n>', 'X position')
+  .option('--y <n>', 'Y position')
+  .option('--width <n>', 'Width (needs --height)')
+  .option('--height <n>', 'Height (needs --width)')
+  .option('--name <name>', 'Rename the layer')
+  .option('--visible <bool>', 'true / false')
+  .option('-c, --collection <name>', 'Which collection var:<name> resolves in')
+  .option('--batch <json>', 'Many at once: [{"node":"1:2","name":"Card","fill":"var:sage/50"}, …]')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+
+    let entries;
+    if (options.batch) {
+      try {
+        entries = JSON.parse(options.batch);
+      } catch (e) {
+        console.error(chalk.red('✗'), `--batch is not valid JSON: ${e.message}`);
+        process.exit(1);
+      }
+      if (!Array.isArray(entries) || entries.length === 0) {
+        console.error(chalk.red('✗'), '--batch expects a non-empty JSON array');
+        process.exit(1);
+      }
+    } else {
+      if (!nodeId) {
+        console.error(chalk.red('✗'), 'Name a node id, or pass --batch.');
+        process.exit(1);
+      }
+      const single = { node: nodeId };
+      for (const [flag, key] of [['fill', 'fill'], ['stroke', 'stroke'], ['strokeWidth', 'strokeWidth'],
+                                 ['radius', 'radius'], ['opacity', 'opacity'], ['x', 'x'], ['y', 'y'],
+                                 ['width', 'width'], ['height', 'height'], ['name', 'name'],
+                                 ['visible', 'visible']]) {
+        if (options[flag] !== undefined) single[key] = options[flag];
+      }
+      entries = [single];
+    }
+
+    let requests;
+    try {
+      requests = entries.map((e, i) => {
+        try { return parseSetRequest(e); }
+        catch (err) { throw new Error(`entry ${i}: ${err.message}`); }
+      });
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+
+    try {
+      const r = await fastEval(setCode(requests, options.collection));
+      for (const d of r.done) {
+        console.log(chalk.green('✓') + ` ${d.name} (${d.nodeId}): ${d.applied.join(', ')}`);
+        for (const s of d.skipped) console.log(chalk.gray(`    skipped ${s}`));
+      }
+      for (const f of r.failed) {
+        console.error(chalk.red('✗') + ` ${f.nodeId}: ${f.reason}`);
+      }
+      if (r.failed.length) process.exit(1);
+      if (r.done.length === 0) console.log(chalk.gray('Nothing set.'));
+    } catch (e) {
+      console.error(chalk.red('✗ Set failed: ' + e.message));
+      process.exit(1);
+    }
+  });
