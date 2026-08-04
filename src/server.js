@@ -63,6 +63,8 @@ const READ_SUBCOMMANDS = {
   // depending on its arguments, and the gate only sees the subcommand. Treating
   // it as a write is the safe direction.
   motion: new Set(["styles", "inspect"]),
+  // Everything else in `jam` creates or moves nodes on the board.
+  jam: new Set(["board"]),
 };
 
 // Commands that never touch the Figma document (exports/analysis write repo
@@ -806,6 +808,18 @@ export async function handleTool(name, rawArgs) {
         if (raw.keyConfigured === false) {
           lines.push("daemon has NO key loaded — reconnect after figma_connect");
         }
+      }
+      // Which editor the bridge is attached to. Design commands and `jam`
+      // target different editors, and "it just failed" is much easier to act
+      // on when the agent can see which kind of file it is talking to.
+      const sel = await getSelection().catch(() => null);
+      const editor = sel && sel.selection && sel.selection.editorType;
+      if (editor) {
+        lines.push(
+          `editor: ${editor}${editor === "figjam"
+            ? " — use figma_run [\"jam\", …]; design commands need a Figma file"
+            : ""}`,
+        );
       }
       // Optional REST layer: report presence and validity (lazy, 5-min cached)
       // without ever echoing the token. The open file lets the check fall back

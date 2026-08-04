@@ -609,6 +609,9 @@ wss.on('connection', (ws) => {
           ? { fileKey: msg.selection.fileKey.slice(0, 64) } : {}),
         ...(typeof msg.selection.fileName === 'string' && msg.selection.fileName
           ? { fileName: msg.selection.fileName.slice(0, 128) } : {}),
+        // Which editor the plugin is running in ("figma" | "figjam").
+        ...(typeof msg.selection.editorType === 'string' && msg.selection.editorType
+          ? { editorType: msg.selection.editorType.slice(0, 16) } : {}),
         nodes: Array.isArray(msg.selection.nodes)
           ? msg.selection.nodes.slice(0, 50).map((n) => ({
               id: String(n.id || ''),

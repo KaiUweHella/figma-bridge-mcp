@@ -83,6 +83,9 @@ export const ALLOWED_COMMANDS = new Set([
   // history snapshots/diffs the document structure. Reads Figma; writes only
   // into ~/.figma-bridge-mcp/snapshots (and a changelog file if asked).
   "history",
+  // jam authors FigJam boards. Same transport as everything else — the
+  // snippets guard on figma.editorType and refuse to run in a design file.
+  "jam",
 ]);
 
 // Discoverability: the top-level help flag is read-only (commander prints the

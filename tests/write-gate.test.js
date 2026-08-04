@@ -54,6 +54,7 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['tokens', 'sync', 'tokens.json'],
     ['tokens', 'sync', 'tokens.json', '--prune'],
     ['tokens', 'sync', 'tokens.json', '--collection', 'Design Tokens'],
+    ['jam', 'board'],
   ]) {
     assert.equal(isWrite(args), false, args.join(' '));
   }
@@ -98,6 +99,14 @@ test('write subcommands of gated groups require confirm', () => {
     ['tokens', 'sync', 'tokens.json', '--apply'],
     ['tokens', 'sync', '--apply', 'tokens.json'],
     ['tokens', 'sync', 'tokens.json', '--apply', '--prune'],
+    ['jam', 'sticky', 'Idea'],
+    ['jam', 'stickies', '["a","b"]'],
+    ['jam', 'shape', 'Decide'],
+    ['jam', 'connector', '1:2', '3:4'],
+    ['jam', 'table', '2', '2'],
+    ['jam', 'section', 'Ideas'],
+    ['jam', 'code', 'const x = 1'],
+    ['jam', 'arrange'],
     ['section', 'fit', '1:2'],
     ['section', 'arrange', '1:2'],
   ]) {

@@ -28,6 +28,13 @@ the plugin window. The panel will tell you if you forget.
 
 ### Added
 
+- **FigJam is back**, as the `jam` command group — stickies (single and
+  batched), shapes, connectors, tables, sections, code blocks, a board readout
+  and a grid arrange. It runs over the existing plugin bridge; the manifest
+  gains `figjam` as an editor type and nothing else. Every snippet checks
+  `figma.editorType` first, so running a board command in a design file says so
+  instead of failing on an undefined API, and `figma_status` now reports the
+  editor. Figma Slides remains unsupported.
 - **Two-way token sync.** `tokens sync <file>` compares a DTCG/W3C JSON or CSS
   custom-property file against a Figma collection and applies the difference —
   in the right direction. A `figma-tokens.lock.json` records the last agreed

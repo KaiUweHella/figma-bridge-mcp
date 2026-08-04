@@ -235,6 +235,27 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## FigJam
+
+The plugin runs in FigJam boards too, over the same bridge — no second
+transport, no extra permission:
+
+```bash
+figma-cli jam sticky "Ship the handshake" --color green
+figma-cli jam stickies '["Discovery","Build","Ship"]' --columns 3
+figma-cli jam shape "Decide?" --type DIAMOND
+figma-cli jam connector 1:2 3:4 --text yes
+figma-cli jam table 3 4 --data '[["Step","Owner"],["Handshake","Kai"]]'
+figma-cli jam board          # read everything back, with connectors
+figma-cli jam arrange        # tidy loose nodes onto a grid
+```
+
+New nodes land to the right of whatever is already on the board unless you pass
+`--at x,y`, so an agent adding to a populated board does not stack everything at
+the origin. Every command checks `figma.editorType` first and says "this is a
+figma file, not a FigJam board" rather than failing on an undefined API.
+`figma_status` reports which editor the bridge is attached to.
+
 ## Token sync (two-way)
 
 `tokens import` only ever creates, so a value edited in code never reaches an
@@ -455,8 +476,8 @@ Node's `crypto` so the two implementations cannot drift apart.
 
 ## Known limitations
 
-- **FigJam is not supported.** The upstream FigJam commands drove the removed
-  CDP transport and were deleted along with it.
+- **Figma Slides is not supported.** FigJam is (see [FigJam](#figjam)); Slides
+  would need its own command group and has not been built.
 - **Non-localhost network actions are few and explicit**: `api setup`
   (one-time git clone of the Figma Plugin API docs mirror, for
   `figma_reference`), the Storybook index fetch of `import`/`map storybook`
