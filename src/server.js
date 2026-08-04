@@ -101,10 +101,11 @@ export function isWrite(args) {
   // Bare group command or a leading flag → usage output, not an action.
   const subIsAction = sub !== undefined && !sub.startsWith("-");
   if (cmd === "tokens") {
-    // `tokens sync` is a dry run unless --apply is passed: it reads both sides
-    // and prints a plan. Gating the plan behind confirm would make an agent ask
-    // permission to look, so the flag — not the subcommand — decides here.
-    if (sub === "sync") return args.includes("--apply");
+    // `tokens sync` and `tokens rebind` are dry runs unless --apply is passed:
+    // they read both sides and print a plan. Gating the plan behind confirm
+    // would make an agent ask permission to look, so the flag — not the
+    // subcommand — decides for these two.
+    if (sub === "sync" || sub === "rebind") return args.includes("--apply");
     return subIsAction && sub !== "overlap";
   }
   if (cmd in READ_SUBCOMMANDS) return subIsAction && !READ_SUBCOMMANDS[cmd].has(sub);

@@ -360,6 +360,34 @@ those as two steps if the bindings matter.
 Without `--apply` the command exits 1 when changes are pending, so it works as a
 CI check for "is Figma in sync with the repo?".
 
+### Binding, and switching which collection a design follows
+
+`tokens sync` writes token *values*. Two neighbouring things it deliberately
+does not do:
+
+```
+figma_run ["node", "bind", "12:34", "radius", "radius/lg", "--collection", "TARGET_COLLECTION"]
+figma_run ["tokens", "rebind", "TARGET_COLLECTION", "--node", "12:34"]            # plan
+figma_run ["tokens", "rebind", "TARGET_COLLECTION", "--node", "12:34", "--apply"] # write
+```
+
+`node bind` attaches a variable to a property of an **existing** node — `fill`,
+`stroke`, `radius`, `gap`, `padding` (or one side), `opacity`, `stroke-width`,
+`width`, `height`. Its read counterpart is `node bindings`. Pass `--batch` with
+a JSON array to bind many properties or nodes in one call.
+
+A variable name that is not unique is **refused, not guessed** — this file has
+`radius/lg` in two collections, and the answer names both so `--collection` can
+settle it. The variable's type is checked against the property first, so a
+COLOR on `radius` fails with a sentence rather than a plugin stack trace.
+
+`tokens rebind` is the theme switch: it walks a subtree and repoints every
+binding at the same-named variable in a target collection. Design a card
+against `SOURCE_COLLECTION`, run rebind with `TARGET_COLLECTION`, and the same card follows
+TARGET_COLLECTION values — no redesign. It plans by default; `--apply` writes. Tokens
+with no counterpart in the target are listed and left pointing where they were,
+so a partial theme is a report rather than a half-broken design.
+
 ## Version history and diffs
 
 Figma's plugin API can *write* a version but not read one back, so "what changed

@@ -6,7 +6,7 @@ import {
   fastEval
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
-import { generateFillCode, isVarRef, pageLookupCode, varLoadingCode } from '../lib/eval-snippets.js';
+import { generateFillCode, isVarRef, pageLookupCode, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
 import { readImageBase64 } from '../lib/image-file.js';
 
 // ============ NODE OPERATIONS ============
@@ -400,3 +400,170 @@ node
     }
   });
 
+
+// ============ BIND (variable → property, by node id) ============
+//
+// The write counterpart to `node bindings`. Rebuilt from the deleted `bind`
+// command group, which read figma.currentPage.selection — a selection no MCP
+// caller can set, which is why nothing could ever call it.
+//
+// Two things it does that the original did not: it refuses an ambiguous
+// variable name instead of taking the first match, and it checks the
+// variable's type against the property before binding (a COLOR on
+// cornerRadius used to fail inside the plugin with an opaque message).
+
+// property → how it binds. PAINT properties go through
+// setBoundVariableForPaint; SCALAR ones through node.setBoundVariable.
+const BIND_PROPS = {
+  fill:            { kind: 'paint',  field: 'fills',   type: 'COLOR' },
+  stroke:          { kind: 'paint',  field: 'strokes', type: 'COLOR' },
+  radius:          { kind: 'scalar', field: 'cornerRadius', type: 'FLOAT' },
+  gap:             { kind: 'scalar', field: 'itemSpacing', type: 'FLOAT' },
+  opacity:         { kind: 'scalar', field: 'opacity', type: 'FLOAT' },
+  'stroke-width':  { kind: 'scalar', field: 'strokeWeight', type: 'FLOAT' },
+  width:           { kind: 'scalar', field: 'width', type: 'FLOAT' },
+  height:          { kind: 'scalar', field: 'height', type: 'FLOAT' },
+  padding:         { kind: 'scalar', field: ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'], type: 'FLOAT' },
+  'padding-top':   { kind: 'scalar', field: 'paddingTop', type: 'FLOAT' },
+  'padding-right': { kind: 'scalar', field: 'paddingRight', type: 'FLOAT' },
+  'padding-bottom':{ kind: 'scalar', field: 'paddingBottom', type: 'FLOAT' },
+  'padding-left':  { kind: 'scalar', field: 'paddingLeft', type: 'FLOAT' },
+};
+
+/**
+ * Normalize one binding request. Pure — exported for tests.
+ * Returns { nodeId, property, varName, collection } or throws with the
+ * reason a caller can act on.
+ */
+export function parseBindRequest(entry) {
+  const nodeId = entry.node ?? entry.nodeId ?? entry.id;
+  const property = entry.property ?? entry.prop;
+  const varName = entry.variable ?? entry.var ?? entry.varName;
+  if (!nodeId) throw new Error('missing node id');
+  if (!property) throw new Error('missing property');
+  if (!varName) throw new Error('missing variable name');
+  if (!(property in BIND_PROPS)) {
+    throw new Error(`unknown property "${property}". Known: ${Object.keys(BIND_PROPS).join(', ')}`);
+  }
+  const norm = normalizeNodeId(String(nodeId));
+  return {
+    nodeId: norm.id,
+    property,
+    varName: String(varName),
+    collection: entry.collection ?? null,
+  };
+}
+
+/** Build the eval for a batch of already-parsed requests. Exported for tests. */
+export function bindCode(requests) {
+  return `(async () => {
+${varResolverCode()}
+const requests = ${JSON.stringify(requests)};
+const props = ${JSON.stringify(BIND_PROPS)};
+const done = [];
+const failed = [];
+
+for (const req of requests) {
+  const node = await figma.getNodeByIdAsync(req.nodeId);
+  if (!node) { failed.push({ ...req, reason: 'node not found' }); continue; }
+
+  const res = __resolveVar(req.varName, req.collection);
+  if (res.badCollection) {
+    failed.push({ ...req, reason: 'no collection matching "' + res.badCollection + '" (have: ' + res.collections.join(', ') + ')' });
+    continue;
+  }
+  if (!res.variable) {
+    if (res.matches.length === 0) {
+      failed.push({ ...req, reason: 'no variable named "' + req.varName + '"' });
+    } else {
+      const where = res.matches.map(m => m.name + ' in ' + m.collection).join(', ');
+      failed.push({ ...req, reason: res.matches.length + ' variables match — narrow with --collection: ' + where });
+    }
+    continue;
+  }
+  const v = res.variable;
+  const spec = props[req.property];
+  if (v.resolvedType !== spec.type) {
+    failed.push({ ...req, reason: req.property + ' needs a ' + spec.type + ' variable, "' + v.name + '" is ' + v.resolvedType });
+    continue;
+  }
+
+  try {
+    if (spec.kind === 'paint') {
+      if (!(spec.field in node)) { failed.push({ ...req, reason: node.type + ' has no ' + spec.field }); continue; }
+      const paints = node[spec.field];
+      // strokes are often empty: a bind implies "make it visible", so seed a
+      // black solid rather than silently doing nothing.
+      const base = (Array.isArray(paints) && paints.length)
+        ? paints[0]
+        : { type: 'SOLID', color: { r: 0, g: 0, b: 0 } };
+      node[spec.field] = [figma.variables.setBoundVariableForPaint(base, 'color', v)];
+    } else {
+      const fields = Array.isArray(spec.field) ? spec.field : [spec.field];
+      const usable = fields.filter(f => f in node);
+      if (usable.length === 0) { failed.push({ ...req, reason: node.type + ' has no ' + fields.join('/') }); continue; }
+      for (const f of usable) node.setBoundVariable(f, v);
+    }
+    done.push({ nodeId: req.nodeId, name: node.name, property: req.property, variable: v.name, collection: __colName(v) });
+  } catch (e) {
+    failed.push({ ...req, reason: e.message });
+  }
+}
+return { done, failed };
+})()`;
+}
+
+node
+  .command('bind [nodeId] [property] [varName]')
+  .description(`Bind a variable to a node property, by id. Properties: ${Object.keys(BIND_PROPS).join(', ')}. The read counterpart is \`node bindings\`.`)
+  .option('-c, --collection <name>', 'Which collection the variable comes from (required when the name is not unique)')
+  .option('--batch <json>', 'Bind many at once: [{"node":"1:2","property":"fill","variable":"brand","collection":"TARGET_COLLECTION"}, …]')
+  .action(async (nodeId, property, varName, options) => {
+    await checkConnection();
+
+    let entries;
+    if (options.batch) {
+      try {
+        entries = JSON.parse(options.batch);
+      } catch (e) {
+        console.error(chalk.red('✗'), `--batch is not valid JSON: ${e.message}`);
+        process.exit(1);
+      }
+      if (!Array.isArray(entries) || entries.length === 0) {
+        console.error(chalk.red('✗'), '--batch expects a non-empty JSON array');
+        process.exit(1);
+      }
+    } else {
+      entries = [{ node: nodeId, property, variable: varName }];
+    }
+
+    let requests;
+    try {
+      requests = entries.map((e, i) => {
+        const merged = options.collection && !e.collection ? { ...e, collection: options.collection } : e;
+        try {
+          return parseBindRequest(merged);
+        } catch (err) {
+          throw new Error(`entry ${i}: ${err.message}`);
+        }
+      });
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+
+    try {
+      const r = await fastEval(bindCode(requests));
+      for (const d of r.done) {
+        console.log(chalk.green('✓') + ` ${d.name} (${d.nodeId}) ${d.property} → ${d.variable}` + chalk.gray(`  [${d.collection}]`));
+      }
+      for (const f of r.failed) {
+        console.error(chalk.red('✗') + ` ${f.nodeId} ${f.property}: ${f.reason}`);
+      }
+      if (r.failed.length) process.exit(1);
+      if (r.done.length === 0) console.log(chalk.gray('Nothing bound.'));
+    } catch (e) {
+      console.error(chalk.red('✗ Bind failed: ' + e.message));
+      process.exit(1);
+    }
+  });

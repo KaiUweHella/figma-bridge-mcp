@@ -27,6 +27,7 @@ import {
   canonicalValue,
   hexToFigmaRgb,
 } from '../lib/token-sync.js';
+import { normalizeNodeId } from '../lib/node-id.js';
 
 // ============ COLLECTIONS ============
 
@@ -799,3 +800,188 @@ return 'Created ' + type.toLowerCase() + ' token: ${name}';
     }
   });
 
+
+// ============ REBIND (switch a subtree to another collection) ============
+//
+// Rebuilt from the deleted `use <collection>` / `theme` command. Same idea —
+// walk every variable binding under a node and repoint it at the same-named
+// variable in a target collection — with three changes:
+//
+//   1. It takes a node id. The original walked figma.currentPage.selection,
+//      which no MCP caller can set, which is why it was unreachable.
+//   2. It plans by default and writes only under --apply, like `tokens sync`.
+//      The original rebound a whole page on the first try.
+//   3. It reports which nodes changed, not just how many bindings did.
+//
+// This is what `tokens sync` cannot do: sync writes VALUES into a collection,
+// rebind changes WHICH collection a design points at. Neither replaces the
+// other.
+
+/** Build the rebind eval. Pure; exported so tests can parse it. */
+export function rebindCode({ target, rootId, wholePage, apply }) {
+  return `(async () => {
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+  const allVars = await figma.variables.getLocalVariablesAsync();
+  const targetQ = ${JSON.stringify(String(target).toLowerCase())};
+  const targetCol = collections.find(c => c.name.toLowerCase() === targetQ)
+                 || collections.find(c => c.name.toLowerCase().includes(targetQ));
+  if (!targetCol) {
+    return { error: 'No collection matching "${String(target).replace(/"/g, '\\"')}". Have: ' + collections.map(c => c.name).join(', ') };
+  }
+
+  const targetMap = {};
+  for (const v of allVars) if (v.variableCollectionId === targetCol.id) targetMap[v.name] = v;
+  if (Object.keys(targetMap).length === 0) {
+    return { error: 'Collection "' + targetCol.name + '" has no variables' };
+  }
+
+  ${wholePage
+    ? 'const roots = figma.currentPage.children.slice();'
+    : `const __root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});
+       if (!__root) return { error: 'Node not found: ${rootId}' };
+       const roots = [__root];`}
+
+  const walked = [];
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || seen.has(n.id)) return;
+    seen.add(n.id);
+    walked.push(n);
+    if ('children' in n && n.children) for (const c of n.children) walk(c);
+  };
+  for (const r of roots) walk(r);
+
+  const apply = ${!!apply};
+  const byId = new Map(allVars.map(v => [v.id, v]));
+  const colName = (v) => {
+    const c = collections.find(c => c.id === v.variableCollectionId);
+    return c ? c.name : '(unknown)';
+  };
+
+  let count = 0;
+  const tokens = new Set();
+  const missing = new Set();
+  const touched = [];   // one entry per node that changed
+  const fromCollections = new Set();
+
+  for (const n of walked) {
+    let nodeChanges = 0;
+
+    // Paint bindings live inside the paint object, not in boundVariables.
+    for (const prop of ['fills', 'strokes']) {
+      if (!(prop in n)) continue;
+      const paints = n[prop];
+      if (!Array.isArray(paints) || paints.length === 0) continue;
+      let changed = false;
+      const next = paints.map(paint => {
+        const ref = paint.boundVariables && paint.boundVariables.color;
+        if (!ref || !ref.id) return paint;
+        const oldVar = byId.get(ref.id);
+        if (!oldVar || oldVar.variableCollectionId === targetCol.id) return paint;
+        const newVar = targetMap[oldVar.name];
+        if (!newVar) { missing.add(oldVar.name); return paint; }
+        count++; nodeChanges++;
+        tokens.add(oldVar.name);
+        fromCollections.add(colName(oldVar));
+        changed = true;
+        return apply ? figma.variables.setBoundVariableForPaint(paint, 'color', newVar) : paint;
+      });
+      if (changed && apply) n[prop] = next;
+    }
+
+    // Scalar bindings (cornerRadius, itemSpacing, padding*, opacity, …).
+    if (n.boundVariables) {
+      for (const [field, ref] of Object.entries(n.boundVariables)) {
+        if (!ref || Array.isArray(ref) || !ref.id) continue;
+        const oldVar = byId.get(ref.id);
+        if (!oldVar || oldVar.variableCollectionId === targetCol.id) continue;
+        const newVar = targetMap[oldVar.name];
+        if (!newVar) { missing.add(oldVar.name); continue; }
+        count++; nodeChanges++;
+        tokens.add(oldVar.name);
+        fromCollections.add(colName(oldVar));
+        if (apply) {
+          try { n.setBoundVariable(field, newVar); }
+          catch (e) { count--; nodeChanges--; missing.add(oldVar.name + ' (' + field + ' not bindable)'); }
+        }
+      }
+    }
+
+    if (nodeChanges > 0) touched.push({ id: n.id, name: n.name, type: n.type, changes: nodeChanges });
+  }
+
+  return {
+    targetCollection: targetCol.name,
+    from: [...fromCollections].sort(),
+    nodesWalked: walked.length,
+    rebindings: count,
+    tokens: [...tokens].sort(),
+    missingInTarget: [...missing].sort(),
+    touched: touched.slice(0, 40),
+    touchedTotal: touched.length,
+    applied: apply,
+  };
+})()`;
+}
+
+tokens
+  .command('rebind <collection>')
+  .description('Repoint every variable binding under a node at the same-named variable in <collection> — the theme switch. Plans only unless --apply. Complements `tokens sync`, which writes values rather than changing which collection a design follows.')
+  .option('-n, --node <id>', 'Root node (its whole subtree is walked)')
+  .option('--page', 'Walk the entire current page instead of one node')
+  .option('--apply', 'Actually rebind (default: show the plan only)')
+  .action(async (collection, options) => {
+    await checkConnection();
+
+    if (!options.node && !options.page) {
+      console.error(chalk.red('✗'), 'Name a root: --node <id>, or --page for the whole page.');
+      console.error(chalk.gray('  (There is no selection-based form: an agent cannot set a selection.)'));
+      process.exit(1);
+    }
+    if (options.node && options.page) {
+      console.error(chalk.red('✗'), '--node and --page are mutually exclusive.');
+      process.exit(1);
+    }
+
+    const code = rebindCode({
+      target: collection,
+      rootId: options.node ? normalizeNodeId(String(options.node)).id : null,
+      wholePage: !!options.page,
+      apply: !!options.apply,
+    });
+
+    try {
+      const r = await fastEval(code);
+      if (r.error) {
+        console.error(chalk.red('✗'), r.error);
+        process.exit(1);
+      }
+      if (r.rebindings === 0) {
+        console.log(chalk.gray(`Nothing to rebind — no binding under this root points outside "${r.targetCollection}".`));
+        if (r.missingInTarget.length) {
+          console.log(chalk.yellow(`⚠ ${r.missingInTarget.length} bound token(s) have no counterpart in ${r.targetCollection}: ${r.missingInTarget.join(', ')}`));
+        }
+        return;
+      }
+
+      const verb = r.applied ? 'Rebound' : 'Would rebind';
+      const source = r.from.length ? ` from ${r.from.join(', ')}` : '';
+      console.log(chalk[r.applied ? 'green' : 'cyan'](
+        `${r.applied ? '✓' : '·'} ${verb} ${r.rebindings} binding(s) on ${r.touchedTotal} node(s)${source} → ${r.targetCollection}`
+      ));
+      console.log(chalk.gray(`  walked ${r.nodesWalked} node(s); tokens: ${r.tokens.join(', ')}`));
+      for (const t of r.touched) {
+        console.log(chalk.gray(`    ${t.id.padEnd(10)} ${t.type.padEnd(14)} ${t.name}  (${t.changes})`));
+      }
+      if (r.touchedTotal > r.touched.length) {
+        console.log(chalk.gray(`    … ${r.touchedTotal - r.touched.length} more`));
+      }
+      if (r.missingInTarget.length) {
+        console.log(chalk.yellow(`  ⚠ no counterpart in ${r.targetCollection}: ${r.missingInTarget.join(', ')}`));
+        console.log(chalk.gray('    those bindings were left pointing at their original collection'));
+      }
+      if (!r.applied) console.log(chalk.gray('\n  Re-run with --apply to write it.'));
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });

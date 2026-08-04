@@ -215,11 +215,55 @@ function pageLookupCode(query) {
 `;
 }
 
+/**
+ * Emit a `__resolveVar(name, collectionHint)` helper plus the `__allVars` /
+ * `__collections` arrays it needs.
+ *
+ * Returns `{ variable, matches }` — never a bare variable. The deleted `bind`
+ * commands did `vars.find(v => v.name === name || v.name.endsWith('/'+name))`
+ * and used whatever came back first. A file with three collections defining
+ * `primary` therefore got a silent coin toss. Here an ambiguous name is
+ * reported, and `collectionHint` is how the caller settles it.
+ *
+ * Matching order: exact name, then trailing segment ("brand" ← "color/brand").
+ * Only the strongest tier that produced a hit is returned, so an exact match
+ * is never diluted by looser ones.
+ */
+function varResolverCode() {
+  return `
+const __collections = await figma.variables.getLocalVariableCollectionsAsync();
+const __allVars = await figma.variables.getLocalVariablesAsync();
+const __colName = (v) => {
+  const c = __collections.find(c => c.id === v.variableCollectionId);
+  return c ? c.name : '(unknown)';
+};
+const __resolveVar = (name, collectionHint) => {
+  let pool = __allVars;
+  if (collectionHint) {
+    const q = String(collectionHint).toLowerCase();
+    const col = __collections.find(c => c.name.toLowerCase() === q)
+             || __collections.find(c => c.name.toLowerCase().includes(q));
+    if (!col) {
+      return { variable: null, matches: [], badCollection: collectionHint,
+               collections: __collections.map(c => c.name) };
+    }
+    pool = __allVars.filter(v => v.variableCollectionId === col.id);
+  }
+  const exact = pool.filter(v => v.name === name);
+  const tail = pool.filter(v => v.name.endsWith('/' + name));
+  const matches = exact.length ? exact : tail;
+  const described = matches.map(v => ({ id: v.id, name: v.name, type: v.resolvedType, collection: __colName(v) }));
+  return { variable: matches.length === 1 ? matches[0] : null, matches: described };
+};
+`;
+}
+
 // Shared error handler for commands that hit Figma's API via daemonExec.
 export {
   GENERIC_NAME_PATTERNS,
   buildNodeSelector,
   componentContextExpr,
+  varResolverCode,
   hexToRgb,
   isVarRef,
   getVarName,

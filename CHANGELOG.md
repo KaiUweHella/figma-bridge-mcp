@@ -28,6 +28,18 @@ the plugin window. The panel will tell you if you forget.
 
 ### Added
 
+- **`node bind`** — attach a variable to a property of an existing node
+  (`fill`, `stroke`, `radius`, `gap`, `padding` and the rest), by node id, with
+  a `--batch` form. The read counterpart `node bindings` already existed; there
+  was no way to write one. An ambiguous variable name is refused with both
+  candidates named rather than resolved by whichever came first, and the
+  variable's type is checked against the property before the plugin sees it.
+- **`tokens rebind <collection>`** — the theme switch: walk a subtree and
+  repoint every variable binding at the same-named variable in a target
+  collection. Plans by default, writes under `--apply`; tokens with no
+  counterpart in the target are listed and left alone. Where `tokens sync`
+  changes what a token *is worth*, this changes *which collection a design
+  follows*.
 - **`kit init`** — one command that makes an existing design system
   agent-ready: DESIGN.md, DTCG tokens, a component inventory with stable
   publish keys, and the Figma↔Storybook mapping. It orchestrates commands that
