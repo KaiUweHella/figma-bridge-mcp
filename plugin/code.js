@@ -12,7 +12,7 @@ const KEY_STORAGE = 'daemonKey';
 
 // Visible UI: connection status, access-key entry, activity log, pause switch,
 // selection push, checkpoint. The UI may grow itself via the `resize` message.
-figma.showUI(__html__, { width: 320, height: 240 });
+figma.showUI(__html__, { width: 360, height: 220 });
 
 // Execute code with auto-return and timeout protection.
 //
@@ -195,8 +195,8 @@ figma.ui.onmessage = async (msg) => {
   // --- UI feature bridge ---
   // The iframe cannot resize itself; it asks the main thread.
   if (msg.type === 'resize') {
-    const w = Math.max(280, Math.min(500, Number(msg.width) || 320));
-    const h = Math.max(200, Math.min(700, Number(msg.height) || 240));
+    const w = Math.max(280, Math.min(500, Number(msg.width) || 360));
+    const h = Math.max(200, Math.min(700, Number(msg.height) || 272));
     figma.ui.resize(w, h);
     return;
   }

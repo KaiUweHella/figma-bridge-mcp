@@ -2,116 +2,254 @@
 <html>
 <head>
   <style>
+    /* Palette in OKLCH: perceptually even steps, every foreground/background
+       pair below verified >= 4.5:1. One accent hue (185, the FigCli teal)
+       carries brand AND "connected"; amber and red are the only other hues,
+       each with exactly one meaning. */
+    :root {
+      --bg:         oklch(0.215 0 0);
+      --surface:    oklch(0.255 0 0);
+      --raised:     oklch(0.295 0 0);
+      --line:       oklch(0.355 0 0);
+      --text:       oklch(0.965 0 0);
+      --dim:        oklch(0.780 0 0);
+      --faint:      oklch(0.700 0 0);
+      --accent:     oklch(0.800 0.110 185);
+      --accent-ink: oklch(0.250 0.030 185);
+      --warn:       oklch(0.790 0.150 75);
+      --danger:     oklch(0.700 0.180 25);
+
+      /* Type scale — four steps, nothing below 10px. */
+      --fs-title: 12px;
+      --fs-body:  11px;
+      --fs-meta:  10px;
+      --fs-mono:  11px;
+
+      --r-card: 10px;   /* inner radius + padding stays concentric */
+      --r-ctl:  6px;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: Inter, -apple-system, sans-serif;
-      font-size: 11px;
-      background: #2c2c2c;
-      color: #fff;
-      height: 100%;
+      font-size: var(--fs-body);
+      line-height: 1.45;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      min-height: 100%;
+      /* The panel is a fixed-size iframe: without this, an opened section is
+         clipped with no way to reach it. */
+      overflow-y: auto;
+      overscroll-behavior: contain;
       display: flex;
       flex-direction: column;
-      padding: 12px 14px;
-      gap: 8px;
+      padding: 12px;
+      gap: 10px;
     }
-    .row { display: flex; align-items: center; gap: 6px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; flex: none; }
-    .dot.connecting { background: #f59e0b; animation: pulse 1s infinite; }
-    .dot.connected { background: #22c55e; }
-    .dot.error { background: #ef4444; }
-    .dot.paused { background: #f59e0b; }
-    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
-    .title { font-weight: 600; font-size: 12px; }
-    #status { color: #aaa; }
-    #connMeta { color: #666; font-size: 9px; margin-left: auto; }
-    .hint { font-size: 9px; color: #666; }
-    .hint.warn { color: #f59e0b; }
-    .panel { display: none; flex-direction: column; gap: 6px; margin-top: 2px; }
-    .panel.show { display: flex; }
-    label { font-size: 10px; color: #bbb; }
-    input {
-      width: 100%; padding: 6px 8px; border-radius: 4px; border: 1px solid #555;
-      background: #1e1e1e; color: #fff; font-family: monospace; font-size: 11px;
+    /* No child may be squashed to buy room: the selection strip collapsed to
+       0px and the error text was sliced mid-line whenever content overflowed.
+       Overflow is the scroll container's job, not the children's. */
+    body > * { flex: none; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+    .row { display: flex; align-items: center; gap: 8px; }
+
+    /* --- Identity bar --------------------------------------------------- */
+    .topbar { display: flex; align-items: center; gap: 7px; }
+    .mark {
+      width: 12px; height: 12px; flex: none; border-radius: 3px;
+      background: var(--accent);
+      /* Notch cut out of the square: a bracket, the CLI's mark. */
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 70%, 55% 70%, 55% 30%, 0 30%);
     }
-    button {
-      padding: 6px 10px; border: none; border-radius: 4px; cursor: pointer;
-      background: #4ECDC4; color: #06342f; font-weight: 600; font-size: 11px;
+    .wordmark { font-size: var(--fs-title); font-weight: 600; letter-spacing: 0.01em; }
+    .meta {
+      margin-left: auto; font-size: var(--fs-meta); color: var(--faint);
+      font-variant-numeric: tabular-nums;
     }
-    button:hover { filter: brightness(1.08); }
-    .linkish {
-      background: none; color: #7aa2ff; padding: 0; font-weight: 400;
-      text-decoration: underline; font-size: 10px; align-self: flex-start;
+
+    /* --- Status card ---------------------------------------------------- */
+    .card {
+      display: flex; gap: 9px; align-items: flex-start;
+      background: var(--surface);
+      border-radius: var(--r-card);
+      padding: 10px;
     }
-    .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
-    .toolbar button {
-      background: #3a3a3a; color: #ddd; font-weight: 500; font-size: 10px;
-      padding: 5px 8px; border: 1px solid #4a4a4a;
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; flex: none;
+      background: var(--faint); margin-top: 4px;
     }
-    .toolbar button:hover { background: #454545; filter: none; }
-    .toolbar button.active { background: #7a3b06; border-color: #f59e0b; color: #ffd9a0; }
-    #stats { font-size: 9px; color: #888; }
+    .dot.connecting { background: var(--warn); }
+    .dot.connected  { background: var(--accent); }
+    .dot.error      { background: var(--danger); }
+    .dot.paused     { background: var(--warn); }
+    @media (prefers-reduced-motion: no-preference) {
+      .dot.connecting { animation: pulse 1.4s ease-in-out infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    }
+    #status { font-weight: 500; }
+    .hint { font-size: var(--fs-meta); color: var(--faint); }
+    .hint.warn { color: var(--warn); }
+
+    /* --- Context strips ------------------------------------------------- */
     #selInfo {
-      display: none; font-size: 9px; color: #9ecbff;
+      display: none; font-size: var(--fs-meta); color: var(--dim);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      padding-inline-start: 2px;
     }
     #selInfo.show { display: block; }
+    #selInfo b { color: var(--accent); font-weight: 500; }
     #lastError {
-      display: none; font-size: 9px; color: #f87171; background: #3a2222;
-      border-radius: 4px; padding: 4px 6px; word-break: break-word;
-      max-height: 44px; overflow-y: auto;
+      display: none; font-size: var(--fs-meta); color: var(--danger);
+      background: color-mix(in oklab, var(--danger) 12%, var(--surface));
+      border-radius: var(--r-ctl); padding: 6px 8px; word-break: break-word;
+      /* Exactly three lines, so the cut lands between lines instead of
+         through one. The rest stays reachable by scrolling. */
+      line-height: 1.4; max-height: 4.2em; overflow-y: auto;
     }
     #lastError.show { display: block; }
+
+    /* --- Controls ------------------------------------------------------- */
+    button {
+      font: inherit; font-size: var(--fs-meta); font-weight: 500;
+      padding: 7px 10px; border-radius: var(--r-ctl); cursor: pointer;
+      border: 1px solid var(--line); background: var(--raised); color: var(--text);
+      transition: background-color 120ms ease-out, border-color 120ms ease-out, scale 120ms ease-out;
+    }
+    button:hover { background: color-mix(in oklab, var(--raised) 80%, var(--text)); }
+    button:active { scale: 0.96; }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } button:active { scale: 1; } }
+    .actions { display: flex; gap: 8px; }
+    .actions button { flex: 1; }
+    .actions button.active {
+      background: color-mix(in oklab, var(--warn) 22%, var(--surface));
+      border-color: var(--warn); color: var(--warn);
+    }
+    button.primary {
+      background: var(--accent); color: var(--accent-ink);
+      border-color: transparent; font-weight: 600; font-size: var(--fs-body);
+    }
+    button.primary:hover { background: color-mix(in oklab, var(--accent) 88%, white); }
+    button.ghost { background: none; border-color: transparent; color: var(--dim); }
+    button.ghost:hover { background: var(--raised); color: var(--text); }
+    button.wide { width: 100%; }
+
+    /* --- Disclosure sections -------------------------------------------- */
+    .section { display: flex; flex-direction: column; gap: 8px; }
+    .disclosure {
+      display: flex; align-items: center; gap: 6px; width: 100%;
+      background: none; border: none; padding: 4px 2px; color: var(--dim);
+      font-size: var(--fs-meta); font-weight: 500; text-align: start;
+    }
+    .disclosure:hover { background: none; color: var(--text); }
+    .chev {
+      display: inline-block; color: var(--faint); font-size: 12px; line-height: 1;
+      transition: rotate 140ms ease-out;
+    }
+    .disclosure[aria-expanded="true"] .chev { rotate: 90deg; }
+    @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+    .disclosure .trail { margin-inline-start: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .tag {
+      font-size: 9px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px;
+    }
+    .tag.on { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
+
+    /* --- Activity log ---------------------------------------------------- */
     #log {
-      display: none; flex: 1; min-height: 120px; overflow-y: auto;
-      background: #232323; border: 1px solid #3a3a3a; border-radius: 4px;
-      padding: 4px 6px; font-family: monospace; font-size: 9px; line-height: 1.5;
+      /* Fixed height, not flex: the panel measures itself to ask the host for
+         a size, and a stretching child would make that measurement circular. */
+      display: none; height: 170px; overflow-y: auto;
+      background: var(--surface); border-radius: var(--r-ctl);
+      padding: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: var(--fs-mono); line-height: 1.6;
     }
     #log.show { display: block; }
-    .logline { color: #9a9a9a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .logline .t { color: #666; }
-    .logline.write { color: #d8b96a; }
-    .logline.err { color: #f87171; }
-    .logline.meta { color: #6fa8dc; }
+    #log:empty::after { content: 'Nothing yet — agent commands appear here as they run.'; color: var(--faint); font-family: Inter, sans-serif; font-size: var(--fs-meta); }
+    .logline { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .logline .t { color: var(--faint); font-variant-numeric: tabular-nums; }
+    .logline.write { color: var(--warn); }
+    .logline.err   { color: var(--danger); }
+    .logline.meta  { color: var(--accent); }
+
+    /* --- Setup ----------------------------------------------------------- */
+    .panel { display: none; flex-direction: column; gap: 14px; }
+    .panel.show { display: flex; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field.attention {
+      background: color-mix(in oklab, var(--warn) 10%, var(--surface));
+      border-radius: var(--r-ctl); padding: 8px; margin: -8px;
+    }
+    label { font-size: var(--fs-body); font-weight: 500; color: var(--text); display: flex; align-items: center; gap: 6px; }
+    input {
+      width: 100%; padding: 7px 8px; border-radius: var(--r-ctl);
+      border: 1px solid var(--line); background: var(--bg); color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-mono);
+    }
+    input::placeholder { color: var(--faint); }
+    input:focus-visible { border-color: var(--accent); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); }
   </style>
 </head>
 <body>
-  <div class="title">FigCli (Safe)</div>
-  <div class="row">
-    <div id="dot" class="dot connecting"></div>
-    <span id="status">Starting…</span>
-    <span id="connMeta"></span>
-  </div>
+  <header class="topbar">
+    <span class="mark" aria-hidden="true"></span>
+    <h1 class="wordmark">FigCli</h1>
+    <span id="connMeta" class="meta"></span>
+  </header>
 
-  <div id="keyPanel" class="panel">
-    <label for="keyInput">Access key (from figma_connect):</label>
-    <input id="keyInput" type="text" spellcheck="false" autocomplete="off" placeholder="paste key here" />
-    <button id="saveBtn">Save &amp; connect</button>
-  </div>
-
-  <div class="toolbar">
-    <button id="pauseBtn" title="Reject incoming agent commands until resumed">⏸ Pause</button>
-    <button id="checkpointBtn" title="Save a named entry in Figma's version history">Checkpoint</button>
-    <button id="logBtn" title="Show the activity log">Log ▾</button>
-  </div>
-
-  <div id="selInfo" title="The agent sees this selection via figma_selection"></div>
-  <div id="stats"></div>
-  <div id="lastError"></div>
-  <div id="log"></div>
-
-  <button id="changeKeyBtn" class="linkish" style="display:none">Change access key</button>
-  <button id="restTokenBtn" class="linkish" style="display:none">REST token (optional) ▾</button>
-  <div id="restPanel" class="panel">
-    <label for="restInput">Figma REST token (personal access token) — unlocks version history, comments &amp; library docs. Stored only on this machine.</label>
-    <input id="restInput" type="password" spellcheck="false" autocomplete="off" placeholder="figd_… (leave empty and Clear to remove)" />
-    <div class="row">
-      <button id="restSaveBtn">Save token</button>
-      <button id="restClearBtn" class="linkish" style="align-self:center">Clear token</button>
+  <!-- The one thing this window exists to answer: can the agent reach Figma?
+       Status and its explanation live together, announced as one region. -->
+  <div class="card">
+    <span id="dot" class="dot connecting" aria-hidden="true"></span>
+    <div role="status" aria-live="polite">
+      <div id="status">Starting…</div>
+      <div id="hint" class="hint">Keep this window open while working.</div>
     </div>
-    <div id="restStatus" class="hint"></div>
   </div>
-  <button id="reconnectBtn" class="linkish" style="display:none">Reconnect this window</button>
-  <div id="hint" class="hint">Keep this window open while working.</div>
+
+  <div id="selInfo"></div>
+  <div id="lastError" role="alert"></div>
+
+  <div class="actions">
+    <button id="pauseBtn" type="button">Pause agent</button>
+    <button id="checkpointBtn" type="button">Save version</button>
+  </div>
+
+  <section class="section">
+    <button id="logBtn" class="disclosure" type="button" aria-expanded="false" aria-controls="log">
+      <span class="chev" aria-hidden="true">›</span>Activity
+      <span id="stats" class="trail"></span>
+    </button>
+    <div id="log" tabindex="0" role="log" aria-label="Agent activity"></div>
+  </section>
+
+  <section class="section">
+    <button id="setupBtn" class="disclosure" type="button" aria-expanded="false" aria-controls="setupPanel">
+      <span class="chev" aria-hidden="true">›</span>Setup
+      <span id="restTag" class="tag">REST off</span>
+    </button>
+    <div id="setupPanel" class="panel">
+      <div class="field" id="keyPanel">
+        <label for="keyInput">Access key</label>
+        <p class="hint">Shown by <code>figma_connect</code>. Stored in this plugin, reused every session.</p>
+        <input id="keyInput" type="text" spellcheck="false" autocomplete="off" placeholder="paste key here" />
+        <button id="saveBtn" class="primary" type="button">Save &amp; connect</button>
+      </div>
+      <div class="field">
+        <label for="restInput">Figma REST token <span class="tag">optional</span></label>
+        <p class="hint">A personal access token unlocks version history, comments and library docs. Stored only on this machine.</p>
+        <input id="restInput" type="password" spellcheck="false" autocomplete="off" placeholder="figd_1a2b3c…" />
+        <div class="row">
+          <button id="restSaveBtn" type="button">Save token</button>
+          <button id="restClearBtn" class="ghost" type="button">Clear token</button>
+        </div>
+        <p id="restStatus" class="hint"></p>
+      </div>
+    </div>
+  </section>
+
+  <button id="reconnectBtn" class="wide" type="button" hidden>Reconnect this window</button>
 
   <script>
     const PORTS = [3456, 3457, 3458, 3459, 3460];
@@ -137,7 +275,8 @@
     const keyPanel = document.getElementById('keyPanel');
     const keyInput = document.getElementById('keyInput');
     const saveBtn = document.getElementById('saveBtn');
-    const changeKeyBtn = document.getElementById('changeKeyBtn');
+    const setupBtn = document.getElementById('setupBtn');
+    const setupPanel = document.getElementById('setupPanel');
     const reconnectBtn = document.getElementById('reconnectBtn');
     const hintEl = document.getElementById('hint');
     const pauseBtn = document.getElementById('pauseBtn');
@@ -164,9 +303,47 @@
       if (!connectedPort) { connMetaEl.textContent = ''; return; }
       connMetaEl.textContent = ':' + connectedPort + (latencyMs !== null ? ' · ' + latencyMs + 'ms' : '');
     }
+    // The panel is a fixed iframe, so every disclosure has to buy its own
+    // room — otherwise an opened section is clipped with no way to scroll to
+    // it. One place computes the size; both toggles call it.
+    let logOpen = false;
+    let setupOpen = false;
+    const PANEL_WIDTH = 360;
+    const BODY_PAD = 12;
+    // Measure the laid-out content instead of hard-coding a height per state:
+    // hard-coded numbers drift the moment a string wraps to another line, and
+    // the clipped control is never the one you were looking at.
+    function syncSize() {
+      requestAnimationFrame(() => {
+        let bottom = 0;
+        for (const el of document.body.children) {
+          if (el.hidden || getComputedStyle(el).display === 'none') continue;
+          bottom = Math.max(bottom, el.getBoundingClientRect().bottom + window.scrollY);
+        }
+        const height = Math.ceil(bottom) + BODY_PAD;
+        parent.postMessage({ pluginMessage: { type: 'resize', width: PANEL_WIDTH, height } }, '*');
+      });
+    }
+    function setSetupOpen(open) {
+      setupOpen = open;
+      setupPanel.classList.toggle('show', open);
+      setupBtn.setAttribute('aria-expanded', String(open));
+      // Show the key that is actually in use, so "is this the right one?" is
+      // answerable without a round trip to the terminal.
+      if (open && KEY && !keyInput.value) keyInput.value = KEY;
+      syncSize();
+    }
+    setupBtn.onclick = () => setSetupOpen(!setupOpen);
+
+    // Called when the key is missing or rejected: open Setup, mark the field,
+    // and put the cursor in it. Never auto-closes — the user may have opened
+    // Setup deliberately.
     function showKeyPanel(show) {
-      keyPanel.classList.toggle('show', show);
-      changeKeyBtn.style.display = show ? 'none' : 'block';
+      keyPanel.classList.toggle('attention', show);
+      if (show) {
+        if (!setupOpen) setSetupOpen(true);
+        keyInput.focus();
+      }
     }
 
     // ============ Activity log (feature A) ============
@@ -175,7 +352,6 @@
     const LOG_MAX = 50;
     const logEntries = [];       // {id, t0, label, kind: 'read'|'write'|'meta', status, ms}
     let okCount = 0, errCount = 0;
-    let logOpen = false;
 
     const WRITE_RE = /\b(create[A-Z]\w*|\.remove\s*\(|appendChild|insertChild|setProperties|resize\s*\(|saveVersionHistoryAsync)\b|\.\w+\s*=[^=]/;
     const API_RE = /figma\.((?:\w+\.)*\w+)\s*\(/;
@@ -206,12 +382,14 @@
     }
     function renderStats() {
       statsEl.textContent = okCount + errCount
-        ? '✓ ' + okCount + '  ✗ ' + errCount + ' since connect'
+        ? okCount + ' ok · ' + errCount + ' failed'
         : '';
     }
     function showError(text) {
+      const wasHidden = !lastErrorEl.classList.contains('show');
       lastErrorEl.textContent = String(text);
       lastErrorEl.classList.add('show');
+      if (wasHidden) syncSize();
     }
     function fmtTime(t) {
       const d = new Date(t);
@@ -238,8 +416,8 @@
     logBtn.onclick = () => {
       logOpen = !logOpen;
       logEl.classList.toggle('show', logOpen);
-      logBtn.textContent = logOpen ? 'Log ▴' : 'Log ▾';
-      parent.postMessage({ pluginMessage: { type: 'resize', width: logOpen ? 380 : 320, height: logOpen ? 480 : 240 } }, '*');
+      logBtn.setAttribute('aria-expanded', String(logOpen));
+      syncSize();
       renderLog();
     };
 
@@ -247,12 +425,14 @@
     let paused = false;
     pauseBtn.onclick = () => {
       paused = !paused;
-      pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+      pauseBtn.textContent = paused ? 'Resume agent' : 'Pause agent';
       pauseBtn.classList.toggle('active', paused);
       if (paused) {
-        setStatus('Paused — rejecting agent commands', 'paused');
+        setStatus('Paused', 'paused');
+        hintEl.textContent = 'Agent commands are being rejected. Press Resume to continue.';
       } else if (authed) {
-        setStatus('Connected (authenticated)', 'connected');
+        setStatus('Connected', 'connected');
+        hintEl.textContent = DEFAULT_HINT;
       }
     };
     function rejectPaused(msg) {
@@ -280,12 +460,14 @@
       setStatus('Another Figma window took over', 'error');
       hintEl.textContent = 'This window no longer receives agent commands. Use "Reconnect this window" to take back over.';
       hintEl.classList.add('warn');
-      reconnectBtn.style.display = 'block';
+      reconnectBtn.hidden = false;
+      syncSize();
       parent.postMessage({ pluginMessage: { type: 'superseded' } }, '*');
     }
     reconnectBtn.onclick = () => {
       superseded = false;
-      reconnectBtn.style.display = 'none';
+      reconnectBtn.hidden = true;
+      syncSize();
       hintEl.textContent = DEFAULT_HINT;
       hintEl.classList.remove('warn');
       connectParallel();
@@ -297,22 +479,31 @@
     // button — the push happens on its own.
     function renderSelection(sel) {
       const nodes = (sel && sel.nodes) || [];
+      const wasShown = selInfoEl.classList.contains('show');
       if (!nodes.length) {
         selInfoEl.classList.remove('show');
         selInfoEl.textContent = '';
+        if (wasShown) syncSize();
         return;
       }
       const first = nodes[0];
       const size = first.width !== undefined ? ' ' + first.width + '×' + first.height : '';
-      const more = sel.total > 1 ? '  +' + (sel.total - 1) + ' more' : '';
-      selInfoEl.textContent = '▸ Selected: ' + first.name + ' (' + first.type + size + ')' + more;
+      const more = sel.total > 1 ? ' +' + (sel.total - 1) + ' more' : '';
+      selInfoEl.textContent = '';
+      const label = document.createElement('b');
+      label.textContent = 'Agent sees: ';
+      selInfoEl.append(label, first.name + ' (' + first.type + size + ')' + more);
+      selInfoEl.title = first.name + ' (' + first.type + size + ')' + more;
       selInfoEl.classList.add('show');
+      if (!wasShown) syncSize();
     }
 
     // ============ Checkpoint (feature D) ============
+    // Named entry in Figma's own version history — the restore point for the
+    // agent's writes, which are otherwise not undoable from here.
     checkpointBtn.onclick = () => {
       parent.postMessage({ pluginMessage: { type: 'checkpoint' } }, '*');
-      addLog({ id: 'cp' + Date.now(), t0: Date.now(), label: 'checkpoint requested', kind: 'meta', status: 'ok', ms: 0 });
+      addLog({ id: 'cp' + Date.now(), t0: Date.now(), label: 'version save requested', kind: 'meta', status: 'ok', ms: 0 });
     };
 
     // --- Access-key bootstrap: ask code.js (clientStorage lives there) ---
@@ -330,18 +521,13 @@
       teardown();
       connectParallel();
     };
-    changeKeyBtn.onclick = () => {
-      keyInput.value = KEY || '';
-      showKeyPanel(true);
-    };
 
     // ============ Optional Figma REST token (PAT) ============
     // Pasted here (never into chat or the MCP client config), sent over the
     // authenticated socket; the daemon persists it 0600. The UI only ever
     // learns WHETHER a token is stored (hello-ack / rest-token-ack), never
     // the value — the input always stays empty.
-    const restTokenBtn = document.getElementById('restTokenBtn');
-    const restPanel = document.getElementById('restPanel');
+    const restTag = document.getElementById('restTag');
     const restInput = document.getElementById('restInput');
     const restSaveBtn = document.getElementById('restSaveBtn');
     const restClearBtn = document.getElementById('restClearBtn');
@@ -351,13 +537,10 @@
     function renderRestStatus() {
       restStatusEl.textContent = restConfigured
         ? 'Token stored on this machine (~/.figma-bridge-mcp/rest-token).'
-        : 'No token set — REST features (history, comments, library docs) are off.';
-      restTokenBtn.textContent = 'REST token (' + (restConfigured ? 'set' : 'optional') + ') ▾';
+        : 'No token set — version history, comments and library docs stay off.';
+      restTag.textContent = restConfigured ? 'REST on' : 'REST off';
+      restTag.classList.toggle('on', restConfigured);
     }
-    restTokenBtn.onclick = () => {
-      restPanel.classList.toggle('show');
-      renderRestStatus();
-    };
     function sendRestToken(value) {
       if (!(ws && ws.readyState === WebSocket.OPEN && authed)) {
         restStatusEl.textContent = 'Connect first — the token travels over the authenticated connection.';
@@ -367,7 +550,7 @@
     }
     restSaveBtn.onclick = () => {
       const val = restInput.value.trim();
-      if (!val) { restStatusEl.textContent = 'Paste a token first (or use Clear token).'; return; }
+      if (!val) { restStatusEl.textContent = 'Paste a token first, or use Clear token to remove the stored one.'; return; }
       sendRestToken(val);
       restInput.value = '';
     };
@@ -417,7 +600,7 @@
             ws = socket;
             authed = false;
             superseded = false;
-            reconnectBtn.style.display = 'none';
+            reconnectBtn.hidden = true;
             failedScans = 0;
             unreachableNotified = false;
             connectedPort = port;
@@ -515,9 +698,12 @@
       if (msg.type === 'hello-ack') {
         authed = true;
         okCount = 0; errCount = 0; renderStats();
-        setStatus(paused ? 'Paused — rejecting agent commands' : 'Connected (authenticated)', paused ? 'paused' : 'connected');
+        setStatus(paused ? 'Paused' : 'Connected', paused ? 'paused' : 'connected');
+        hintEl.textContent = paused
+          ? 'Agent commands are being rejected. Press Resume to continue.'
+          : DEFAULT_HINT;
+        hintEl.classList.remove('warn');
         restConfigured = !!msg.restTokenConfigured;
-        restTokenBtn.style.display = 'block';
         renderRestStatus();
         parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
         startKeepalive();
@@ -661,7 +847,10 @@
       }
     };
 
-    // Boot: fetch the stored key, then connect (or prompt).
+    // Boot: size the window, show the REST state (the field is always
+    // reachable now, connected or not), then fetch the key and connect.
+    syncSize();
+    renderRestStatus();
     requestKey();
   </script>
 </body>
