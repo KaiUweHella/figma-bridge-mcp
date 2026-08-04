@@ -73,7 +73,7 @@ describe('<Instance> component reuse (cross-page, variants, overrides)', () => {
     const code = await client.parseJSX(
       '<Frame name="P" flex="col"><Instance component="Plant Card" variant="Tone=Teal" /></Frame>'
     );
-    assert.ok(/__resolveComponent\(null, "Plant Card", "Tone=Teal"\)/.test(code), 'variant reaches resolver');
+    assert.ok(/__resolveComponent\(null, "Plant Card", "Tone=Teal", null\)/.test(code), 'variant reaches resolver');
     assert.ok(code.includes('setProperties(__variantPairs("Tone=Teal"))'), 'variant applied to instance');
     assertValidJs(code);
   });

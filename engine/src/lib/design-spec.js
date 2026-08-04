@@ -120,12 +120,16 @@ export function parseComponentSpecs(md) {
 export function formatReuseDigest(spec) {
   if (!spec || !spec.reuse) return [];
   const { key, id } = spec.reuse;
+  // Prefer the library key: it is the only handle that resolves across files.
+  // `id` works in the file the component lives in; `name` is the last resort
+  // and is what a reader would type by hand.
+  const handle = key ? `key="${key}"` : id ? `id="${id}"` : `name="${spec.name}"`;
   const refs = [
-    key ? `key ${key.slice(0, 8)}…` : null,
+    key ? `key ${key.slice(0, 8)}… (any file)` : null,
     id ? `node ${id} (same-file)` : null,
   ].filter(Boolean).join('  ·  ');
   return [
-    `reuse: figma-cli instantiate "${spec.name}"   ← use the existing component, don't rebuild`,
+    `reuse: render <Instance ${handle}/>   ← instance the existing component, don't rebuild`,
     `  ${refs}`,
   ];
 }

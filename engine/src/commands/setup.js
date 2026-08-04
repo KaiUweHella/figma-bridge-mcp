@@ -204,41 +204,19 @@ program.action(async () => {
     process.exit(1);
   }
 
-  showBanner();
+  // No banner, no quick-start prose: the caller here is the MCP server, and
+  // the one human who ever lands on a bare invocation wants the state and the
+  // command list, not ASCII art.
+  console.log(chalk.white(`  ${pkg.name} ${chalk.gray('v' + pkg.version)}\n`));
   const running = isDaemonRunning();
   console.log(running
     ? chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`)
     : chalk.yellow('  \u25cb Daemon not running'));
   console.log();
-  console.log(chalk.white('  Get started:\n'));
-  console.log(chalk.cyan('    node src/index.js connect') + chalk.gray('   start the daemon + show the plugin access key'));
-  console.log(chalk.cyan('    node src/index.js --help') + chalk.gray('    list every command\n'));
+  console.log(chalk.cyan('    connect') + chalk.gray('   start the daemon + show the plugin access key'));
+  console.log(chalk.cyan('    --help') + chalk.gray('    list every command\n'));
   console.log(chalk.gray('  In Figma: Plugins \u2192 Development \u2192 Figma Bridge, paste the key once.\n'));
-  showQuickStart();
 });
-
-function showQuickStart() {
-  console.log(chalk.white('  Just ask Claude:\n'));
-  console.log(chalk.white('    "Import my design tokens from globals.css"'));
-  console.log(chalk.white('    "Create a blue card with rounded corners"'));
-  console.log(chalk.white('    "Show me what\'s on the canvas"'));
-  console.log(chalk.white('    "Export this frame as PNG"'));
-  console.log();
-}
-
-// ============ WELCOME BANNER ============
-
-function showBanner() {
-  console.log(chalk.cyan(`
-  ███████╗██╗ ██████╗ ███╗   ███╗ █████╗       ██████╗ ███████╗       ██████╗██╗     ██╗
-  ██╔════╝██║██╔════╝ ████╗ ████║██╔══██╗      ██╔══██╗██╔════╝      ██╔════╝██║     ██║
-  █████╗  ██║██║  ███╗██╔████╔██║███████║█████╗██║  ██║███████╗█████╗██║     ██║     ██║
-  ██╔══╝  ██║██║   ██║██║╚██╔╝██║██╔══██║╚════╝██║  ██║╚════██║╚════╝██║     ██║     ██║
-  ██║     ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║      ██████╔╝███████║      ╚██████╗███████╗██║
-  ╚═╝     ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝      ╚═════╝ ╚══════╝       ╚═════╝╚══════╝╚═╝
-`));
-  console.log(chalk.white(`  Design System CLI for Figma ${chalk.gray('v' + pkg.version)}\n`));
-}
 
 // (The interactive `init` wizard was removed: it patched the Figma Desktop
 // binary and polled the CDP port — the Yolo path this build exists to avoid.

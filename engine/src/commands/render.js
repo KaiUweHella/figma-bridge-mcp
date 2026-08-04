@@ -2,12 +2,11 @@
 import chalk from 'chalk';
 import { basename, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { FigmaClient } from '../figma-client.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import {
   program,
-  CONFIG_DIR,
   checkConnection,
   daemonExec,
   detectWrapperSplit,
@@ -163,17 +162,9 @@ function warnUnnamedComponentTexts(jsx) {
   }
 }
 
-// Remember what the last render created so `figma-cli undo` can remove
-// exactly those nodes. CLI-side state file: covers every render path
-// (eval-based, daemon render, render-batch) and survives daemon restarts.
-const LAST_RENDER_FILE = join(CONFIG_DIR, 'last-render.json');
-
-function recordCreated(nodes) {
-  try {
-    const list = nodes.filter(n => n && n.id).map(n => ({ id: n.id, name: n.name || '' }));
-    if (list.length) writeFileSync(LAST_RENDER_FILE, JSON.stringify({ nodes: list, at: new Date().toISOString() }));
-  } catch {}
-}
+// (The last-render.json state file went with `undo`: it existed only so that
+// command could find the nodes to remove. Render already returns the ids it
+// created, which is what a caller deletes with.)
 
 // Screenshot a freshly rendered node (same export logic as `figma-cli verify`)
 // so render --verify gives Claude the visual check in a single roundtrip.
@@ -329,7 +320,6 @@ program
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
       printUnresolvedVars(result.unresolved);
       printOverflow(result);
-      recordCreated([result]);
       await maybeAsComponent(result.id);
       if (options.verify) await verifyRendered(result.id);
     } catch (e) {
@@ -403,7 +393,6 @@ program
           console.log(chalk.green('✓ Rendered: ' + r.id + (r.name ? ' (' + r.name + ')' : '')));
         });
         console.log(chalk.cyan(`\n${results.length} frames created`));
-        recordCreated(results);
         if (unresolvedVars && unresolvedVars.length > 0) {
           console.log(chalk.yellow(`\n⚠ ${unresolvedVars.length} variable reference(s) could not be resolved:`));
           console.log(chalk.yellow('  ' + unresolvedVars.join(', ')));
@@ -452,44 +441,9 @@ program
     }
   });
 
-// ============ UNDO (last render) ============
-
-program
-  .command('undo')
-  .description('Remove the node(s) created by the most recent render / render-batch')
-  .action(async () => {
-    await checkConnection();
-    try {
-      if (!existsSync(LAST_RENDER_FILE)) {
-        console.log(chalk.gray('Nothing to undo.'));
-        return;
-      }
-      const state = JSON.parse(readFileSync(LAST_RENDER_FILE, 'utf8'));
-      const nodes = (state.nodes || []).filter(n => n && n.id);
-      if (nodes.length === 0) {
-        console.log(chalk.gray('Nothing to undo.'));
-        return;
-      }
-      const result = await fastEval(`(async () => {
-        let removed = 0;
-        const names = [];
-        for (const id of ${JSON.stringify(nodes.map(n => n.id))}) {
-          const node = await figma.getNodeByIdAsync(id);
-          if (node && !node.removed) { names.push(node.name); node.remove(); removed++; }
-        }
-        return { removed, names };
-      })()`);
-      try { unlinkSync(LAST_RENDER_FILE); } catch {}
-      if (result && result.removed > 0) {
-        console.log(chalk.green(`✓ Removed ${result.removed} node(s) from the last render:`));
-        result.names.forEach(n => console.log(chalk.gray('  ' + n)));
-      } else {
-        console.log(chalk.gray('Nothing to undo (nodes already gone).'));
-      }
-    } catch (e) {
-      console.log(chalk.red('✗ Undo failed: ' + e.message));
-    }
-  });
+// (The `undo` command was removed: unreachable through the MCP allowlist.
+// A caller undoes a render with `node delete <ids...>` using the ids the
+// render call returned, or rolls the file back via `history`.)
 
 // (The `diagnose` command was removed: it probed the CDP port, checked for a
 // `figma-use` binary this build never installs, and opened a FigmaClient

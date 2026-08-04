@@ -36,6 +36,17 @@ describe('parseJSXBatch child-type parity with single render', () => {
     assert.ok(code.includes('createInstance'), 'Instance child must instantiate the component');
   });
 
+  // A published-library component lives in ANOTHER file: only its key reaches
+  // it. This is the handle `spec` prints as the reuse hint, so the renderer
+  // must accept it — name/id lookups would both come up empty.
+  it('resolves an Instance by published-library key', async () => {
+    const code = await client.parseJSXBatch(['<Frame name="A"><Instance key="PLACEHOLDERCOMPONENTKEY" /></Frame>']);
+    assert.ok(code.includes('importComponentByKeyAsync'), 'key must go through the library import');
+    assert.ok(code.includes('"PLACEHOLDERCOMPONENTKEY"'), 'the key itself must reach the eval');
+    assert.ok(code.includes('createInstance'));
+    assertValidJs(code);
+  });
+
   it('supports grow on nested frames', async () => {
     const code = await client.parseJSXBatch(['<Frame name="A" flex="row"><Frame grow={1} bg="#fff"></Frame></Frame>']);
     assert.ok(/layoutSizingHorizontal = .FILL./.test(code), 'grow in row parent must map to FILL');

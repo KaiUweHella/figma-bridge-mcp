@@ -10,70 +10,10 @@ import {
 // ============ DESIGN ANALYSIS ============
 
 
-program
-  .command('lint')
-  .description('Lint design for issues')
-  .option('--json', 'Output as JSON')
-  .action(async (options) => {
-    await checkConnection();
+// (The `lint` command was removed: unreachable through the MCP allowlist,
+// and `analyze colors|typography|spacing` cover the same ground in more
+// detail. See docu/FUNDLISTE-toter-code.md.)
 
-    // Plugin bridge is the only execution path in the Safe-Mode build.
-    {
-      // Safe Mode: native implementation
-      const code = `(async () => {
-        const issues = [];
-        const page = figma.currentPage;
-
-        function checkNode(node, depth = 0) {
-          // Check for missing names
-          if (node.name.startsWith('Frame') || node.name.startsWith('Rectangle') || node.name.startsWith('Group')) {
-            issues.push({ type: 'naming', severity: 'warning', node: node.id, name: node.name, message: 'Generic name, consider renaming' });
-          }
-
-          // Check for hardcoded colors (not bound to variables)
-          if (node.fills && Array.isArray(node.fills)) {
-            const hasFillBinding = node.boundVariables && node.boundVariables.fills;
-            if (!hasFillBinding && node.fills.some(f => f.type === 'SOLID')) {
-              issues.push({ type: 'color', severity: 'info', node: node.id, name: node.name, message: 'Hardcoded fill color' });
-            }
-          }
-
-          // Check text for missing styles
-          if (node.type === 'TEXT' && !node.textStyleId) {
-            issues.push({ type: 'typography', severity: 'info', node: node.id, name: node.name, message: 'Text without style' });
-          }
-
-          // Check for tiny text
-          if (node.type === 'TEXT' && node.fontSize < 12) {
-            issues.push({ type: 'accessibility', severity: 'warning', node: node.id, name: node.name, message: 'Text size < 12px may be hard to read' });
-          }
-
-          // Recurse
-          if ('children' in node) {
-            node.children.forEach(c => checkNode(c, depth + 1));
-          }
-        }
-
-        page.children.forEach(c => checkNode(c));
-        return { total: issues.length, issues: issues.slice(0, 50) }; // Limit output
-      })()`;
-
-      try {
-        const result = await fastEval(code);
-        if (options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else {
-          console.log(chalk.cyan(`\nFound ${result.total} issues:\n`));
-          result.issues.forEach(i => {
-            const color = i.severity === 'warning' ? chalk.yellow : chalk.gray;
-            console.log(color(`  [${i.type}] ${i.name}: ${i.message}`));
-          });
-        }
-      } catch (e) {
-        console.log(chalk.red('✗ Lint failed: ' + e.message));
-      }
-    }
-  });
 
 const analyze = program
   .command('analyze')

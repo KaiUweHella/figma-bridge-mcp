@@ -365,7 +365,7 @@ export class FigmaClient {
       Image: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'rounded', 'radius',
         'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing', 'blendMode', 'opacity', 'x', 'y', 'position', 'src', 'imageScale'],
       Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
-      Instance: ['name', 'component', 'id', 'variant', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH'],
+      Instance: ['name', 'component', 'id', 'key', 'variant', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH'],
     };
     known.Rectangle = known.Rect;
     known.Circle = known.Ellipse;
@@ -1018,11 +1018,17 @@ export class FigmaClient {
           });
           return out;
         };
-        const __resolveComponent = async (id, name, variantStr) => {
+        const __resolveComponent = async (id, name, variantStr, key) => {
           let node = null;
-          if (id) {
+          if (key) {
+            // Published-library handle: the only path that reaches a component
+            // living in another file. Falls through to id/name if it fails.
+            try { node = await figma.importComponentByKeyAsync(key); } catch (e) {}
+            if (!node) { try { node = await figma.importComponentSetByKeyAsync(key); } catch (e) {} }
+          }
+          if (!node && id) {
             try { node = await figma.getNodeByIdAsync(id); } catch (e) {}
-          } else if (name) {
+          } else if (!node && name) {
             const match = n => (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') && n.name === name;
             node = figma.currentPage.findOne(match);
             if (!node) {
@@ -1616,7 +1622,10 @@ export class FigmaClient {
           const idLike = v => typeof v === 'string' && /^\d+:\d+$/.test(v);
           const compId = item.id || (idLike(item.component) ? item.component : null);
           const compName = !compId ? (item.component || item.name) : null;
-          if (!compId && !compName) return '';
+          // Published-library key (`key` from a DESIGN.md reuse handle) —
+          // the only handle that reaches a component in ANOTHER file.
+          const compKey = item.key || null;
+          if (!compId && !compName && !compKey) return '';
           const variantStr = item.variant || null;
           const textOverrides = {};
           const propOverrides = {};
@@ -1640,8 +1649,8 @@ export class FigmaClient {
           const swapCode = Object.entries(swapOverrides).map(([k, v]) =>
             `await __swapInstance(el${idx}, ${JSON.stringify(k)}, ${JSON.stringify(v)});`).join('\n          ');
           return `
-        __currentNode = ${JSON.stringify('Instance: ' + String(compName || compId))};
-        const comp${idx} = await __resolveComponent(${JSON.stringify(compId)}, ${JSON.stringify(compName)}, ${JSON.stringify(variantStr)});
+        __currentNode = ${JSON.stringify('Instance: ' + String(compName || compId || compKey))};
+        const comp${idx} = await __resolveComponent(${JSON.stringify(compId)}, ${JSON.stringify(compName)}, ${JSON.stringify(variantStr)}, ${JSON.stringify(compKey)});
         if (comp${idx}) {
           const el${idx} = comp${idx}.createInstance();
           ${item.name && item.component ? `el${idx}.name = ${JSON.stringify(item.name)};` : ''}
@@ -1657,7 +1666,7 @@ export class FigmaClient {
           ${this.minMaxCode(item, `el${idx}`)}
         } else {
           globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
-          globalThis.__unresolvedVars.add('component:' + ${JSON.stringify(compName || compId)});
+          globalThis.__unresolvedVars.add('component:' + ${JSON.stringify(compName || compId || compKey)});
         }`;
         } else if (item._type === 'slot') {
           // Slot element - creates slot inside component
