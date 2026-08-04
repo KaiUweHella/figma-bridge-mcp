@@ -1,16 +1,35 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
 import ora from 'ora';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { STATE_DIR } from '../lib/state-dir.js';
 
-// Repo root = three levels up from engine/src/commands/setup.js. Used to print
-// the plugin manifest path independent of the process cwd (the MCP server spawns
-// the engine from an arbitrary directory).
+// Repo root = three levels up from engine/src/commands/setup.js. Used to
+// locate the shipped plugin files independent of the process cwd (the MCP
+// server spawns the engine from an arbitrary directory).
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const PLUGIN_MANIFEST_PATH = join(REPO_ROOT, 'plugin', 'manifest.json');
+const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
+
+// The path the user imports in Figma. Under an npx install the package lives
+// in an EPHEMERAL cache that npx may garbage-collect — importing the manifest
+// from there breaks the plugin on cache eviction. So connect copies the three
+// plugin files to the stable state dir and prints THAT path; only if the copy
+// fails does it fall back to the in-package path.
+function installPluginFiles() {
+  const dest = join(STATE_DIR, 'plugin');
+  try {
+    mkdirSync(dest, { recursive: true });
+    for (const f of ['manifest.json', 'code.js', 'ui.html']) {
+      copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
+    }
+    return join(dest, 'manifest.json');
+  } catch {
+    return join(PLUGIN_SRC_DIR, 'manifest.json');
+  }
+}
 import * as apiDocs from '../api-docs.js';
 import { convert, detectSourceType } from '../code-import/index.js';
 import {
@@ -292,7 +311,7 @@ program
     console.log(chalk.white.bold('  ONE-TIME SETUP:\n'));
     console.log(chalk.cyan('  1. ') + chalk.white('Open Figma Desktop and any design file'));
     console.log(chalk.cyan('  2. ') + chalk.white('Go to ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
-    console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(PLUGIN_MANIFEST_PATH));
+    console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(installPluginFiles()));
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
 
     console.log(chalk.white.bold('  EACH SESSION:\n'));

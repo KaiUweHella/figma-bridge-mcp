@@ -1,18 +1,23 @@
-# figma-safe-mcp
+# figma-bridge-mcp
 
 A **self-contained** MCP server that lets an AI assistant drive **Figma Desktop
 locally** — a plugin bridge with terse, token-efficient commands, hardened by
 a **locally generated access key** you paste into the plugin once.
 
-Everything runs on `127.0.0.1`. No Figma Personal Access Token. No cloud. No
-binary patching of the Figma app.
+Everything runs on `127.0.0.1`. No Figma Personal Access Token required. No
+cloud. No binary patching of the Figma app.
+
+An **optional REST add-on** (version history, comments, published library
+metadata) can be enabled by pasting a Figma PAT into the plugin window — the
+token is stored 0600 on your machine, never in your MCP client config, never
+in chat. See [REST add-on](#rest-add-on-optional).
 
 ---
 
 ## How it works
 
 ```
-MCP client ──stdio──▶ figma-safe-mcp (src/)
+MCP client ──stdio──▶ figma-bridge-mcp (src/)
                         │  execFile, command allowlist, audit log
                         ▼
                      vendored engine (engine/)  ──▶  local daemon :3456–3460
@@ -38,18 +43,38 @@ MCP client ──stdio──▶ figma-safe-mcp (src/)
 
 ## Install
 
+The recommended setup is **npx** — no clone, no build, always the latest
+version:
+
 ```bash
-git clone <this-repo> figma-cli-mcp
+claude mcp add figma-safe -- npx -y figma-bridge-mcp@latest
+```
+
+Or in any MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "figma-safe": {
+      "command": "npx",
+      "args": ["-y", "figma-bridge-mcp@latest"]
+    }
+  }
+}
+```
+
+Note there is **no `env` block** — unlike PAT-based Figma MCP servers, no
+token lives in your client config. Everything the server needs is generated
+locally on first connect.
+
+<details>
+<summary>From source (contributors)</summary>
+
+```bash
+git clone https://github.com/KaiUweHella/figma-cli-mcp.git
 cd figma-cli-mcp
 npm install
 ```
-
-That's it — the engine and plugin ship inside this repo. There is **no external
-figma-cli to install** and **no environment variables to set**.
-
-## Configure your MCP client
-
-Point your MCP client at the server (adjust the path):
 
 ```json
 {
@@ -62,15 +87,19 @@ Point your MCP client at the server (adjust the path):
 }
 ```
 
+</details>
+
 ## One-time pairing
 
-1. Call **`figma_connect`**. It generates your access key (if needed), starts the
-   daemon, and prints the key plus plugin-import instructions.
+1. Call **`figma_connect`**. It generates your access key (if needed), starts
+   the daemon, installs the plugin files to a stable location, and prints the
+   key plus the import path.
 2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
-   and choose `plugin/manifest.json` from this repo.
-3. Launch the plugin: `Plugins → Development → FigCli`. **Paste the access key**
-   into its input and click *Save & connect*. The key is stored in the plugin
-   (`figma.clientStorage`) and reused every session.
+   and choose **`~/.figma-bridge-mcp/plugin/manifest.json`** (the path
+   `figma_connect` printed — stable across npx updates).
+3. Launch the plugin: `Plugins → Development → FigCli Bridge`. **Paste the
+   access key** into its input and click *Save & connect*. The key is stored in
+   the plugin (`figma.clientStorage`) and reused every session.
 4. The plugin shows **“Connected (authenticated)”**. Verify with **`figma_status`**.
 
 ## Tools
@@ -86,8 +115,9 @@ Point your MCP client at the server (adjust the path):
 | `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned). |
 | `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
 | `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
-| `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files. `figma_run`/`figma_render` accept a `label` to annotate entries. |
+| `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. `figma_run`/`figma_render` accept a `label` to annotate entries. |
 | `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their main component with the stable publish `key`, and mapped components show their Storybook story. |
+| `figma_comments` | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`). |
 
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
 form `12-34`, or a full Figma URL (the file key is checked against the
@@ -198,10 +228,52 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## REST add-on (optional)
+
+Everything above works with **zero Figma credentials**. Three things the local
+plugin bridge structurally cannot reach live behind Figma's REST API, and can
+be unlocked with a personal access token:
+
+| Feature | What it adds |
+|---------|--------------|
+| **Version history** | `figma_history {includeVersions:true}` merges what *designers* saved (when, by whom) into the local audit+git timeline — the plugin API can only *write* versions, not read them. |
+| **Comments** | `figma_comments` reads design-review feedback (with node anchors and thread ids) and can reply. Posting always shows a preview first and requires `confirm:true` — comments are visible to other people. |
+| **Library metadata** | `map storybook` automatically enriches `figma-map.json` with the published components' `description` and documentation links — a far stronger matching signal than name normalization. |
+
+**Enabling it — the token never leaves your machine:**
+
+1. Create a personal access token in Figma (Settings → Security → Personal
+   access tokens) with scopes: **File content (read)**, **File versions
+   (read)**, **Comments (read and write)**. *Current user (read)* is optional —
+   it only makes `figma_status` show your handle.
+2. Open the **FigCli Bridge plugin** in Figma Desktop, connect (the field
+   appears once the plugin is authenticated), and expand **“REST token
+   (optional)”**. Paste the token, *Save token*.
+3. `figma_status` now reports `REST token: configured (@your-handle)`, or
+   `configured and working (file access verified)` when you left out the
+   *Current user* scope.
+
+The token travels from the plugin over the **authenticated localhost
+WebSocket** to the daemon, which stores it in `~/.figma-bridge-mcp/rest-token`
+(mode 0600). It is never entered in chat, never stored in your MCP client
+config, never echoed back by any tool, and never written to the audit log
+(REST calls are logged as method + path only). *Clear token* in the plugin
+removes the file.
+
+Headless/CI alternative: set the `FIGMA_REST_TOKEN` environment variable — it
+overrides the file.
+
+**Scope:** by default REST calls target the file currently open in Figma
+Desktop (the plugin pushes its file key). Other files require an explicit
+`fileKey` parameter (bare key or full Figma URL). Note that a PAT itself can
+read every file its account can access — keep the scopes minimal.
+
 ## Security model
 
-- **No Figma API token** — Figma is driven through the local plugin, never
-  `api.figma.com`.
+- **No Figma API token required** — Figma is driven through the local plugin,
+  never `api.figma.com`. The REST add-on is strictly opt-in: without a token
+  the code path is inert, and with one the token lives in a 0600 file (or your
+  own env var), not in the MCP client config.
 - **No binary patching** — Yolo/CDP mode is stripped from the vendored engine.
 - **Command allowlist** — `figma_run` only accepts a fixed set of subcommands;
   `connect` is *not* on it, so Safe-Mode-only connection is enforced.
@@ -213,15 +285,15 @@ annotate components with `↔ story <id> (<importPath>)` automatically.
 - **Localhost-locked plugin** — `plugin/manifest.json` restricts
   `networkAccess.allowedDomains` to `ws://127.0.0.1:3456–3460`.
 - **Isolated state** — token, pid, key, and audit log live under
-  `~/.figma-safe-mcp/`, separate from any upstream figma-cli install.
+  `~/.figma-bridge-mcp/`, separate from any upstream figma-cli install.
 - **Audit log** — every executed command is appended to
-  `~/.figma-safe-mcp/audit.log` (with touched node ids, optional labels, and a
+  `~/.figma-bridge-mcp/audit.log` (with touched node ids, optional labels, and a
   completion entry recording success/failure — the data source for
   `figma_history`). Rotates at 5 MB; one previous generation (`audit.log.1`)
   is kept and still read by `figma_history`.
 
 **Port fallback.** The daemon binds the first free port in 3456–3460 and
-publishes it in `~/.figma-safe-mcp/daemon-port`; the CLI/MCP layers resolve the
+publishes it in `~/.figma-bridge-mcp/daemon-port`; the CLI/MCP layers resolve the
 port per call (env `DAEMON_PORT` > port file > 3456), and the plugin scans the
 whole range, so a foreign process squatting 3456 no longer blocks connecting.
 The squatter check is an *unauthenticated* `/health` probe, and authenticated
@@ -244,14 +316,14 @@ to the bound port.)
 
 - **FigJam is not supported.** The upstream FigJam commands drove the removed
   CDP transport and were deleted along with it.
-- **Exactly two non-localhost network actions exist**, both explicit and
-  user-initiated: `api setup` (one-time git clone of the Figma Plugin API docs
-  mirror, for `figma_reference`) and the Storybook index fetch of
-  `import`/`map storybook` (the URL/directory you pass in). Nothing else
-  talks to the network — the upstream's iconify/unsplash/remove.bg/
-  screenshot-url integrations were removed entirely; `<Icon>` in
-  `figma_render` JSX renders as a named placeholder (real icons come out of
-  the Figma file via `export assets`).
+- **Non-localhost network actions are few and explicit**: `api setup`
+  (one-time git clone of the Figma Plugin API docs mirror, for
+  `figma_reference`), the Storybook index fetch of `import`/`map storybook`
+  (the URL/directory you pass in), and — only when you opt into the REST
+  add-on — calls to `api.figma.com`. Nothing else talks to the network — the
+  upstream's iconify/unsplash/remove.bg/screenshot-url integrations were
+  removed entirely; `<Icon>` in `figma_render` JSX renders as a named
+  placeholder (real icons come out of the Figma file via `export assets`).
 - **One transport, no CDP remnants.** Every command reaches Figma the same
   way: engine → daemon → plugin eval. The upstream's Chrome-DevTools client,
   its `figma-use` shell round-trip, the binary-patching `init` wizard and the
@@ -261,14 +333,14 @@ to the bound port.)
 ## Development
 
 ```bash
-npm test      # 509 tests: vendored engine + daemon auth + MCP layer
+npm test      # vendored engine + daemon auth + MCP layer + REST layer
 ```
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
 back within 3456–3460 when 3456 is taken, so both *can* coexist, but the plugin
 scans the whole range and the two daemons use different access keys — which one
 the plugin reaches first is a coin toss. This build isolates its own
-token/pid/port files under `~/.figma-safe-mcp/`.
+token/pid/port files under `~/.figma-bridge-mcp/`.
 
 ## Inspiration & attribution
 
@@ -279,5 +351,5 @@ the Yolo/CDP approach nor the bundled integrations.
 
 Licensing: the `engine/` directory started as a fork of **figma-ds-cli v2.1.0**
 (© Sil Bormüller, MIT) and retains that license — see [`NOTICE`](NOTICE) and
-[`engine/LICENSE`](engine/LICENSE). figma-safe-mcp itself is MIT — see
+[`engine/LICENSE`](engine/LICENSE). figma-bridge-mcp itself is MIT — see
 [`LICENSE`](LICENSE).

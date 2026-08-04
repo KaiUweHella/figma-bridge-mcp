@@ -46,7 +46,15 @@ export function annotationFor(key, cwd = process.cwd()) {
   const index = loadFigmaMap(cwd);
   const m = index?.byKey.get(key);
   if (!m || !m.storyId) return null;
-  return `↔ story ${m.storyId}${m.importPath ? ` (${m.importPath})` : ""}`;
+  // description comes from the REST library-metadata enrichment (optional) —
+  // in maintained design systems it often names the code path or usage rule.
+  const desc = m.description ? `  desc: ${truncate(m.description, 80)}` : "";
+  return `↔ story ${m.storyId}${m.importPath ? ` (${m.importPath})` : ""}${desc}`;
+}
+
+function truncate(s, max) {
+  const t = String(s).replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
 /**
@@ -66,7 +74,8 @@ export function storybookTrailer(text, cwd = process.cwd()) {
     const mapping = index.byKey.get(m[1]);
     if (!mapping || !mapping.storyId || seen.has(mapping.storyId)) continue;
     seen.add(mapping.storyId);
-    lines.push(`- ${mapping.figmaName} ↔ story ${mapping.storyId}${mapping.importPath ? ` (${mapping.importPath})` : ""}`);
+    const desc = mapping.description ? ` — ${truncate(mapping.description, 80)}` : "";
+    lines.push(`- ${mapping.figmaName} ↔ story ${mapping.storyId}${mapping.importPath ? ` (${mapping.importPath})` : ""}${desc}`);
   }
   return lines.length ? `\n\n## Storybook mapping\n${lines.join("\n")}` : "";
 }

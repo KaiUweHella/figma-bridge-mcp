@@ -7,11 +7,11 @@ import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { homedir } from 'os';
 import * as apiDocs from '../api-docs.js';
 import { nullDevice, killPort, getPortPid, sleepAfterStop } from '../platform.js';
 import { getDaemonPort, clearPortFile } from './daemon-port.js';
 import { signRequest } from './daemon-auth.js';
+import { STATE_DIR } from './state-dir.js';
 // Moved out of this file; re-exported below so command modules keep importing
 // everything from one place.
 import { unescapeShell, detectWrapperSplit } from './jsx-split.js';
@@ -20,12 +20,12 @@ import {
   hexToRgb, isVarRef, getVarName, generateFillCode, generateStrokeCode,
   varLoadingCode, smartPosCode,
 } from './eval-snippets.js';
-const DAEMON_PID_FILE = join(homedir(), '.figma-safe-mcp', 'daemon.pid');
-const DAEMON_TOKEN_FILE = join(homedir(), '.figma-safe-mcp', '.daemon-token');
+const DAEMON_PID_FILE = join(STATE_DIR, 'daemon.pid');
+const DAEMON_TOKEN_FILE = join(STATE_DIR, '.daemon-token');
 
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {
-  const configDir = join(homedir(), '.figma-safe-mcp');
+  const configDir = STATE_DIR;
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
   const token = randomBytes(32).toString('hex');
   writeFileSync(DAEMON_TOKEN_FILE, token, { mode: 0o600 });
@@ -43,7 +43,7 @@ function getDaemonToken() {
 
 // Get detailed token status for debugging
 function getTokenStatus() {
-  const configDir = join(homedir(), '.figma-safe-mcp');
+  const configDir = STATE_DIR;
   const tokenPath = DAEMON_TOKEN_FILE;
   const status = {
     configDir,
@@ -346,7 +346,7 @@ function stopDaemon() {
 const __dirname = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
-const CONFIG_DIR = join(homedir(), '.figma-safe-mcp');
+const CONFIG_DIR = STATE_DIR;
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const program = new Command();

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// figma-safe-mcp — MCP stdio server. Small, token-efficient tool surface over
+// figma-bridge-mcp — MCP stdio server. Small, token-efficient tool surface over
 // figma-cli running in Safe Mode.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -9,13 +9,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, withAbsoluteOutputDir, normalizeOutputArgs } from "./figma-cli.js";
 import { buildHistory } from "./history.js";
 import { annotationFor, storybookTrailer } from "./figma-map.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
+import { readRestToken, getRestHealth, resolveFileKey, getVersions, getComments, postComment, getFileComponents, NOT_CONFIGURED_MSG } from "./figma-rest.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 // Subcommands that mutate the design; gated behind confirm when
@@ -221,6 +222,44 @@ const TOOLS = [
           type: "string",
           description: "Repo root for gitPaths (default: server working directory).",
         },
+        includeVersions: {
+          type: "boolean",
+          description:
+            "Also merge the file's Figma version history (what designers saved, by whom) via the optional REST layer. Needs a configured REST token; without one a note is appended instead.",
+        },
+        fileKey: {
+          type: "string",
+          description:
+            "File for includeVersions: bare key or full Figma URL. Default: the file open in Figma Desktop.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "figma_comments",
+    description:
+      "Read or post Figma comments via the optional REST layer (design review feedback lives here — read it, act on it, reply with what you changed). action:'list' returns all comments with ids, authors, node anchors and resolved state. action:'post' needs message (+ optional nodeId anchor or replyTo thread id) and ALWAYS requires confirm:true after a preview — comments are visible to other people. Without a configured REST token this tool only explains the setup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "post"], description: "list (default) or post." },
+        fileKey: {
+          type: "string",
+          description: "Bare file key or full Figma URL. Default: the file open in Figma Desktop.",
+        },
+        message: { type: "string", description: "post: the comment text." },
+        nodeId: {
+          type: "string",
+          description: "post: anchor the comment to this node (\"1:2\", URL form, or full URL).",
+        },
+        x: { type: "number", description: "post: canvas x (with y, when no nodeId) or node offset x." },
+        y: { type: "number", description: "post: canvas y / node offset y." },
+        replyTo: { type: "string", description: "post: comment id to reply to (threads under it)." },
+        confirm: {
+          type: "boolean",
+          description: "Required true to actually post — first call without it returns a preview.",
+        },
       },
       additionalProperties: false,
     },
@@ -355,7 +394,8 @@ Node ids: "12:34", "12-34", full Figma URLs. Safe Mode reaches only the
 file open in Figma Desktop.
 
 More figma_run commands: ["extract"], ["analyze","colors"], ["verify","<id>"],
-["map","storybook","<url|dir>"] (Figma<->Storybook mapping). --help for syntax.`;
+["map","storybook","<url|dir>"] (Figma<->Storybook mapping). --help for syntax.
+REST opt-in (token in plugin UI): figma_comments, history includeVersions.`;
 
 // Long-form workflow guide — the pre-truncation INSTRUCTIONS text, served in
 // full through figma_reference {name:"workflow"} (tool results are not subject
@@ -509,7 +549,28 @@ tokens first, then components, then screens:
    ["section","create","<name>","<ids>"] to group,
    ["section","arrange","<id>","--cols","4"] to tidy,
    ["section","fit","<id>"] after manual moves. ["render","--verify"]
-   returns a screenshot in the same call — always look at it.`;
+   returns a screenshot in the same call — always look at it.
+
+=== Optional REST add-on (Figma personal access token) ===
+
+Opt-in extras the local plugin bridge cannot reach. Setup: the user pastes a
+Figma personal access token into the FigCli plugin's "REST token (optional)"
+field (stored 0600 on this machine; FIGMA_REST_TOKEN env for headless runs).
+figma_status reports whether a token is configured and working.
+
+- figma_comments {action:"list"} — design review feedback with node anchors
+  and thread ids. Read it, act on it, then reply with what you changed:
+  {action:"post", replyTo:"<id>", message:"..."} — posting ALWAYS previews
+  first and requires confirm:true (visible to other humans).
+- figma_history {includeVersions:true} — merges the file's real version
+  history (designer saves, by whom) into the local audit+git timeline.
+- ["map","storybook",...] automatically enriches figma-map.json with the
+  published components' description/documentation links when a token is set.
+
+Default file scope is the file open in Figma Desktop; other files only via an
+explicit fileKey (bare key or Figma URL). Every REST call is audit-logged
+(method+path only). Without a token these tools explain the setup and nothing
+else changes.`;
 
 function textResult(text) {
   return { content: [{ type: "text", text: text || "" }] };
@@ -597,6 +658,54 @@ async function runAssetExport(rawArgs, label) {
 }
 
 /**
+ * Library-metadata enrichment (opt-in REST layer). After a successful
+ * `map storybook` run, read the figma-map.json the engine wrote, fetch the
+ * published components of the open file and add description/documentation
+ * links per mapping — matched over the same stable component keys the map
+ * already carries. Returns a status note (or null when there is nothing to
+ * say). Never throws: enrichment is a bonus, never a failure mode.
+ * @param {string[]} normalizedArgs - map argv after normalizeOutputArgs
+ * @returns {Promise<string|null>}
+ */
+async function enrichFigmaMap(normalizedArgs) {
+  // Locate the -o path (normalizeOutputArgs guarantees one of these forms).
+  let file = null;
+  const idx = normalizedArgs.findIndex((a) => a === "-o" || a === "--output");
+  if (idx !== -1 && typeof normalizedArgs[idx + 1] === "string") {
+    file = normalizedArgs[idx + 1];
+  } else {
+    const eq = normalizedArgs.find((a) => /^(--output|-o)=/.test(a));
+    if (eq) file = eq.split("=").slice(1).join("=");
+  }
+  if (!file) return null;
+  try {
+    const doc = JSON.parse(readFileSync(file, "utf8"));
+    if (!Array.isArray(doc.mappings) || !doc.mappings.length) return null;
+    const resolved = await resolveFileKey(undefined);
+    if (!resolved.key) return `Library metadata skipped: ${resolved.error}`;
+    const byKey = await getFileComponents(resolved.key);
+    if (!byKey.size) {
+      return "Library metadata: file has no published components (not a published library) — map left as-is.";
+    }
+    let enriched = 0;
+    for (const m of doc.mappings) {
+      const meta = byKey.get(m.figmaVariantKey) || byKey.get(m.figmaKey);
+      if (!meta) continue;
+      if (meta.description) {
+        m.description = meta.description;
+        enriched++;
+      }
+      if (meta.documentationLinks.length) m.documentationLinks = meta.documentationLinks;
+    }
+    doc.fileKey = resolved.key;
+    writeFileSync(file, JSON.stringify(doc, null, 2));
+    return `Library metadata (REST): ${enriched} mapping(s) enriched with published descriptions/doc links.`;
+  } catch (err) {
+    return `Library metadata enrichment failed: ${err.message}`;
+  }
+}
+
+/**
  * Known-parameter guard. Clients that guess parameter names before loading
  * the schema (`node_id`, `url` instead of `nodeId`) used to be silently
  * ignored — the call fell back to "Nothing selected in Figma", which reads
@@ -619,7 +728,7 @@ export function unknownParamError(toolName, input, tools = TOOLS) {
   return `${hints.join(" ")} ${known.length ? `Accepted parameters: ${known.join(", ")}.` : "This tool takes no parameters."}`;
 }
 
-async function handleTool(name, rawArgs) {
+export async function handleTool(name, rawArgs) {
   const input = rawArgs || {};
   const paramError = unknownParamError(name, input);
   if (paramError) return errorResult(paramError);
@@ -669,6 +778,24 @@ async function handleTool(name, rawArgs) {
           lines.push("daemon has NO key loaded — reconnect after figma_connect");
         }
       }
+      // Optional REST layer: report presence and validity (lazy, 5-min cached)
+      // without ever echoing the token. The open file lets the check fall back
+      // to a real file probe when the token lacks the /v1/me scope.
+      if (readRestToken()) {
+        const target = await resolveFileKey();
+        const health = await getRestHealth({ fileKey: target.key || undefined });
+        lines.push(
+          health.ok
+            ? health.noUserScope
+              ? "REST token: configured and working (file access verified). No 'current_user:read' scope — that scope is not needed here."
+              : `REST token: configured (${health.handle})`
+            : `REST token: configured but NOT working — ${health.error}`,
+        );
+      } else {
+        lines.push(
+          "REST token: not set (optional) — paste a Figma personal access token into the FigCli plugin's 'REST token' field, or set FIGMA_REST_TOKEN. Unlocks figma_comments and figma_history {includeVersions:true}.",
+        );
+      }
       return textResult(lines.join("\n"));
     }
 
@@ -703,7 +830,16 @@ async function handleTool(name, rawArgs) {
       }
       // extract / export node|screenshot write files — resolve their output
       // paths against the client workspace, not the engine's repo cwd.
-      const res = await runCli(normalizeOutputArgs(args), { label: input.label });
+      const normalized = normalizeOutputArgs(args);
+      const res = await runCli(normalized, { label: input.label });
+      // Library-metadata enrichment (opt-in REST layer): after a successful
+      // `map storybook` run, upgrade the written figma-map.json with the
+      // published components' description/documentation links — a stronger
+      // mapping signal than name matching. Silent no-op without a token.
+      if (args[0] === "map" && readRestToken()) {
+        const note = await enrichFigmaMap(normalized);
+        if (note) res.stdout = (res.stdout || "") + "\n" + note;
+      }
       return resultFromCli(res);
     }
 
@@ -770,6 +906,32 @@ async function handleTool(name, rawArgs) {
         if (urlMatch) nodeId = `${urlMatch[1]}:${urlMatch[2]}`;
         else if (/^\d+-\d+$/.test(nodeId)) nodeId = nodeId.replace("-", ":");
       }
+      // Opt-in REST merge: the file's real Figma version history (designer
+      // saves). Fetched here — buildHistory stays sync/pure. Failures become
+      // a note, never an error: the local history must always be delivered.
+      let versionEntries;
+      const notes = [];
+      if (input.includeVersions === true) {
+        if (!readRestToken()) {
+          notes.push(NOT_CONFIGURED_MSG);
+        } else {
+          const resolved = await resolveFileKey(input.fileKey);
+          if (!resolved.key) {
+            notes.push(`Figma versions skipped: ${resolved.error}`);
+          } else {
+            try {
+              versionEntries = (await getVersions(resolved.key)).map((v) => ({
+                ts: v.created_at,
+                label: `version: ${v.label || v.description || "autosave"} (${(v.user && v.user.handle) || "unknown"})`,
+                source: "figma",
+                ref: v.id,
+              }));
+            } catch (err) {
+              notes.push(`Figma versions unavailable: ${err.message}`);
+            }
+          }
+        }
+      }
       return textResult(
         buildHistory({
           nodeId,
@@ -777,7 +939,85 @@ async function handleTool(name, rawArgs) {
           format: input.format === "json" ? "json" : "markdown",
           gitPaths: input.gitPaths,
           repoPath: input.repoPath,
+          versionEntries,
+          notes,
         }),
+      );
+    }
+
+    case "figma_comments": {
+      if (!readRestToken()) return textResult(NOT_CONFIGURED_MSG);
+      const action = input.action === "post" ? "post" : "list";
+      const resolved = await resolveFileKey(input.fileKey);
+      if (!resolved.key) return errorResult(resolved.error);
+
+      if (action === "list") {
+        const comments = await getComments(resolved.key);
+        if (!comments.length) return textResult(`No comments in file ${resolved.key}.`);
+        // Order threads root-first, replies indented under their parent.
+        const roots = comments.filter((c) => !c.parent_id);
+        const replies = new Map();
+        for (const c of comments) {
+          if (!c.parent_id) continue;
+          if (!replies.has(c.parent_id)) replies.set(c.parent_id, []);
+          replies.get(c.parent_id).push(c);
+        }
+        const line = (c, indent = "") => {
+          const anchor = c.client_meta && c.client_meta.node_id ? `  @node ${c.client_meta.node_id}` : "";
+          const state = c.resolved_at ? "  [resolved]" : "";
+          const when = (c.created_at || "").slice(0, 16).replace("T", " ");
+          const text = String(c.message || "").replace(/\s+/g, " ").slice(0, 300);
+          return `${indent}- [${c.id}] ${(c.user && c.user.handle) || "?"} (${when})${anchor}${state}: ${text}`;
+        };
+        const lines = [];
+        for (const r of roots) {
+          lines.push(line(r));
+          for (const rep of replies.get(r.id) || []) lines.push(line(rep, "  "));
+        }
+        return textResult(
+          `${comments.length} comment${comments.length !== 1 ? "s" : ""} in file ${resolved.key}` +
+            `${resolved.source === "open-file" ? " (open file)" : ""}:\n${lines.join("\n")}\n\n` +
+            "Reply with {action:'post', replyTo:'<id>', message:'…'} (needs confirm:true).",
+        );
+      }
+
+      // action === "post"
+      const message = input.message;
+      if (typeof message !== "string" || !message.trim()) {
+        return errorResult("post needs a non-empty message.");
+      }
+      let nodeId = input.nodeId;
+      if (nodeId !== undefined) {
+        if (typeof nodeId !== "string" || !nodeId.length) {
+          return errorResult("nodeId must be a non-empty string.");
+        }
+        const urlMatch = nodeId.match(/node-id=(\d+)-(\d+)/);
+        if (urlMatch) nodeId = `${urlMatch[1]}:${urlMatch[2]}`;
+        else if (/^\d+-\d+$/.test(nodeId)) nodeId = nodeId.replace("-", ":");
+      }
+      // UNCONDITIONAL confirm gate — independent of FIGMA_WRITE_CONFIRM.
+      // Posting a comment is visible to other humans in a shared cloud file;
+      // local canvas writes are undoable, this is not.
+      if (input.confirm !== true) {
+        return textResult(
+          "PREVIEW — nothing was posted.\n" +
+            `  File:    ${resolved.key}${resolved.source === "open-file" ? " (the file open in Figma)" : ""}\n` +
+            `  Anchor:  ${input.replyTo ? `reply to comment ${input.replyTo}` : nodeId ? `node ${nodeId}` : Number.isFinite(input.x) && Number.isFinite(input.y) ? `canvas (${input.x}, ${input.y})` : "file (unanchored)"}\n` +
+            `  Message: ${message}\n\n` +
+            "This comment will be visible to everyone with access to the file.\n" +
+            "Re-run with confirm:true to post it.",
+        );
+      }
+      const posted = await postComment(resolved.key, {
+        message,
+        nodeId,
+        x: Number.isFinite(input.x) ? input.x : undefined,
+        y: Number.isFinite(input.y) ? input.y : undefined,
+        replyTo: typeof input.replyTo === "string" && input.replyTo ? input.replyTo : undefined,
+      });
+      return textResult(
+        `Comment posted (id ${posted.id || "?"}) in file ${resolved.key}` +
+          `${nodeId ? ` at node ${nodeId}` : ""}${input.replyTo ? ` as reply to ${input.replyTo}` : ""}.`,
       );
     }
 
@@ -921,7 +1161,7 @@ async function main() {
   const server = new Server(
     // Single source of truth: package.json (SERVER_VERSION also carries the
     // git SHA for figma_status; the MCP handshake wants the bare semver).
-    { name: "figma-safe-mcp", version: SERVER_VERSION.split(" ")[0] },
+    { name: "figma-bridge-mcp", version: SERVER_VERSION.split(" ")[0] },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
@@ -945,7 +1185,7 @@ async function main() {
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {
-    process.stderr.write(`figma-safe-mcp failed to start: ${err.message}\n`);
+    process.stderr.write(`figma-bridge-mcp failed to start: ${err.message}\n`);
     process.exit(1);
   });
 }

@@ -1,4 +1,4 @@
-figma-safe-mcp
+figma-bridge-mcp
 ==============
 
 This product includes software vendored from a third party.
@@ -34,5 +34,5 @@ Files excluded from the vendored copy relative to upstream:
     src/.figma-client-*.mjs (generated temp artifact)
     upstream plugin/ (superseded by this repo's hardened plugin/)
 
-figma-safe-mcp itself (everything outside engine/) is Copyright its authors and
+figma-bridge-mcp itself (everything outside engine/) is Copyright its authors and
 licensed MIT (see LICENSE).

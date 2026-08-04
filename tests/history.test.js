@@ -193,3 +193,56 @@ test('server schemas: label and figma_history params are accepted', async () => 
   // Wrong-name guard still fires on the new tool.
   assert.match(unknownParamError('figma_history', { node_id: '1:2' }), /did you mean "nodeId"/);
 });
+
+test('versionEntries (REST) merge into the timeline as source figma, sorted by time', () => {
+  writeFileSync(AUDIT, [
+    JSON.stringify({ id: 'v1', ts: '2026-08-01T10:00:00.000Z', args: ['render', '<Frame/>'], label: 'hero' }),
+    JSON.stringify({ id: 'v1', ts: '2026-08-01T10:00:01.000Z', event: 'done', ok: true }),
+  ].join('\n') + '\n');
+  const versionEntries = [
+    { ts: '2026-08-01T12:00:00.000Z', label: 'version: Design review round 2 (alice)', source: 'figma', ref: 'v-99' },
+    { ts: '2026-08-01T08:00:00.000Z', label: 'version: autosave (bob)', source: 'figma', ref: 'v-98' },
+  ];
+  const md = buildHistory({ auditPath: AUDIT, versionEntries });
+  const rows = md.split('\n').filter((l) => l.startsWith('|')).slice(2);
+  assert.equal(rows.length, 3);
+  // Newest first: 12:00 figma, 10:00 design, 08:00 figma.
+  assert.match(rows[0], /figma.*Design review round 2/);
+  assert.match(rows[1], /design.*hero/);
+  assert.match(rows[2], /figma.*autosave/);
+});
+
+test('version labels are remote-controlled — markdown injection stays inline', () => {
+  writeFileSync(AUDIT, '');
+  const versionEntries = [
+    { ts: '2026-08-01T12:00:00.000Z', label: 'version: | evil |\n# heading (mallory)', source: 'figma', ref: 'v-1' },
+  ];
+  const md = buildHistory({ auditPath: AUDIT, versionEntries });
+  const lines = md.split('\n');
+  assert.ok(lines.every((l) => l.startsWith('|')), 'injected newline must not escape the table');
+  const row = lines[2];
+  assert.equal(row.split(/(?<!\\)\|/).length - 1, 5, 'pipes escaped, still 4 columns');
+});
+
+test('notes are appended, and REST audit entries render as REST <method> <path>', () => {
+  writeFileSync(AUDIT, [
+    JSON.stringify({ id: 'r1', ts: '2026-08-01T10:00:00.000Z', rest: { method: 'GET', path: '/v1/files/k/comments' } }),
+    JSON.stringify({ id: 'r1', ts: '2026-08-01T10:00:01.000Z', event: 'done', ok: true, status: 200 }),
+  ].join('\n') + '\n');
+  const md = buildHistory({ auditPath: AUDIT, notes: ['Figma versions unavailable: token invalid'] });
+  assert.match(md, /REST GET \/v1\/files\/k\/comments/);
+  assert.match(md, /_Note: Figma versions unavailable: token invalid_/);
+});
+
+test('server schemas: figma_comments and includeVersions params are accepted', async () => {
+  const { unknownParamError } = await import('../src/server.js');
+  assert.equal(
+    unknownParamError('figma_history', { includeVersions: true, fileKey: 'PLACEHOLDERFILEKEY' }),
+    null,
+  );
+  assert.equal(
+    unknownParamError('figma_comments', { action: 'post', message: 'x', nodeId: '1:2', confirm: true }),
+    null,
+  );
+  assert.match(unknownParamError('figma_comments', { text: 'x' }), /Unknown parameter "text"/);
+});

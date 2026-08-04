@@ -1,15 +1,43 @@
 {
-  "name": "figma-safe-mcp",
-  "version": "0.2.0",
-  "description": "Self-contained MCP server for controlling Figma locally via a vendored Safe-Mode engine plus a plugin access key. Efficiency of figma-cli, security of a hardened plugin bridge. No Figma API token.",
+  "name": "figma-bridge-mcp",
+  "version": "0.3.0",
+  "description": "Self-contained MCP server for controlling Figma locally via a vendored Safe-Mode engine plus a plugin access key. Efficiency of a CLI bridge, security of a hardened local plugin socket. No Figma API token required.",
   "type": "module",
   "bin": {
-    "figma-safe-mcp": "src/server.js"
+    "figma-bridge-mcp": "src/server.js"
   },
   "main": "src/server.js",
+  "files": [
+    "src",
+    "engine/src",
+    "engine/package.json",
+    "engine/LICENSE",
+    "plugin",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KaiUweHella/figma-cli-mcp.git"
+  },
+  "homepage": "https://github.com/KaiUweHella/figma-cli-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/KaiUweHella/figma-cli-mcp/issues"
+  },
+  "keywords": [
+    "figma",
+    "mcp",
+    "model-context-protocol",
+    "design-to-code",
+    "figma-plugin",
+    "ai",
+    "claude"
+  ],
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test engine/tests/*.test.js tests/*.test.js"
+    "test": "node --test engine/tests/*.test.js tests/*.test.js",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

@@ -1,7 +1,7 @@
 /**
  * FigCli (Safe/Hardened) Bridge Plugin
  *
- * Safe Mode: connects to the local figma-safe-mcp daemon over WebSocket.
+ * Safe Mode: connects to the local figma-bridge-mcp daemon over WebSocket.
  * No debug port, no app patching. The connection is authenticated with an
  * access key the user pastes in once; it is persisted in figma.clientStorage
  * (only reachable from this main thread, not the UI iframe) and handed to the
@@ -107,6 +107,11 @@ async function selectionSnapshot() {
     page: figma.currentPage.name,
     total: selection.length,
     nodes,
+    // File identity for the optional REST layer (default scope = this file).
+    // figma.fileKey needs enablePrivatePluginApi in the manifest and is
+    // undefined for never-saved drafts — both degrade to null gracefully.
+    fileKey: (typeof figma.fileKey === 'string' && figma.fileKey) || null,
+    fileName: figma.root.name,
   };
 }
 

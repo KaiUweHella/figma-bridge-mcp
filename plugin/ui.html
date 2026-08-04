@@ -100,6 +100,16 @@
   <div id="log"></div>
 
   <button id="changeKeyBtn" class="linkish" style="display:none">Change access key</button>
+  <button id="restTokenBtn" class="linkish" style="display:none">REST token (optional) ▾</button>
+  <div id="restPanel" class="panel">
+    <label for="restInput">Figma REST token (personal access token) — unlocks version history, comments &amp; library docs. Stored only on this machine.</label>
+    <input id="restInput" type="password" spellcheck="false" autocomplete="off" placeholder="figd_… (leave empty and Clear to remove)" />
+    <div class="row">
+      <button id="restSaveBtn">Save token</button>
+      <button id="restClearBtn" class="linkish" style="align-self:center">Clear token</button>
+    </div>
+    <div id="restStatus" class="hint"></div>
+  </div>
   <button id="reconnectBtn" class="linkish" style="display:none">Reconnect this window</button>
   <div id="hint" class="hint">Keep this window open while working.</div>
 
@@ -325,6 +335,47 @@
       showKeyPanel(true);
     };
 
+    // ============ Optional Figma REST token (PAT) ============
+    // Pasted here (never into chat or the MCP client config), sent over the
+    // authenticated socket; the daemon persists it 0600. The UI only ever
+    // learns WHETHER a token is stored (hello-ack / rest-token-ack), never
+    // the value — the input always stays empty.
+    const restTokenBtn = document.getElementById('restTokenBtn');
+    const restPanel = document.getElementById('restPanel');
+    const restInput = document.getElementById('restInput');
+    const restSaveBtn = document.getElementById('restSaveBtn');
+    const restClearBtn = document.getElementById('restClearBtn');
+    const restStatusEl = document.getElementById('restStatus');
+    let restConfigured = false;
+
+    function renderRestStatus() {
+      restStatusEl.textContent = restConfigured
+        ? 'Token stored on this machine (~/.figma-bridge-mcp/rest-token).'
+        : 'No token set — REST features (history, comments, library docs) are off.';
+      restTokenBtn.textContent = 'REST token (' + (restConfigured ? 'set' : 'optional') + ') ▾';
+    }
+    restTokenBtn.onclick = () => {
+      restPanel.classList.toggle('show');
+      renderRestStatus();
+    };
+    function sendRestToken(value) {
+      if (!(ws && ws.readyState === WebSocket.OPEN && authed)) {
+        restStatusEl.textContent = 'Connect first — the token travels over the authenticated connection.';
+        return;
+      }
+      ws.send(JSON.stringify({ type: 'rest-token', value }));
+    }
+    restSaveBtn.onclick = () => {
+      const val = restInput.value.trim();
+      if (!val) { restStatusEl.textContent = 'Paste a token first (or use Clear token).'; return; }
+      sendRestToken(val);
+      restInput.value = '';
+    };
+    restClearBtn.onclick = () => {
+      restInput.value = '';
+      sendRestToken('');
+    };
+
     function teardown() {
       scanGen++; // invalidate any in-flight port scan
       stopKeepalive();
@@ -465,8 +516,19 @@
         authed = true;
         okCount = 0; errCount = 0; renderStats();
         setStatus(paused ? 'Paused — rejecting agent commands' : 'Connected (authenticated)', paused ? 'paused' : 'connected');
+        restConfigured = !!msg.restTokenConfigured;
+        restTokenBtn.style.display = 'block';
+        renderRestStatus();
         parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
         startKeepalive();
+        return;
+      }
+      if (msg.type === 'rest-token-ack') {
+        restConfigured = !!msg.configured;
+        renderRestStatus();
+        restStatusEl.textContent = msg.error
+          ? 'Failed: ' + msg.error
+          : (restConfigured ? 'Token saved ✓ — stored on this machine only.' : 'Token cleared ✓');
         return;
       }
       if (msg.type === 'auth-error') {

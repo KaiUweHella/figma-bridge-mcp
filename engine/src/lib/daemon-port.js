@@ -17,13 +17,13 @@
 
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { STATE_DIR } from './state-dir.js';
 
 export const DEFAULT_PORT = 3456;
 export const PORT_RANGE = [3456, 3457, 3458, 3459, 3460];
 
 export function portFilePath(env = process.env) {
-  return env.DAEMON_PORT_FILE || join(homedir(), '.figma-safe-mcp', 'daemon-port');
+  return env.DAEMON_PORT_FILE || join(STATE_DIR, 'daemon-port');
 }
 
 // Test hook: DAEMON_PORT_RANGE="a,b,c" replaces the manifest range so fallback

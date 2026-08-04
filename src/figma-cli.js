@@ -22,6 +22,7 @@ import {
   getDaemonPort,
   DAEMON_TOKEN_FILE,
   PLUGIN_KEY_FILE,
+  REST_TOKEN_FILE,
   buildArgv,
 } from "./config.js";
 
@@ -30,7 +31,9 @@ const execFileAsync = promisify(execFile);
 // Environment for engine child processes. Threading PLUGIN_KEY_FILE through here
 // is what lets the daemon (spawned detached by the engine) read the same access
 // key the MCP layer generated, so the plugin handshake can be authenticated.
-const engineEnv = { ...process.env, PLUGIN_KEY_FILE };
+// REST_TOKEN_FILE tells the daemon where to persist the optional REST token
+// the user pastes into the plugin UI (the MCP layer reads the same path).
+const engineEnv = { ...process.env, PLUGIN_KEY_FILE, REST_TOKEN_FILE };
 
 // Allowlisted first-token subcommands. `connect` is deliberately excluded.
 // Verified against figma-cli's top-level commands (`var` aliases `variables`,

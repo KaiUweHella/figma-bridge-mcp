@@ -1,8 +1,10 @@
 // Local change history (figma_history) — the Safe-Mode take on component
-// changelogs. There is no Figma REST access in this build (no PAT), but every
-// write this machine performs flows through the audit log, so the log IS the
-// design history. Optionally merged with `git log` of generated code files for
-// a combined design+code changelog.
+// changelogs. Every write this machine performs flows through the audit log,
+// so the log IS the local design history. Optionally merged with `git log` of
+// generated code files, and (opt-in REST layer) with the file's real Figma
+// version history — what designers saved, by whom. The REST fetch happens in
+// the server handler; this module stays sync and pure and just merges the
+// pre-fetched entries.
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { AUDIT_LOG_PATH } from "./config.js";
@@ -129,13 +131,15 @@ function cell(value, max = 120) {
 
 function designLabel(entry) {
   if (entry.label) return entry.label;
+  // REST calls are audited as {rest:{method,path}} — no argv to render.
+  if (entry.rest) return `REST ${entry.rest.method || "GET"} ${entry.rest.path || ""}`;
   const args = Array.isArray(entry.args) ? entry.args : [];
   const head = args.slice(0, 4).map((a) => truncate(String(a), 40)).join(" ");
   return args.length > 4 ? `${head} …` : head;
 }
 
 function nodesCell(entry) {
-  if (entry.source === "code") return cell(entry.ref || "");
+  if (entry.source === "code" || entry.source === "figma") return cell(entry.ref || "");
   const nodes = entryNodes(entry);
   if (!nodes.length) return "";
   const shown = nodes.slice(0, 6).join(", ");
@@ -156,11 +160,11 @@ export function formatHistory(entries, { format = "markdown" } = {}) {
     "| --- | --- | --- | --- |",
   ];
   for (const e of entries) {
-    const source = e.source === "code" ? "code" : "design";
+    const source = e.source === "code" || e.source === "figma" ? e.source : "design";
     // Failed commands are marked explicitly — without this, an aborted render
     // read exactly like a successful one. Entries without outcome data (old
     // log lines, still-running commands) stay unmarked.
-    let labelText = e.source === "code" ? e.label : designLabel(e);
+    let labelText = e.source === "code" || e.source === "figma" ? e.label : designLabel(e);
     if (e.ok === false) labelText = `✗ ${labelText}${e.error ? ` — ${e.error}` : ""}`;
     lines.push(`| ${cell(e.ts, 40)} | ${source} | ${cell(labelText)} | ${nodesCell(e)} |`);
   }
@@ -168,9 +172,13 @@ export function formatHistory(entries, { format = "markdown" } = {}) {
 }
 
 /**
- * Build the combined design(+code) history text.
+ * Build the combined design(+code)(+figma-versions) history text.
+ * `versionEntries` are pre-fetched Figma version-history rows mapped to
+ * {ts, label, source:"figma", ref} — the async REST call happens in the
+ * caller so this module stays sync.
  * @param {{auditPath?: string, nodeId?: string, limit?: number,
- *          format?: "markdown"|"json", gitPaths?: string[], repoPath?: string}} opts
+ *          format?: "markdown"|"json", gitPaths?: string[], repoPath?: string,
+ *          versionEntries?: object[], notes?: string[]}} opts
  * @returns {string}
  */
 export function buildHistory({
@@ -180,6 +188,8 @@ export function buildHistory({
   format = "markdown",
   gitPaths,
   repoPath = process.cwd(),
+  versionEntries,
+  notes: extraNotes,
 } = {}) {
   // audit.log.1 is the rotated previous generation (see appendAudit's size
   // cap) — read it first so rotation never visibly truncates recent history.
@@ -198,10 +208,17 @@ export function buildHistory({
   }));
 
   let merged = design;
-  const notes = [];
+  const notes = Array.isArray(extraNotes) ? [...extraNotes] : [];
+  const extra = [];
   if (Array.isArray(gitPaths) && gitPaths.length) {
     const { entries: code, warning } = gitHistory({ repoPath, paths: gitPaths, limit });
     if (warning) notes.push(warning);
+    extra.push(...code);
+  }
+  if (Array.isArray(versionEntries) && versionEntries.length) {
+    extra.push(...versionEntries);
+  }
+  if (extra.length) {
     // Parse timestamps for the sort: audit lines are UTC ("...Z") while git
     // %aI carries a local offset ("+02:00") — string comparison would misorder
     // them around the offset boundary.
@@ -209,7 +226,7 @@ export function buildHistory({
       const t = Date.parse(e.ts);
       return Number.isNaN(t) ? 0 : t;
     };
-    merged = [...design, ...code]
+    merged = [...design, ...extra]
       .sort((a, b) => time(b) - time(a))
       .slice(0, limit);
   }

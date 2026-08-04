@@ -742,7 +742,7 @@ annotateCmd
 
 // ============ PLUGINS ============
 // The `plugins` command group (voice plugins etc.) was removed in
-// figma-safe-mcp — plugins.js and plugins/voice/ are not vendored.
+// figma-bridge-mcp — plugins.js and plugins/voice/ are not vendored.
 
 // === API docs (offline Figma Plugin API reference) ===
 const apiCmd = program
