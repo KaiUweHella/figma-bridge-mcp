@@ -49,6 +49,11 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['canvas', 'next'],
     ['motion', 'styles'],
     ['motion', 'inspect', '1:2'],
+    // A sync without --apply reads both sides and prints a plan; asking for
+    // confirmation to LOOK would be noise.
+    ['tokens', 'sync', 'tokens.json'],
+    ['tokens', 'sync', 'tokens.json', '--prune'],
+    ['tokens', 'sync', 'tokens.json', '--collection', 'Design Tokens'],
   ]) {
     assert.equal(isWrite(args), false, args.join(' '));
   }
@@ -89,6 +94,10 @@ test('write subcommands of gated groups require confirm', () => {
     // Reads OR sets depending on its arguments — the gate only sees the
     // subcommand, so it must land on the write side.
     ['motion', 'timeline', '1:2'],
+    // --apply is what turns the sync plan into writes, wherever it appears.
+    ['tokens', 'sync', 'tokens.json', '--apply'],
+    ['tokens', 'sync', '--apply', 'tokens.json'],
+    ['tokens', 'sync', 'tokens.json', '--apply', '--prune'],
     ['section', 'fit', '1:2'],
     ['section', 'arrange', '1:2'],
   ]) {

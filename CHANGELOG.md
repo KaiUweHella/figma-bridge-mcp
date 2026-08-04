@@ -28,6 +28,16 @@ the plugin window. The panel will tell you if you forget.
 
 ### Added
 
+- **Two-way token sync.** `tokens sync <file>` compares a DTCG/W3C JSON or CSS
+  custom-property file against a Figma collection and applies the difference —
+  in the right direction. A `figma-tokens.lock.json` records the last agreed
+  state, so the command can tell "the code changed" from "Figma changed"
+  instead of guessing and overwriting a designer's afternoon. Both changed is a
+  conflict that stops the run; `--ours` / `--theirs` decide them in bulk.
+  Deletion needs `--prune` and never touches a variable sync did not create.
+  Renames keep the same Figma variable (and its bindings) where the pairing is
+  unambiguous. Dry run by default; exits 1 with pending changes so it works as
+  a CI check.
 - **Structural version history.** `history snapshot` records a subtree,
   `history diff` compares two — locally, with no Figma credential. The report
   distinguishes added / removed / **replaced** / moved / changed; the replaced

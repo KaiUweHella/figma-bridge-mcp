@@ -96,7 +96,13 @@ export function isWrite(args) {
   if (READ_ONLY_COMMANDS.has(cmd)) return false;
   // Bare group command or a leading flag → usage output, not an action.
   const subIsAction = sub !== undefined && !sub.startsWith("-");
-  if (cmd === "tokens") return subIsAction && sub !== "overlap";
+  if (cmd === "tokens") {
+    // `tokens sync` is a dry run unless --apply is passed: it reads both sides
+    // and prints a plan. Gating the plan behind confirm would make an agent ask
+    // permission to look, so the flag — not the subcommand — decides here.
+    if (sub === "sync") return args.includes("--apply");
+    return subIsAction && sub !== "overlap";
+  }
   if (cmd in READ_SUBCOMMANDS) return subIsAction && !READ_SUBCOMMANDS[cmd].has(sub);
   // Unknown command: WRITE — the safe direction for a confirm gate.
   return true;

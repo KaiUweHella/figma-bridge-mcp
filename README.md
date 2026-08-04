@@ -235,6 +235,52 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## Token sync (two-way)
+
+`tokens import` only ever creates, so a value edited in code never reaches an
+existing Figma variable and a value edited in Figma never reaches code.
+`tokens sync` closes that loop:
+
+```bash
+figma-cli tokens sync src/tokens.json                    # plan only
+figma-cli tokens sync src/tokens.json --apply            # write it
+```
+
+Formats: **DTCG / W3C design tokens** (`.json`, what `export dtcg` emits) and
+**CSS custom properties** (`.css`, what `export css` emits). Tailwind configs
+are an import source only — their parser buckets values into
+colour/spacing/radius and cannot round-trip, so sync refuses them by name
+rather than silently dropping tokens it did not understand.
+
+**Why a lockfile.** A two-way sync without memory cannot tell "the code
+changed" from "Figma changed" — it only sees that the two differ, and whichever
+direction it picks destroys the other side's work. `figma-tokens.lock.json`
+records the state at the last successful sync, so every decision is a
+three-way comparison:
+
+| code | Figma | result |
+|------|-------|--------|
+| changed | unchanged | update Figma |
+| unchanged | changed | **reported, never overwritten** — update your code file |
+| both changed | | **conflict** — nothing is applied |
+| unchanged | unchanged | unchanged |
+
+Conflicts stop the whole run. Resolve them by editing one side, or decide them
+all at once with `--ours` (the code file wins) / `--theirs` (Figma wins, and
+nothing is written to Figma).
+
+Deletions need `--prune`, and even then only touch variables sync itself
+created — a variable it never tracked is reported as untracked and left alone.
+
+The lockfile also stores each variable's Figma id, which is what makes a
+**rename** one rename instead of a delete plus a create that would drop every
+layer binding. Pairing is by value and only when unambiguous: renaming *and*
+re-valuing a token in the same commit falls back to create + delete, so do
+those as two steps if the bindings matter.
+
+Without `--apply` the command exits 1 when changes are pending, so it works as a
+CI check for "is Figma in sync with the repo?".
+
 ## Version history and diffs
 
 Figma's plugin API can *write* a version but not read one back, so "what changed
