@@ -101,6 +101,13 @@ function freshState() {
   };
 }
 
+/** A second collection, so cross-collection cases can be exercised. */
+function addCollection(state, name) {
+  const col = { id: `C${state.collections.length + 1}`, name, modes: [{ modeId: 'M1' }] };
+  state.collections.push(col);
+  return col;
+}
+
 async function runSync(args, { port, cwd }) {
   try {
     const { stdout, stderr } = await execFileAsync(
@@ -311,6 +318,41 @@ test('renaming a token keeps the same Figma variable, bindings and all', async (
 
   const third = await runSync(['tokens.json'], { port, cwd: dir });
   assert.match(third.out, /already in sync/);
+});
+
+test('syncing into the wrong collection is caught before it duplicates everything', async (t) => {
+  // export dtcg flattens EVERY local variable into one file, while sync targets
+  // a single collection. Found live: the obvious round-trip then reports
+  // "create everything" and --apply would duplicate a whole design system into
+  // the wrong collection.
+  const state = freshState();
+  const other = addCollection(state, 'Primitives');
+  const v = makeVar(state, 'brand/primary', 'COLOR', { r: 0.05, g: 0.48, b: 0.45, a: 1 });
+  v.variableCollectionId = other.id;
+  const v2 = makeVar(state, 'space/md', 'FLOAT', 16);
+  v2.variableCollectionId = other.id;
+
+  const { server, port } = await startFakeDaemon(state);
+  const dir = mkdtempSync(join(tmpdir(), 'tokensync-'));
+  t.after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  writeFileSync(join(dir, 'tokens.json'), DTCG('#0D7C74'));
+  const res = await runSync(['tokens.json'], { port, cwd: dir });
+
+  assert.match(res.out, /already exist in "Primitives"/);
+  assert.match(res.out, /would duplicate them/);
+  assert.match(res.out, /--collection "Primitives"/);
+});
+
+test('a name that exists nowhere else does NOT trigger the warning', async (t) => {
+  const state = freshState();
+  const { server, port } = await startFakeDaemon(state);
+  const dir = mkdtempSync(join(tmpdir(), 'tokensync-'));
+  t.after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  writeFileSync(join(dir, 'tokens.json'), DTCG('#0D7C74'));
+  const res = await runSync(['tokens.json'], { port, cwd: dir });
+  assert.doesNotMatch(res.out, /would duplicate them/);
 });
 
 test('CSS custom properties sync the same way as DTCG', async (t) => {

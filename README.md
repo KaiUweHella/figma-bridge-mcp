@@ -272,9 +272,12 @@ and launched the plugin there — not because a flag widened the scope.
   list of connected files:
 
   ```bash
-  figma-cli status                       # lists every connected window
-  figma-cli --file GY5SasBJ… canvas info
+  figma-cli status                             # lists every connected window
+  figma-cli --figma-file GY5SasBJ… canvas info
   ```
+
+  (`--figma-file`, not `--file`: `eval`, `spec` and `instantiate` already use
+  `-f, --file` for a local path.)
 
   Via MCP: `figma_run {args: […], fileKey: "GY5SasBJ…"}`. `figma_status` lists
   them, and `figma_selection` says which files are open rather than guessing
@@ -323,7 +326,10 @@ figma-cli tokens sync src/tokens.json --apply            # write it
 ```
 
 Formats: **DTCG / W3C design tokens** (`.json`, what `export dtcg` emits) and
-**CSS custom properties** (`.css`, what `export css` emits). Tailwind configs
+**CSS custom properties** (`.css`, what `export css` emits). Note that
+`export dtcg` writes *every* local variable into one file while sync targets one
+collection — pass `--collection` accordingly. If most names in the file already
+live in another collection, sync says so instead of offering to duplicate them. Tailwind configs
 are an import source only — their parser buckets values into
 colour/spacing/radius and cannot round-trip, so sync refuses them by name
 rather than silently dropping tokens it did not understand.

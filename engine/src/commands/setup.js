@@ -51,7 +51,11 @@ program
   // to any one of them. Only needed when more than one Figma window has the
   // plugin running: with a single window the daemon routes there anyway, and
   // with several it refuses to guess. There is deliberately no "--all-files".
-  .option('--file <keyOrUrl>', 'Target a specific connected Figma file (see `status`)');
+  //
+  // NOT `--file`: eval, spec and instantiate already own `-f, --file <path>`
+  // for a local file path, and commander would resolve the global as theirs —
+  // silently dropping the target and failing with an ambiguity error instead.
+  .option('--figma-file <keyOrUrl>', 'Target a specific connected Figma file (see `status`)');
 
 // Top-level shortcut: `figma-cli import <source>` — auto-detects the source
 // type and routes to the right importer.
@@ -269,7 +273,7 @@ program
             console.log('    ' + chalk.cyan(c.fileKey || '(unidentified)')
               + chalk.gray('  ' + [c.fileName, c.editorType].filter(Boolean).join('  ')));
           }
-          console.log(chalk.gray('\n  Target one with --file <key>, e.g. figma-cli --file '
+          console.log(chalk.gray('\n  Target one with --figma-file <key>, e.g. figma-cli --figma-file '
             + (conns[0].fileKey || '<key>') + ' canvas info'));
         } else if (conns.length === 1 && conns[0].fileName) {
           console.log(chalk.gray(`    ${conns[0].fileName}`

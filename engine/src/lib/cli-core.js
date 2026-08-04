@@ -164,7 +164,12 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
     );
   }
 
-  const body = JSON.stringify({ action, ...data });
+  // Injected HERE rather than at each call site: fastEval, figmaEvalSync and
+  // ~50 direct daemonExec('eval', …) callers all funnel through this function,
+  // and patching only the first two left most commands unable to target a file.
+  // An explicit fileKey in `data` still wins.
+  const target = data.fileKey ?? targetFileKey();
+  const body = JSON.stringify({ action, ...data, ...(target ? { fileKey: target } : {}) });
   // Signed request headers; the token never rides along in cleartext.
   const headers = { 'Content-Type': 'application/json', ...signRequest(token, 'POST', '/exec', body) };
 
@@ -256,7 +261,7 @@ async function ensureDaemonRunning(maxWaitMs = 5000) {
  */
 function targetFileKey() {
   let raw = null;
-  try { raw = program.opts().file || null; } catch { raw = null; }
+  try { raw = program.opts().figmaFile || null; } catch { raw = null; }
   if (!raw) return null;
   const url = /figma\.com\/(?:file|design|board|proto)\/([A-Za-z0-9]+)/.exec(String(raw));
   return url ? url[1] : String(raw).trim();
@@ -268,7 +273,7 @@ async function fastEval(code) {
     throw new Error(NOT_CONNECTED_MSG);
   }
   // Let a daemon error propagate — the plugin bridge is the only path.
-  return await daemonExec('eval', { code, fileKey: targetFileKey() });
+  return await daemonExec('eval', { code });
 }
 
 // Start daemon in background. The Safe-Mode build only ever runs the daemon in

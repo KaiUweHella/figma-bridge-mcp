@@ -270,8 +270,17 @@ async function readFigmaTokens(collectionName) {
   const modeId = col.modes[0].modeId;
   const vars = await figma.variables.getLocalVariablesAsync();
   const out = [];
+  // Names that live in OTHER collections. export dtcg flattens every local
+  // variable into one file, while sync targets a single collection — so the
+  // obvious round-trip (export, then sync) otherwise reports "create
+  // everything" and would duplicate a whole design system into the wrong place.
+  const elsewhere = {};
   for (const v of vars) {
-    if (v.variableCollectionId !== col.id) continue;
+    if (v.variableCollectionId !== col.id) {
+      const owner = cols.find(c => c.id === v.variableCollectionId);
+      if (owner) (elsewhere[v.name] = owner.name);
+      continue;
+    }
     const value = v.valuesByMode[modeId];
     // An alias points at another variable rather than holding a value; there
     // is no scalar to compare, so it is surfaced instead of silently synced.
@@ -281,7 +290,7 @@ async function readFigmaTokens(collectionName) {
     }
     out.push({ name: v.name, id: v.id, type: v.resolvedType, value });
   }
-  return { collectionId: col.id, modeId, modes: col.modes.length, variables: out };
+  return { collectionId: col.id, modeId, modes: col.modes.length, variables: out, elsewhere };
 })()`;
   return fastEval(code);
 }
@@ -424,6 +433,22 @@ tokens
       apply: !!options.apply,
       prune: !!options.prune,
     }));
+
+    // A plan that is ALL creates, for names that already exist in another
+    // collection, is almost always the wrong --collection rather than a genuine
+    // new design system. Applying it would duplicate everything.
+    const misplaced = plan.create
+      .map((t) => [t.name, (figmaSide.elsewhere || {})[t.name]])
+      .filter(([, owner]) => owner);
+    if (misplaced.length && misplaced.length >= plan.create.length / 2) {
+      const owners = [...new Set(misplaced.map(([, owner]) => owner))];
+      console.log(chalk.yellow(`\n⚠ ${misplaced.length} of these names already exist in `
+        + `${owners.map((o) => `"${o}"`).join(', ')}, not in "${options.collection}".`));
+      console.log(chalk.yellow('  Applying this would duplicate them. Did you mean '
+        + `--collection ${JSON.stringify(owners[0])}?`));
+      console.log(chalk.gray('  (`export dtcg` writes every local variable into one file, '
+        + 'while sync targets a single collection.)'));
+    }
 
     if (figmaSide.modes > 1) {
       console.log(chalk.yellow(`\n⚠ "${options.collection}" has ${figmaSide.modes} modes; sync reads and writes the first one only.`));

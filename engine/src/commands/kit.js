@@ -80,8 +80,8 @@ kit
 
     // Carry the global --file through, so kit works when several windows are
     // connected exactly like every other command.
-    const targetFile = program.opts().file;
-    const globals = targetFile ? ['--file', String(targetFile)] : [];
+    const targetFile = program.opts().figmaFile;
+    const globals = targetFile ? ['--figma-file', String(targetFile)] : [];
 
     const results = [];
     results.push(await step('DESIGN.md — structure, tokens, variant matrices',
