@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Isolate the pairing key file so tests never touch the user's real
-// ~/.figma-safe-mcp/plugin-key. Must be set BEFORE importing config.js/pairing.js.
-process.env.PLUGIN_KEY_FILE = join(mkdtempSync(join(tmpdir(), 'figma-safe-key-')), 'plugin-key');
+// ~/.figma-bridge-mcp/plugin-key. Must be set BEFORE importing config.js/pairing.js.
+process.env.PLUGIN_KEY_FILE = join(mkdtempSync(join(tmpdir(), 'figma-bridge-key-')), 'plugin-key');
 
 test('buildArgv resolves to the vendored engine entry with the current node', async () => {
   const { buildArgv, ENGINE_ENTRY } = await import('../src/config.js');

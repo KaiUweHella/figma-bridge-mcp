@@ -265,14 +265,16 @@ describe('reuse handle parsing', () => {
 import { formatReuseDigest } from '../src/lib/design-spec.js';
 
 describe('formatReuseDigest', () => {
-  it('renders the render hint + truncated key', () => {
+  // Both handles must be emitted together: a key only resolves for a
+  // PUBLISHED component, so an unpublished local one needs the id to land.
+  it('emits key and id together, key first', () => {
     const lines = formatReuseDigest({ name: 'Button', reuse: { key: 'PLACEHOLDERCOMPONENTKEY', id: '10:5' } });
     const joined = lines.join('\n');
-    assert.match(joined, /render <Instance key="PLACEHOLDERCOMPONENTKEY"\/>/);
+    assert.match(joined, /render <Instance key="PLACEHOLDERCOMPONENTKEY" id="10:5"\/>/);
     assert.match(joined, /key 0a1b2c3d…/);
-    assert.match(joined, /node 10:5 \(same-file\)/);
+    assert.match(joined, /node 10:5 \(this file\)/);
   });
-  it('falls back to id, then to name, when no key was captured', () => {
+  it('falls back to id alone, then to name, when no key was captured', () => {
     assert.match(formatReuseDigest({ name: 'Button', reuse: { id: '10:5' } }).join('\n'),
       /render <Instance id="10:5"\/>/);
     assert.match(formatReuseDigest({ name: 'Button', reuse: { id: null } }).join('\n'),

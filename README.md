@@ -28,9 +28,10 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
                                                 (evals code in the Figma sandbox)
 ```
 
-- The **engine** is a Safe-Mode-only fork of `figma-ds-cli` v2.1.0, vendored
-  under `engine/`. The Chrome-DevTools "Yolo mode" (which patches the Figma app
-  binary) has been removed entirely — there is no code path to it.
+- The **engine** lives under `engine/`. It began as a fork of `figma-ds-cli`
+  v2.1.0 and has diverged well past it (see [attribution](#inspiration--attribution)).
+  The Chrome-DevTools "Yolo mode" — which patches the Figma app binary — was
+  removed entirely; there is no code path to it.
 - The **daemon** brokers commands to the Figma plugin over a localhost
   WebSocket. Two gates protect it:
   - **HTTP routes** (`/health`, `/exec`) require a per-request HMAC signature

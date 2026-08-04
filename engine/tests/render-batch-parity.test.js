@@ -47,6 +47,18 @@ describe('parseJSXBatch child-type parity with single render', () => {
     assertValidJs(code);
   });
 
+  // key + id together is what `spec` emits. The key only resolves once the
+  // component is published; for an unpublished local one the import fails and
+  // the id has to catch it. Verified live: a local test component set has a
+  // key, and importComponentByKeyAsync returns nothing for it.
+  it('key and id together fall through key → id', async () => {
+    const code = await client.parseJSXBatch(['<Frame name="A"><Instance key="PLACEHOLDERCOMPONENTKEY" id="4:296" /></Frame>']);
+    assert.ok(/__resolveComponent\("4:296", null, null, "PLACEHOLDERCOMPONENTKEY"\)/.test(code),
+      'both handles reach the resolver, id in the id slot');
+    assert.ok(code.includes('if (!node && id)'), 'id is tried only after the key import failed');
+    assertValidJs(code);
+  });
+
   it('supports grow on nested frames', async () => {
     const code = await client.parseJSXBatch(['<Frame name="A" flex="row"><Frame grow={1} bg="#fff"></Frame></Frame>']);
     assert.ok(/layoutSizingHorizontal = .FILL./.test(code), 'grow in row parent must map to FILL');

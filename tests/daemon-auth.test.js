@@ -1,7 +1,7 @@
 // Security-core tests for the vendored daemon's authentication.
 //
 // Spawns engine/src/daemon.js on a scratch port with temp token/key/pid files
-// (all env-overridable) so nothing touches the user's real ~/.figma-safe-mcp
+// (all env-overridable) so nothing touches the user's real ~/.figma-bridge-mcp
 // state, then exercises the signed-request HTTP gate and the WebSocket
 // access-key gate. HTTP auth is per-request HMAC signing (X-Daemon-Ts/-Nonce/
 // -Auth) — the session token itself never crosses the wire.
@@ -125,7 +125,7 @@ function expectRejection(ws, opts) {
 }
 
 before(async () => {
-  tmp = mkdtempSync(join(tmpdir(), 'figma-safe-daemon-'));
+  tmp = mkdtempSync(join(tmpdir(), 'figma-bridge-daemon-'));
   const tokenFile = join(tmp, 'token');
   const keyFile = join(tmp, 'key');
   const pidFile = join(tmp, 'pid');
@@ -138,7 +138,7 @@ before(async () => {
       DAEMON_PORT: String(PORT),
       DAEMON_TOKEN_FILE: tokenFile,
       DAEMON_PID_FILE: pidFile,
-      // Keep the test daemon's published-port file out of ~/.figma-safe-mcp —
+      // Keep the test daemon's published-port file out of ~/.figma-bridge-mcp —
       // a SIGKILLed test run must never leave a stale real port file behind.
       DAEMON_PORT_FILE: join(tmp, 'port'),
       PLUGIN_KEY_FILE: keyFile,

@@ -381,6 +381,26 @@ export function searchMethods(keyword) {
   return [...dedup.values()].sort((a, b) => b.score - a.score);
 }
 
+/**
+ * The ways a documented API name can actually appear in plugin code.
+ *
+ * The docs are typedoc output, so they name TYPES — `FrameNode`,
+ * `ComponentSetNode`. Plugin code never writes a type: it calls
+ * `figma.createFrame()` and compares `node.type === 'FRAME'`. Matching the
+ * bare interface name therefore misses almost everything, which is why this
+ * report used to claim the engine touched 14 of 254 names.
+ */
+export function usageForms(name) {
+  const forms = [name];
+  const base = name.replace(/Node$/, '');
+  if (base !== name) {
+    // FrameNode → createFrame, 'FRAME'; ComponentSetNode → COMPONENT_SET
+    forms.push('create' + base);
+    forms.push(base.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase());
+  }
+  return forms;
+}
+
 /** Concatenate every .js file under `dir` (recursive). Used as the corpus for
  *  the coverage scan below — read-only, engine sources only. */
 function readSourceTree(dir) {
@@ -418,8 +438,7 @@ export function gap() {
   const referenced = [];
   const missing = [];
   for (const i of interesting) {
-    const re = new RegExp(`\\b${i.name}\\b`);
-    if (re.test(usage)) {
+    if (usageForms(i.name).some(form => new RegExp(`\\b${form}\\b`).test(usage))) {
       referenced.push(i);
     } else {
       missing.push(i);

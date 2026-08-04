@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 // Isolate BOTH state files before any src/ import: the audit log (written by
 // runCli) and the pairing key (config.js reads the env at import time).
-const tmp = mkdtempSync(join(tmpdir(), 'figma-safe-history-'));
+const tmp = mkdtempSync(join(tmpdir(), 'figma-bridge-history-'));
 const AUDIT = join(tmp, 'audit.log');
 process.env.AUDIT_LOG_PATH = AUDIT;
 process.env.PLUGIN_KEY_FILE = join(tmp, 'plugin-key');

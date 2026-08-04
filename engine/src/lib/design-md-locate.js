@@ -1,5 +1,5 @@
 // Locate a DESIGN.md (any name) in cwd or one level of subdirs. CLI-side file
-// reads only — no model tokens spent scanning. Shared by `spec` and `instantiate`.
+// reads only — no model tokens spent scanning. Used by `spec`.
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 

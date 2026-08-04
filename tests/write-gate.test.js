@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Isolate state files before importing anything from src/.
-process.env.PLUGIN_KEY_FILE = join(mkdtempSync(join(tmpdir(), 'figma-safe-gate-')), 'plugin-key');
-process.env.AUDIT_LOG_PATH = join(mkdtempSync(join(tmpdir(), 'figma-safe-gate-')), 'audit.log');
+process.env.PLUGIN_KEY_FILE = join(mkdtempSync(join(tmpdir(), 'figma-bridge-gate-')), 'plugin-key');
+process.env.AUDIT_LOG_PATH = join(mkdtempSync(join(tmpdir(), 'figma-bridge-gate-')), 'audit.log');
 
 const { isWrite } = await import('../src/server.js');
 

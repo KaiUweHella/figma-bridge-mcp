@@ -25,7 +25,7 @@ const cleanups = [];
 after(() => { for (const fn of cleanups) { try { fn(); } catch {} } });
 
 function makeState() {
-  const tmp = mkdtempSync(join(tmpdir(), 'figma-safe-fallback-'));
+  const tmp = mkdtempSync(join(tmpdir(), 'figma-bridge-fallback-'));
   writeFileSync(join(tmp, 'token'), TOKEN);
   cleanups.push(() => rmSync(tmp, { recursive: true, force: true }));
   return tmp;
