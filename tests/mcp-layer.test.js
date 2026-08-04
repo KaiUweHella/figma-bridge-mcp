@@ -235,6 +235,30 @@ test('verify-build passes the figma_run allowlist as a read-only command', async
   assert.equal(isWrite(['verify-build', '/some/project']), false);
 });
 
+test('okExitCodes lets a command use its exit code as an answer, not a failure', async () => {
+  const { runCli } = await import('../src/figma-cli.js');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  // verify-build exits 1 when a project is missing exported assets, and
+  // history diff exits 1 when the design changed — in both cases the code IS
+  // the answer. verify-build is used here because it needs no Figma
+  // connection, so the test means the same thing on a CI box as it does here.
+  const dir = mkdtempSync(join(tmpdir(), 'figma-okexit-'));
+  try {
+    await assert.rejects(
+      () => runCli(['verify-build', dir]),
+      /exited with code/,
+      'unlisted exit codes must still throw — a blanket ignore would hide real breakage',
+    );
+
+    const res = await runCli(['verify-build', dir], { okExitCodes: [0, 1] });
+    assert.equal(res.code, 1);
+    // The output still comes back — that is the whole point of allowing it.
+    assert.ok((res.stdout + res.stderr).length > 0, 'output must survive the allowed exit code');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('motion is allowlisted, is a real engine command, and is gated as a write', async () => {
   const { ALLOWED_COMMANDS } = await import('../src/figma-cli.js');
   const { isWrite } = await import('../src/server.js');

@@ -80,6 +80,9 @@ export const ALLOWED_COMMANDS = new Set([
   // verify-build greps a project directory against assets.json — fully
   // read-only, needs no Figma connection at all.
   "verify-build",
+  // history snapshots/diffs the document structure. Reads Figma; writes only
+  // into ~/.figma-bridge-mcp/snapshots (and a changelog file if asked).
+  "history",
 ]);
 
 // Discoverability: the top-level help flag is read-only (commander prints the
@@ -216,6 +219,14 @@ export async function runCli(args, opts = {}) {
     const stderr = err.stderr ?? "";
     const stdout = err.stdout ?? "";
     const detail = stderr || err.message || "Unknown error";
+    // Some commands use the exit code as an ANSWER, not as a failure:
+    // `history diff` exits 1 when the design changed, so it works as a CI
+    // gate. Callers opt in by naming the codes explicitly — a blanket "ignore
+    // exit codes" would swallow real breakage.
+    if (Array.isArray(opts.okExitCodes) && opts.okExitCodes.includes(code)) {
+      appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true, exitCode: code });
+      return { stdout, stderr, code };
+    }
     appendAudit({
       id: auditId,
       ts: isoNow(),

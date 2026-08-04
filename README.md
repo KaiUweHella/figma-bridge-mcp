@@ -117,7 +117,7 @@ npm install
 | `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned). |
 | `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
 | `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
-| `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. `figma_run`/`figma_render` accept a `label` to annotate entries. |
+| `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural diff of the document itself (added/removed/replaced/moved/changed). `figma_run`/`figma_render` accept a `label` to annotate entries. |
 | `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their main component with the stable publish `key`, and mapped components show their Storybook story. |
 | `figma_comments` | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`). |
 
@@ -235,6 +235,44 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## Version history and diffs
+
+Figma's plugin API can *write* a version but not read one back, so "what changed
+since this morning" has no answer from the bridge alone. `history` supplies one
+without any credential: record the structure of a subtree, record it again
+later, diff the two.
+
+```bash
+figma-cli history snapshot --label "before refactor"
+# … agent works …
+figma-cli history diff latest live
+```
+
+A snapshot stores one normalized record per node — geometry, layout, paints,
+typography, component keys — plus a content hash and a subtree hash, so the
+differ can report an untouched section instead of walking it. They live in
+`~/.figma-bridge-mcp/snapshots/<fileKey>/`, gzipped, newest 20 kept.
+
+Refs are `latest`, `previous`, an index from `history list`, a filename, or
+`live` for the document right now. The report separates **added**, **removed**,
+**replaced**, **moved** and **changed** — that last distinction is the one that
+matters in practice: an agent that deletes a frame and re-renders it keeps the
+name path but gets new node ids, and without the replaced-detection every
+re-render would read as a hundred deletions. `--changelog` emits markdown
+instead; `diff` exits 1 when anything differs, so it also works as a CI gate.
+
+Via MCP this is a parameter, not a thirteenth tool:
+
+```
+figma_history {diff: {from: "latest", to: "live"}}
+figma_history {diff: {from: "version:1234", to: "version:5678"}}   # REST add-on
+```
+
+`version:` refs go through the REST layer and diff what *designers* saved, using
+the same differ. The two sources cannot be mixed in one diff: a REST document
+and a plugin snapshot expose different properties, so every node would look
+changed — the tool says so rather than producing a misleading wall of output.
+
 ## Motion
 
 Figma Motion (Config 2026 Beta) is reachable through `figma_run` with
@@ -260,7 +298,7 @@ be unlocked with a personal access token:
 
 | Feature | What it adds |
 |---------|--------------|
-| **Version history** | `figma_history {includeVersions:true}` merges what *designers* saved (when, by whom) into the local audit+git timeline — the plugin API can only *write* versions, not read them. |
+| **Version history** | `figma_history {includeVersions:true}` merges what *designers* saved (when, by whom) into the local audit+git timeline — the plugin API can only *write* versions, not read them. `figma_history {diff:{from:"version:…", to:"version:…"}}` goes further and diffs the documents themselves. |
 | **Comments** | `figma_comments` reads design-review feedback (with node anchors and thread ids) and can reply. Posting always shows a preview first and requires `confirm:true` — comments are visible to other people. |
 | **Library metadata** | `map storybook` automatically enriches `figma-map.json` with the published components' `description` and documentation links — a far stronger matching signal than name normalization. |
 

@@ -237,6 +237,34 @@ export async function getVersions(fileKey, opts = {}) {
 }
 
 /**
+ * The file's document tree, optionally at a specific version.
+ *
+ * This is the other half of version history: getVersions() says *when* someone
+ * saved, this says *what the file looked like* then. Feeding two of these
+ * through normalizeRestDocument() lets the local snapshot differ report real
+ * designer changes, with no second diff implementation.
+ *
+ * `depth` is passed straight to Figma and is worth setting: an unbounded tree
+ * for a large file is tens of megabytes.
+ *
+ * @param {string} fileKey
+ * @param {{version?: string, depth?: number, fetchImpl?: typeof fetch, env?: object}} [opts]
+ * @returns {Promise<{document: object, name: string, version: string}>}
+ */
+export async function getFileAtVersion(fileKey, opts = {}) {
+  const query = [];
+  if (opts.version) query.push(`version=${encodeURIComponent(opts.version)}`);
+  if (Number.isInteger(opts.depth) && opts.depth > 0) query.push(`depth=${opts.depth}`);
+  const suffix = query.length ? `?${query.join("&")}` : "";
+  const data = await restFetch(`/v1/files/${encodeURIComponent(fileKey)}${suffix}`, opts);
+  return {
+    document: data.document || null,
+    name: data.name || null,
+    version: data.version || opts.version || null,
+  };
+}
+
+/**
  * Comments of a file, flat list as Figma returns it (replies carry parent_id).
  * @param {string} fileKey
  * @param {{fetchImpl?: typeof fetch, env?: object}} [opts]

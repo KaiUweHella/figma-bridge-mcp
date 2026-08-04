@@ -16,7 +16,9 @@ import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, with
 import { buildHistory } from "./history.js";
 import { annotationFor, storybookTrailer } from "./figma-map.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
-import { readRestToken, getRestHealth, resolveFileKey, getVersions, getComments, postComment, getFileComponents, NOT_CONFIGURED_MSG } from "./figma-rest.js";
+import { readRestToken, getRestHealth, resolveFileKey, getVersions, getFileAtVersion, getComments, postComment, getFileComponents, NOT_CONFIGURED_MSG } from "./figma-rest.js";
+import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
+import { diffSnapshots, formatDiff, formatChangelog } from "../engine/src/lib/doc-diff.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 // Subcommands that mutate the design; gated behind confirm when
@@ -75,6 +77,9 @@ const READ_ONLY_COMMANDS = new Set([
   "export",
   "extract",
   "find",
+  // history reads the document and writes only into the snapshot store — the
+  // same class as extract/map: state on disk, never a change in Figma.
+  "history",
   "inspect",
   "map",
   "spec",
@@ -115,7 +120,9 @@ const SERVER_VERSION = (() => {
   return sha ? `${version} (${sha})` : version;
 })();
 
-const TOOLS = [
+// Exported so tests can assert on the surface itself: "12 tools" is a claim the
+// project makes, and a schema regression should fail the build, not the README.
+export const TOOLS = [
   {
     name: "figma_connect",
     description:
@@ -235,6 +242,18 @@ const TOOLS = [
           type: "string",
           description:
             "File for includeVersions: bare key or full Figma URL. Default: the file open in Figma Desktop.",
+        },
+        diff: {
+          type: "object",
+          description:
+            "Structural diff instead of the log: what nodes were added, removed, recreated, moved or changed between two states. Refs are \"live\" (the document right now), \"latest\"/\"previous\", an index, or a Figma version id (needs the REST layer). Record comparison points with figma_run [\"history\",\"snapshot\"].",
+          properties: {
+            from: { type: "string", description: "Older side. Default \"previous\"." },
+            to: { type: "string", description: "Newer side. Default \"latest\". Use \"live\" for the current document." },
+            nodeId: { type: "string", description: "Subtree root when a side is \"live\" (default: current page)." },
+            changelog: { type: "boolean", description: "Emit a markdown changelog instead of the terse report." },
+          },
+          additionalProperties: false,
         },
       },
       additionalProperties: false,
@@ -891,6 +910,62 @@ export async function handleTool(name, rawArgs) {
     }
 
     case "figma_history": {
+      // The `diff` mode answers a different question from the log — "what does
+      // the document look like now vs then" rather than "what did this machine
+      // run" — so it short-circuits before any audit-log work.
+      if (input.diff !== undefined) {
+        const d = input.diff;
+        if (d === null || typeof d !== "object" || Array.isArray(d)) {
+          return errorResult("diff must be an object, e.g. {from:\"latest\", to:\"live\"}.");
+        }
+        const from = d.from === undefined ? "previous" : String(d.from);
+        const to = d.to === undefined ? "latest" : String(d.to);
+        const isVersion = (ref) => ref.startsWith("version:");
+
+        // A REST document and a plugin snapshot carry different property sets
+        // by design (see normalizeRestDocument), so a mixed diff would be a
+        // wall of false positives rather than an answer.
+        if (isVersion(from) !== isVersion(to)) {
+          return errorResult(
+            "A Figma version cannot be diffed against a local snapshot: the two sources expose different "
+            + "properties, so every node would look changed. Compare version:<id> with version:<id>, or "
+            + "local refs with each other (\"latest\", \"previous\", an index, or \"live\").",
+          );
+        }
+
+        if (isVersion(from)) {
+          if (!readRestToken()) return textResult(NOT_CONFIGURED_MSG);
+          const resolved = await resolveFileKey(input.fileKey);
+          if (!resolved.key) return errorResult(resolved.error);
+          const load = async (ref) => {
+            const version = ref.slice("version:".length);
+            const file = await getFileAtVersion(resolved.key, { version });
+            if (!file.document) throw new Error(`Figma returned no document for version ${version}.`);
+            return normalizeRestDocument(file.document, {
+              fileKey: resolved.key, fileName: file.name, version,
+            });
+          };
+          try {
+            const before = await load(from);
+            const after = await load(to);
+            const diff = diffSnapshots(before, after);
+            const render = d.changelog === true ? formatChangelog : formatDiff;
+            return textResult(render(diff, { before, after }));
+          } catch (err) {
+            return errorResult(`Version diff failed: ${err.message}`);
+          }
+        }
+
+        // Local snapshots and the live document go through the engine, which
+        // owns the plugin bridge.
+        const args = ["history", "diff", from, to];
+        if (typeof d.nodeId === "string" && d.nodeId) args.push("--node", d.nodeId);
+        if (d.changelog === true) args.push("--changelog");
+        // Exit 1 means "the design differs", which is the answer, not an error.
+        const res = await runCli(args, { okExitCodes: [0, 1] });
+        return textResult(res.stdout || res.stderr || "No output.");
+      }
+
       // Entirely MCP-side: reads the local audit log (and optionally git),
       // never spawns the engine and is itself not audited.
       let limit = 20;

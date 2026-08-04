@@ -26,6 +26,7 @@ import './commands/instantiate.js';
 import './commands/init.js';
 import './commands/motion.js';
 import './commands/map.js';
+import './commands/history.js';
 import './commands/verify-build.js';
 import { program } from './lib/cli-core.js';
 

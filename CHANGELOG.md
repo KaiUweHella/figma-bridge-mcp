@@ -28,6 +28,18 @@ the plugin window. The panel will tell you if you forget.
 
 ### Added
 
+- **Structural version history.** `history snapshot` records a subtree,
+  `history diff` compares two — locally, with no Figma credential. The report
+  distinguishes added / removed / **replaced** / moved / changed; the replaced
+  case is what keeps an agent's delete-and-re-render from reading as a hundred
+  deletions. `--changelog` emits markdown, and the command exits 1 on any
+  difference so it works as a CI gate.
+- Via MCP: `figma_history {diff:{from,to}}` — a parameter, not a thirteenth
+  tool. `version:<id>` refs diff real Figma versions through the REST layer
+  using the same differ; mixing a REST version with a local snapshot is refused
+  with the reason, since the two expose different properties.
+- `runCli` gained `okExitCodes`, so a command can use its exit code as an
+  answer without a blanket "ignore failures".
 - `motion` is reachable through `figma_run`: Figma Motion keyframes, specs,
   presets, staggers, animation styles, timelines, readback and clearing. It runs
   over the same plugin bridge as everything else. `styles` and `inspect` are

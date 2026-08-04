@@ -21,6 +21,7 @@ const {
   parseFileKey,
   restFetch,
   getVersions,
+  getFileAtVersion,
   getComments,
   postComment,
   getFileComponents,
@@ -112,6 +113,35 @@ test("the token NEVER appears in the audit log; entries carry method+path only",
   const doneLines = lines.filter((l) => l.event === "done");
   assert.ok(doneLines.some((l) => l.ok === true && l.status === 200));
   assert.ok(doneLines.some((l) => l.ok === false && l.status === 401));
+});
+
+test("getFileAtVersion pins the version and depth in the query string", async () => {
+  const env = { FIGMA_REST_TOKEN: TOKEN };
+  const seen = [];
+  const spy = (status, body) => async (url, init) => {
+    seen.push(String(url));
+    return {
+      ok: true, status,
+      headers: { get: () => null },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    };
+  };
+  const payload = { document: { id: "0:0", name: "Doc", type: "DOCUMENT" }, name: "My File", version: "999" };
+
+  const res = await getFileAtVersion("KEY", { env, version: "123", depth: 3, fetchImpl: spy(200, payload) });
+  assert.match(seen[0], /\/v1\/files\/KEY\?version=123&depth=3$/);
+  assert.equal(res.name, "My File");
+  assert.equal(res.document.id, "0:0");
+
+  // No version and no depth: a bare file fetch, no stray "?" on the URL.
+  await getFileAtVersion("KEY", { env, fetchImpl: spy(200, payload) });
+  assert.match(seen[1], /\/v1\/files\/KEY$/);
+
+  // The version reported back falls through from the response when Figma
+  // answers with one, so callers can label a diff accurately.
+  const latest = await getFileAtVersion("KEY", { env, fetchImpl: spy(200, payload) });
+  assert.equal(latest.version, "999");
 });
 
 test("getVersions/getComments/getFileComponents unwrap their payloads", async () => {
