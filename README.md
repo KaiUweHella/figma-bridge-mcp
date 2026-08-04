@@ -235,6 +235,32 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## Bring your own design system
+
+This project ships **no** design system — no shadcn, no Tailwind preset, no icon
+pack. That is deliberate: a bundled system is someone else's opinion rendered
+into your file. What it ships instead is a way to make *your* system legible to
+an agent in one command:
+
+```bash
+figma-cli kit init ./my-app --storybook http://localhost:6006
+```
+
+Four reads, one report:
+
+| Step | Result |
+|------|--------|
+| `extract` | `design/DESIGN.md` — structure, tokens, variant matrices |
+| `export dtcg` | `design/tokens.json` — W3C design tokens |
+| `component list --all-pages` | inventory with stable publish keys |
+| `map storybook` | `figma-map.json` — Figma component ↔ story |
+
+It ends by naming what is still missing — an unmapped Storybook, components with
+no story, the `tokens sync` command that keeps the two in step — because a setup
+that quietly lacks the mapping looks finished until an agent needs it.
+
+DESIGN.md is what an agent should read first; `tokens.json` is what it binds to.
+
 ## Several files at once
 
 The bridge holds one connection per Figma window in which you started the

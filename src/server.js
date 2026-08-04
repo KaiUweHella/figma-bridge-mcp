@@ -83,6 +83,8 @@ const READ_ONLY_COMMANDS = new Set([
   // same class as extract/map: state on disk, never a change in Figma.
   "history",
   "inspect",
+  // kit only runs read commands and writes into the user's project.
+  "kit",
   "map",
   "spec",
   "verify",

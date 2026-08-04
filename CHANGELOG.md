@@ -28,6 +28,14 @@ the plugin window. The panel will tell you if you forget.
 
 ### Added
 
+- **`kit init`** — one command that makes an existing design system
+  agent-ready: DESIGN.md, DTCG tokens, a component inventory with stable
+  publish keys, and the Figma↔Storybook mapping. It orchestrates commands that
+  already existed; what was missing was knowing which four to run and what the
+  result means. The report ends with what is still missing, because a setup
+  that quietly lacks the Storybook mapping looks finished until an agent needs
+  it. This is the project's answer to bundled design systems — it stays neutral
+  and makes *your* system legible instead.
 - **Several Figma windows at once.** The daemon now keeps one connection per
   window in which the plugin was started, instead of letting the newest
   displace all others. With one window nothing changes; with several, a command

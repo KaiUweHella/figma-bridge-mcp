@@ -86,6 +86,9 @@ export const ALLOWED_COMMANDS = new Set([
   // jam authors FigJam boards. Same transport as everything else — the
   // snippets guard on figma.editorType and refuse to run in a design file.
   "jam",
+  // kit orchestrates extract/export/map — all reads of Figma; the files it
+  // writes land in the user's project.
+  "kit",
 ]);
 
 // Discoverability: the top-level help flag is read-only (commander prints the
