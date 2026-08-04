@@ -1,6 +1,5 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
@@ -33,6 +32,7 @@ function installPluginFiles() {
 import * as apiDocs from '../api-docs.js';
 import { convert, detectSourceType } from '../code-import/index.js';
 import {
+  progress,
   program,
   getDaemonPort,
   daemonCurl,
@@ -290,7 +290,7 @@ program
     // Stop any existing daemon, then start it in plugin mode.
     stopDaemon();
 
-    const daemonSpinner = ora('Starting daemon in Safe Mode...').start();
+    const daemonSpinner = progress('Starting daemon in Safe Mode...').start();
     try {
       startDaemon(true, 'plugin');  // Force restart in plugin mode
       await new Promise(r => setTimeout(r, 1000));
@@ -321,7 +321,7 @@ program
     console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
 
     // Wait for the plugin to connect AND authenticate.
-    const pluginSpinner = ora('Waiting for plugin connection...').start();
+    const pluginSpinner = progress('Waiting for plugin connection...').start();
     let pluginConnected = false;
     const PLUGIN_CONNECT_MAX_WAIT_S = 90;
     for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {

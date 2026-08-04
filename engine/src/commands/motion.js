@@ -9,9 +9,8 @@
 //   2. the daemon's top-level-return auto-wrap is flaky on if-statement returns,
 //      so every eval body is wrapped in an explicit async IIFE (evalBody()).
 import chalk from 'chalk';
-import ora from 'ora';
 import { readFileSync } from 'fs';
-import { program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
+import { progress, program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
 import {
   mapField,
   parseKeys,
@@ -166,7 +165,7 @@ motion
   .action(async (id, options) => {
     await checkConnection();
     if (!options.field) return console.log(chalk.red('✗ --field is required (e.g. --field opacity)'));
-    const spinner = ora('Applying keyframes...').start();
+    const spinner = progress('Applying keyframes...').start();
     try {
       const f = mapField(options.field);
       let normalized;
@@ -206,7 +205,7 @@ motion
   .description('Apply a full animation spec (JSON file path or inline JSON)')
   .action(async (spec) => {
     await checkConnection();
-    const spinner = ora('Applying animation spec...').start();
+    const spinner = progress('Applying animation spec...').start();
     try {
       const trimmed = spec.trim();
       const obj = trimmed.startsWith('{') ? JSON.parse(trimmed) : JSON.parse(readFileSync(spec, 'utf8'));
@@ -227,7 +226,7 @@ motion
   .option('-e, --ease <ease>', 'easing', 'ease-out')
   .action(async (id, name, options) => {
     await checkConnection();
-    const spinner = ora(`Applying "${name}"...`).start();
+    const spinner = progress(`Applying "${name}"...`).start();
     try {
       const normalized = specFromPreset(id, name, {
         dur: parseFloat(options.dur),
@@ -257,7 +256,7 @@ motion
     const list = ids.split(',').map((s) => s.trim()).filter(Boolean);
     if (list.length === 0) return console.log(chalk.red('✗ no node ids given'));
     if (!options.preset && !options.field) return console.log(chalk.red('✗ need --preset or --field'));
-    const spinner = ora(`Staggering ${list.length} nodes...`).start();
+    const spinner = progress(`Staggering ${list.length} nodes...`).start();
     try {
       const opts = options.preset
         ? { preset: options.preset, dur: parseFloat(options.dur), ease: options.ease }
@@ -283,7 +282,7 @@ motion
   .description("List Figma's first-party animation styles")
   .action(async () => {
     await checkConnection();
-    const spinner = ora('Reading animation styles...').start();
+    const spinner = progress('Reading animation styles...').start();
     try {
       const res = await fastEval(evalBody(
         `return figma.motion.figmaAnimationStyles().map(s => ({ styleId: s.styleId, name: s.name, description: s.description }));`
@@ -308,7 +307,7 @@ motion
   .option('-t, --timing <timing>', 'in | out (style-dependent)')
   .action(async (id, name, options) => {
     await checkConnection();
-    const spinner = ora(`Applying style "${name}"...`).start();
+    const spinner = progress(`Applying style "${name}"...`).start();
     try {
       const props = {};
       if (options.timing) props.timing = options.timing;
@@ -349,7 +348,7 @@ motion
   .option('-d, --duration <s>', 'set duration seconds')
   .action(async (id, options) => {
     await checkConnection();
-    const spinner = ora('Reading timeline...').start();
+    const spinner = progress('Reading timeline...').start();
     try {
       const setDur = options.duration != null ? parseFloat(options.duration) : null;
       const body = `
@@ -376,7 +375,7 @@ motion
   .description('Read back keyframe tracks, styles, and timeline for a node')
   .action(async (id) => {
     await checkConnection();
-    const spinner = ora('Inspecting motion...').start();
+    const spinner = progress('Inspecting motion...').start();
     try {
       const body = `
 const r = await resolveTarget(${JSON.stringify(id)});
@@ -410,7 +409,7 @@ motion
   .option('--styles', 'remove animation styles instead of keyframe tracks')
   .action(async (id, options) => {
     await checkConnection();
-    const spinner = ora('Clearing motion...').start();
+    const spinner = progress('Clearing motion...').start();
     try {
       const target = options.field ? mapField(options.field) : null;
       const arg = JSON.stringify({ field: target, styles: !!options.styles });

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { FigmaClient } from '../src/figma-client.js';
+import { FigmaClient } from '../src/lib/jsx-render.js';
 
 // rowGap was a documented, known prop but never read — only wrapGap/
 // counterAxisSpacing were. So wrapped rows had 0 vertical spacing.

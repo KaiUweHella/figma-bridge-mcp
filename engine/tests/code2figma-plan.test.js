@@ -3,7 +3,7 @@
 // and the builtin-icons module itself.
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { FigmaClient } from '../src/figma-client.js';
+import { FigmaClient } from '../src/lib/jsx-render.js';
 import { getBuiltinIconSvg, builtinIconNames } from '../src/lib/builtin-icons.js';
 
 function assertValidJs(code) {

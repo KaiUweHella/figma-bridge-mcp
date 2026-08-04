@@ -1,9 +1,8 @@
 // Command: extract — scan the open Figma file and write a DESIGN.md
 import chalk from 'chalk';
-import ora from 'ora';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
-import { program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
+import { progress, program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
 import {
   listPagesCode, walkerCode, variableCollectionsCode, variableChunkCode,
   generateDesignMd, generatePageStructureMd, estimateStructureTokens, ALL_SECTIONS,
@@ -58,7 +57,7 @@ program
       }
     }
 
-    const spinner = ora('Reading file info...').start();
+    const spinner = progress('Reading file info...').start();
     try {
       let pages;
       if (options.selection) {

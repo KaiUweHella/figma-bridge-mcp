@@ -1,7 +1,7 @@
 // Commands: create (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
 import {
+  progress,
   checkConnection,
   daemonExec,
   evalPrint,
@@ -72,7 +72,7 @@ create
   .option('--spacing <n>', 'Gap from other elements', '100')
   .action(async (url, options) => {
     await checkConnection();
-    const spinner = ora('Loading image...').start();
+    const spinner = progress('Loading image...').start();
 
     const code = `
 (async () => {

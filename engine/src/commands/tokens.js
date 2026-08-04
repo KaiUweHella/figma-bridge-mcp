@@ -1,9 +1,9 @@
 // Commands: tokens (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, resolve as resolvePath, dirname } from 'path';
 import {
+  progress,
   program,
   checkConnection,
   daemonExec,
@@ -69,7 +69,7 @@ tokens
   .option('-c, --collection <name>', 'Collection name', 'Spacing')
   .action(async (options) => {
     await checkConnection();
-    const spinner = ora('Creating spacing scale...').start();
+    const spinner = progress('Creating spacing scale...').start();
 
     const spacings = {
       '0': 0, '0.5': 2, '1': 4, '1.5': 6, '2': 8, '2.5': 10,
@@ -112,7 +112,7 @@ tokens
   .option('-c, --collection <name>', 'Collection name', 'Radii')
   .action(async (options) => {
     await checkConnection();
-    const spinner = ora('Creating border radii...').start();
+    const spinner = progress('Creating border radii...').start();
 
     const radii = {
       'none': 0, 'sm': 2, 'default': 4, 'md': 6, 'lg': 8,
@@ -177,7 +177,7 @@ tokens
       process.exit(1);
     }
 
-    const spinner = ora('Importing tokens...').start();
+    const spinner = progress('Importing tokens...').start();
 
     // Detect format and convert
     // Support: { "colors": { "primary": "#xxx" } } or { "primary": { "value": "#xxx", "type": "color" } }
@@ -479,7 +479,7 @@ tokens
       console.log(chalk.yellow('  so these are recreated — any layer bound to them loses that binding.'));
     }
 
-    const spinner = ora('Applying to Figma…').start();
+    const spinner = progress('Applying to Figma…').start();
     let result;
     try {
       result = await applyPlan(plan, options.collection);
@@ -657,7 +657,7 @@ tokens
       if (options.collection) {
         console.log(chalk.yellow('⚠'), `--collection is ignored: this file carries ${collNames.length} named collection(s); using their real names.`);
       }
-      const spinner = ora(`Recreating ${totalVars} variable(s) across ${collNames.length} collection(s)…`).start();
+      const spinner = progress(`Recreating ${totalVars} variable(s) across ${collNames.length} collection(s)…`).start();
       try {
         const result = await daemonExec('eval', { code: variableImportCode(realVars) });
         const r = typeof result === 'string' ? (() => { try { return JSON.parse(result); } catch { return null; } })() : result;
@@ -685,7 +685,7 @@ tokens
     const radiusCount = Object.keys(tokensData.radius || {}).length;
     const typoCount = Object.keys(tokensData.typography || {}).length;
 
-    const spinner = ora(`Importing ${colorCount} colors, ${radiusCount} radii, ${typoCount} type styles from ${file}...`).start();
+    const spinner = progress(`Importing ${colorCount} colors, ${radiusCount} radii, ${typoCount} type styles from ${file}...`).start();
 
     const code = `(async () => {
 const data = ${JSON.stringify({ ...tokensData.color, _radii: tokensData.radius })};

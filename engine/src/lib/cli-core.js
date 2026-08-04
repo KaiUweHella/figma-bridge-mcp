@@ -361,7 +361,7 @@ function stopDaemon() {
 // does not have. The user opens Figma Desktop normally.)
 
 // NOTE: this file lives in src/lib/ — keep __dirname pointing at src/ so
-// daemon.js / figma-client.js / package.json resolve as before the split.
+// daemon.js / lib modules / package.json resolve as before the split.
 const __dirname = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
@@ -427,12 +427,36 @@ function figmaEvalSync(code) {
 }
 
 /**
- * Finish a spinner with a SUCCESS message on stdout.
+ * Progress reporter for long-running commands. Replaces ora.
  *
- * ora writes to stderr (correct for the animation), but `spinner.succeed()`
- * persists the success line there too. The MCP layer folds stderr into its
- * reply under a `[warnings]` header — so "Created 12 variables" reached the
- * agent labelled as a warning. Failures stay on stderr where they belong.
+ * The engine's caller is the MCP server: it captures stdout and stderr as
+ * text, so an animated spinner was pure noise there — repainted frames and
+ * escape codes for nobody to watch. This writes ONE line per state change,
+ * and only when stderr is a terminal (i.e. a human is actually watching).
+ *
+ * The shape matches what the command files already call: `.start()`,
+ * assignment to `.text`, `.fail()`, `.stop()`. `succeed()` is deliberately
+ * absent — success belongs on stdout, via spinnerSucceed below.
+ */
+function progress(initial) {
+  const live = process.stderr.isTTY;
+  const write = (s) => { if (live) process.stderr.write(s + '\n'); };
+  return {
+    set text(t) { write(chalk.gray('  ' + t)); },
+    get text() { return initial; },
+    start() { write(chalk.gray('  ' + initial)); return this; },
+    stop() { return this; },
+    fail(msg) { console.error(chalk.red('\u2717') + ' ' + (msg || initial)); return this; },
+  };
+}
+
+/**
+ * Finish a progress reporter with a SUCCESS message on stdout.
+ *
+ * Progress goes to stderr, but a success line must not: the MCP layer folds
+ * stderr into its reply under a `[warnings]` header — so "Created 12
+ * variables" reached the agent labelled as a warning. Failures stay on
+ * stderr where they belong.
  */
 function spinnerSucceed(spinner, text) {
   try { spinner.stop(); } catch { /* already stopped */ }
@@ -557,6 +581,7 @@ export {
   fastEval,
   figmaEvalSync,
   evalPrint,
+  progress,
   spinnerSucceed,
   selectNode,
   listVariables,

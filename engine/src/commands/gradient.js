@@ -1,11 +1,11 @@
 // Commands: gradient (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { extractGradient, extractMesh, buildMeshFromColors, buildFigmaPaint, buildCssString } from '../gradient-extractor.js';
 import {
+  progress,
   program,
   checkConnection,
   fastEval,
@@ -105,7 +105,7 @@ gradient
             return JSON.stringify({ name: __gNode.name, type: __gNode.type });
           })()
         `;
-        const spinner = options.json ? null : ora('Applying gradient...').start();
+        const spinner = options.json ? null : progress('Applying gradient...').start();
         try {
           const res = await fastEval(code);
           const info = JSON.parse(res);
@@ -182,7 +182,7 @@ gradient
           return JSON.stringify({ name: __target.name, blobs: __blobs.length, blur: __blur });
         })()
       `;
-      const spinner = options.json ? null : ora('Building blur-stack...').start();
+      const spinner = options.json ? null : progress('Building blur-stack...').start();
       try {
         const res = await fastEval(code);
         const info = JSON.parse(res);
@@ -299,7 +299,7 @@ gradient
         return JSON.stringify({ id: __target.id, name: __target.name, blobs: __blobs.length, blur: __blur, w: W, h: H });
       })()
     `;
-    const spinner = options.json ? null : ora('Building wallpaper...').start();
+    const spinner = options.json ? null : progress('Building wallpaper...').start();
     try {
       const res = await fastEval(code);
       const info = JSON.parse(res);

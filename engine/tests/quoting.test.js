@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { FigmaClient } from '../src/figma-client.js';
+import { FigmaClient } from '../src/lib/jsx-render.js';
 
 const client = new FigmaClient();
 

@@ -1,8 +1,8 @@
 // Commands: variables (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
 import { join } from 'path';
 import {
+  progress,
   program,
   checkConnection,
   daemonExec,
@@ -81,7 +81,7 @@ variables
   .description('Create color swatches on canvas (grouped palette layout)')
   .action(async (collection, options) => {
     await checkConnection();
-    const spinner = ora('Creating color palette...').start();
+    const spinner = progress('Creating color palette...').start();
 
     const code = `(async () => {
 await figma.loadFontAsync({ family: 'Inter', style: 'Medium' });
@@ -348,7 +348,7 @@ variables
   .option('-c, --collection <name>', 'Only delete variables in this collection')
   .action(async (options) => {
     await checkConnection();
-    const spinner = ora('Deleting variables...').start();
+    const spinner = progress('Deleting variables...').start();
 
     const filterCode = options.collection
       ? `cols = cols.filter(c => c.name.includes(${JSON.stringify(options.collection)}));`

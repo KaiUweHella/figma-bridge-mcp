@@ -381,16 +381,30 @@ export function searchMethods(keyword) {
   return [...dedup.values()].sort((a, b) => b.score - a.score);
 }
 
+/** Concatenate every .js file under `dir` (recursive). Used as the corpus for
+ *  the coverage scan below — read-only, engine sources only. */
+function readSourceTree(dir) {
+  let out = '';
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out += readSourceTree(full);
+    else if (entry.name.endsWith('.js')) out += fs.readFileSync(full, 'utf-8');
+  }
+  return out;
+}
+
 export function gap() {
   const all = listAll();
   if (!all) {
     console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
     process.exit(1);
   }
-  // Read figma-cli's main entry and check which Figma API names appear used vs. defined
-  const indexJs = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf-8');
-  const clientJs = fs.readFileSync(path.join(__dirname, 'figma-client.js'), 'utf-8');
-  const usage = indexJs + clientJs;
+  // Which Figma API names does this engine actually mention? The corpus has
+  // to be the whole source tree: the calls live in the eval snippets each
+  // command builds, not in any one client file. (This used to read index.js
+  // plus a since-deleted client — a few hundred lines out of ~25,000, so all
+  // but a handful of names looked "missing".)
+  const usage = readSourceTree(path.resolve(__dirname));
 
   const interesting = all.filter(i => {
     const n = i.name;
@@ -436,7 +450,7 @@ export function gap() {
   }
 
   console.log(`Figma Plugin API: ${all.length} total (${interesting.length} interesting)\n`);
-  console.log(`✓ Referenced in figma-cli: ${referenced.length}`);
+  console.log(`✓ Referenced in the engine: ${referenced.length}`);
   console.log(`✗ NOT referenced (potential gap): ${missing.length}\n`);
 
   console.log('=== Missing capabilities (grouped) ===\n');

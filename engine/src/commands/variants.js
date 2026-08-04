@@ -1,8 +1,8 @@
 // Commands: variants (extracted from index.js)
 import chalk from 'chalk';
-import ora from 'ora';
 import { join } from 'path';
 import {
+  progress,
   program,
   checkConnection,
   fastEval,
@@ -18,7 +18,7 @@ program
   .option('-g, --gap <n>', 'Gap between variants', '40')
   .action(async (nodeId, options) => {
     await checkConnection();
-    const spinner = ora('Analyzing component...').start();
+    const spinner = progress('Analyzing component...').start();
 
     try {
       const nodeIdStr = nodeId || '';
@@ -203,7 +203,7 @@ program
   .option('--dry-run', 'Show combinations without creating instances')
   .action(async (nodeId, options) => {
     await checkConnection();
-    const spinner = ora('Analyzing component properties...').start();
+    const spinner = progress('Analyzing component properties...').start();
 
     try {
       const includeBoolean = options.boolean !== false;

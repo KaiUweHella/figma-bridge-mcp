@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { basename, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
-import { FigmaClient } from '../figma-client.js';
+import { FigmaClient } from '../lib/jsx-render.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import {
   program,
