@@ -11,6 +11,12 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signRequest } from '../engine/src/lib/daemon-auth.js';
+import {
+  HANDSHAKE_PROTO,
+  makeNonce,
+  pluginTranscript,
+  sign as signHandshake,
+} from '../engine/src/lib/plugin-handshake.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -62,7 +68,16 @@ function withWs(authenticate, fn) {
     ws.on('open', async () => {
       try {
         if (authenticate) {
-          ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: 'test', key: KEY }));
+          // Proto 2: the daemon challenges first, we answer with a proof.
+          await waitFor(() => messages.some((m) => m.type === 'challenge'));
+          const challenge = messages.find((m) => m.type === 'challenge');
+          const nonce = makeNonce();
+          ws.send(JSON.stringify({
+            type: 'hello', proto: HANDSHAKE_PROTO, mode: 'plugin', version: 'test', nonce,
+            proof: signHandshake(KEY, pluginTranscript({
+              daemonNonce: challenge.nonce, pluginNonce: nonce, port: challenge.port, version: 'test',
+            })),
+          }));
           await waitFor(() => messages.some((m) => m.type === 'hello-ack'));
         }
         await fn(ws, messages);

@@ -252,6 +252,120 @@
   <button id="reconnectBtn" class="wide" type="button" hidden>Reconnect this window</button>
 
   <script>
+    // ============ Handshake crypto ============
+    // The daemon and this panel authenticate each other with HMAC-SHA256 over a
+    // shared transcript (see engine/src/lib/plugin-handshake.js — the string
+    // format below MUST match it; tests/plugin-handshake.test.js enforces that).
+    //
+    // SHA-256 is implemented here in plain JS rather than via crypto.subtle:
+    // the plugin UI runs in a sandboxed null-origin iframe, and WebCrypto is
+    // gated on secure-context inheritance we do not control. A silent fallback
+    // to a weaker scheme would be the worst outcome for an auth handshake, so
+    // the primitive ships with us and always behaves the same.
+    const HANDSHAKE_PROTO = 2;
+    const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v2';
+    // Signed as part of the transcript, so a version claim cannot be swapped
+    // in flight. Bumped to 3 with the challenge-response handshake.
+    const PLUGIN_VERSION = '3.0.0';
+
+    const SHA_K = new Uint32Array([
+      0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
+    ]);
+    const rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
+
+    function sha256(bytes) {
+      const H = new Uint32Array([
+        0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19,
+      ]);
+      const len = bytes.length;
+      const padded = new Uint8Array((((len + 9 + 63) / 64) | 0) * 64);
+      padded.set(bytes);
+      padded[len] = 0x80;
+      const dv = new DataView(padded.buffer);
+      const bits = len * 8;
+      dv.setUint32(padded.length - 8, Math.floor(bits / 0x100000000));
+      dv.setUint32(padded.length - 4, bits >>> 0);
+
+      const w = new Uint32Array(64);
+      for (let off = 0; off < padded.length; off += 64) {
+        for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
+        for (let i = 16; i < 64; i++) {
+          const a0 = w[i - 15], a1 = w[i - 2];
+          const s0 = (rotr(a0, 7) ^ rotr(a0, 18) ^ (a0 >>> 3)) >>> 0;
+          const s1 = (rotr(a1, 17) ^ rotr(a1, 19) ^ (a1 >>> 10)) >>> 0;
+          w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+        }
+        let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+        for (let i = 0; i < 64; i++) {
+          const S1 = (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) >>> 0;
+          const ch = ((e & f) ^ (~e & g)) >>> 0;
+          const t1 = (h + S1 + ch + SHA_K[i] + w[i]) >>> 0;
+          const S0 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) >>> 0;
+          const maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+          const t2 = (S0 + maj) >>> 0;
+          h = g; g = f; f = e; e = (d + t1) >>> 0;
+          d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+        }
+        H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0;
+        H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+        H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0;
+        H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+      }
+      const out = new Uint8Array(32);
+      const odv = new DataView(out.buffer);
+      for (let i = 0; i < 8; i++) odv.setUint32(i * 4, H[i]);
+      return out;
+    }
+
+    function toHex(bytes) {
+      let s = '';
+      for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0');
+      return s;
+    }
+
+    function hmacSha256Hex(keyStr, msgStr) {
+      const enc = new TextEncoder();
+      let k = enc.encode(keyStr);
+      if (k.length > 64) k = sha256(k);
+      const ipad = new Uint8Array(64), opad = new Uint8Array(64);
+      for (let i = 0; i < 64; i++) {
+        const kb = i < k.length ? k[i] : 0;
+        ipad[i] = kb ^ 0x36;
+        opad[i] = kb ^ 0x5c;
+      }
+      const m = enc.encode(msgStr);
+      const inner = new Uint8Array(64 + m.length);
+      inner.set(ipad); inner.set(m, 64);
+      const ih = sha256(inner);
+      const outer = new Uint8Array(96);
+      outer.set(opad); outer.set(ih, 64);
+      return toHex(sha256(outer));
+    }
+
+    // Weak randomness in an auth handshake is worse than a visible failure —
+    // no Math.random fallback.
+    function makeNonce() {
+      if (!(window.crypto && window.crypto.getRandomValues)) {
+        throw new Error('This browser has no secure random source');
+      }
+      return toHex(window.crypto.getRandomValues(new Uint8Array(32)));
+    }
+
+    // Length-independent compare so a wrong daemon proof leaks no prefix.
+    function proofEquals(a, b) {
+      if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+      let diff = 0;
+      for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+      return diff === 0;
+    }
+
     const PORTS = [3456, 3457, 3458, 3459, 3460];
     let ws = null;
     let reconnectTimer = null;
@@ -260,8 +374,10 @@
     let lastPingSent = 0;
     let latencyMs = null;
     let connectedPort = null;
-    let KEY = null;              // access key, once known
-    let authed = false;          // authenticated on the current socket
+    let KEY = null;              // access key, once known — never sent, only used as an HMAC secret
+    let authed = false;          // BOTH sides proved themselves on the current socket
+    let pendingNonce = null;     // our nonce for the in-flight handshake
+    let pendingChallenge = null; // the daemon's nonce + port for the in-flight handshake
 
     // Scan generation: every new scan (and every teardown) invalidates all
     // callbacks of older scans. Without this, two overlapping scans could BOTH
@@ -568,6 +684,8 @@
         ws = null;
       }
       authed = false;
+      pendingNonce = null;
+      pendingChallenge = null;
       connectedPort = null;
       latencyMs = null;
       setConnMeta();
@@ -617,8 +735,11 @@
             ws.onerror = handleClose;
 
             setStatus('Authenticating…', 'connecting');
-            // First message MUST be the hello carrying the access key.
-            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '2.0.0', key: KEY }));
+            // The DAEMON speaks first now: it sends {type:'challenge'} and we
+            // answer with a proof. Nothing is sent until then — the access key
+            // must never appear on a socket we have not authenticated.
+            pendingNonce = null;
+            pendingChallenge = null;
           };
 
           // During scan: ignore close/error (don't trigger reconnect)
@@ -663,7 +784,28 @@
       if (reason === 'timeout') {
         return {
           status: 'Auth handshake timed out',
-          hint: 'The hello reply took too long. Reconnecting…',
+          hint: 'The challenge reply took too long. Reconnecting…',
+          showPanel: false,
+        };
+      }
+      if (reason === 'proto-mismatch') {
+        return {
+          status: 'Plugin and daemon disagree on the handshake',
+          hint: 'This plugin build is out of step with the running daemon. Run figma_connect (it refreshes the plugin files), then close and reopen Figma Bridge here.',
+          showPanel: false,
+        };
+      }
+      if (reason === 'daemon-proof') {
+        return {
+          status: 'The daemon could not prove itself',
+          hint: 'Whatever answered on that port does not hold your access key — nothing was sent to it. Run figma_connect to restart the real daemon, and check what else is listening on 3456–3460.',
+          showPanel: false,
+        };
+      }
+      if (reason === 'no-random') {
+        return {
+          status: 'No secure random source',
+          hint: 'This Figma build cannot generate handshake nonces. Please report it — connecting without them would weaken the pairing.',
           showPanel: false,
         };
       }
@@ -694,8 +836,37 @@
       let msg;
       try { msg = JSON.parse(event.data); } catch (e) { return; }
 
-      // Auth handshake results
+      // --- Handshake step 1: the daemon's challenge ---
+      if (msg.type === 'challenge') {
+        if (msg.proto !== HANDSHAKE_PROTO) { onAuthFailure('proto-mismatch'); return; }
+        if (!KEY) { onAuthFailure('invalid-key'); return; }
+        let nonce;
+        try { nonce = makeNonce(); } catch (e) { onAuthFailure('no-random'); return; }
+        pendingNonce = nonce;
+        pendingChallenge = { nonce: msg.nonce, port: msg.port };
+        const proof = hmacSha256Hex(KEY, HANDSHAKE_PREFIX + '|plugin|' + msg.nonce + '|'
+          + nonce + '|' + msg.port + '|' + PLUGIN_VERSION);
+        try {
+          ws.send(JSON.stringify({
+            type: 'hello', proto: HANDSHAKE_PROTO, mode: 'plugin',
+            version: PLUGIN_VERSION, nonce, proof,
+          }));
+        } catch (e) {}
+        return;
+      }
+
+      // --- Handshake step 2: the daemon proves itself back ---
       if (msg.type === 'hello-ack') {
+        // Until this verifies, whoever answered is just "something on a local
+        // port". Accepting eval frames from it was the inverse of the key-leak
+        // gap: a fake daemon could drive the document without knowing the key.
+        if (!pendingChallenge || !pendingNonce) { onAuthFailure('daemon-proof'); return; }
+        const want = hmacSha256Hex(KEY, HANDSHAKE_PREFIX + '|daemon|' + pendingNonce + '|'
+          + pendingChallenge.nonce + '|' + pendingChallenge.port);
+        if (!proofEquals(want, msg.proof || '')) { onAuthFailure('daemon-proof'); return; }
+        pendingNonce = null;
+        pendingChallenge = null;
+
         authed = true;
         okCount = 0; errCount = 0; renderStats();
         setStatus(paused ? 'Paused' : 'Connected', paused ? 'paused' : 'connected');
@@ -709,20 +880,25 @@
         startKeepalive();
         return;
       }
-      if (msg.type === 'rest-token-ack') {
-        restConfigured = !!msg.configured;
-        renderRestStatus();
-        restStatusEl.textContent = msg.error
-          ? 'Failed: ' + msg.error
-          : (restConfigured ? 'Token saved ✓ — stored on this machine only.' : 'Token cleared ✓');
-        return;
-      }
       if (msg.type === 'auth-error') {
         onAuthFailure(msg.reason);
         return;
       }
       if (msg.type === 'superseded') {
         onSuperseded();
+        return;
+      }
+
+      // Nothing below runs on an unauthenticated socket: an unproven peer gets
+      // no eval, no batch, not even a pong to measure us by.
+      if (!authed) return;
+
+      if (msg.type === 'rest-token-ack') {
+        restConfigured = !!msg.configured;
+        renderRestStatus();
+        restStatusEl.textContent = msg.error
+          ? 'Failed: ' + msg.error
+          : (restConfigured ? 'Token saved ✓ — stored on this machine only.' : 'Token cleared ✓');
         return;
       }
 

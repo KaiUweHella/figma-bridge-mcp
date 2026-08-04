@@ -1,0 +1,64 @@
+# Contributing
+
+## Getting set up
+
+```bash
+git clone https://github.com/KaiUweHella/figma-cli-mcp.git
+cd figma-cli-mcp
+npm install
+npm test
+```
+
+Point your MCP client at the checkout:
+
+```json
+{
+  "mcpServers": {
+    "figma-safe": {
+      "command": "node",
+      "args": ["/absolute/path/to/figma-cli-mcp/src/server.js"]
+    }
+  }
+}
+```
+
+Then run `figma_connect` and import `~/.figma-bridge-mcp/plugin/manifest.json`
+in Figma Desktop. `figma_connect` re-copies the plugin files on every run, so
+after editing `plugin/*` you only need to close and reopen the plugin window.
+
+## The lines this project holds
+
+These are not style preferences — they are the reason the project exists, and a
+change that crosses one will not be merged without a very good argument:
+
+- **One transport.** Everything reaches Figma as engine → daemon → plugin eval.
+  No CDP, no binary patching, no second path that could bypass the bridge.
+- **No secret on the wire.** HTTP requests are HMAC-signed; the plugin socket
+  runs a mutual challenge-response. Adding a credential to a frame, a header or
+  a URL is a regression.
+- **The manifest stays loopback-only.** `networkAccess.allowedDomains` must
+  never gain a non-localhost entry. `tests/plugin-sync.test.js` enforces this.
+- **New command groups default to gated.** `src/server.js` treats an unlisted
+  group as a *write*. If you add one, enumerate its read subcommands explicitly
+  rather than widening the read side.
+- **No bundled design systems.** No shadcn, Tailwind, Radix or icon-pack
+  generators. Importing from the *user's* own files is the supported path.
+- **Nothing new talks to the network.** The permitted exceptions are listed in
+  the README and in `SECURITY.md`.
+
+## Tests
+
+`npm test` runs the vendored engine suite plus the MCP, daemon-auth, REST and
+gate suites. Anything security-relevant needs a test that fails without the fix
+— the existing negative cases in `tests/daemon-auth.test.js` (forged proof,
+replayed nonce, wrong port, proto downgrade) are the pattern to follow.
+
+`plugin/ui.html` and `plugin/code.js` are only ever parsed by Figma, so
+`tests/plugin-handshake.test.js` parses them and runs the panel's crypto against
+Node's. If you touch the handshake, both sides and that test move together.
+
+## Changes that need a live check
+
+Some things cannot be proven by unit tests. If your change touches the plugin
+panel, the handshake, or anything that writes to a document, verify it against
+a real Figma Desktop and say so in the PR — what you ran and what you saw.

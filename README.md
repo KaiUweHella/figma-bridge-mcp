@@ -21,8 +21,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
                         │  execFile, command allowlist, audit log
                         ▼
                      vendored engine (engine/)  ──▶  local daemon :3456–3460
-                        (Safe-Mode only)                │  HTTP: X-Daemon-Token
-                                                        │  WS  : access-key hello
+                        (Safe-Mode only)                │  HTTP: signed requests
+                                                        │  WS  : challenge/response
                                                         ▼
                                               Figma Bridge plugin in Figma Desktop
                                                 (evals code in the Figma sandbox)
@@ -33,13 +33,15 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   binary) has been removed entirely — there is no code path to it.
 - The **daemon** brokers commands to the Figma plugin over a localhost
   WebSocket. Two gates protect it:
-  - **HTTP routes** (`/health`, `/exec`) require the session token
-    (`X-Daemon-Token`), a 0600 file.
+  - **HTTP routes** (`/health`, `/exec`) require a per-request HMAC signature
+    keyed with the session token, a 0600 file — the token itself never crosses
+    the wire.
   - **The plugin WebSocket** (`/plugin`) requires the **access key**: an
-    `Origin`/`Host` allowlist plus a first-message `hello` handshake carrying the
-    key, compared in constant time. This closes the upstream gap where *any*
-    local process could connect to the plugin socket and run code in your Figma
-    document.
+    `Origin`/`Host` allowlist plus a **mutual challenge-response handshake** in
+    which the key is only ever an HMAC secret and never crosses the wire either.
+    This closes the upstream gap where *any* local process could connect to the
+    plugin socket and run code in your Figma document — and the inverse gap,
+    where anything answering on a local port could drive an honest plugin.
 
 ## Install
 
@@ -233,6 +235,23 @@ entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
 
+## Motion
+
+Figma Motion (Config 2026 Beta) is reachable through `figma_run` with
+`["motion", …]`: keyframe tracks (`add`), whole specs from JSON (`apply`),
+named presets (`preset`), choreographed offsets across nodes (`stagger`),
+Figma's first-party animation styles (`styles`, `style`), frame duration
+(`timeline`), readback (`inspect`) and removal (`clear`).
+
+Like every other command it runs over the plugin bridge — there is no separate
+transport for it. `styles` and `inspect` are reads; everything else, `timeline`
+included (it reads *or* sets depending on its arguments), counts as a write
+under `FIGMA_WRITE_CONFIRM=1`.
+
+Motion is rolling out behind a Figma Beta flag. Without access, the commands
+fail with a named `MOTION_DISABLED` error telling you to update Figma Desktop
+rather than a generic API failure.
+
 ## REST add-on (optional)
 
 Everything above works with **zero Figma credentials**. Three things the local
@@ -283,10 +302,11 @@ read every file its account can access — keep the scopes minimal.
 - **Command allowlist** — `figma_run` only accepts a fixed set of subcommands;
   `connect` is *not* on it, so Safe-Mode-only connection is enforced.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
-- **Two-layer daemon auth** — signed HTTP requests (per-request HMAC over
-  method/path/body, keyed with the session token, nonce replay guard — the
-  token itself never crosses the wire) + plugin access key (constant-time
-  compared, `Origin`/`Host` allowlisted).
+- **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
+  (per-request HMAC over method/path/body, keyed with the session token, nonce
+  replay guard) + a mutual challenge-response handshake on the plugin socket
+  (`Origin`/`Host` allowlisted). Neither the session token nor the access key is
+  ever transmitted in either direction — see [Handshake](#handshake).
 - **Localhost-locked plugin** — `plugin/manifest.json` restricts
   `networkAccess.allowedDomains` to `ws://127.0.0.1:3456–3460`.
 - **Isolated state** — token, pid, key, and audit log live under
@@ -304,18 +324,50 @@ whole range, so a foreign process squatting 3456 no longer blocks connecting.
 The squatter check is an *unauthenticated* `/health` probe, and authenticated
 requests are HMAC-signed — a squatter on a range port sees neither the session
 token nor anything replayable (signatures bind timestamp, nonce, method, path
-and body; the daemon rejects reused nonces). Setting `DAEMON_PORT` explicitly
-disables the fallback; values outside 3456–3460 are unsupported — the plugin
-manifest is Figma-enforced and cannot reach them.
+and body; the daemon rejects reused nonces). The plugin socket is safe on any
+range port for the same reason: the handshake below carries no secret and binds
+the port it ran on. Setting `DAEMON_PORT` explicitly disables the fallback;
+values outside 3456–3460 are unsupported — the plugin manifest is
+Figma-enforced and cannot reach them.
 
-**Residual risk (documented):** a malicious local process that binds port 3456
-*before* the daemon could observe the plugin's `hello` and learn the *plugin
-access key* (the HTTP session token is protected by request signing and never
-exposed). The manifest's port lock and the daemon normally holding the port
-mitigate this; a challenge-response handshake for the plugin `hello` is a
-possible future hardening. (The port fallback does not change this: the plugin
-sends `hello` to whichever range port accepts, so the same risk simply applies
-to the bound port.)
+### Handshake
+
+The plugin socket runs a mutual challenge-response (proto 2,
+`engine/src/lib/plugin-handshake.js`):
+
+```
+daemon → plugin   {type:'challenge', proto:2, nonce:<dNonce>, port:<bound>}
+plugin → daemon   {type:'hello', proto:2, nonce:<pNonce>, version, proof}
+daemon → plugin   {type:'hello-ack', proof, restTokenConfigured}
+```
+
+where `proof = HMAC-SHA256(access key, transcript)` over both nonces, the bound
+port and the plugin version — with distinct role labels and nonce ordering per
+direction, so neither proof can be replayed as the other. Three properties
+follow:
+
+- **The key never crosses the wire.** A process that binds a range port before
+  the daemon and records the whole exchange learns one HMAC over nonces it will
+  never see again. This retires the residual risk earlier versions documented,
+  where the raw key was the first frame the plugin sent.
+- **The daemon proves itself too.** Before proto 2 the plugin trusted whatever
+  answered and would run any `eval` it was sent — impersonating the daemon
+  needed no key at all. The panel now refuses every command until the ack
+  verifies.
+- **The bound port is inside the transcript.** A squatter on 3456 that forwards
+  to the real daemon on 3457 makes the plugin sign 3456 while the daemon
+  verifies 3457, so the relay collapses.
+
+There is no proto-1 fallback. `figma_connect` refreshes the installed plugin
+files on every run, so upgrading is: run `figma_connect`, then close and reopen
+the plugin window — a stale panel gets a named error saying exactly that,
+instead of a silently weaker handshake.
+
+The panel carries its own SHA-256/HMAC implementation: the plugin UI is a
+sandboxed null-origin iframe, where WebCrypto availability is not ours to
+guarantee, and a silent fallback to something weaker is the worst outcome for an
+auth handshake. `tests/plugin-handshake.test.js` runs that shipped code against
+Node's `crypto` so the two implementations cannot drift apart.
 
 ## Known limitations
 

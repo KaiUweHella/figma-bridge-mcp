@@ -14,7 +14,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
 test("package.json files covers every runtime directory", () => {
-  for (const required of ["src", "engine/src", "engine/package.json", "plugin", "NOTICE", "engine/LICENSE"]) {
+  for (const required of [
+    "src", "engine/src", "engine/package.json", "plugin", "NOTICE", "engine/LICENSE",
+    // Shipped deliberately: the npm page is where most people decide whether to
+    // trust an MCP server with write access to their design file.
+    "SECURITY.md",
+  ]) {
     assert.ok(
       pkg.files.includes(required),
       `"${required}" missing from package.json files — the npm tarball would be broken`,

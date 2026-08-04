@@ -64,6 +64,10 @@ export const ALLOWED_COMMANDS = new Set([
   "pin",
   "api",
   "import",
+  // Figma Motion (keyframes, presets, staggers, timelines). Vendored with the
+  // fork and always drove the plugin bridge — `motion` reaches Figma through
+  // cli-core's fastEval like everything else, with no CDP remnant to inherit.
+  "motion",
   // Read-only design-to-code surface: extract writes DESIGN.md (filesystem,
   // not the design), spec reads/enforces it, analyze reports color/typo/
   // spacing censuses. None of them mutate the Figma file.

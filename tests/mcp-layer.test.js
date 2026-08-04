@@ -235,6 +235,32 @@ test('verify-build passes the figma_run allowlist as a read-only command', async
   assert.equal(isWrite(['verify-build', '/some/project']), false);
 });
 
+test('motion is allowlisted, is a real engine command, and is gated as a write', async () => {
+  const { ALLOWED_COMMANDS } = await import('../src/figma-cli.js');
+  const { isWrite } = await import('../src/server.js');
+  assert.ok(ALLOWED_COMMANDS.has('motion'), 'motion must be reachable through figma_run');
+
+  // An allowlist entry the engine does not implement is a dead promise in the
+  // tool surface — ask the engine itself rather than trusting the list.
+  const { execFileSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname } = await import('node:path');
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const help = execFileSync(
+    process.execPath,
+    [join(repoRoot, 'engine', 'src', 'index.js'), 'motion', '--help'],
+    { encoding: 'utf8' },
+  );
+  assert.match(help, /keyframes, presets, styles, timelines/);
+  for (const sub of ['add', 'apply', 'preset', 'stagger', 'styles', 'style', 'timeline', 'inspect', 'clear']) {
+    assert.match(help, new RegExp(`\\b${sub}\\b`), `motion ${sub} missing from the engine`);
+  }
+
+  // Keyframes mutate the document: everything but the two readbacks is gated.
+  assert.equal(isWrite(['motion', 'preset', '1:2', 'fade-in']), true);
+  assert.equal(isWrite(['motion', 'inspect', '1:2']), false);
+});
+
 test('normalizeOutputArgs: verify-build paths resolve against the client workspace', async () => {
   const { normalizeOutputArgs } = await import('../src/figma-cli.js');
   const base = '/work/project';

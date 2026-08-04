@@ -1,0 +1,54 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Figma Desktop, npm and Node all move underneath this project; a green run
+  # weeks after the last commit is worth more than one only on push.
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  test:
+    name: node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The daemon binds sockets, writes 0600 state files and spawns detached
+        # child processes — all three behave differently per platform, so the
+        # suite has to actually run on all three.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  pack:
+    name: tarball contains the runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # packaging.test.js checks package.json's `files` list; this checks what
+      # npm actually packs, which is the thing users install.
+      - name: pack and verify the plugin ships
+        run: |
+          npm pack --silent
+          tar -tzf figma-bridge-mcp-*.tgz > files.txt
+          for f in package/plugin/manifest.json package/plugin/code.js package/plugin/ui.html \
+                   package/src/server.js package/engine/src/daemon.js \
+                   package/engine/src/lib/plugin-handshake.js; do
+            grep -qx "$f" files.txt || { echo "MISSING from tarball: $f"; exit 1; }
+          done
+          echo "tarball contents verified"

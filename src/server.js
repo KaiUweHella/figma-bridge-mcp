@@ -57,6 +57,10 @@ const READ_SUBCOMMANDS = {
   // page-create mutates the document, so the group is gated now with the
   // pre-existing subcommands enumerated as reads (page = switch only).
   canvas: new Set(["info", "pages", "page", "next"]),
+  // `timeline` is deliberately NOT listed: it reads OR sets the frame duration
+  // depending on its arguments, and the gate only sees the subcommand. Treating
+  // it as a write is the safe direction.
+  motion: new Set(["styles", "inspect"]),
 };
 
 // Commands that never touch the Figma document (exports/analysis write repo

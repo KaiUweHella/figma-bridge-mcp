@@ -14,6 +14,14 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signRequest, verifyRequest } from '../engine/src/lib/daemon-auth.js';
+import {
+  HANDSHAKE_PROTO,
+  makeNonce,
+  pluginTranscript,
+  daemonTranscript,
+  sign as signHandshake,
+  verify as verifyHandshake,
+} from '../engine/src/lib/plugin-handshake.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -53,6 +61,67 @@ function waitForListen(timeoutMs = 5000) {
 function openWs(origin) {
   const opts = origin ? { origin } : {};
   return new WebSocket(`ws://127.0.0.1:${PORT}/plugin`, opts);
+}
+
+const PLUGIN_VERSION = 't';
+
+/**
+ * Play the plugin's side of the proto-2 handshake: wait for the daemon's
+ * challenge, answer with a proof, and return everything both sides exchanged.
+ * `mutate` gets the outgoing hello and may sabotage any field — that is how the
+ * negative tests below forge protos, nonces, ports and proofs.
+ */
+function handshake(ws, { mutate = (h) => h, key = KEY, timeoutMs = 3000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const seen = [];
+    let challenge = null;
+    let pluginNonce = null;
+    ws.on('message', (d) => {
+      const m = JSON.parse(d.toString());
+      seen.push(m);
+      if (m.type === 'challenge') {
+        challenge = m;
+        pluginNonce = makeNonce();
+        const hello = {
+          type: 'hello',
+          proto: HANDSHAKE_PROTO,
+          version: PLUGIN_VERSION,
+          nonce: pluginNonce,
+          proof: signHandshake(key, pluginTranscript({
+            daemonNonce: m.nonce,
+            pluginNonce,
+            port: m.port,
+            version: PLUGIN_VERSION,
+          })),
+        };
+        ws.send(JSON.stringify(mutate(hello, m)));
+        return;
+      }
+      if (m.type === 'hello-ack') resolve({ ack: m, challenge, pluginNonce, seen });
+      if (m.type === 'auth-error') reject(new Error('auth-error: ' + m.reason));
+    });
+    ws.on('close', (c) => reject(new Error('closed ' + c)));
+    ws.on('error', reject);
+    setTimeout(() => reject(new Error('handshake timeout')), timeoutMs);
+  });
+}
+
+/** Resolve with the close code / auth-error reason instead of throwing. */
+function expectRejection(ws, opts) {
+  return new Promise((resolve, reject) => {
+    let reason = null;
+    ws.on('message', (d) => {
+      const m = JSON.parse(d.toString());
+      if (m.type === 'auth-error') reason = m.reason;
+    });
+    ws.on('close', (code) => resolve({ code, reason }));
+    ws.on('error', () => {});
+    handshake(ws, opts).then(
+      () => reject(new Error('handshake unexpectedly succeeded')),
+      () => {},
+    );
+    setTimeout(() => reject(new Error('socket was not closed')), 3000);
+  });
 }
 
 before(async () => {
@@ -159,20 +228,25 @@ test('verifyRequest (unit): freshness window and header shape', () => {
   assert.equal(verifyRequest(TOKEN, {}, 'GET', '/health'), false);
 });
 
-test('WS hello with correct key authenticates', async () => {
+test('WS challenge-response authenticates and the daemon proves itself back', async () => {
   const ws = openWs();
-  const acked = await new Promise((resolve, reject) => {
-    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', version: 't', key: KEY })));
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString());
-      if (m.type === 'hello-ack') resolve(true);
-      else reject(new Error('unexpected message ' + d));
-    });
-    ws.on('close', (code) => reject(new Error('closed ' + code)));
-    ws.on('error', reject);
-    setTimeout(() => reject(new Error('timeout')), 3000);
-  });
-  assert.equal(acked, true);
+  const { ack, challenge, pluginNonce, seen } = await handshake(ws);
+
+  // The daemon speaks first, and its challenge carries the bound port.
+  assert.equal(seen[0].type, 'challenge', 'daemon must challenge before anything else');
+  assert.equal(challenge.proto, HANDSHAKE_PROTO);
+  assert.match(challenge.nonce, /^[0-9a-f]{64}$/);
+  assert.equal(challenge.port, PORT, 'challenge must name the port it is bound to');
+
+  // The ack is a real proof of key possession, not a bare acknowledgement.
+  assert.ok(
+    verifyHandshake(KEY, daemonTranscript({
+      daemonNonce: challenge.nonce,
+      pluginNonce,
+      port: PORT,
+    }), ack.proof),
+    'daemon proof must verify under the shared key',
+  );
 
   // /health now reports an authenticated plugin.
   const res = await httpHealth(auth('GET', '/health'));
@@ -182,15 +256,104 @@ test('WS hello with correct key authenticates', async () => {
   ws.close();
 });
 
-test('WS hello with wrong key is closed with 4401', async () => {
+test('the access key never appears on the wire', async () => {
+  // The whole point of proto 2: a squatter that records every frame of a
+  // successful handshake still cannot connect afterwards.
   const ws = openWs();
-  const code = await new Promise((resolve, reject) => {
-    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', key: 'WRONG-KEY' })));
-    ws.on('close', (c) => resolve(c));
-    ws.on('error', () => {}); // a 4401 close may surface as error first
-    setTimeout(() => reject(new Error('not closed')), 3000);
+  const sent = [];
+  const realSend = ws.send.bind(ws);
+  ws.send = (data) => { sent.push(String(data)); return realSend(data); };
+  const { seen } = await handshake(ws);
+  const transcript = [...sent, ...seen.map((m) => JSON.stringify(m))].join('\n');
+  assert.ok(transcript.length > 0, 'frames were captured');
+  assert.equal(transcript.includes(KEY), false, 'the access key must never be transmitted');
+  ws.close();
+});
+
+test('WS hello proved with the wrong key is closed with 4401', async () => {
+  const ws = openWs();
+  const { code, reason } = await expectRejection(ws, { key: 'WRONG-KEY' });
+  assert.equal(code, 4401);
+  assert.equal(reason, 'invalid-key');
+});
+
+test('a proto-1 hello (raw key, no proof) is rejected by name', async () => {
+  // A stale plugin install must be told to re-import, not silently downgraded.
+  const ws = openWs();
+  const { code, reason } = await expectRejection(ws, {
+    mutate: () => ({ type: 'hello', version: 't', key: KEY }),
   });
   assert.equal(code, 4401);
+  assert.equal(reason, 'proto-mismatch');
+});
+
+test('a proof for a DIFFERENT port is rejected (relay defence)', async () => {
+  // A squatter on another range port that forwards frames to the real daemon
+  // makes the plugin sign the port it reached — which is not the port the
+  // daemon bound. The channel binding is what breaks that relay.
+  const ws = openWs();
+  const { code, reason } = await expectRejection(ws, {
+    mutate: (hello, challenge) => ({
+      ...hello,
+      proof: signHandshake(KEY, pluginTranscript({
+        daemonNonce: challenge.nonce,
+        pluginNonce: hello.nonce,
+        port: challenge.port + 1, // reached us via a relay on a neighbouring port
+        version: PLUGIN_VERSION,
+      })),
+    }),
+  });
+  assert.equal(code, 4401);
+  assert.equal(reason, 'invalid-key');
+});
+
+test('a proof for a different version is rejected', async () => {
+  const ws = openWs();
+  const { code } = await expectRejection(ws, {
+    mutate: (hello) => ({ ...hello, version: 'spoofed' }), // proof still covers 't'
+  });
+  assert.equal(code, 4401);
+});
+
+test('a malformed or reused nonce is rejected', async () => {
+  const short = openWs();
+  const bad = await expectRejection(short, {
+    mutate: (hello) => ({ ...hello, nonce: 'too-short' }),
+  });
+  assert.equal(bad.code, 4401);
+
+  // Reusing a nonce that already authenticated once must not work again, even
+  // with a proof that is internally consistent.
+  const first = openWs();
+  const { pluginNonce } = await handshake(first);
+  first.close();
+  const replay = openWs();
+  const { code, reason } = await expectRejection(replay, {
+    mutate: (hello, challenge) => ({
+      ...hello,
+      nonce: pluginNonce,
+      proof: signHandshake(KEY, pluginTranscript({
+        daemonNonce: challenge.nonce,
+        pluginNonce,
+        port: challenge.port,
+        version: PLUGIN_VERSION,
+      })),
+    }),
+  });
+  assert.equal(code, 4401);
+  assert.equal(reason, 'invalid-key');
+});
+
+test('a plugin proof cannot be replayed back as a daemon proof', async () => {
+  // Role labels and nonce order differ between the two transcripts, so a
+  // squatter that captured a plugin proof cannot echo it to look like us.
+  const ws = openWs();
+  const { challenge, pluginNonce, ack } = await handshake(ws);
+  const pluginProof = signHandshake(KEY, pluginTranscript({
+    daemonNonce: challenge.nonce, pluginNonce, port: challenge.port, version: PLUGIN_VERSION,
+  }));
+  assert.notEqual(ack.proof, pluginProof);
+  ws.close();
 });
 
 test('WS non-hello first message is closed', async () => {
@@ -232,19 +395,14 @@ test('token rotation under a LIVE daemon heals: new token accepted without resta
 });
 
 // Authenticate a scratch plugin socket and run `fn` with it.
-function withAuthedWs(fn) {
+async function withAuthedWs(fn) {
   const ws = openWs();
-  return new Promise((resolve, reject) => {
-    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', version: 't', key: KEY })));
-    ws.on('message', async (d) => {
-      const m = JSON.parse(d.toString());
-      if (m.type === 'hello-ack') {
-        try { resolve(await fn(ws)); } catch (e) { reject(e); }
-      }
-    });
-    ws.on('error', reject);
-    setTimeout(() => reject(new Error('auth timeout')), 3000);
-  }).finally(() => { try { ws.close(); } catch {} });
+  try {
+    await handshake(ws);
+    return await fn(ws);
+  } finally {
+    try { ws.close(); } catch {}
+  }
 }
 
 test('second window supersedes the first: old socket gets notified and closed with 4409', async () => {

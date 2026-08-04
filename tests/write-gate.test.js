@@ -47,6 +47,8 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['canvas', 'pages'],
     ['canvas', 'page', 'Page 1'],  // switch only — content untouched
     ['canvas', 'next'],
+    ['motion', 'styles'],
+    ['motion', 'inspect', '1:2'],
   ]) {
     assert.equal(isWrite(args), false, args.join(' '));
   }
@@ -78,6 +80,15 @@ test('write subcommands of gated groups require confirm', () => {
     ['node', 'set-text', '1:2', 'Hello'],
     ['node', 'set-fill', '1:2', '#fff000'],
     ['node', 'set-image', '1:2', 'photo.png'],
+    ['motion', 'add', '1:2'],
+    ['motion', 'apply', 'spec.json'],
+    ['motion', 'preset', '1:2', 'fade-in'],
+    ['motion', 'stagger', '1:2,1:3'],
+    ['motion', 'style', '1:2', 'opacity'],
+    ['motion', 'clear', '1:2'],
+    // Reads OR sets depending on its arguments — the gate only sees the
+    // subcommand, so it must land on the write side.
+    ['motion', 'timeline', '1:2'],
     ['section', 'fit', '1:2'],
     ['section', 'arrange', '1:2'],
   ]) {

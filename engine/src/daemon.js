@@ -13,9 +13,12 @@
  *   so a squatter on a range port cannot harvest and replay it)
  * - Plugin access-key authentication on the WebSocket /plugin upgrade:
  *     · verifyClient: Host + Origin allowlist (blocks DNS rebinding / browsers)
- *     · first-message hello handshake carrying the access key (constant-time
- *       compared against the locally generated key) — closes the upstream gap
- *       where ANY local process could connect to /plugin and eval code in Figma
+ *     · mutual challenge-response handshake (lib/plugin-handshake.js): the key
+ *       is an HMAC secret, never a wire value, both sides prove possession, and
+ *       the bound port is inside the transcript so a relaying squatter fails.
+ *       Closes the upstream gap where ANY local process could connect to
+ *       /plugin and eval code in Figma — and the inverse gap, where any local
+ *       process could impersonate the daemon and drive an honest plugin.
  * - No CORS headers (blocks cross-origin browser requests)
  * - Idle timeout auto-shutdown
  */
@@ -24,9 +27,17 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
-import { createHash, timingSafeEqual } from 'crypto';
 import { parsePortRange, writePortFile, clearPortFile } from './lib/daemon-port.js';
 import { verifyRequest, AUTH_WINDOW_MS } from './lib/daemon-auth.js';
+import {
+  HANDSHAKE_PROTO,
+  makeNonce,
+  isNonce,
+  pluginTranscript,
+  daemonTranscript,
+  sign as signHandshake,
+  verify as verifyHandshake,
+} from './lib/plugin-handshake.js';
 import { STATE_DIR } from './lib/state-dir.js';
 import { getPortPid } from './platform.js';
 
@@ -126,13 +137,19 @@ function saveRestToken(value) {
   return true;
 }
 
-// Constant-time comparison of the access key (compare SHA-256 digests so the
-// buffers are always equal length and the comparison never leaks length).
-function keyMatches(provided) {
-  if (!PLUGIN_KEY || typeof provided !== 'string' || provided.length === 0) return false;
-  const a = createHash('sha256').update(PLUGIN_KEY).digest();
-  const b = createHash('sha256').update(provided).digest();
-  return timingSafeEqual(a, b);
+// Handshake nonces the daemon has already honoured. A plugin proof is bound to
+// a nonce pair the daemon itself generated, so replay is already impossible
+// across sockets — this guards the degenerate case of the SAME challenge being
+// answered twice on one socket, and keeps the guarantee explicit rather than
+// implied. Pruned on the same schedule as the HTTP nonce cache.
+const seenHandshakeNonces = new Map(); // pluginNonce → first-seen ms
+function handshakeNonceReplayed(nonce, now = Date.now()) {
+  for (const [n, t] of seenHandshakeNonces) {
+    if (now - t > AUTH_WINDOW_MS * 2) seenHandshakeNonces.delete(n);
+  }
+  if (seenHandshakeNonces.has(nonce)) return true;
+  seenHandshakeNonces.set(nonce, now);
+  return false;
 }
 
 // Replay guard for the signed-request auth: every accepted nonce is remembered
@@ -428,9 +445,11 @@ wss.on('error', (err) => {
 const AUTH_TIMEOUT_MS = 5000;
 
 wss.on('connection', (ws) => {
-  // Each socket starts unauthenticated. The FIRST message must be a valid
-  // {type:'hello', key}. Until then the socket is not registered as pluginWs
-  // and cannot drive any eval.
+  // Each socket starts unauthenticated. The daemon speaks first with a random
+  // challenge; the FIRST message back must be a {type:'hello'} carrying a proof
+  // over (our nonce, their nonce, our bound port, their version). Until that
+  // verifies, the socket is not registered as pluginWs and cannot drive any
+  // eval. See lib/plugin-handshake.js for why the port is in the transcript.
   let authenticated = false;
 
   // If no key is configured on the daemon, we can never authenticate — reject.
@@ -439,6 +458,16 @@ wss.on('connection', (ws) => {
     ws.close(4401, 'No access key configured on daemon');
     return;
   }
+
+  const daemonNonce = makeNonce();
+  try {
+    ws.send(JSON.stringify({
+      type: 'challenge',
+      proto: HANDSHAKE_PROTO,
+      nonce: daemonNonce,
+      port: boundPort,
+    }));
+  } catch {}
 
   const authTimer = setTimeout(() => {
     if (!authenticated) {
@@ -459,18 +488,53 @@ wss.on('connection', (ws) => {
 
     // --- Authentication gate ---
     if (!authenticated) {
-      if (msg.type !== 'hello' || !keyMatches(msg.key)) {
-        try { ws.send(JSON.stringify({ type: 'auth-error', reason: 'invalid-key' })); } catch {}
-        ws.close(4401, 'Invalid access key');
-        return;
+      const reject = (reason, closeText) => {
+        try { ws.send(JSON.stringify({ type: 'auth-error', reason })); } catch {}
+        ws.close(4401, closeText);
+      };
+
+      if (msg.type !== 'hello') {
+        return reject('invalid-key', 'Expected hello');
       }
+      // A proto-1 plugin (raw `key` frame, no proof) is a stale install, not a
+      // weaker peer to accommodate: figma_connect ships both sides together.
+      // Name it so the user re-imports instead of debugging a generic rejection.
+      if (msg.proto !== HANDSHAKE_PROTO) {
+        return reject('proto-mismatch', 'Plugin handshake version mismatch');
+      }
+      if (!isNonce(msg.nonce) || handshakeNonceReplayed(msg.nonce)) {
+        return reject('invalid-key', 'Bad or reused handshake nonce');
+      }
+      const version = String(msg.version || 'unknown');
+      const expected = pluginTranscript({
+        daemonNonce,
+        pluginNonce: msg.nonce,
+        port: boundPort,
+        version,
+      });
+      if (!verifyHandshake(PLUGIN_KEY, expected, msg.proof)) {
+        return reject('invalid-key', 'Invalid access key');
+      }
+
       // Authenticated.
       authenticated = true;
       clearTimeout(authTimer);
       const displaced = pluginWs;
       pluginWs = ws;
-      console.log(`[daemon] Plugin authenticated (version: ${msg.version || 'unknown'})`);
-      try { ws.send(JSON.stringify({ type: 'hello-ack', restTokenConfigured: restTokenConfigured() })); } catch {}
+      console.log(`[daemon] Plugin authenticated (version: ${version})`);
+      // Prove ourselves back before the plugin will accept a single eval.
+      try {
+        ws.send(JSON.stringify({
+          type: 'hello-ack',
+          proto: HANDSHAKE_PROTO,
+          proof: signHandshake(PLUGIN_KEY, daemonTranscript({
+            daemonNonce,
+            pluginNonce: msg.nonce,
+            port: boundPort,
+          })),
+          restTokenConfigured: restTokenConfigured(),
+        }));
+      } catch {}
       // Last hello wins. Tell the DISPLACED window it lost the bridge —
       // without this its UI stayed green while every eval went to the new
       // window. Its in-flight evals can no longer answer either; fail them
