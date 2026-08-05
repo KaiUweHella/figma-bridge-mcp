@@ -78,6 +78,31 @@ describe('<Instance> component reuse (cross-page, variants, overrides)', () => {
     assertValidJs(code);
   });
 
+  it('a requested variant that does not exist FAILS with a recipe — no silent default', async () => {
+    const client = makeClient();
+    const code = await client.parseJSX(
+      '<Frame name="P" flex="col"><Instance component="Plant Card" variant="Tone=Teal" /></Frame>'
+    );
+    // The throw lives inside the variantStr branch of the resolver…
+    assert.ok(code.includes('not found on set'), 'missing variant throws');
+    assert.ok(code.includes("'component', 'add-variant'"), 'error carries the add-variant recipe');
+    assert.ok(code.includes('variantGroupProperties'), 'error lists existing axes/values');
+    // …and the default fallback survives ONLY for instances without variant=
+    // (the "give me the component" case must keep working).
+    assert.ok(code.includes('variant || node.defaultVariant || node.children[0]'),
+      'no-variant path still falls back to the default variant');
+    assertValidJs(code);
+  });
+
+  it('the variant-miss throw is present in the batch path too (helper parity)', async () => {
+    const client = makeClient();
+    const code = await client.parseJSXBatch([
+      '<Frame name="A" flex="col"><Instance component="Button" variant="Size=SM" /></Frame>',
+    ]);
+    assert.ok(code.includes('not found on set'), 'batch shares the hardened resolver');
+    assertValidJs(code);
+  });
+
   it('text:Layer= and prop:Name= overrides are emitted', async () => {
     const client = makeClient();
     const code = await client.parseJSX(

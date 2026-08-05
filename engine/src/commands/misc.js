@@ -2,6 +2,7 @@
 import chalk from 'chalk';
 import * as apiDocs from '../api-docs.js';
 import { componentInventoryCode } from '../lib/component-inventory.js';
+import { parseVariantPairs, addVariantCode } from '../lib/variant-snippets.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   program,
@@ -628,11 +629,42 @@ componentCmd
       }
       const set = figma.combineAsVariants(components, figma.currentPage);
       set.name = ${JSON.stringify(options.name)};
+      delete globalThis.__invCache;
       return { id: set.id, name: set.name, count: components.length };
     })()`;
     try {
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Combined ${r.count} components into "${r.name}" (${r.id})`);
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+componentCmd
+  .command('add-variant <set> <pairs>')
+  .description('Add a variant to an existing set by cloning the nearest one (e.g. "State=Hover")')
+  .option('--from <variantName>', 'Clone this variant instead of the nearest match')
+  .option('--json', 'Output as JSON')
+  .action(async (set, pairsArg, options) => {
+    await checkConnection();
+    let pairs;
+    try {
+      pairs = parseVariantPairs(pairsArg);
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+    const code = addVariantCode({ setRef: set, pairs, fromName: options.from });
+    try {
+      const r = await daemonExec('eval', { code });
+      if (options.json) {
+        console.log(JSON.stringify(r, null, 2));
+        return;
+      }
+      console.log(chalk.green('✓'),
+        `Added variant "${r.newVariantName}" to ${r.setName} (${r.newVariantId}), cloned from "${r.sourceVariantName}"`);
+      r.warnings.forEach(w => console.log(chalk.yellow('  ⚠'), w));
+      console.log(chalk.gray(`  Now edit only what differs, e.g. figma_run ["set","fill","--node","${r.newVariantId}","<color>"]`));
     } catch (e) {
       handleEvalError(e);
     }

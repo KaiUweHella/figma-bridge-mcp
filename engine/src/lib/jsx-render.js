@@ -1050,6 +1050,27 @@ export class FigmaClient {
                 const have = __variantPairs(c.name);
                 return Object.keys(want).every(k => have[k] === want[k]);
               }) || null;
+              if (!variant) {
+                // A requested variant that does not exist must FAIL, not
+                // silently render the default (a typo would otherwise ship a
+                // wrong state as if it were the design). The message carries
+                // the recipe: what exists, and the command that creates it.
+                let axes = null;
+                try { axes = node.variantGroupProperties; } catch (e) {}
+                const axisNames = Object.keys(axes || {});
+                const parts = [];
+                for (const k of Object.keys(want)) {
+                  if (axisNames.length && axisNames.indexOf(k) === -1) {
+                    parts.push('axis "' + k + '" does not exist (axes: ' + axisNames.join(', ') + ')');
+                  } else if (axes && axes[k]) {
+                    parts.push('"' + k + '=' + want[k] + '" not found (values: ' + axes[k].values.join(' | ') + ')');
+                  }
+                }
+                throw new Error('Variant "' + variantStr + '" not found on set "' + node.name + '": ' +
+                  (parts.length ? parts.join('; ') : 'no matching combination') +
+                  '. Create it with: figma_run ' +
+                  JSON.stringify(['component', 'add-variant', node.name, variantStr]));
+              }
             }
             return variant || node.defaultVariant || node.children[0] || null;
           }

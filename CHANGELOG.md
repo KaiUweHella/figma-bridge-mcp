@@ -8,6 +8,24 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 Breaking for existing pairings: after upgrading, run `figma_connect` and reopen
 the plugin window. The panel will tell you if you forget.
 
+### Component-aware rendering
+
+- **`component add-variant <set> "Prop=Value"`** adds a missing variant to an
+  existing component set by cloning the nearest existing variant (`--from`
+  picks the source explicitly), so the new state inherits the set's structure
+  instead of drifting. A pair naming a new axis backfills that axis onto every
+  existing variant (with a warning) rather than leaving the set in Figma's
+  missing-property error state.
+- **A `variant=` that does not exist now fails the render** with the set's
+  actual axes/values and the ready `add-variant` command — previously a typo
+  silently rendered the default variant as if it were the design.
+- **Reuse lint:** rendering a frame named like an existing component set or
+  component prints a warning with the ready `<Instance>` line (file inventory
+  is cached in the plugin sandbox for 60 s). Warn-only, never blocks.
+- **Repeat lint:** three or more structurally identical siblings in one render
+  print a componentize hint (render one, `node to-component`, place
+  instances). Detected from the JSX alone.
+
 ### Security
 
 - **The plugin access key no longer crosses the wire.** The plugin WebSocket now

@@ -66,6 +66,10 @@ test('write subcommands of gated groups require confirm', () => {
     ['node', 'to-component', '1:2'],
     ['component', 'prop', 'add', '1:2'],
     ['component', 'combine', '1:2,1:3'],
+    // Mutates the set (clone + append, possibly sibling renames for a new
+    // axis) — lands on the unknown-defaults-to-write side; pinned here so a
+    // future READ_SUBCOMMANDS edit cannot silently ungate it.
+    ['component', 'add-variant', 'Button', 'State=Loading'],
     ['dev', 'link', '1:2', 'https://x'],
     ['annotate', 'add', 'hello'],
     ['annotate', 'clear', '1:2'],

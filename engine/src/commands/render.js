@@ -5,6 +5,8 @@ import { tmpdir } from 'os';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { FigmaClient } from '../lib/jsx-render.js';
 import { readImageBase64 } from '../lib/image-file.js';
+import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
+import { cachedInventoryCode } from '../lib/component-inventory.js';
 import {
   program,
   checkConnection,
@@ -30,6 +32,59 @@ function warnUnknownProps(jsxStrings) {
           (w.suggestion ? ` — did you mean "${w.suggestion}"?` : ' (ignored)')
         ));
       }
+    }
+  } catch {}
+}
+
+// Parse each JSX into a pseudo-item ({_type:'frame', ...rootProps,
+// _children}) so the repeat lint can treat batch roots and nested children
+// with one signature function.
+function parsedRoots(jsxStrings) {
+  const client = new FigmaClient();
+  const roots = [];
+  for (const jsx of jsxStrings) {
+    const open = String(jsx).match(/<Frame\s+([^>]*)>/);
+    if (!open) continue;
+    const props = client.parseProps(open[1]);
+    const children = client.parseChildren(
+      client.extractContent(String(jsx).slice(open.index + open[0].length), 'Frame'));
+    roots.push({ _type: 'frame', ...props, _children: children });
+  }
+  return roots;
+}
+
+// Repeat lint (compile-side only): N structurally identical frames in one
+// render are a component begging to exist. Checked across batch roots AND
+// inside each root's children.
+function printRepeatLint(jsxStrings) {
+  try {
+    const roots = parsedRoots(jsxStrings);
+    const groups = [
+      ...findRepeatedSiblings(roots),
+      ...roots.flatMap(r => findRepeatedSiblings(r._children)),
+    ];
+    for (const g of groups) {
+      console.log(chalk.yellow(
+        `⚠ ${g.count}× the same structure${g.sampleName ? ` ("${g.sampleName}")` : ''} in one render — ` +
+        `make it a component: render ONE, figma_run ["node","to-component","<id>"], then place <Instance> copies.`));
+    }
+  } catch {}
+}
+
+// Reuse lint: after a successful render, warn when a freshly drawn frame is
+// named like an existing component — the rebuild-instead-of-instantiate
+// failure mode. Warn-only; any error (no inventory, slow file) is a silent
+// no-op, a lint must never fail a render. The inventory eval is cached in
+// the plugin sandbox (cachedInventoryCode) and skipped entirely when the JSX
+// has no named containers.
+async function printReuseLint(jsxStrings) {
+  try {
+    const names = namedContainers(jsxStrings);
+    if (names.length === 0) return;
+    const inventory = await daemonExec('eval', { code: cachedInventoryCode(true) });
+    for (const f of matchInventory(names, inventory)) {
+      console.log(chalk.yellow('\n⚠ reuse: ') +
+        chalk.yellow(formatReuseWarning(f).split('\n').join('\n  ')));
     }
   } catch {}
 }
@@ -244,6 +299,7 @@ program
     const images = imageCtx.images;
     const customIcons = options.icons ? loadIconDir(options.icons) : null;
     warnUnknownProps([jsx]);
+    printRepeatLint([jsx]);
     if (options.asComponent) warnUnnamedComponentTexts(jsx);
 
     try {
@@ -320,6 +376,7 @@ program
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
       printUnresolvedVars(result.unresolved);
       printOverflow(result);
+      await printReuseLint([jsx]);
       await maybeAsComponent(result.id);
       if (options.verify) await verifyRendered(result.id);
     } catch (e) {
@@ -338,6 +395,9 @@ program
       }
       if (msg.includes('Cannot read properties of null')) {
         console.log(chalk.yellow('  💡 Hint: A variable binding (var:name) may not exist. Check with: var list'));
+      }
+      if (msg.includes('not found on set')) {
+        console.log(chalk.yellow('  💡 The error above lists the existing axes/values and the add-variant command that creates the missing one.'));
       }
     }
   });
@@ -368,6 +428,7 @@ program
       const images = imageCtx.images;
       const customIcons = options.icons ? loadIconDir(options.icons) : null;
       warnUnknownProps(jsxArray);
+      printRepeatLint(jsxArray);
       if (options.asComponent) jsxArray.forEach(warnUnnamedComponentTexts);
 
       const gap = parseInt(options.gap) || 40;
@@ -398,6 +459,7 @@ program
           console.log(chalk.yellow('  ' + unresolvedVars.join(', ')));
           console.log(chalk.gray('  These bindings rendered as grey placeholders. Check figma_run ["var", "list"] (optionally with --collection).'));
         }
+        await printReuseLint(jsxArray);
 
         if (options.asComponent) {
           const ids = results.map(r => r.id).filter(Boolean);

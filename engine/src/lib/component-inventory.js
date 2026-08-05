@@ -39,3 +39,21 @@ export function componentInventoryCode(allPages) {
     return { fileName: figma.root.name, componentSets: sets, standaloneComponents: singles };
   })()`;
 }
+
+/**
+ * Same inventory, memoized in the plugin sandbox (globals persist across
+ * evals — the pattern __spaceCache already relies on). The render reuse-lint
+ * runs after every render; a full loadAllPagesAsync walk each time would be
+ * felt on big files, and a lint tolerates ttlMs of staleness. Mutating
+ * commands (add-variant, combine) delete globalThis.__invCache.
+ */
+export function cachedInventoryCode(allPages, ttlMs = 60000) {
+  return `(async () => {
+    const now = Date.now();
+    const c = globalThis.__invCache;
+    if (c && c.allPages === ${!!allPages} && (now - c.at) < ${Number(ttlMs)}) return c.data;
+    const data = await ${componentInventoryCode(allPages)};
+    globalThis.__invCache = { at: now, allPages: ${!!allPages}, data };
+    return data;
+  })()`;
+}

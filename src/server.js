@@ -400,23 +400,23 @@ export const TOOLS = [
 // tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
 // figma_reference name "workflow") or into tool OUTPUTS, which are never
 // truncated this way.
-export const INSTRUCTIONS = `Design-to-code (Figma -> code). The design is the complete spec — copy it,
-never interpret. Full guide: figma_reference {name:"workflow"}.
+export const INSTRUCTIONS = `Design-to-code. The design is the complete spec — copy it, never
+interpret. Full guide: figma_reference {name:"workflow"}.
 
 1. figma_screenshot, then Read the PNG — the visual ground truth.
 2. figma_spec phase "structure" — skeleton; texts/icon names verbatim, never
    invented.
-3. figma_run ["export","css","<nodeId>"] — tokens SCOPED to the frame, wired
-   as CSS variables. Load the listed font families from their named sources
-   (or ask the user for files) — a system-font fallback is not done.
+3. figma_run ["export","css","<nodeId>"] — tokens SCOPED to the frame,
+   wired as CSS variables. Load the listed font families from their named
+   sources (or ask the user) — a system-font fallback is not done.
 4. figma_run ["export","assets","<nodeId>","-o","/abs/path/src/assets"] —
    real files + assets.json (absolute path!). Never substitute CSS
-   placeholders. If it returns "still RUNNING", re-run the same call to poll.
+   placeholders. "still RUNNING": re-run the same call to poll.
 5. figma_spec phase "style" — exact sizes/paints/typography; place every
    "vector art -> assets/..." SVG at its stated place/abs offsets; keep
    overlays that overhang their parent.
-6. Implement every flagged interactive state from the "Component sets" spec
-   trailer (hover/active/focus/disabled).
+6. Implement every flagged interactive state from the "Component sets"
+   spec trailer (hover/focus/disabled).
 7. VERIFY before declaring done:
    - figma_run ["verify-build","/abs/project/dir"] — mechanically finds
      assets.json files missing from the build (+ border-image lint);
@@ -426,15 +426,17 @@ never interpret. Full guide: figma_reference {name:"workflow"}.
      "grid RxC" is CSS grid, never a flex column;
    - gradient stroke + radius: wrapper/mask pattern, NEVER border-image.
 
-Large frames: never pull one giant spec — structure at depth 3-4 first, then
-style PER SECTION. NEVER estimate values from a screenshot.
+Large frames: structure at depth 3-4 first, then style PER SECTION —
+never one giant spec. NEVER estimate values from a screenshot.
 
-Node ids: "12:34", "12-34", full Figma URLs. Safe Mode reaches only the
-file open in Figma Desktop.
+Node ids: "12:34", "12-34", Figma URLs. Only files open in Figma
+Desktop are reachable.
 
-More figma_run commands: ["extract"], ["analyze","colors"], ["verify","<id>"],
-["map","storybook","<url|dir>"] (Figma<->Storybook mapping). --help for syntax.
-REST opt-in (token in plugin UI): figma_comments, history includeVersions.`;
+More figma_run: ["extract"], ["analyze","colors"],
+["map","storybook","<url|dir>"]. --help for syntax.
+Build IN Figma: ["component","list"] first, reuse via <Instance>;
+missing variant: ["component","add-variant","<set>","Axis=Val"].
+REST opt-in via plugin UI: figma_comments, history includeVersions.`;
 
 // Long-form workflow guide — the pre-truncation INSTRUCTIONS text, served in
 // full through figma_reference {name:"workflow"} (tool results are not subject
@@ -562,6 +564,15 @@ tokens first, then components, then screens:
    overrides — text:<layer>, prop:<property>, fill:<layer> (hex or var:),
    swap:<layer> ("Other Component"). Layer matching is case-, space- and
    hyphen-insensitive (text:plantphoto matches "plant-photo").
+   REUSE before rebuild: run ["component","list"] first and instantiate what
+   exists — a render that draws a frame named like an existing component
+   prints a reuse warning with the ready <Instance> line. A variant= that
+   does not exist FAILS with the existing axes/values and the exact
+   ["component","add-variant","<set>","Axis=Value"] command; add-variant
+   clones the nearest variant (--from picks the source) so the new state
+   inherits the set's structure — then edit only what differs. Rendering
+   3+ structurally identical siblings prints a componentize hint: render
+   ONE, ["node","to-component","<id>"], place <Instance> copies.
 5. Images: <Image src="/abs/or/relative.png" imageScale="FILL|FIT|CROP|TILE">
    imports the actual file (CLI reads it, no plugin network). Without src=
    you get a named grey placeholder carrying an "Image placeholder"
