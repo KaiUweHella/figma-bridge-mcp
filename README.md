@@ -482,6 +482,47 @@ A colour takes a hex or `var:<name>`. The difference is not cosmetic: a hex is
 frozen, a `var:` reference stays **bound**, so a later `tokens rebind` can still
 move it.
 
+### Local styles, variable metadata, and modes
+
+The local design-system primitives that used to require manual UI work now
+have first-class Figma Commands. They use the live Plugin API, not REST:
+
+```
+figma_run ["style", "list", "--type", "TEXT"]
+figma_run ["style", "show", "Heading/H1"]
+figma_run ["style", "create", "PAINT", "Brand/Primary", "--properties", "{\"paints\":[{\"type\":\"SOLID\",\"color\":{\"r\":0.1,\"g\":0.3,\"b\":0.9}}]}"]
+figma_run ["style", "apply", "Brand/Primary", "12:34,12:35", "--field", "fill"]
+figma_run ["style", "consumers", "Brand/Primary"]
+figma_run ["style", "publish-status", "Brand/Primary"]
+```
+
+`style` covers local PAINT, TEXT, EFFECT and GRID styles. `update` accepts the
+same type-specific JSON properties as `create`; `apply` validates the style
+type against `fill`, `stroke`, `text`, `effect` or `grid`. Name lookups refuse
+ambiguity. Consumers come from `getStyleConsumersAsync()`, and publish state is
+one of Figma's `UNPUBLISHED`, `CURRENT` or `CHANGED` values.
+
+Variables expose the metadata and mode operations that token-file sync does
+not own:
+
+```
+figma_run ["var", "show", "space/md", "--collection", "Primitives"]
+figma_run ["var", "update", "space/md", "--description", "Medium spacing", "--scopes", "GAP"]
+figma_run ["var", "set-value", "space/md", "12", "--mode", "Light"]
+figma_run ["var", "set-value", "space/card", "--alias", "space/md", "--mode", "Light"]
+figma_run ["var", "code-syntax", "space/md", "WEB", "var(--space-md)"]
+figma_run ["var", "resolve", "space/md", "12:34"]
+figma_run ["col", "mode-add", "Primitives", "Dark"]
+figma_run ["col", "mode-rename", "Primitives", "Dark", "Dim"]
+```
+
+`var show` returns values by mode, scopes, code syntax, collection metadata and
+publish status. `var resolve` deliberately requires a consumer node because
+aliases can resolve differently under that node's selected modes. Collection
+`show`, `update`, `mode-add`, `mode-rename`, `mode-remove` and
+`publish-status` follow the same ID/exact-name/unique-substring lookup policy.
+Figma plan limits on mode count remain Figma-enforced and surface as errors.
+
 ### Finding what needs fixing
 
 ```

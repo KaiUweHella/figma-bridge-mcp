@@ -6,6 +6,7 @@
 import './lib/cli-core.js';
 import './commands/setup.js';
 import './commands/variables.js';
+import './commands/styles.js';
 import './commands/daemon.js';
 import './commands/tokens.js';
 import './commands/gradient.js';

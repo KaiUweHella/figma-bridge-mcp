@@ -28,6 +28,10 @@ import {
   hexToFigmaRgb,
 } from '../lib/token-sync.js';
 import { normalizeNodeId } from '../lib/node-id.js';
+import {
+  collectionModeCode, collectionPublishStatusCode, collectionShowCode,
+  collectionUpdateCode, parseBoolean,
+} from '../lib/variable-management.js';
 
 // ============ COLLECTIONS ============
 
@@ -51,6 +55,38 @@ collections
     await checkConnection();
     createCollection(name);
   });
+
+collections.command('show <collection>').action(async (collection) => {
+  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionShowCode({ collection })), null, 2)); }
+  catch (error) { handleEvalError(error); }
+});
+
+collections.command('update <collection>')
+  .option('-n, --name <name>').option('--hidden <boolean>')
+  .action(async (collection, options) => {
+    try {
+      if (options.name === undefined && options.hidden === undefined) throw new Error('Provide --name or --hidden');
+      const hidden = options.hidden === undefined ? undefined : parseBoolean(options.hidden, '--hidden');
+      await checkConnection(); console.log(JSON.stringify(await fastEval(collectionUpdateCode({ collection, name: options.name, hidden })), null, 2));
+    } catch (error) { handleEvalError(error); }
+  });
+
+collections.command('mode-add <collection> <name>').action(async (collection, name) => {
+  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'add', name })), null, 2)); }
+  catch (error) { handleEvalError(error); }
+});
+collections.command('mode-rename <collection> <mode> <name>').action(async (collection, mode, name) => {
+  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'rename', mode, name })), null, 2)); }
+  catch (error) { handleEvalError(error); }
+});
+collections.command('mode-remove <collection> <mode>').action(async (collection, mode) => {
+  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'remove', mode })), null, 2)); }
+  catch (error) { handleEvalError(error); }
+});
+collections.command('publish-status <collection>').action(async (collection) => {
+  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionPublishStatusCode({ collection })), null, 2)); }
+  catch (error) { handleEvalError(error); }
+});
 
 // ============ TOKENS (PRESETS) ============
 

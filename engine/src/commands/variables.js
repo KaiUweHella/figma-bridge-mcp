@@ -15,6 +15,10 @@ import {
   hexToRgb,
   spinnerSucceed
 } from '../lib/cli-core.js';
+import {
+  parseBoolean, parseScopes, variableCodeSyntaxCode, variablePublishStatusCode,
+  variableResolveCode, variableSetValueCode, variableShowCode, variableUpdateCode,
+} from '../lib/variable-management.js';
 
 // ============ VARIABLES ============
 
@@ -74,6 +78,61 @@ variables
   .action(async (pattern) => {
     await checkConnection();
     findVariables(pattern);
+  });
+
+variables.command('show <variable>')
+  .option('-c, --collection <collection>')
+  .action(async (variable, options) => {
+    try { await checkConnection(); console.log(JSON.stringify(await fastEval(variableShowCode({ variable, collection: options.collection })), null, 2)); }
+    catch (error) { handleEvalError(error); }
+  });
+
+variables.command('update <variable>')
+  .option('-c, --collection <collection>').option('-n, --name <name>')
+  .option('-d, --description <text>').option('--hidden <boolean>').option('--scopes <list>', 'Comma-separated Figma variable scopes')
+  .action(async (variable, options) => {
+    try {
+      if (options.name === undefined && options.description === undefined && options.hidden === undefined && options.scopes === undefined) throw new Error('Provide --name, --description, --hidden, or --scopes');
+      const hidden = options.hidden === undefined ? undefined : parseBoolean(options.hidden, '--hidden');
+      const scopes = options.scopes === undefined ? undefined : parseScopes(options.scopes);
+      await checkConnection();
+      console.log(JSON.stringify(await fastEval(variableUpdateCode({ variable, collection: options.collection, name: options.name, description: options.description, hidden, scopes })), null, 2));
+    } catch (error) { handleEvalError(error); }
+  });
+
+variables.command('set-value <variable> [value]')
+  .requiredOption('-m, --mode <mode>', 'Mode ID or name').option('-c, --collection <collection>')
+  .option('--alias <variable>', 'Set a variable alias instead of a literal value')
+  .action(async (variable, value, options) => {
+    try {
+      if (value === undefined && !options.alias) throw new Error('Provide a value or --alias');
+      await checkConnection();
+      console.log(JSON.stringify(await fastEval(variableSetValueCode({ variable, value, alias: options.alias, mode: options.mode, collection: options.collection })), null, 2));
+    } catch (error) { handleEvalError(error); }
+  });
+
+variables.command('code-syntax <variable> <platform> [value]')
+  .option('-c, --collection <collection>').option('--remove', 'Remove the platform definition')
+  .action(async (variable, platform, value, options) => {
+    try {
+      if (!options.remove && value === undefined) throw new Error('Provide a syntax value or --remove');
+      await checkConnection();
+      console.log(JSON.stringify(await fastEval(variableCodeSyntaxCode({ variable, collection: options.collection, platform, value, remove: options.remove })), null, 2));
+    } catch (error) { handleEvalError(error); }
+  });
+
+variables.command('resolve <variable> <nodeId>')
+  .option('-c, --collection <collection>')
+  .action(async (variable, nodeId, options) => {
+    try { await checkConnection(); console.log(JSON.stringify(await fastEval(variableResolveCode({ variable, nodeId, collection: options.collection })), null, 2)); }
+    catch (error) { handleEvalError(error); }
+  });
+
+variables.command('publish-status <variable>')
+  .option('-c, --collection <collection>')
+  .action(async (variable, options) => {
+    try { await checkConnection(); console.log(JSON.stringify(await fastEval(variablePublishStatusCode({ variable, collection: options.collection })), null, 2)); }
+    catch (error) { handleEvalError(error); }
   });
 
 variables

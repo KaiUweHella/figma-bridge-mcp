@@ -26,6 +26,8 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['font', 'remember-axes', '1:2', 'wght=357'], ['font', 'forget-axes', '1:2'],
     ['font', 'bind', '1:2', 'fontWeight', 'type/weight'], ['font', 'unbind', '1:2', 'fontWeight'],
     ['history', 'save', 'Release 1'],
+    ['style', 'create', 'PAINT', 'Brand'], ['style', 'apply', 'Brand', '1:2', '--field', 'fill'],
+    ['var', 'set-value', 'space/md', '12', '--mode', 'Light'], ['col', 'mode-add', 'Theme', 'Dark'],
   ]) assert.equal(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
 
   for (const args of [
@@ -34,6 +36,8 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['map', 'storybook', 'http://localhost:6006'], ['render', '--help'],
     ['gradient', 'extract', 'hero.png'], ['font', 'inspect', '1:2'], ['font', 'axes', '1:2'],
     ['node', 'css', '1:2'], ['export', 'node-json', '1:2'],
+    ['style', 'list'], ['style', 'show', 'Brand'], ['style', 'consumers', 'Brand'],
+    ['var', 'show', 'space/md'], ['var', 'resolve', 'space/md', '1:2'], ['col', 'show', 'Theme'],
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');

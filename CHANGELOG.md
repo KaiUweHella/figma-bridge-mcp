@@ -89,6 +89,14 @@ the plugin window. The panel will tell you if you forget.
 - **Official API coverage input.** `api gap` now scans the installed
   `@figma/plugin-typings` declarations. The optional Markdown clone is retained
   for prose lookup but is no longer the canonical coverage inventory.
+- **Plugin-first local style management.** `style list/show/create/update/apply`
+  plus `consumers`, `publish-status` and `delete` cover local PAINT, TEXT,
+  EFFECT and GRID styles. Lookups reject ambiguity, property JSON is
+  type-allowlisted, and application uses Figma's async style setters.
+- **Variable and collection authoring.** `var show/update/set-value/code-syntax`
+  plus consumer-aware `resolve` and publish status expose values, aliases,
+  scopes and Dev Mode names. `col show/update/mode-*` manages collection
+  metadata and modes through the Plugin API; REST is not involved.
 
 ### Component-aware rendering
 
