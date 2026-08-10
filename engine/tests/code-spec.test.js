@@ -180,6 +180,17 @@ test('typeSeg renders font, size/lh and letter spacing', () => {
   assert.equal(seg, 'Inter Semi Bold 16/19 ls0.2');
 });
 
+test('typeSeg keeps Figma-reported weight, enabled OpenType features and metadata-only axes explicit', () => {
+  const seg = typeSeg({ txt: {
+    font: 'Roboto Flex', style: 'Regular', weight: 357, size: 16,
+    ot: ['LIGA', 'SS01'],
+    axisRanges: [{ start: 0, end: 5, axes: { wght: 357, wdth: 82 } }],
+  } });
+  assert.match(seg, /Roboto Flex Regular fw357 16/);
+  assert.match(seg, /ot\(LIGA,SS01\)/);
+  assert.match(seg, /axes-meta\[0:5\]\(wght=357,wdth=82\)/);
+});
+
 test('typeSeg leads with the applied text style and shows EVERY typography token binding', () => {
   const seg = typeSeg({
     txt: { ts: 'display/medium', font: 'Clash Grotesk', style: 'Bold', size: 40, lh: 48 },
@@ -266,6 +277,24 @@ test('walker without getStyleByIdAsync (older stubs) neither crashes nor emits t
   const code = nodeWalkerCode('u:1', { withVars: true });
   const result = JSON.parse(await new Function('figma', `return ${code}`)(figmaStub));
   assert.equal(result.frames[0].txt.ts, undefined);
+});
+
+test('walker carries reported weight, enabled OpenType features and range axis metadata losslessly', async () => {
+  const root = {
+    id: 'vf:1', name: 'Variable label', type: 'TEXT', visible: true, width: 100, height: 20,
+    characters: 'Hello', fontName: { family: 'Roboto Flex', style: 'Regular' },
+    fontWeight: 357, fontSize: 16, openTypeFeatures: { LIGA: true, SS01: false },
+    getPluginData: () => JSON.stringify({
+      schemaVersion: 1,
+      ranges: [{ start: 0, end: 5, axes: { wght: 357, wdth: 82 } }],
+    }),
+    children: [],
+  };
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, { withIds: true }), root));
+  const text = result.frames[0];
+  assert.equal(text.txt.weight, 357);
+  assert.deepEqual(text.txt.ot, ['LIGA']);
+  assert.deepEqual(text.txt.axisRanges, [{ start: 0, end: 5, axes: { wght: 357, wdth: 82 } }]);
 });
 
 const SPEC_FIXTURE = {

@@ -39,6 +39,7 @@ const COMMANDS = Object.freeze({
   extract: { summary: 'Extract the open file into DESIGN.md', mutation: 'read', path: 'design-doc' },
   spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'spec-file' },
   analyze: { summary: 'Analyze colors, typography and spacing', mutation: 'read' },
+  font: readGroup('Inspect font facts or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
   map: { summary: 'Map Figma components to code', mutation: 'read', path: 'map-file' },
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: { summary: 'Create or compare structural snapshots', mutation: 'read', path: 'history-output' },

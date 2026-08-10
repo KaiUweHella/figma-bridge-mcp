@@ -15,6 +15,7 @@ import './commands/canvas-ops.js';
 import './commands/render.js';
 import './commands/export-eval.js';
 import './commands/analyze.js';
+import './commands/font.js';
 import './commands/a11y.js';
 import './commands/node-ops.js';
 import './commands/variants.js';

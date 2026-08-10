@@ -23,13 +23,14 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['render', '<Frame/>'], ['combos', '1:2'], ['node', 'delete', '1:2'],
     ['component', 'add-variant', 'Button', 'State=Loading'], ['tokens', 'spacing'],
     ['tokens', 'sync', 'tokens.json', '--apply'], ['motion', 'timeline', '1:2'],
+    ['font', 'remember-axes', '1:2', 'wght=357'], ['font', 'forget-axes', '1:2'],
   ]) assert.equal(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
 
   for (const args of [
     ['export', 'code-spec', '1:2'], ['node', 'tree', '1:2'], ['tokens'],
     ['tokens', 'sync', 'tokens.json'], ['motion', 'inspect', '1:2'],
     ['map', 'storybook', 'http://localhost:6006'], ['render', '--help'],
-    ['gradient', 'extract', 'hero.png'],
+    ['gradient', 'extract', 'hero.png'], ['font', 'inspect', '1:2'], ['font', 'axes', '1:2'],
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');

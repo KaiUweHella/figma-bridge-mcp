@@ -245,8 +245,17 @@ export function typeSeg(node) {
     const weight = t.style ? ` ${t.style}${varSuffix(bvName(node, 'fontStyle', 'fontWeight'))}` : '';
     parts.push(`${family}${weight}`);
   }
+  if (t.weight != null) parts.push(`fw${t.weight}`);
   if (t.size != null) parts.push(`${t.size}${varSuffix(bvName(node, 'fontSize'))}${t.lh != null ? `/${t.lh}${varSuffix(bvName(node, 'lineHeight'))}` : ''}`);
   if (t.ls) parts.push(`ls${t.ls}${varSuffix(bvName(node, 'letterSpacing'))}`);
+  if (Array.isArray(t.ot) && t.ot.length) parts.push(`ot(${t.ot.join(',')})`);
+  if (Array.isArray(t.axisRanges)) {
+    for (const range of t.axisRanges) {
+      const axes = Object.entries(range.axes || {}).map(([tag, value]) => `${tag}=${value}`).join(',');
+      parts.push(`axes-meta[${range.start}:${range.end}](${axes})`);
+    }
+  }
+  if (t.axisMetadataError) parts.push(`axes-meta-error(${t.axisMetadataError})`);
   return parts.join(' ');
 }
 
@@ -270,7 +279,7 @@ export function typeSeg(node) {
 // NOTE: `abs` (overlay position) is deliberately NOT a style field — position
 // is per-node geometry; two badges sharing a style sit at different corners.
 const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'fx', 'op', 'rot', 'clip', 'bv'];
-const STYLE_TXT_KEYS = ['ts', 'font', 'style', 'size', 'lh', 'ls'];
+const STYLE_TXT_KEYS = ['ts', 'font', 'style', 'weight', 'size', 'lh', 'ls', 'ot', 'axisRanges', 'axisMetadataError'];
 /** Below this rendered length a ref saves nothing — leave the value inline. */
 const DEDUP_MIN_DEF_LEN = 16;
 

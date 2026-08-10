@@ -488,6 +488,39 @@ unbound token colour — 1
 `analyze colors|typography|spacing` still give the full census. Lint is the
 pass that answers whether anything needs doing at all.
 
+### Variable fonts and OpenType facts
+
+Figma does not expose a general variation-axis tuple through the Plugin API.
+The bridge therefore separates facts Figma actually reports from axis intent
+that a caller records explicitly:
+
+```
+figma_run ["font", "inspect", "12:36"]
+figma_run ["font", "inspect", "12:36", "--start", "0", "--end", "12", "--all-open-type"]
+```
+
+`font inspect` returns styled text ranges with `fontName`, numeric read-only
+`fontWeight`, size, enabled OpenType feature tags and resolved typography
+variable bindings. `--all-open-type` also includes false feature values. The
+result names the API limit explicitly: a reported `fontWeight` is not a general
+`wght`/`wdth`/`opsz`/custom-axis tuple, and OpenType features are read-only.
+
+When the exact axis values are known from the UI or another font tool, preserve
+them on the text node as range metadata:
+
+```
+figma_run ["font", "remember-axes", "12:36", "wght=357,wdth=82", "--start", "0", "--end", "12"]
+figma_run ["font", "axes", "12:36"]
+figma_run ["font", "forget-axes", "12:36", "--start", "0", "--end", "12"]
+figma_run ["font", "forget-axes", "12:36"]  # clear every stored range
+```
+
+`remember-axes` changes plugin metadata only — never the font or rendered
+glyphs — and is therefore classified as a write by the Capability Catalog.
+`figma_spec` carries these records as `axes-meta[start:end](tag=value,…)`, plus
+Figma's reported `fw…` value and enabled `ot(…)` tags, so design-to-code capture
+does not silently discard the documented intent.
+
 ## Version history and diffs
 
 Figma's plugin API can *write* a version but not read one back, so "what changed

@@ -12,6 +12,7 @@
 
 import { paintsSnippetJs } from './lib/paint-css.js';
 import { assetPolicyPluginSource } from './lib/asset-policy.js';
+import { axisMetadataExpression } from './lib/font-introspection.js';
 
 /** Eval snippet: list all pages of the open file. */
 export function listPagesCode() {
@@ -392,7 +393,17 @@ export function walkerCode(pageId, {
       if (n.type === 'TEXT') {
         o.txt = { chars: (n.characters || '').slice(0, TEXT_LIMIT) };
         if (n.fontName !== figma.mixed) { o.txt.font = n.fontName.family; o.txt.style = n.fontName.style; }
+        if (n.fontWeight !== figma.mixed && typeof n.fontWeight === 'number') o.txt.weight = n.fontWeight;
         if (n.fontSize !== figma.mixed) o.txt.size = n.fontSize;
+        if (n.openTypeFeatures !== figma.mixed && n.openTypeFeatures && typeof n.openTypeFeatures === 'object') {
+          const enabled = Object.keys(n.openTypeFeatures).filter(tag => n.openTypeFeatures[tag] === true).sort();
+          if (enabled.length) o.txt.ot = enabled;
+        }
+        const axisMetadata = ${axisMetadataExpression('n')};
+        if (axisMetadata) {
+          if (axisMetadata.error) o.txt.axisMetadataError = axisMetadata.error;
+          else if (axisMetadata.ranges.length) o.txt.axisRanges = axisMetadata.ranges;
+        }
         if (n.lineHeight !== figma.mixed && n.lineHeight && n.lineHeight.unit !== 'AUTO') {
           // PERCENT line-heights are relative to font size; resolve to absolute
           // px so the table/JSON tokens are unambiguous and re-import cleanly.

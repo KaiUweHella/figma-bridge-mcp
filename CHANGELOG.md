@@ -66,6 +66,14 @@ the plugin window. The panel will tell you if you forget.
   decisions, and `docu/README.md` indexes the historical evidence archive.
 - **Fast local status.** `figma_status` no longer performs a cold REST request
   unless `validateRest:true` is requested.
+- **Truthful variable-font inspection.** `figma_run ["font","inspect",…]`
+  reads range-level `fontName`, Figma's numeric read-only `fontWeight`, enabled
+  OpenType features and typography-variable bindings. Because the Plugin API
+  has no general variation-axis tuple, `font remember-axes` stores caller-known
+  axes as explicitly metadata-only range records; `font axes` reads them and
+  `font forget-axes` removes them. Design specs carry the reported weight,
+  enabled features and `axes-meta[…]` records losslessly without claiming that
+  metadata changed Figma's glyph rendering.
 
 ### Component-aware rendering
 
