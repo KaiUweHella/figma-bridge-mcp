@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Isolate the pairing key file so tests never touch the user's real
 // ~/.figma-bridge-mcp/plugin-key. Must be set BEFORE importing config.js/pairing.js.
@@ -81,17 +82,20 @@ test('rejection names the full allowlist so agents stop guessing commands', asyn
 
 test('export assets output dirs resolve against the CLIENT workspace, never the engine repo', async () => {
   const { withAbsoluteOutputDir } = await import('../src/engine.js');
+  const base = resolve('work', 'project');
+  const output = join(base, 'src', 'assets');
   // Relative -o → absolute against the given base (the MCP server's cwd).
-  const rel = withAbsoluteOutputDir(['export', 'assets', '1:2', '-o', 'src/assets'], '/work/project');
-  assert.equal(rel.outDir, '/work/project/src/assets');
-  assert.deepEqual(rel.args, ['export', 'assets', '1:2', '-o', '/work/project/src/assets']);
+  const rel = withAbsoluteOutputDir(['export', 'assets', '1:2', '-o', 'src/assets'], base);
+  assert.equal(rel.outDir, output);
+  assert.deepEqual(rel.args, ['export', 'assets', '1:2', '-o', output]);
   // Absolute -o passes through untouched.
-  const abs = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output', '/elsewhere/a'], '/work/project');
-  assert.equal(abs.outDir, '/elsewhere/a');
+  const absoluteOutput = resolve('elsewhere', 'a');
+  const abs = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output', absoluteOutput], base);
+  assert.equal(abs.outDir, absoluteOutput);
   // No -o at all → default "assets" under the base, appended explicitly.
-  const none = withAbsoluteOutputDir(['export', 'assets', '1:2'], '/work/project');
-  assert.equal(none.outDir, '/work/project/assets');
-  assert.deepEqual(none.args.slice(-2), ['-o', '/work/project/assets']);
+  const none = withAbsoluteOutputDir(['export', 'assets', '1:2'], base);
+  assert.equal(none.outDir, join(base, 'assets'));
+  assert.deepEqual(none.args.slice(-2), ['-o', join(base, 'assets')]);
   // Input argv is never mutated.
   const input = ['export', 'assets', '1:2', '-o', 'x'];
   withAbsoluteOutputDir(input, '/base');
@@ -100,36 +104,40 @@ test('export assets output dirs resolve against the CLIENT workspace, never the 
 
 test('withAbsoluteOutputDir handles the combined --output=dir form', async () => {
   const { withAbsoluteOutputDir } = await import('../src/engine.js');
+  const base = resolve('work', 'project');
+  const output = join(base, 'src', 'assets');
   // Commander accepts --output=dir; the old findIndex missed it and silently
   // redirected the export to the default assets dir.
-  const eq = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output=src/assets'], '/work/project');
-  assert.equal(eq.outDir, '/work/project/src/assets');
-  assert.deepEqual(eq.args, ['export', 'assets', '1:2', '--output=/work/project/src/assets']);
-  const eqAbs = withAbsoluteOutputDir(['export', 'assets', '1:2', '-o=/elsewhere/a'], '/work/project');
-  assert.equal(eqAbs.outDir, '/elsewhere/a');
+  const eq = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output=src/assets'], base);
+  assert.equal(eq.outDir, output);
+  assert.deepEqual(eq.args, ['export', 'assets', '1:2', `--output=${output}`]);
+  const absoluteOutput = resolve('elsewhere', 'a');
+  const eqAbs = withAbsoluteOutputDir(['export', 'assets', '1:2', `-o=${absoluteOutput}`], base);
+  assert.equal(eqAbs.outDir, absoluteOutput);
 });
 
 test('normalizeOutputArgs anchors extract / export node|screenshot outputs to the client workspace', async () => {
   const { normalizeOutputArgs } = await import('../src/engine.js');
-  const base = '/work/project';
+  const base = resolve('work', 'project');
+  const inWorkspace = (...parts) => join(base, ...parts);
 
   // extract: positional output, also after value-taking flags
-  assert.deepEqual(normalizeOutputArgs(['extract'], base).at(-1), '/work/project/DESIGN.md');
+  assert.deepEqual(normalizeOutputArgs(['extract'], base).at(-1), inWorkspace('DESIGN.md'));
   assert.deepEqual(normalizeOutputArgs(['extract', 'docs/D.md'], base),
-    ['extract', '/work/project/docs/D.md']);
+    ['extract', inWorkspace('docs', 'D.md')]);
   assert.deepEqual(normalizeOutputArgs(['extract', '--pages', 'Home', 'D.md'], base),
-    ['extract', '--pages', 'Home', '/work/project/D.md']);
-  assert.deepEqual(normalizeOutputArgs(['extract', '--selection'], base).at(-1), '/work/project/DESIGN.md');
+    ['extract', '--pages', 'Home', inWorkspace('D.md')]);
+  assert.deepEqual(normalizeOutputArgs(['extract', '--selection'], base).at(-1), inWorkspace('DESIGN.md'));
 
   // export node/screenshot: -o forms and default filenames
   assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2', '-o', 'shot.png'], base),
-    ['export', 'node', '1:2', '-o', '/work/project/shot.png']);
+    ['export', 'node', '1:2', '-o', inWorkspace('shot.png')]);
   assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2', '--output=shot.png'], base),
-    ['export', 'node', '1:2', '--output=/work/project/shot.png']);
+    ['export', 'node', '1:2', `--output=${inWorkspace('shot.png')}`]);
   assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2'], base).slice(-2),
-    ['-o', '/work/project/node-export.png']);
+    ['-o', inWorkspace('node-export.png')]);
   assert.deepEqual(normalizeOutputArgs(['export', 'screenshot'], base).slice(-2),
-    ['-o', '/work/project/screenshot.png']);
+    ['-o', inWorkspace('screenshot.png')]);
 
   // everything else passes through untouched
   assert.deepEqual(normalizeOutputArgs(['canvas', 'info'], base), ['canvas', 'info']);
@@ -145,13 +153,14 @@ test('figma_selection accepts only an optional file target', async () => {
 
 test('normalizeOutputArgs anchors map storybook output to the client workspace', async () => {
   const { normalizeOutputArgs } = await import('../src/engine.js');
-  const base = '/work/project';
+  const base = resolve('work', 'project');
+  const inWorkspace = (...parts) => join(base, ...parts);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base).slice(-2),
-    ['-o', '/work/project/figma-map.json']);
+    ['-o', inWorkspace('figma-map.json')]);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '-o', 'maps/m.json'], base),
-    ['map', 'storybook', 'u', '-o', '/work/project/maps/m.json']);
+    ['map', 'storybook', 'u', '-o', inWorkspace('maps', 'm.json')]);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '--output=m.json'], base),
-    ['map', 'storybook', 'u', '--output=/work/project/m.json']);
+    ['map', 'storybook', 'u', `--output=${inWorkspace('m.json')}`]);
 });
 
 test('figma-map: loader tolerates missing/corrupt files, annotates via both keys', async () => {
@@ -201,7 +210,7 @@ test('server.js parses — a syntax error here means "cannot attach to figma-saf
   // users as an MCP attach failure. node --check catches it without running.
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
-  await promisify(execFile)(process.execPath, ['--check', new URL('../src/server.js', import.meta.url).pathname]);
+  await promisify(execFile)(process.execPath, ['--check', fileURLToPath(new URL('../src/server.js', import.meta.url))]);
 });
 
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {
@@ -357,22 +366,25 @@ test('motion is allowlisted, is a real engine command, and is gated as a write',
 
 test('normalizeOutputArgs: verify-build paths resolve against the client workspace', async () => {
   const { normalizeOutputArgs } = await import('../src/engine.js');
-  const base = '/work/project';
+  const base = resolve('work', 'project');
+  const inWorkspace = (...parts) => join(base, ...parts);
   // projectDir positional + every path flag, separated and = forms.
   assert.deepEqual(
     normalizeOutputArgs(['verify-build', '.', '--compare', 'shot.png', '--design=fig.png',
       '--diff-out', 'diff.png', '--node', '12:34', '--max-diff', '5'], base),
-    ['verify-build', '/work/project', '--compare', '/work/project/shot.png',
-      '--design=/work/project/fig.png', '--diff-out', '/work/project/diff.png',
+    ['verify-build', base, '--compare', inWorkspace('shot.png'),
+      `--design=${inWorkspace('fig.png')}`, '--diff-out', inWorkspace('diff.png'),
       '--node', '12:34', '--max-diff', '5'],
   );
   // --node/--max-diff values are NOT paths and must never be absolutized —
   // and the value after them must not be mistaken for the positional.
   const args = normalizeOutputArgs(['verify-build', '--node', '1:2', 'proj'], base);
-  assert.deepEqual(args, ['verify-build', '--node', '1:2', '/work/project/proj']);
+  assert.deepEqual(args, ['verify-build', '--node', '1:2', inWorkspace('proj')]);
   // absolute inputs pass through untouched
+  const absoluteProject = resolve('abs', 'dir');
+  const absoluteBuild = resolve('abs', 'b.png');
   assert.deepEqual(
-    normalizeOutputArgs(['verify-build', '/abs/dir', '--compare', '/abs/b.png'], base),
-    ['verify-build', '/abs/dir', '--compare', '/abs/b.png'],
+    normalizeOutputArgs(['verify-build', absoluteProject, '--compare', absoluteBuild], base),
+    ['verify-build', absoluteProject, '--compare', absoluteBuild],
   );
 });

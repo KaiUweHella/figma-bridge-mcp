@@ -2,6 +2,7 @@
 // grep found all three dropped SVGs — this command is that grep, made a tool).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { verifyBuild, describeMissing } from '../src/lib/verify-build.js';
 
 const manifest = (assets) => ({ root: '1:1', rootName: 'Frame', assets });
@@ -99,7 +100,7 @@ test('verify-build --compare --design: offline visual diff end to end', async ()
   writeFileSync(join(dir, 'design.png'), mkPng(() => [255, 255, 255]));
   writeFileSync(join(dir, 'build.png'), mkPng((x, y) => (x < 40 && y < 30) ? [255, 0, 0] : [255, 255, 255]));
 
-  const entry = new URL('../src/index.js', import.meta.url).pathname;
+  const entry = fileURLToPath(new URL('../src/index.js', import.meta.url));
   const run = (extra) => promisify(execFile)(process.execPath,
     [entry, 'verify-build', dir, '--compare', join(dir, 'build.png'), '--design', join(dir, 'design.png'), '--json', ...extra])
     .then((r) => ({ code: 0, ...r }), (e) => ({ code: e.code, stdout: e.stdout, stderr: e.stderr }));

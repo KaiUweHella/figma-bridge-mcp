@@ -5,6 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { WebSocket } from 'ws';
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,6 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
 
-const PORT = 34571; // scratch port, outside the plugin range and other suites
 const TOKEN = 'test-daemon-token-rest';
 const KEY = 'test-access-key-rest-0123456789';
 const PAT = 'figd_test_token_value_never_logged';
@@ -29,9 +29,23 @@ const PAT = 'figd_test_token_value_never_logged';
 let tmp;
 let child;
 let restTokenFile;
+let port;
+let childStderr = '';
+
+function reservePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.unref();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      server.close((err) => err ? reject(err) : resolve(address.port));
+    });
+  });
+}
 
 function health() {
-  return fetch(`http://127.0.0.1:${PORT}/health`, {
+  return fetch(`http://127.0.0.1:${port}/health`, {
     headers: signRequest(TOKEN, 'GET', '/health', ''),
   });
 }
@@ -44,7 +58,10 @@ function waitForListen(timeoutMs = 5000) {
         const res = await health();
         if (res.ok) return resolve();
       } catch {}
-      if (Date.now() - start > timeoutMs) return reject(new Error('daemon did not start'));
+      if (Date.now() - start > timeoutMs) {
+        const detail = childStderr.trim();
+        return reject(new Error(`daemon did not start${detail ? `: ${detail}` : ''}`));
+      }
       setTimeout(tick, 100);
     };
     tick();
@@ -55,7 +72,7 @@ function waitForListen(timeoutMs = 5000) {
 // `messages` collects every parsed frame the daemon sends.
 function withWs(authenticate, fn) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/plugin`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/plugin`);
     const messages = [];
     const finish = (err) => {
       try { ws.close(); } catch {}
@@ -102,6 +119,7 @@ function waitFor(cond, timeoutMs = 3000) {
 }
 
 before(async () => {
+  port = await reservePort();
   tmp = mkdtempSync(join(tmpdir(), 'figma-bridge-rest-'));
   const tokenFile = join(tmp, 'token');
   const keyFile = join(tmp, 'key');
@@ -112,7 +130,7 @@ before(async () => {
   child = spawn(process.execPath, [DAEMON], {
     env: {
       ...process.env,
-      DAEMON_PORT: String(PORT),
+      DAEMON_PORT: String(port),
       DAEMON_TOKEN_FILE: tokenFile,
       DAEMON_PID_FILE: join(tmp, 'pid'),
       DAEMON_PORT_FILE: join(tmp, 'port'),
@@ -120,8 +138,9 @@ before(async () => {
       REST_TOKEN_FILE: restTokenFile,
       DAEMON_IDLE_TIMEOUT: '600000',
     },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  child.stderr.on('data', (chunk) => { childStderr += chunk.toString(); });
   await waitForListen();
 });
 
@@ -150,8 +169,10 @@ test('authenticated save writes the file 0600 and acks configured:true', async (
   const ack = messages.find((m) => m.type === 'rest-token-ack');
   assert.equal(ack.configured, true);
   assert.equal(readFileSync(restTokenFile, 'utf8'), PAT);
-  const mode = statSync(restTokenFile).mode & 0o777;
-  assert.equal(mode, 0o600, `rest-token file must be 0600, got ${mode.toString(8)}`);
+  if (process.platform !== 'win32') {
+    const mode = statSync(restTokenFile).mode & 0o777;
+    assert.equal(mode, 0o600, `rest-token file must be 0600, got ${mode.toString(8)}`);
+  }
 });
 
 test('/health and hello-ack report restTokenConfigured:true once saved', async () => {

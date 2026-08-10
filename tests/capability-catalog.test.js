@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { join, resolve } from 'node:path';
 import {
   listFigmaCapabilities,
   planFigmaCommand,
@@ -73,34 +74,35 @@ test('catalog specializes targeting, retry, timeout and background execution', (
 });
 
 test('catalog prepares every known project-relative path policy', () => {
-  const base = '/work/project';
+  const base = resolve('work', 'project');
+  const inWorkspace = (...parts) => join(base, ...parts);
   const argv = (args) => planFigmaCommand(args, { workspaceDir: base }).argv;
-  assert.deepEqual(argv(['extract']).slice(-1), ['/work/project/DESIGN.md']);
-  assert.deepEqual(argv(['export', 'assets', '1:2']).slice(-2), ['-o', '/work/project/assets']);
-  assert.deepEqual(argv(['export', 'node', '1:2', '--output=shot.png']).slice(-1), ['--output=/work/project/shot.png']);
-  assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-1), ['--output=/work/project/facts.json']);
-  assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), ['-o=/work/project/facts.json']);
+  assert.deepEqual(argv(['extract']).slice(-1), [inWorkspace('DESIGN.md')]);
+  assert.deepEqual(argv(['export', 'assets', '1:2']).slice(-2), ['-o', inWorkspace('assets')]);
+  assert.deepEqual(argv(['export', 'node', '1:2', '--output=shot.png']).slice(-1), [`--output=${inWorkspace('shot.png')}`]);
+  assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-1), [`--output=${inWorkspace('facts.json')}`]);
+  assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), [`-o=${inWorkspace('facts.json')}`]);
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);
-  assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', '/work/project/video.gif']);
-  assert.deepEqual(argv(['map', 'storybook', 'url']).slice(-2), ['-o', '/work/project/figma-map.json']);
+  assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', inWorkspace('video.gif')]);
+  assert.deepEqual(argv(['map', 'storybook', 'url']).slice(-2), ['-o', inWorkspace('figma-map.json')]);
   assert.deepEqual(
     argv(['verify-build', '.', '--compare', 'shot.png']),
-    ['verify-build', '/work/project', '--compare', '/work/project/shot.png'],
+    ['verify-build', base, '--compare', inWorkspace('shot.png')],
   );
   assert.deepEqual(
     argv(['verify', '1:2', '--save', 'shot.png']),
-    ['verify', '1:2', '--save', '/work/project/shot.png'],
+    ['verify', '1:2', '--save', inWorkspace('shot.png')],
   );
-  assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), ['node', 'set-image', '1:2', '/work/project/photo.png']);
+  assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), ['node', 'set-image', '1:2', inWorkspace('photo.png')]);
   assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
-    'tokens', 'sync', '/work/project/tokens.json', '--lockfile', '/work/project/.tokens.lock.json',
+    'tokens', 'sync', inWorkspace('tokens.json'), '--lockfile', inWorkspace('.tokens.lock.json'),
   ]);
-  assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), ['spec', 'Button', '--file=/work/project/design/DESIGN.md']);
-  assert.deepEqual(argv(['motion', 'apply', 'motion.json']), ['motion', 'apply', '/work/project/motion.json']);
+  assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), ['spec', 'Button', `--file=${inWorkspace('design', 'DESIGN.md')}`]);
+  assert.deepEqual(argv(['motion', 'apply', 'motion.json']), ['motion', 'apply', inWorkspace('motion.json')]);
   assert.deepEqual(argv(['history', 'diff', 'latest', 'live', '--changelog', 'changes.md']), [
-    'history', 'diff', 'latest', 'live', '--changelog', '/work/project/changes.md',
+    'history', 'diff', 'latest', 'live', '--changelog', inWorkspace('changes.md'),
   ]);
-  assert.deepEqual(argv(['export', 'dtcg', 'tokens.json']), ['export', 'dtcg', '/work/project/tokens.json']);
+  assert.deepEqual(argv(['export', 'dtcg', 'tokens.json']), ['export', 'dtcg', inWorkspace('tokens.json')]);
   assert.deepEqual(argv(['export', 'dtcg', '12:34']), ['export', 'dtcg', '12:34']);
 });
 

@@ -50,12 +50,12 @@ test("plugin dir ships exactly the three files connect installs", () => {
 });
 
 // The migration lives at module load of engine/src/lib/state-dir.js and keys
-// off homedir() — run it in a child process with a scratch HOME.
+// off homedir() — run it in a child process with a scratch home on Unix and Windows.
 function runMigration(home) {
   execFileSync(
     process.execPath,
     ["-e", "import('./engine/src/lib/state-dir.js').then(m => console.log(m.STATE_DIR))"],
-    { cwd: ROOT, env: { ...process.env, HOME: home }, encoding: "utf8" },
+    { cwd: ROOT, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" },
   );
 }
 
