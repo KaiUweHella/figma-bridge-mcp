@@ -108,8 +108,8 @@ locally on first connect.
 <summary>From source (contributors)</summary>
 
 ```bash
-git clone https://github.com/KaiUweHella/figma-cli-mcp.git
-cd figma-cli-mcp
+git clone https://github.com/KaiUweHella/figma-bridge-mcp.git
+cd figma-bridge-mcp
 npm install
 ```
 
@@ -118,7 +118,7 @@ npm install
   "mcpServers": {
     "figma-safe": {
       "command": "node",
-      "args": ["/absolute/path/to/figma-cli-mcp/src/server.js"]
+      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
     }
   }
 }
@@ -967,6 +967,13 @@ scans the whole range and the two daemons use different access keys — which on
 the plugin reaches first is a coin toss. This build isolates its own
 token/pid/port files under `~/.figma-bridge-mcp/`.
 
+## License
+
+figma-bridge-mcp is released under the [MIT License](LICENSE). It is provided
+"as is", without warranty; the exact warranty and liability terms are in the
+license itself. Third-party copyright and license notices are retained in
+[`NOTICE`](NOTICE) and [`engine/LICENSE`](engine/LICENSE).
+
 ## Inspiration & attribution
 
 Two projects shaped this one, in different ways.
@@ -985,8 +992,6 @@ local — a plugin socket on the loopback interface, no cloud relay, no patched
 binary. Nothing here is derived from its source; the tool surfaces, the
 transport and the plugin are unrelated. Where this project differs is that the
 socket also proves who is on the other end of it.
-
-figma-bridge-mcp itself is MIT — see [`LICENSE`](LICENSE).
 
 **Why the plugin id says `figma-safe-mcp-bridge`.** Figma keys a plugin's
 `clientStorage` — where the paired access key lives — on the plugin id.

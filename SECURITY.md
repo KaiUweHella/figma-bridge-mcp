@@ -11,7 +11,7 @@ the request signing is `engine/src/lib/daemon-auth.js`, the command allowlist is
 
 ## Reporting a vulnerability
 
-Open a [private security advisory](https://github.com/KaiUweHella/figma-cli-mcp/security/advisories/new)
+Open a [private security advisory](https://github.com/KaiUweHella/figma-bridge-mcp/security/advisories/new)
 on GitHub. Please do not open a public issue for a vulnerability. Include steps
 to reproduce and what an attacker gains.
 

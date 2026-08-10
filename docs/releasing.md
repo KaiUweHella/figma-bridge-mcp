@@ -18,6 +18,9 @@ token, and no custom REST client publishes packages.
    checkout; the CI `pack` job performs the same smoke test.
 5. Commit, create an exact `v<version>` tag, and push the commit and tag.
 
+The repository must be public before a provenance-bearing release, and
+`package.json#repository.url` must exactly match its canonical GitHub URL.
+
 An npm package name/version pair cannot be reused after publication. Check the
 tag, package version, and packed file list before continuing.
 
@@ -28,7 +31,7 @@ release is therefore an explicit maintainer operation:
 
 ```bash
 npm login
-npm publish
+npm publish --access public
 ```
 
 `publishConfig.access` makes the unscoped package public, and
@@ -36,11 +39,12 @@ npm publish
 not claim CI provenance.
 
 After the package exists, configure the GitHub workflow as its Trusted
-Publisher. With npm CLI 11.5.1 or newer and account-level 2FA enabled:
+Publisher. Publishing through OIDC needs npm 11.5.1 or newer; the `npm trust`
+configuration command itself needs npm 11.15.0 or newer and account-level 2FA:
 
 ```bash
 npm trust github figma-bridge-mcp \
-  --repo KaiUweHella/figma-cli-mcp \
+  --repo KaiUweHella/figma-bridge-mcp \
   --file publish.yml \
   --allow-publish
 ```

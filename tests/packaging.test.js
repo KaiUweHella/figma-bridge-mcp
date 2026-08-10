@@ -30,9 +30,26 @@ test("package.json files covers every runtime directory", () => {
 test("package identity: name, bin, repository, prepublish test gate", () => {
   assert.equal(pkg.name, "figma-bridge-mcp");
   assert.ok(pkg.bin["figma-bridge-mcp"], "bin entry present");
-  assert.match(pkg.repository.url, /github\.com/);
+  assert.equal(
+    pkg.repository.url,
+    "git+https://github.com/KaiUweHella/figma-bridge-mcp.git",
+    "npm provenance requires the canonical repository URL",
+  );
   assert.equal(pkg.scripts.prepublishOnly, "npm test", "publishing must run the suite");
   assert.equal(pkg.publishConfig.access, "public");
+});
+
+test("root MIT license stays canonical; third-party notices stay complete", () => {
+  const license = readFileSync(join(ROOT, "LICENSE"), "utf8");
+  const notice = readFileSync(join(ROOT, "NOTICE"), "utf8");
+  const upstreamLicense = readFileSync(join(ROOT, "engine", "LICENSE"), "utf8");
+  assert.match(license, /^MIT License\n\nCopyright \(c\) 2026 Kai-Uwe Hella and contributors\n\nPermission is hereby granted,/);
+  assert.doesNotMatch(license, /figma-ds-cli|Feather/, "attribution belongs in NOTICE, not the canonical license");
+  assert.match(notice, /Sil Bormüller/);
+  assert.match(notice, /retained in full at engine\/LICENSE/);
+  assert.match(upstreamLicense, /Copyright \(c\) 2026 Sil Bormüller/);
+  assert.match(notice, /Copyright \(c\) 2013-2023 Cole Bemis/);
+  assert.match(notice, /Permission is hereby granted, free of charge/);
 });
 
 test("test script uses Node discovery instead of shell-expanded globs", () => {

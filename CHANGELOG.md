@@ -3,7 +3,7 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
-## [0.4.0] — unreleased
+## [0.4.0] — 2026-08-10
 
 Breaking for existing pairings: after upgrading, run `figma_connect` and reopen
 the plugin window. The panel will tell you if you forget.

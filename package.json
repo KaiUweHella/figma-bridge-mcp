@@ -25,11 +25,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KaiUweHella/figma-cli-mcp.git"
+    "url": "git+https://github.com/KaiUweHella/figma-bridge-mcp.git"
   },
-  "homepage": "https://github.com/KaiUweHella/figma-cli-mcp#readme",
+  "homepage": "https://github.com/KaiUweHella/figma-bridge-mcp#readme",
   "bugs": {
-    "url": "https://github.com/KaiUweHella/figma-cli-mcp/issues"
+    "url": "https://github.com/KaiUweHella/figma-bridge-mcp/issues"
   },
   "keywords": [
     "figma",

@@ -3,8 +3,8 @@
 ## Getting set up
 
 ```bash
-git clone https://github.com/KaiUweHella/figma-cli-mcp.git
-cd figma-cli-mcp
+git clone https://github.com/KaiUweHella/figma-bridge-mcp.git
+cd figma-bridge-mcp
 npm install
 npm test
 ```
@@ -16,7 +16,7 @@ Point your MCP client at the checkout:
   "mcpServers": {
     "figma-safe": {
       "command": "node",
-      "args": ["/absolute/path/to/figma-cli-mcp/src/server.js"]
+      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
     }
   }
 }
