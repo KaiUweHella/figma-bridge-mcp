@@ -28,20 +28,30 @@ function evaluator({ selection = ['1:2'], section = null, walk = WALK_RESULT } =
   };
 }
 
-test('code-spec command returns the lossless default as values without a process adapter', async () => {
+test('code-spec command defaults to the readable agent tree without a process adapter', async () => {
   const adapter = evaluator();
   const result = await executeCodeSpec({ nodeId: '1-2', depth: 12 }, adapter);
-  const model = JSON.parse(result.stdout);
-  assert.equal(result.format, 'json-compact');
+  assert.equal(result.format, 'tree');
   assert.equal(result.nodeId, '1:2');
   assert.equal(result.stderr, '');
+  assert.match(result.stdout, /^# Code-Spec: Screen \(1:2\)/);
+  assert.match(result.stdout, /Exact copy/);
+  assert.match(result.stdout, /copy, never invent/);
+  assert.ok(result.stdout.split('\n').length > 5, 'default must be scannable, not one minified line');
+  assert.equal(adapter.calls.length, 1);
+});
+
+test('compact JSON remains an explicit lossless adapter', async () => {
+  const adapter = evaluator();
+  const result = await executeCodeSpec({ nodeId: '1:2', depth: 12, format: 'json-compact' }, adapter);
+  const model = JSON.parse(result.stdout);
+  assert.equal(result.format, 'json-compact');
   assert.equal(model.name, 'Screen');
   assert.equal(model.frames[0].kids[0].n, 'Exact copy');
   assert.deepEqual(model.capture, {
     phase: 'all', requestedDepth: 12, actualDepth: 12,
     includeHidden: false, payloadComplete: true, depthLimited: false,
   });
-  assert.equal(adapter.calls.length, 1);
 });
 
 test('code-spec command resolves selection and named section behind one Interface', async () => {
@@ -58,8 +68,27 @@ test('code-spec command validates its full Interface before touching Figma', asy
   const adapter = evaluator();
   await assert.rejects(() => executeCodeSpec({ phase: 'invent' }, adapter), /Unknown phase/);
   await assert.rejects(() => executeCodeSpec({ format: 'toml' }, adapter), /Unknown format/);
-  await assert.rejects(() => executeCodeSpec({ depth: 0 }, adapter), /between 1 and 30/);
+  await assert.rejects(() => executeCodeSpec({ depth: -1 }, adapter), /between 0 and 30/);
   assert.equal(adapter.calls.length, 0);
+});
+
+test('depth 0 is an exact node-only style contract', async () => {
+  const adapter = evaluator();
+  const result = await executeCodeSpec({ nodeId: '1:2', phase: 'style', depth: 0 }, {
+    ...adapter,
+    captureDesign: async () => ({
+      result: {
+        id: '1:2', name: 'Screen', visibleNodeCount: 1,
+        frames: [{ t: 'FRAME', n: 'Screen', id: '1:2', w: 320, h: 640 }], sets: [],
+      },
+      completeness: {
+        requestedDepth: 0, actualDepth: 0, payloadComplete: true, depthLimited: false,
+      },
+    }),
+  });
+  assert.match(result.stdout, /Screen/);
+  assert.doesNotMatch(result.stdout, /Exact copy/);
+  assert.doesNotMatch(result.stdout, /depth limit/);
 });
 
 test('code-spec command never disguises an empty selection or plugin error as a spec', async () => {
@@ -92,6 +121,44 @@ test('explicit-node requests accept one reusable Design Capture behind the Inter
   assert.equal(adapter.calls.length, 0, 'projection never performs its own walker eval');
   assert.equal(JSON.parse(structure.stdout).capture.phase, 'structure');
   assert.match(style.stdout, /phase: style/);
+});
+
+test('style projection refuses a depth-limited capture instead of inviting guesses', async () => {
+  const adapter = evaluator();
+  const captureDesign = async () => ({
+    result: {
+      id: '1:2', name: 'Screen', visibleNodeCount: 4,
+      frames: [{ t: 'FRAME', n: 'Screen', id: '1:2', more: 3 }], sets: [],
+    },
+    completeness: {
+      requestedDepth: 4, actualDepth: 4, payloadComplete: true, depthLimited: true,
+    },
+  });
+  const structure = await executeCodeSpec({ nodeId: '1:2', phase: 'structure', depth: 4 }, {
+    ...adapter, captureDesign,
+  });
+  assert.match(structure.stdout, /depth limit/);
+  await assert.rejects(
+    () => executeCodeSpec({ nodeId: '1:2', phase: 'style', depth: 4 }, { ...adapter, captureDesign }),
+    /exact style contract is incomplete/i,
+  );
+});
+
+test('style projection refuses unaccounted visible Figma layers even without a depth marker', async () => {
+  const adapter = evaluator();
+  const captureDesign = async () => ({
+    result: {
+      id: '1:2', name: 'Screen', visibleNodeCount: 3,
+      frames: [{ t: 'FRAME', n: 'Screen', id: '1:2' }], sets: [],
+    },
+    completeness: {
+      requestedDepth: 12, actualDepth: 12, payloadComplete: true, depthLimited: false,
+    },
+  });
+  await assert.rejects(
+    () => executeCodeSpec({ nodeId: '1:2', phase: 'style' }, { ...adapter, captureDesign }),
+    /2 visible Figma layer\(s\) are unaccounted/i,
+  );
 });
 
 test('cached projections equal fresh projections and execute only one walker', async () => {

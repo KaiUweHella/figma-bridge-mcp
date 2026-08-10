@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { walkerCode, nodeWalkerCode, dedupSiblings, formatTree } from '../src/design-extract.js';
 import {
   isVectorish, identSeg, layoutSeg, paintSeg, typeSeg, specLines, formatCodeSpec,
+  layerCoverage, specModel,
 } from '../src/lib/code-spec.js';
 
 // ============ walker v2 flags ============
@@ -30,6 +31,26 @@ test('nodeWalkerCode targets the node and walks it as the single frame', () => {
   assert.match(code, /"12:34"/);
   assert.match(code, /frames: \[await walk\(node, 0\)\]\.filter\(Boolean\)/);
   assert.doesNotThrow(() => new Function(`return ${code}`));
+});
+
+test('exact capture keeps complete text and native Figma CSS on every layer', async () => {
+  const longText = 'Exact '.repeat(80);
+  const root = {
+    id: 'css:1', name: 'Title', type: 'TEXT', visible: true, width: 240, height: 80,
+    characters: longText,
+    fontName: { family: 'Inter', style: 'Bold' }, fontSize: 32,
+    getCSSAsync: async () => ({ color: '#123456', 'font-size': '32px', 'text-align': 'center' }),
+    children: [],
+  };
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, {
+    resolveInstances: true, withIds: true, withVars: true, textLimit: 0,
+  }), root));
+  assert.equal(result.frames[0].txt.chars, longText, 'design-to-code text must never be truncated');
+  assert.deepEqual(result.frames[0].css, {
+    color: '#123456', 'font-size': '32px', 'text-align': 'center',
+  });
+  const output = formatCodeSpec(result, { phase: 'style', dedup: false });
+  assert.match(output, /css\{color:#123456; font-size:32px; text-align:center\}/);
 });
 
 // ============ hidden-node filtering (IMPROVEMENTS #1) ============
@@ -67,6 +88,57 @@ test('walker keeps invisible nodes with includeHidden, marked hidden:true', asyn
   assert.equal(kids.find((k) => k.n === 'Shown').hidden, undefined);
 });
 
+test('depth 0 captures the requested node completely without descending', async () => {
+  const result = JSON.parse(await runWalker(nodeWalkerCode('9:1', {
+    maxDepth: 0, withIds: true,
+  }), frameFixture()));
+  assert.equal(result.visibleNodeCount, 1);
+  assert.equal(result.frames.length, 1);
+  assert.equal(result.frames[0].id, '9:1');
+  assert.equal(result.frames[0].kids, undefined);
+  assert.equal(result.frames[0].more, undefined, 'node-only is intentional, not truncated');
+});
+
+test('exact component-set capture keeps the set id and includes every variant', async () => {
+  const variants = [
+    { id: 'set:2', key: 'REST', name: 'State=Rest', type: 'COMPONENT', visible: true, width: 80, height: 32, children: [] },
+    { id: 'set:3', key: 'HOVER', name: 'State=Hover', type: 'COMPONENT', visible: true, width: 80, height: 32, children: [] },
+  ];
+  const root = {
+    id: 'set:1', name: 'Button', type: 'COMPONENT_SET', visible: true,
+    width: 180, height: 32, children: variants, defaultVariant: variants[0],
+    variantGroupProperties: { State: { values: ['Rest', 'Hover'] } },
+  };
+  for (const variant of variants) variant.parent = root;
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, {
+    maxDepth: 1, withIds: true,
+  }), root));
+  assert.equal(result.frames[0].id, 'set:1');
+  assert.equal(result.frames[0].dvId, 'set:2');
+  assert.deepEqual(result.frames[0].kids.map((node) => node.id), ['set:2', 'set:3']);
+  assert.equal(layerCoverage(result.frames, result.visibleNodeCount).complete, true);
+});
+
+test('walker exposes Figma prototype scrolling and fixed-child facts', async () => {
+  const root = {
+    ...frameFixture(), overflowDirection: 'VERTICAL_SCROLLING', numberOfFixedChildren: 1,
+  };
+  for (const child of root.children) child.parent = root;
+  const result = JSON.parse(await runWalker(nodeWalkerCode('9:1'), root));
+  assert.equal(result.frames[0].scroll, 'VERTICAL_SCROLLING');
+  assert.equal(result.frames[0].kids[0].fixed, undefined);
+  assert.equal(result.frames[0].kids[1], undefined, 'hidden nodes remain excluded');
+
+  root.children[1].visible = true;
+  const withFixed = JSON.parse(await runWalker(nodeWalkerCode('9:1'), root));
+  assert.equal(withFixed.frames[0].kids[1].fixed, true);
+  assert.match(layoutSeg(withFixed.frames[0], { detail: false }), /scroll:vertical/);
+  assert.match(layoutSeg(withFixed.frames[0].kids[1], { detail: false }), /prototype-fixed/);
+  const model = specModel(withFixed, { phase: 'structure', dedup: false });
+  assert.equal(model.frames[0].scroll, 'VERTICAL_SCROLLING');
+  assert.equal(model.frames[0].kids[1].fixed, true);
+});
+
 test('a hidden ROOT yields an empty spec rather than a crash', async () => {
   const root = { ...frameFixture(), visible: false };
   const result = JSON.parse(await runWalker(nodeWalkerCode('9:1'), root));
@@ -76,6 +148,46 @@ test('a hidden ROOT yields an empty spec rather than a crash', async () => {
 test('specLines marks hidden nodes loudly', () => {
   const lines = specLines({ t: 'FRAME', n: 'Ghost', hidden: true, w: 10, h: 10 }, 0, 'all');
   assert.match(lines[0], /\(hidden — not rendered\)/);
+});
+
+test('structure map exposes every layer id so exact style calls are unambiguous', () => {
+  const lines = specLines({
+    t: 'FRAME', n: 'Root', id: '1:1', kids: [
+      { t: 'FRAME', n: 'Repeated name', id: '1:2' },
+      { t: 'FRAME', n: 'Repeated name', id: '1:3' },
+    ],
+  }, 0, 'structure');
+  assert.match(lines.join('\n'), /Root · \[1:1\]/);
+  assert.match(lines.join('\n'), /Repeated name · \[1:2\]/);
+  assert.match(lines.join('\n'), /Repeated name · \[1:3\]/);
+});
+
+test('layer coverage accounts for explicit rows, SVG internals and non-rendering helpers', () => {
+  const frames = [{
+    t: 'FRAME', n: 'Screen', kids: [
+      { t: 'GROUP', n: 'Logo', kids: [
+        { t: 'VECTOR', n: 'Path A' },
+        { t: 'VECTOR', n: 'Path B' },
+      ] },
+      { t: 'RECTANGLE', n: 'Bounds' },
+      { t: 'TEXT', n: 'Label', txt: { chars: 'Hello' } },
+    ],
+  }];
+  assert.deepEqual(layerCoverage(frames, 6), {
+    sourceVisible: 6,
+    captured: 6,
+    explicitRows: 3,
+    assetInternalLayers: 2,
+    componentInternalLayers: 0,
+    nonRenderingHelpers: 1,
+    unaccounted: 0,
+    complete: true,
+  });
+  const output = formatCodeSpec({ id: '1:1', name: 'Screen', visibleNodeCount: 6, frames }, {
+    phase: 'style', dedup: false,
+  });
+  assert.match(output, /Layer coverage: 6\/6 visible Figma layers accounted for/);
+  assert.match(output, /0 unaccounted/);
 });
 
 test('structure-only spec ends with the "pull style too" reminder; full spec does not', () => {
@@ -297,6 +409,54 @@ test('walker carries reported weight, enabled OpenType features and range axis m
   assert.deepEqual(text.txt.axisRanges, [{ start: 0, end: 5, axes: { wght: 357, wdth: 82 } }]);
 });
 
+test('walker and tree keep mixed rich-text run styles instead of flattening the text layer', async () => {
+  const mixed = Symbol('mixed');
+  const root = {
+    id: 'rt:1', name: 'Rich label', type: 'TEXT', visible: true, width: 160, height: 24,
+    characters: 'Hello world', fontName: mixed, fontWeight: mixed, fontSize: mixed,
+    lineHeight: mixed, letterSpacing: mixed, openTypeFeatures: mixed,
+    getStyledTextSegments: () => [
+      {
+        start: 0, end: 5, characters: 'Hello',
+        fontName: { family: 'Inter', style: 'Regular' }, fontWeight: 400, fontSize: 16,
+        lineHeight: { unit: 'PIXELS', value: 20 }, letterSpacing: { unit: 'PIXELS', value: 0 },
+        fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
+        textDecoration: 'NONE', textCase: 'ORIGINAL', openTypeFeatures: {}, boundVariables: {},
+      },
+      {
+        start: 6, end: 11, characters: 'world',
+        fontName: { family: 'Inter', style: 'Bold' }, fontWeight: 700, fontSize: 18,
+        lineHeight: { unit: 'PERCENT', value: 150 }, letterSpacing: { unit: 'PERCENT', value: 2 },
+        fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }],
+        textDecoration: 'UNDERLINE', textCase: 'UPPER', openTypeFeatures: { SS01: true }, boundVariables: {},
+      },
+    ],
+    children: [],
+  };
+  const figmaStub = {
+    mixed,
+    getNodeByIdAsync: async (id) => (id === root.id ? root : null),
+    getStyleByIdAsync: async () => null,
+    variables: { getVariableByIdAsync: async () => null },
+  };
+  const code = nodeWalkerCode(root.id, { resolveInstances: true, withIds: true, withVars: true, textLimit: 0 });
+  const result = JSON.parse(await new Function('figma', `return ${code}`)(figmaStub));
+  const runs = result.frames[0].txt.runs;
+  assert.equal(runs.length, 2);
+  assert.deepEqual(runs[0], {
+    start: 0, end: 5, chars: 'Hello', font: 'Inter', style: 'Regular', weight: 400,
+    size: 16, lh: 20, fills: ['#ff0000'],
+  });
+  assert.deepEqual(runs[1], {
+    start: 6, end: 11, chars: 'world', font: 'Inter', style: 'Bold', weight: 700,
+    size: 18, lh: 27, ls: '2%', fills: ['#0000ff'], decoration: 'UNDERLINE',
+    case: 'UPPER', ot: ['SS01'],
+  });
+  const output = formatCodeSpec(result, { phase: 'style', dedup: false });
+  assert.match(output, /runs\{0:5 "Hello" → Inter Regular fw400 16\/20 · fill #ff0000/);
+  assert.match(output, /6:11 "world" → Inter Bold fw700 18\/27 ls2% · fill #0000ff · decoration:underline · case:upper · ot\(SS01\)/);
+});
+
 const SPEC_FIXTURE = {
   id: '1:2', name: 'Dashboard',
   frames: [{
@@ -314,7 +474,7 @@ const SPEC_FIXTURE = {
   }],
 };
 
-test('specLines structure phase: hierarchy + content, no sizes, no ids, vectors skipped', () => {
+test('specLines structure phase: hierarchy + content + target ids, no sizes', () => {
   const lines = specLines(SPEC_FIXTURE.frames[0], 0, 'structure');
   const text = lines.join('\n');
   assert.match(text, /Stats · row/);
@@ -322,7 +482,7 @@ test('specLines structure phase: hierarchy + content, no sizes, no ids, vectors 
   // The OVERRIDE characters, not the stale layer name:
   assert.match(text, /Total plants: "Need water"/);
   assert.doesNotMatch(text, /1008×145/);
-  assert.doesNotMatch(text, /\[1:3\]/);
+  assert.match(text, /\[1:3\]/);
   assert.doesNotMatch(text, /Vector/);
 });
 

@@ -229,7 +229,7 @@ test('unknownParamError: wrong parameter names get a "did you mean" instead of s
   assert.match(unknownParamError('figma_screenshot', { banana: 1 }), /Unknown parameter "banana"\./);
 });
 
-test('MCP handshake metadata stays compact and routes detail on demand', async () => {
+test('MCP handshake keeps the complete fidelity path in the initial context', async () => {
   // MCP clients (Claude Code) cut server instructions at 2,048 characters —
   // acceptance testing proved everything past that point silently never reaches the
   // model (the verify checklist was cut off, and exactly its items were the
@@ -237,12 +237,16 @@ test('MCP handshake metadata stays compact and routes detail on demand', async (
   // full guide belongs in WORKFLOW_GUIDE (figma_reference "workflow") or in
   // tool outputs, which are not truncated.
   const { INSTRUCTIONS, WORKFLOW_GUIDE, TOOLS, workflowGuideFor } = await import('../src/server.js');
-  assert.ok(INSTRUCTIONS.length < 650,
-    `INSTRUCTIONS is ${INSTRUCTIONS.length} chars — keep the handshake concise; detail is on demand.`);
-  assert.ok(INSTRUCTIONS.length + JSON.stringify(TOOLS).length < 10_800,
-    'server instructions + tool schemas exceeded the Phase-1 metadata budget');
-  // The short form must point at the full guide, and the guide must carry
-  // the checklist that got lost in an acceptance run.
+  assert.ok(INSTRUCTIONS.length < 2000,
+    `INSTRUCTIONS is ${INSTRUCTIONS.length} chars — Claude Code truncates at 2048.`);
+  // These steps cannot be hidden behind an optional reference call. an earlier acceptance run
+  // proved that a capable agent can otherwise read every spec and still ship
+  // zero real assets, invented SVGs and no verification pass.
+  assert.match(INSTRUCTIONS, /figma_screenshot/);
+  assert.match(INSTRUCTIONS, /export","assets/);
+  assert.match(INSTRUCTIONS, /Never substitute CSS|never substitute CSS/i);
+  assert.match(INSTRUCTIONS, /verify-build/);
+  assert.match(INSTRUCTIONS, /Do not finish|before declaring done/i);
   assert.match(INSTRUCTIONS, /figma_reference \{name:"workflow"\}/);
   assert.match(WORKFLOW_GUIDE, /never border-image/);
   assert.match(WORKFLOW_GUIDE, /verify-build/);
@@ -270,8 +274,14 @@ test('specialized Figma tools expose consistent explicit file targeting', async 
   assert.ok(status.inputSchema.properties.validateRest, 'REST validation must be explicit/lazy');
   const spec = TOOLS.find((candidate) => candidate.name === 'figma_spec');
   assert.ok(spec.inputSchema.properties.format.enum.includes('json-compact'));
-  assert.equal(spec.inputSchema.properties.format.default, 'json-compact');
-  assert.match(spec.inputSchema.properties.format.description, /json-compact \(default\)/);
+  assert.equal(spec.inputSchema.properties.format.default, 'tree');
+  assert.match(spec.inputSchema.properties.format.description, /tree \(default\)/);
+  assert.equal(spec.inputSchema.properties.dedup.default, false,
+    'MCP design-to-code must inline local styles unless compact mapping is requested');
+  assert.match(spec.inputSchema.properties.dedup.description, /every layer/i);
+  assert.match(spec.description, /never invent/i);
+  const screenshot = TOOLS.find((candidate) => candidate.name === 'figma_screenshot');
+  assert.match(screenshot.description, /mandatory/i);
 });
 
 test('oversized specs are refused as incomplete, never partially or silently truncated', async () => {
@@ -286,7 +296,22 @@ test('oversized specs are refused as incomplete, never partially or silently tru
   assert.match(guarded.text, /complete: false/);
   assert.match(guarded.text, /No partial design data was returned/);
   assert.match(guarded.text, /phase.*structure/);
+  assert.match(guarded.text, /depth 0/);
+  assert.match(guarded.text, /dedup true/);
   assert.equal(budgetSpecOutput('small', { limit: 100 }).text, 'small');
+});
+
+test('oversized exact specs retry once with lossless dedup before refusing', async () => {
+  const { fitSpecOutput } = await import('../src/server.js');
+  const modes = [];
+  const fitted = await fitSpecOutput(async (dedup) => {
+    modes.push(dedup);
+    return { stdout: dedup ? 'shared S1 refs' : 'x'.repeat(200) };
+  }, { dedup: false, limit: 100, nodeId: '1:2' });
+  assert.deepEqual(modes, [false, true]);
+  assert.equal(fitted.automaticDedup, true);
+  assert.equal(fitted.budgeted.text, 'shared S1 refs');
+  assert.equal(fitted.exactChars, 200);
 });
 
 test('asset background jobs include the target file in their identity', async () => {
@@ -314,7 +339,7 @@ test('verify-build passes the figma_run allowlist as a read-only command', async
   assert.equal(isWrite(['verify-build', '/some/project']), false);
 });
 
-test('okExitCodes lets a command use its exit code as an answer, not a failure', async () => {
+test('verify-build returns its report on exit 1 because findings are an answer', async () => {
   const { runCli } = await import('../src/engine.js');
   const { mkdtempSync, rmSync } = await import('node:fs');
   // verify-build exits 1 when a project is missing exported assets, and
@@ -323,13 +348,7 @@ test('okExitCodes lets a command use its exit code as an answer, not a failure',
   // connection, so the test means the same thing on a CI box as it does here.
   const dir = mkdtempSync(join(tmpdir(), 'figma-okexit-'));
   try {
-    await assert.rejects(
-      () => runCli(['verify-build', dir]),
-      /exited with code/,
-      'unlisted exit codes must still throw — a blanket ignore would hide real breakage',
-    );
-
-    const res = await runCli(['verify-build', dir], { okExitCodes: [0, 1] });
+    const res = await runCli(['verify-build', dir]);
     assert.equal(res.code, 1);
     // The output still comes back — that is the whole point of allowing it.
     assert.ok((res.stdout + res.stderr).length > 0, 'output must survive the allowed exit code');

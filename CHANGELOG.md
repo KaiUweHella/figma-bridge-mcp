@@ -3,6 +3,39 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
+## Unreleased
+
+### Fixed
+
+- Restored the readable `tree` design-spec default after a Sonnet 5 regression
+  test showed that the lossless compact-JSON default expanded a 6.5k/83-line
+  structure map into a 45k one-line response, pushed a central style response
+  beyond the client's tool limit, and led the agent to invent artwork.
+- Restored the mandatory screenshot → structure → tokens → assets → style →
+  verify sequence to the initial MCP instructions. The 0.4.0 on-demand guide
+  accidentally made asset export and verification optional in practice; the
+  observed build shipped zero of 34 Figma assets and never ran `verify-build`.
+- Kept YAML, pretty JSON and compact JSON as explicit lossless canonical-model
+  adapters; the rollback changes presentation defaults, not captured facts.
+- Added an exact per-layer implementation contract: MCP specs inline native
+  Figma Inspect CSS and existing layout/paint/token facts by default, expose
+  every layer id, retain complete copy and mixed rich-text range styles, and
+  no longer collapse identical siblings when deduplication is disabled.
+- Added visible-layer accounting. Style projections now fail instead of asking
+  an agent to guess when depth limits or an unexplained capture gap leave a
+  Figma layer unaccounted; SVG/component internals and non-rendering helpers
+  are classified explicitly.
+- Added complete node-only style capture with `depth:0`, including an output-
+  budget retry recipe that pulls container styles before bounded child calls
+  and uses lossless deduplication for repeated lists/cards.
+- Return `verify-build` findings through MCP when the verifier exits 1, keep
+  exported CSS token names identical to native Figma `var(...)` references,
+  and expose explicit prototype scrolling/fixed-child facts without inferring
+  sticky behavior from geometry.
+- Flag multi-megabyte PNGs used only at small sizes and add opt-in
+  `export assets --raster-scale 2` downsampling with retina-density and
+  manifest source/output-dimension facts; originals remain the default.
+
 ## [0.4.0] — 2026-08-10
 
 Breaking for existing pairings: after upgrading, run `figma_connect` and reopen

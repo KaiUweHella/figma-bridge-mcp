@@ -165,6 +165,14 @@ export const cellSeg = (cell) => {
 export function layoutSeg(node, { detail }) {
   const parts = [];
   if (node.lm) parts.push(node.lm === 'GRID' ? gridSeg(node) : dirName(node.lm));
+  if (node.scroll) {
+    const scroll = {
+      HORIZONTAL_SCROLLING: 'horizontal', VERTICAL_SCROLLING: 'vertical',
+      HORIZONTAL_AND_VERTICAL_SCROLLING: 'both',
+    }[node.scroll] || String(node.scroll).toLowerCase();
+    parts.push(`scroll:${scroll}`);
+  }
+  if (node.fixed) parts.push('prototype-fixed');
   // Structural placement reads BEFORE the flow detail — the reader must know
   // "this is a grid cell / not a flow child" first.
   if (node.cell) parts.push(cellSeg(node.cell));
@@ -256,7 +264,30 @@ export function typeSeg(node) {
     }
   }
   if (t.axisMetadataError) parts.push(`axes-meta-error(${t.axisMetadataError})`);
+  if (Array.isArray(t.runs) && t.runs.length) {
+    const runs = t.runs.map((run) => {
+      const { ot, decoration, case: textCase, fills, fs, bv, ...typography } = run;
+      const runNode = { txt: typography, fills, fs, bv };
+      const detail = [
+        typeSeg(runNode),
+        paintSeg(runNode),
+        decoration ? `decoration:${String(decoration).toLowerCase()}` : '',
+        textCase ? `case:${String(textCase).toLowerCase()}` : '',
+        Array.isArray(ot) && ot.length ? `ot(${ot.join(',')})` : '',
+      ].filter(Boolean).join(' · ');
+      return `${run.start}:${run.end} ${JSON.stringify(run.chars)} → ${detail}`;
+    });
+    parts.push(`runs{${runs.join(' | ')}}`);
+  }
   return parts.join(' ');
+}
+
+/** Native Figma Inspect CSS, kept local to the layer that owns it. */
+export function cssSeg(node) {
+  if (!node.css || typeof node.css !== 'object') return '';
+  const entries = Object.entries(node.css);
+  if (!entries.length) return '';
+  return `css{${entries.map(([property, value]) => `${property}:${value}`).join('; ')}}`;
 }
 
 // ============ style dedup (content-addressed, Framelink-style) ============
@@ -278,8 +309,8 @@ export function typeSeg(node) {
 
 // NOTE: `abs` (overlay position) is deliberately NOT a style field — position
 // is per-node geometry; two badges sharing a style sit at different corners.
-const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'fx', 'op', 'rot', 'clip', 'bv'];
-const STYLE_TXT_KEYS = ['ts', 'font', 'style', 'weight', 'size', 'lh', 'ls', 'ot', 'axisRanges', 'axisMetadataError'];
+const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'fx', 'op', 'rot', 'clip', 'bv', 'css'];
+const STYLE_TXT_KEYS = ['ts', 'font', 'style', 'weight', 'size', 'lh', 'ls', 'ot', 'axisRanges', 'axisMetadataError', 'runs'];
 /** Below this rendered length a ref saves nothing — leave the value inline. */
 const DEDUP_MIN_DEF_LEN = 16;
 
@@ -324,7 +355,7 @@ export function bundleKey(node) {
  * so the definition must not bake one node's geometry into the shared text. */
 function bundleDef(node) {
   const { lm, grid, cell, abs, ov, ...styleOnly } = node;
-  return [layoutSeg(styleOnly, { detail: true }), paintSeg(styleOnly), typeSeg(styleOnly)].filter(Boolean).join(' · ');
+  return [layoutSeg(styleOnly, { detail: true }), cssSeg(styleOnly), paintSeg(styleOnly), typeSeg(styleOnly)].filter(Boolean).join(' · ');
 }
 
 /**
@@ -551,7 +582,10 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
     // absolute position, overhang are per-node, never part of the bundle.
     // (Refs used to drop `abs`, so every repeated badge lost its position.)
     const structural = layoutSeg(
-      { lm: node.lm, grid: node.grid, cell: node.cell, abs: node.abs, ov: node.ov },
+      {
+        lm: node.lm, grid: node.grid, cell: node.cell, abs: node.abs, ov: node.ov,
+        scroll: node.scroll, fixed: node.fixed,
+      },
       { detail: false },
     );
     if (structural) segs.push(structural);
@@ -560,6 +594,8 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
     const layout = layoutSeg(node, { detail });
     if (layout) segs.push(layout);
     if (detail) {
+      const css = cssSeg(node);
+      if (css) segs.push(css);
       const paint = paintSeg(node, { ancestors });
       if (paint) segs.push(paint);
       const type = typeSeg(node);
@@ -574,7 +610,9 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
   if (detail && behind?.length && !node.fills && node.kids?.length) {
     segs.push(`fill:none (transparent — ${behind.map((n) => `"${n}"`).join(', ')} behind it stays visible through this frame; do NOT give it an opaque background)`);
   }
-  if (detail && node.id) segs.push(`[${node.id}]`);
+  // IDs belong to the structure contract too: repeated names are common in
+  // Figma, and an exact follow-up style call must never target by guesswork.
+  if (node.id) segs.push(`[${node.id}]`);
   if (node.repeat) segs.push(`×${node.repeat}`);
   const lines = [`${'  '.repeat(depth)}- ${segs.filter(Boolean).join(' · ')}`];
   // Icon instances collapse: their identity is the main-component name, the
@@ -584,7 +622,7 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
   // --no-dedup) render every sibling in full.
   const kidList = ctx
     ? groupInstanceSiblings(dedupSiblings(rawKids))
-    : dedupSiblings(rawKids);
+    : rawKids;
   // Absolutely-positioned siblings BEHIND each kid (z-order = sibling order):
   // a later fill-less container must keep them visible through itself.
   const behindOverlays = [];
@@ -632,6 +670,56 @@ export function countAssetFiles(frames) {
   };
   for (const f of frames || []) visit(f, []);
   return files;
+}
+
+/**
+ * Account for every visible captured layer, including layers intentionally
+ * represented by one exported SVG and paint-less helpers that render no UI.
+ * sourceVisible comes from the live Figma tree before depth projection.
+ */
+export function layerCoverage(frames, sourceVisible = null) {
+  const coverage = {
+    captured: 0,
+    explicitRows: 0,
+    assetInternalLayers: 0,
+    componentInternalLayers: 0,
+    nonRenderingHelpers: 0,
+  };
+  const subtreeSize = (node) => node.hidden
+    ? 0
+    : 1 + (node.kids || []).reduce((sum, child) => sum + subtreeSize(child), 0);
+  const visit = (node) => {
+    if (node.hidden) return;
+    if (isVectorArt(node) || isVectorCluster(node)) {
+      const size = subtreeSize(node);
+      coverage.captured += size;
+      coverage.explicitRows += 1;
+      coverage.assetInternalLayers += Math.max(0, size - 1);
+      return;
+    }
+    coverage.captured += 1;
+    if (isInvisibleHelper(node)) {
+      coverage.nonRenderingHelpers += 1;
+      return;
+    }
+    coverage.explicitRows += 1;
+    if (isIconInstance(node)) {
+      const internals = (node.kids || []).reduce((sum, child) => sum + subtreeSize(child), 0);
+      coverage.captured += internals;
+      coverage.componentInternalLayers += internals;
+      return;
+    }
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of frames || []) visit(frame);
+  const source = Number.isInteger(sourceVisible) ? sourceVisible : coverage.captured;
+  const unaccounted = Math.max(0, source - coverage.captured);
+  return {
+    sourceVisible: source,
+    ...coverage,
+    unaccounted,
+    complete: unaccounted === 0,
+  };
 }
 
 /** True when any node in the frames satisfies pred. Pure. */
@@ -758,7 +846,7 @@ const INTERACTIVE_STATE_VALUE = /^(hover|active|press(ed)?|focus(ed)?|disabled|s
  */
 export function specChecks(result) {
   const frames = result.frames || [];
-  const checks = {};
+  const checks = { layerCoverage: layerCoverage(frames, result.visibleNodeCount) };
   const assets = [...countAssetFiles(frames)].sort();
   if (assets.length) {
     checks.assets = { count: assets.length, files: assets.map((file) => `assets/${file}`) };
@@ -848,11 +936,16 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     }
   }
   out.push('_Figma facts: copy, never invent content/names. `→ var(name)` = token binding; `style:<name>` / `→ style(name)` = shared style._');
+  const coverage = layerCoverage(result.frames || [], result.visibleNodeCount);
+  out.push('', `_Layer coverage: ${coverage.captured}/${coverage.sourceVisible} visible Figma layers accounted for; ${coverage.explicitRows} explicit implementation row(s), ${coverage.assetInternalLayers} SVG-internal, ${coverage.componentInternalLayers} component-internal, ${coverage.nonRenderingHelpers} non-rendering helper(s), ${coverage.unaccounted} unaccounted.${coverage.complete ? '' : ' INCOMPLETE — request deeper or smaller node specs before coding.'}_`);
   if (phase !== 'structure') {
     out.push('', '_Sibling order = z-order; `clip` = `overflow:hidden`; `abs` offsets are parent-relative. Export/place every `vector art → assets/…` at its rendered W×H/offset; retain `overhangs parent`._');
   }
   if (anyNode(result.frames, (n) => n.lm === 'GRID')) {
     out.push('', '_`grid R×C` = a CSS grid, not flex. `cell row:N col:M /span S` maps directly to CSS grid placement; offsets are the cross-check._');
+  }
+  if (anyNode(result.frames, (n) => n.scroll || n.fixed)) {
+    out.push('', '_Prototype facts are explicit: `scroll:vertical|horizontal|both` is the Figma overflow direction; `prototype-fixed` stays fixed inside that scrolling frame. Do not infer fixed/sticky behavior for unmarked layers._');
   }
   // Completeness yardstick: dropped assets (the overhanging SVGs) are the
   // top fidelity bug — give the consumer a number to check off against.
@@ -955,6 +1048,8 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     if (node.id) o.id = node.id;
     if (node.hidden) o.hidden = true;
     if (node.lm) o.dir = dirName(node.lm);
+    if (node.scroll) o.scroll = node.scroll;
+    if (node.fixed) o.fixed = true;
     if (node.grid) o.grid = node.grid;
     if (node.cell) o.cell = node.cell;
     // Content / identity (structure information):

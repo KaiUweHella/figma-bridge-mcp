@@ -5,7 +5,7 @@
 // outside this seam. That gives CLI and MCP the same behaviour and makes the
 // command directly testable without booting a process.
 import { sectionFinderCode } from '../design-extract.js';
-import { formatCodeSpec, specModel } from '../lib/code-spec.js';
+import { formatCodeSpec, layerCoverage, specModel } from '../lib/code-spec.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   createDesignCaptureModule,
@@ -45,8 +45,8 @@ function normalizedRequest(request = {}) {
     throw new Error(`Unknown format "${request.format}" — use ${CODE_SPEC_FORMATS.join(', ')}.`);
   }
   const depth = Number.parseInt(request.depth ?? 12, 10);
-  if (!Number.isInteger(depth) || depth < 1 || depth > 30) {
-    throw new Error('depth must be an integer between 1 and 30.');
+  if (!Number.isInteger(depth) || depth < 0 || depth > 30) {
+    throw new Error('depth must be an integer between 0 and 30.');
   }
   if (request.section != null && (typeof request.section !== 'string' || request.section.length === 0)) {
     throw new Error('section must be a non-empty string (a layer name from the structure map).');
@@ -127,6 +127,20 @@ export async function executeCodeSpec(request, adapters = {}) {
   }
   const result = capture.result;
   const depth = capture.completeness.actualDepth;
+  if (input.phase !== 'structure' && capture.completeness.depthLimited) {
+    throw new Error(
+      `Exact style contract is incomplete at depth ${depth}. ` +
+      'Request the child node ids from the structure map as smaller figma_spec calls, ' +
+      'or raise depth; styling from a truncated tree would require guessing.',
+    );
+  }
+  const coverage = layerCoverage(result.frames, result.visibleNodeCount);
+  if (input.phase !== 'structure' && !coverage.complete) {
+    throw new Error(
+      `Exact style contract is incomplete: ${coverage.unaccounted} visible Figma layer(s) are unaccounted. ` +
+      'Use the ids from the structure map to request smaller child-node specs; never fill the gap by inference.',
+    );
+  }
   if (depth < input.depth) {
     diagnostics.push(`⚠ payload limit — reduced depth to ${depth}; nested content may be truncated`);
   }

@@ -25,6 +25,7 @@ import {
   walkWithDepthRetry,
 } from '../application/code-spec-command.js';
 import { executeScreenshot } from '../application/screenshot-command.js';
+import { optimizePngForUsages } from '../lib/raster-optimize.js';
 
 // Compatibility export for existing tests/callers while the Implementation
 // now lives behind the command application's Interface.
@@ -287,9 +288,10 @@ function placement(n) {
 
 exp
   .command('assets <nodeId>')
-  .description('Export every image fill and vector artwork under a node as real files (PNG/JPG originals, SVG) plus an assets.json manifest — the spec\'s `→ assets/…` references point at exactly these files')
+  .description('Export every image fill and vector artwork under a node as real files (PNG/JPG, SVG) plus an assets.json manifest — the spec\'s `→ assets/…` references point at exactly these files')
   .option('-o, --output <dir>', 'Output directory', 'assets')
   .option('--max <n>', 'Maximum number of assets to export (largest first; dropped ones are LISTED, never silent)', '100')
+  .option('--raster-scale <n>', 'Downsample oversized PNG fills to n× their largest Figma usage (0 keeps originals; try 2 for retina)', '0')
   .action(async (nodeId, options) => {
     await checkConnection();
     nodeId = normalizedId(nodeId);
@@ -299,6 +301,11 @@ exp
     // here and echoing the absolute path makes the target unambiguous.
     const outDir = resolve(options.output);
     const max = parseInt(options.max) || 100;
+    const rasterScale = Number(options.rasterScale);
+    if (!Number.isFinite(rasterScale) || rasterScale < 0 || rasterScale > 4) {
+      console.error(chalk.red('✗ --raster-scale must be a number between 0 and 4.'));
+      process.exit(1);
+    }
     const parse = (res) => (typeof res === 'string' ? JSON.parse(res) : res);
     try {
       // Phase A: one cheap eval collects the manifest (ids + names, no bytes).
@@ -355,16 +362,38 @@ exp
       // Phase B: one round-trip per asset — payload-safe for big artworks.
       const manifest = [];
       const failures = [];
+      const optimizedRasters = [];
+      const oversizedRasters = [];
       for (const job of jobs) {
         const base = assetSlug(effectiveAssetName(job.name, job.ancestors));
         try {
           if (job.kind === 'image') {
             const res = parse(await fastEval(imageBytesCode(job.hash)));
             if (res?.error) throw new Error(res.error);
-            const buf = Buffer.from(res.base64, 'base64');
-            const file = writeUnique(base, sniffExt(buf), buf);
+            const source = Buffer.from(res.base64, 'base64');
+            const ext = sniffExt(source);
+            const raster = ext === 'png'
+              ? optimizePngForUsages(source, job.nodes, rasterScale)
+              : { buffer: source, optimized: false };
+            const file = writeUnique(base, ext, raster.buffer);
+            if (raster.optimized) {
+              optimizedRasters.push({ file, savedBytes: raster.savedBytes });
+            } else if (rasterScale === 0 && source.length >= 1024 * 1024
+                && Math.max(...job.nodes.map((n) => Math.max(n.w, n.h))) <= 256) {
+              oversizedRasters.push({ file, bytes: source.length, nodes: job.nodes });
+            }
             for (const n of job.nodes) {
-              manifest.push({ nodeId: n.id, name: n.name, file, kind: 'image', width: n.w, height: n.h, ...placement(n) });
+              manifest.push({
+                nodeId: n.id, name: n.name, file, kind: 'image', width: n.w, height: n.h,
+                ...(raster.optimized ? {
+                  optimizedForScale: rasterScale,
+                  pixelWidth: raster.width,
+                  pixelHeight: raster.height,
+                  sourcePixelWidth: raster.sourceWidth,
+                  sourcePixelHeight: raster.sourceHeight,
+                } : {}),
+                ...placement(n),
+              });
             }
           } else {
             const res = parse(await fastEval(svgBytesCode(job.id)));
@@ -415,6 +444,18 @@ exp
           const over = m.overhang ? ' — overhangs, keep visible' : '';
           console.log(`  - ${m.file}${at} in "${m.parent || 'root'}"${over}`);
         }
+      }
+      if (optimizedRasters.length) {
+        const saved = optimizedRasters.reduce((sum, item) => sum + item.savedBytes, 0);
+        console.log(chalk.green('✓'), `${optimizedRasters.length} oversized PNG(s) downsampled for ${rasterScale}× use; saved ${(saved / 1024).toFixed(0)} KiB`);
+      }
+      if (oversizedRasters.length) {
+        console.log(chalk.yellow(`⚠ ${oversizedRasters.length} PNG(s) exceed 1 MiB although every usage is at most 256px:`));
+        for (const item of oversizedRasters.slice(0, 10)) {
+          const maxUse = Math.max(...item.nodes.map((n) => Math.max(n.w, n.h)));
+          console.log(`  - ${item.file}: ${(item.bytes / 1024 / 1024).toFixed(1)} MiB for max ${maxUse}px use`);
+        }
+        console.log('  Re-run this export with --raster-scale 2 for a retina-sized PNG; placement and CSS crop semantics stay unchanged.');
       }
       console.log(`Before declaring the build done: every file above must be referenced in the project — run \`verify-build <projectDir>\` to check the whole manifest mechanically (or grep each filename).`);
       if (kept > 0) console.log(chalk.gray(`  manifest merged: ${kept} entr${kept === 1 ? 'y' : 'ies'} from earlier export(s) kept`));
@@ -537,7 +578,7 @@ exp
   .option('--include-hidden', 'Include invisible nodes, marked "(hidden — not rendered)" (default: filtered out)')
   .option(
     '-f, --format <fmt>',
-    'json-compact (lossless agent default) | tree (compact presentation) | yaml | json',
+    'tree (readable agent default) | yaml | json | json-compact (lossless canonical model)',
     DEFAULT_SPEC_FORMAT,
   )
   .option('--no-dedup', 'Print every style value inline instead of S<n> bundle refs')

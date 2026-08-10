@@ -6,7 +6,7 @@
 // proved that the same connection is still on the same document revision.
 import { nodeWalkerCode } from '../design-extract.js';
 
-export const DESIGN_CAPTURE_SCHEMA_VERSION = 1;
+export const DESIGN_CAPTURE_SCHEMA_VERSION = 3;
 
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -62,7 +62,7 @@ function captureKey(request) {
  * errors (never below 4) and retrying one blank result per execution.
  */
 export async function walkWithDepthRetry(requested, attempt) {
-  let depth = Math.max(1, requested);
+  let depth = Math.max(0, requested);
   let blankRetries = 1;
   for (;;) {
     try {
@@ -84,8 +84,8 @@ function normalizedRequest(request = {}) {
   if (!request.nodeId || typeof request.nodeId !== 'string') {
     throw new TypeError('Design Capture requires an explicit nodeId');
   }
-  if (!Number.isInteger(depth) || depth < 1 || depth > 30) {
-    throw new Error('Design Capture depth must be an integer between 1 and 30');
+  if (!Number.isInteger(depth) || depth < 0 || depth > 30) {
+    throw new Error('Design Capture depth must be an integer between 0 and 30');
   }
   return Object.freeze({
     nodeId: request.nodeId,
@@ -160,7 +160,9 @@ export function createDesignCaptureModule({
     const { result, depth } = await walkWithDepthRetry(request.depth, async (candidateDepth) => {
       const response = await evaluateWithMetadata(nodeWalkerCode(request.nodeId, {
         maxDepth: candidateDepth,
-        textLimit: 200,
+        // 0 = unlimited. Truncating copy is acceptable for a page census, but
+        // never for the canonical design-to-code Capture.
+        textLimit: 0,
         resolveInstances: true,
         withIds: true,
         withVars: true,

@@ -35,8 +35,9 @@ test('formatCssTokens: every test failure case produces valid CSS', () => {
   assert.match(out, /--color-on-primary: #080713;/);
   assert.match(out, /--fonts-fontweight-default: 400;/);
   assert.match(out, /--icon-strokewidth-xs: 1\.17px;/);
-  // font family: grouped, quoted, with a source comment
-  assert.match(out, /--font-family-headline-font: "Freight";/);
+  // Font-family detection may group the rule, but it must preserve the
+  // canonical Figma variable name used by native CSS references.
+  assert.match(out, /--headline-font: "Freight";/);
   // The comment is a workflow STEP (load the family, never a look-alike or
   // system fallback), not just a label — a prior acceptance run shipped system fonts.
   assert.match(out, /Font families — REQUIRED STEP/);
@@ -59,7 +60,7 @@ test('formatCssTokens: known font gets its source, unknown gets a warning', () =
 
 test('formatCssTokens: font-less NAME with a known family VALUE still groups as font', () => {
   const out = formatCssTokens([{ name: 'subheading', type: 'STRING', value: 'Clash Grotesk' }]);
-  assert.match(out, /--font-family-subheading: "Clash Grotesk"; \/\* source: Fontshare \*\//);
+  assert.match(out, /--subheading: "Clash Grotesk"; \/\* source: Fontshare \*\//);
   assert.doesNotMatch(out, /--subheading: Clash Grotesk;/);
 });
 

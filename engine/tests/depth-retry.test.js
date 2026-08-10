@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { walkWithDepthRetry } from '../src/commands/export-eval.js';
 
-test('shallow depths (1–3) actually execute instead of returning null', async () => {
+test('shallow depths (0–3) actually execute instead of returning null', async () => {
   const calls = [];
   const { result, depth } = await walkWithDepthRetry(2, async (d) => {
     calls.push(d);
@@ -14,6 +14,14 @@ test('shallow depths (1–3) actually execute instead of returning null', async 
   assert.deepEqual(calls, [2], 'one attempt at the requested depth');
   assert.equal(depth, 2);
   assert.deepEqual(result, { frames: [] });
+
+  const nodeOnlyCalls = [];
+  const nodeOnly = await walkWithDepthRetry(0, async (d) => {
+    nodeOnlyCalls.push(d);
+    return { frames: [{ id: '1:2' }] };
+  });
+  assert.deepEqual(nodeOnlyCalls, [0]);
+  assert.equal(nodeOnly.depth, 0);
 });
 
 test('payload errors degrade the depth, never below the floor', async () => {

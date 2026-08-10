@@ -172,7 +172,11 @@ function isBackgroundCommand(args) {
 }
 
 function acceptedExitCodes(args) {
-  return args?.[0] === 'history' && args?.[1] === 'diff' ? [0, 1] : [0];
+  if (args?.[0] === 'history' && args?.[1] === 'diff') return [0, 1];
+  // Exit 1 is a valid verify report containing findings, not a transport
+  // failure. MCP callers need the report in order to fix those findings.
+  if (args?.[0] === 'verify-build') return [0, 1];
+  return [0];
 }
 
 function commandHelpIndex() {

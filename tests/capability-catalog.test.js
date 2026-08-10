@@ -73,6 +73,7 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.timeout, 'background');
   assert.deepEqual(planFigmaCommand(['history', 'diff', 'latest', 'live']).execution.okExitCodes, [0, 1]);
+  assert.deepEqual(planFigmaCommand(['verify-build', '.']).execution.okExitCodes, [0, 1]);
   assert.equal(planFigmaCommand(['slides', 'inspect']).availability.editor, 'slides');
   assert.equal(planFigmaCommand(['slides', 'inspect']).availability.feature, 'slides-beta');
 });

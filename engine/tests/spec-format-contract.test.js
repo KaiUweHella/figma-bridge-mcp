@@ -42,7 +42,7 @@ const COMPLETE_MODEL = {
 };
 
 test('all structured spec adapters roundtrip the complete canonical model exactly', () => {
-  assert.equal(DEFAULT_SPEC_FORMAT, 'json-compact');
+  assert.equal(DEFAULT_SPEC_FORMAT, 'tree');
   assert.deepEqual(STRUCTURED_SPEC_FORMATS, ['yaml', 'json', 'json-compact']);
   for (const format of STRUCTURED_SPEC_FORMATS) {
     const encoded = serializeSpecModel(COMPLETE_MODEL, format);

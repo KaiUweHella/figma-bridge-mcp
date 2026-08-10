@@ -145,7 +145,7 @@ export const TOOLS = [
   {
     name: "figma_selection",
     description:
-      "Read the nodes currently selected in Figma (pushed automatically by the plugin).",
+      "Read the current Figma selection and reuse its id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -266,7 +266,7 @@ export const TOOLS = [
   {
     name: "figma_screenshot",
     description:
-      "Save a node/selection PNG to a temp path. Read it as design-to-code visual ground truth.",
+      "MANDATORY first step: save/read the node PNG, then compare the finished build to it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -286,13 +286,13 @@ export const TOOLS = [
   {
     name: "figma_spec",
     description:
-      "Lossless design-to-code facts for a node. Pull structure first, then style per section on large screens.",
+      "Exact per-layer text, identity, layout, native CSS, paint, token and asset facts. Copy; never invent. Map structure, then pull style by node id.",
     inputSchema: {
       type: "object",
       properties: {
         nodeId: {
           type: "string",
-          description: "Figma node id of the frame to spec (\"1:2\"), URL form (\"1-2\"), or a full Figma URL.",
+          description: "Frame node id, URL-form id, or full Figma URL.",
         },
         phase: {
           type: "string",
@@ -301,24 +301,30 @@ export const TOOLS = [
         },
         depth: {
           type: "number",
-          description: "Max tree depth (default 12).",
+          description: "Max tree depth (default 12). Use 0 for the requested node itself, complete and without descendants.",
         },
         section: {
           type: "string",
           description:
-            "Layer name of a child section to spec instead of the node itself (exact name from the structure map; case-insensitive). Saves copying long instance ids: pass the ROOT nodeId + the section's name to get that section in full depth.",
+            "Optional child layer name from the structure map. Prefer its node id when names repeat.",
         },
         format: {
           type: "string",
           enum: ["tree", "yaml", "json", "json-compact"],
           default: DEFAULT_SPEC_FORMAT,
           description:
-            "json-compact (default) is the lossless canonical model; tree is a compact presentation; yaml/json are lossless alternatives.",
+            "tree (default) is readable; yaml/json/json-compact are lossless canonical adapters.",
         },
         includeHidden: {
           type: "boolean",
           description:
             "Also list invisible nodes, marked hidden (default false). Useful to understand what a variant toggle would reveal.",
+        },
+        dedup: {
+          type: "boolean",
+          default: false,
+          description:
+            "false (default): inline every layer; true: compact S<n>/repeat refs.",
         },
         fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
@@ -334,17 +340,32 @@ export const TOOLS = [
 // instructions at 2,048 characters — everything beyond that limit silently
 // never reaches the model (acceptance evidence: 62% of the guidance was cut off, and
 // exactly the cut-off checklist items were the fidelity bugs that shipped).
-// INSTRUCTIONS must stay under 650 characters — enforced by a test in
+// INSTRUCTIONS must stay under 2,000 characters — enforced by a test in
 // tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
 // figma_reference name "workflow") or into tool OUTPUTS, which are never
 // truncated this way.
-export const INSTRUCTIONS = `Figma Bridge. Treat design output as facts: never invent or silently
-drop text, assets, tokens, layout or states. Design-to-code: screenshot first,
-then spec structure; pull style per section for large frames. Compact JSON is
-the lossless default; tree is an optional structure map. Full guides:
-figma_reference {name:"workflow"}; focused topics use
-"workflow:design-to-code" or "workflow:code-to-figma". Use fileKey when more
-than one Figma window is connected. figma_run accepts --help.`;
+export const INSTRUCTIONS = `Design-to-code: the design is the complete spec. Copy it; never interpret,
+invent or silently drop text, assets, tokens, layout or states. Follow this
+mandatory order:
+1. figma_screenshot, then read the PNG as visual ground truth.
+2. figma_spec phase "structure", format "tree", depth 3-4, dedup true for a
+   large frame. Copy hierarchy, texts, ids and icon/component names verbatim.
+3. figma_run ["export","css","<nodeId>"] and wire up the scoped tokens/fonts.
+4. figma_run ["export","assets","<nodeId>","-o","/abs/project/src/assets"]
+   for real images/SVGs plus assets.json. Never substitute CSS placeholders or
+   hand-drawn inline SVGs. If still RUNNING, poll the identical call.
+5. figma_spec phase "style", format "tree" per section/node id. Use depth 0
+   for the container itself; use dedup true for repeated cards/lists. Copy each
+   layer's native css{} and exact layout/paint/type/clip/asset facts.
+6. Implement every interactive state flagged by component sets.
+7. Before declaring done, run figma_run ["verify-build","/abs/project"] and
+   fix every missing asset/lint. Screenshot the build at the design width and
+   compare it to the Figma PNG (verify-build --compare/--design).
+
+Do not finish without assets.json, all exported files referenced, and the
+visual comparison inspected. Never estimate values from the screenshot.
+Full guide: figma_reference {name:"workflow"}. Use fileKey with multiple open
+Figma windows. figma_run accepts --help.`;
 
 // Long-form workflow guide, served in
 // full through figma_reference {name:"workflow"} (tool results are not subject
@@ -373,8 +394,13 @@ specification — copy it, never interpret it. Follow these steps in order:
    server, not your project). Large exports keep running after this call
    returns "still RUNNING" — re-run the same call to poll; assets.json is
    written last and marks completion. Use the original images and SVGs;
-   never substitute CSS placeholders.
-5. figma_spec with phase "style" — apply sizes, gaps, padding, alignment,
+   never substitute CSS placeholders. If the summary flags an oversized PNG
+   used only at a small size, repeat with "--raster-scale","2"; this preserves
+   retina density and CSS crop semantics while reducing bundle size.
+5. figma_spec with phase "style" — for each section, first request depth 0
+   to get that container's own background/border/radius/layout without its
+   descendants. Then pull its child ids in bounded calls; use dedup true for
+   repeated cards/lists. Apply sizes, gaps, padding, alignment,
    fills/strokes (prefer the var(...) token names), radii, shadows,
    typography, opacity, clip (overflow hidden), and abs positioning. Every
    "vector art -> assets/..." line is real artwork (waves, glyphs, bubbles):
@@ -419,10 +445,10 @@ value is in the phase "style" spec. If you only pulled "structure", pull
 
 Large screens: do NOT pull one giant style spec. First run figma_spec with
 phase "structure", format "tree" and depth 3-4 — a map of the screen with the node id of
-every section. Then pull phase "style" PER SECTION and build section by
-section. Either pass the section's node id, or keep the ROOT nodeId and pass
-section: "<layer name from the structure map>" — that specs the named child
-in full depth without copying long instance ids.
+every section. Then pull phase "style" PER SECTION: depth 0 gives the section
+container itself as a complete contract; request its child ids separately and
+use dedup true for repeated rows/cards. Either pass the section's node id, or
+keep the ROOT nodeId and pass section: "<layer name from the structure map>".
 
 Only hand-drawn vector shapes export as SVG files. Rectangles/ellipses with
 solid or gradient fills are CSS elements — build them as styled divs exactly
@@ -575,9 +601,27 @@ export function budgetSpecOutput(text, options = {}) {
       `  requested_node: ${JSON.stringify(options.nodeId || "selection")}\n` +
       `  requested_phase: ${JSON.stringify(phase)}\n  requested_depth: ${depth}${section}\n\n` +
       `No partial design data was returned; partial output could be mistaken for a complete design.\n` +
-      `Retry losslessly: call figma_spec for the same node with phase "structure" and depth 3-4, ` +
-      `then call phase "style" once per named section. Each bounded response remains complete for its requested scope.`,
+      `Retry losslessly: call figma_spec for the same node with phase "structure" and depth 3-4. ` +
+      `For each section id, first request phase "style" at depth 0 (the exact container itself), ` +
+      `then request its child ids in bounded calls; use dedup true for repeated lists/cards. ` +
+      `Each response remains complete for its requested scope.`,
   };
+}
+
+/** Try the exact inline projection first, then one lossless deduplicated
+ * projection when repetition alone overflows the MCP result budget. */
+export async function fitSpecOutput(render, { dedup = false, ...budgetOptions } = {}) {
+  let result = await render(dedup);
+  let budgeted = budgetSpecOutput(result.stdout || "", budgetOptions);
+  const exactChars = budgeted.originalChars;
+  if (!budgeted.complete && !dedup) {
+    result = await render(true);
+    budgeted = budgetSpecOutput(result.stdout || "", budgetOptions);
+    if (budgeted.complete) {
+      return { result, budgeted, automaticDedup: true, exactChars };
+    }
+  }
+  return { result, budgeted, automaticDedup: false, exactChars };
 }
 
 function enrichStructuredSpec(text, format) {
@@ -1233,6 +1277,8 @@ export async function handleTool(name, rawArgs) {
         args.push("--section", input.section);
       }
       if (input.phase != null) args.push("-p", String(input.phase));
+      const dedup = input.dedup === true;
+      if (!dedup) args.push("--no-dedup");
       const format = input.format == null ? DEFAULT_SPEC_FORMAT : String(input.format);
       if (!["tree", "yaml", "json", "json-compact"].includes(format)) {
         return errorResult("format must be tree, yaml, json or json-compact.");
@@ -1242,46 +1288,65 @@ export async function handleTool(name, rawArgs) {
       args.push("-f", format);
       if (input.depth != null) {
         const depth = Number(input.depth);
-        if (!Number.isInteger(depth) || depth < 1 || depth > 30) {
-          return errorResult("depth must be an integer between 1 and 30.");
+        if (!Number.isInteger(depth) || depth < 0 || depth > 30) {
+          return errorResult("depth must be an integer between 0 and 30.");
         }
         args.push("-d", String(depth));
       }
-      const res = await runInProcessCommand(args, {
-        fileKey: input.fileKey,
-      }, async ({ fileKey, deadline }) =>
-        executeCodeSpec({
-          nodeId,
-          phase: input.phase,
-          depth: input.depth,
-          section: input.section,
-          includeHidden: input.includeHidden,
-          format,
-        }, {
-          evaluate: (code) => evaluateFigma(code, {
-            fileKey,
-            timeoutMs: Math.max(1, deadline - Date.now()),
+      const runSpec = (useDedup) => runInProcessCommand(
+        useDedup ? args.filter((arg) => arg !== "--no-dedup") : args,
+        { fileKey: input.fileKey },
+        async ({ fileKey, deadline }) => executeCodeSpec({
+            nodeId,
+            phase: input.phase,
+            depth: input.depth,
+            section: input.section,
+            includeHidden: input.includeHidden,
+            format,
+            dedup: useDedup,
+          }, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+            captureDesign: (request) => captureFigmaDesign(request, {
+              fileKey,
+              deadline,
+            }),
           }),
-          captureDesign: (request) => captureFigmaDesign(request, {
-            fileKey,
-            deadline,
-          }),
-        }),
       );
-      if (format === "tree") {
+      const project = (result) => {
+        if (format === "tree") {
         // Tree mapping remains a presentation trailer. Structured formats
         // enrich the canonical model and are then re-serialized losslessly.
-        const trailer = storybookTrailer(res.stdout || "");
-        if (trailer) res.stdout = (res.stdout || "") + trailer;
-      } else {
-        res.stdout = enrichStructuredSpec(res.stdout || "", format);
-      }
-      const budgeted = budgetSpecOutput(res.stdout || "", {
+          const trailer = storybookTrailer(result.stdout || "");
+          if (trailer) result.stdout = (result.stdout || "") + trailer;
+        } else {
+          result.stdout = enrichStructuredSpec(result.stdout || "", format);
+        }
+        return result;
+      };
+      const budgetOptions = {
         nodeId,
         phase: input.phase || "all",
-        depth: input.depth || 12,
+        depth: input.depth ?? 12,
         section: input.section,
-      });
+      };
+      // Exact inline output is the safest default. When only repetition makes
+      // it exceed the budget, retry once with lossless S<n>/instance refs.
+      const fitted = await fitSpecOutput(
+        async (useDedup) => project(await runSpec(useDedup)),
+        { dedup, ...budgetOptions },
+      );
+      const { result: res, budgeted } = fitted;
+      if (fitted.automaticDedup) {
+        res.stdout = budgeted.text;
+        res.stderr = [
+          res.stderr,
+          `⚠ exact inline spec was ${fitted.exactChars} chars; returned lossless dedup references to stay within ${SPEC_OUTPUT_LIMIT_CHARS}`,
+        ].filter(Boolean).join('\n');
+        return resultFromCli(res);
+      }
       if (!budgeted.complete) {
         const warning = String(res.stderr || "").trim();
         return errorResult(budgeted.text + (warning ? `\n\nCapture warning: ${warning}` : ""));

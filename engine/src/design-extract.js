@@ -219,6 +219,17 @@ export function walkerCode(pageId, {
       if (n.visible === false) o.hidden = true;
       if (WITH_IDS) o.id = n.id;
       if ('width' in n) { o.w = Math.round(n.width); o.h = Math.round(n.height); }
+      // Native Inspect CSS is the closest thing Figma exposes to a directly
+      // transferable per-layer style contract. Keep it alongside the richer
+      // Figma facts below (tokens, instance identity, assets, constraints),
+      // so a code agent can copy declarations instead of re-interpreting the
+      // visual model. Unsupported node types simply have no CSS map.
+      try {
+        if (typeof n.getCSSAsync === 'function') {
+          const css = await n.getCSSAsync();
+          if (css && typeof css === 'object' && Object.keys(css).length) o.css = css;
+        }
+      } catch (e) {}
       if ('layoutMode' in n && n.layoutMode !== 'NONE') {
         o.lm = n.layoutMode;
         if (n.itemSpacing) o.gap = n.itemSpacing;
@@ -274,6 +285,22 @@ export function walkerCode(pageId, {
       if (typeof n.opacity === 'number' && n.opacity < 1) o.op = Math.round(n.opacity * 100) / 100;
       if (typeof n.rotation === 'number' && Math.abs(n.rotation) >= 0.5) o.rot = Math.round(n.rotation * 10) / 10;
       if (n.clipsContent === true) o.clip = true;
+      // Prototype scrolling is an explicit Figma fact, not something a code
+      // agent should infer from a screenshot. In scrolling frames Figma
+      // stores fixed layers as the final numberOfFixedChildren entries.
+      try {
+        if ('overflowDirection' in n && n.overflowDirection && n.overflowDirection !== 'NONE') {
+          o.scroll = n.overflowDirection;
+        }
+      } catch (e) {}
+      try {
+        const p = n.parent;
+        if (p && 'children' in p && typeof p.numberOfFixedChildren === 'number' && p.numberOfFixedChildren > 0) {
+          const siblings = Array.from(p.children);
+          const index = siblings.indexOf(n);
+          if (index >= siblings.length - p.numberOfFixedChildren) o.fixed = true;
+        }
+      } catch (e) {}
       // Overlays: an ABSOLUTE child inside auto-layout looked like a normal
       // flow child in the spec — corner badges and bookmarks were rebuilt
       // in-flow. Capture the anchor (from constraints) and the offset FROM
@@ -391,7 +418,8 @@ export function walkerCode(pageId, {
         if (Object.keys(bv).length) o.bv = bv;
       }
       if (n.type === 'TEXT') {
-        o.txt = { chars: (n.characters || '').slice(0, TEXT_LIMIT) };
+        const chars = n.characters || '';
+        o.txt = { chars: TEXT_LIMIT > 0 ? chars.slice(0, TEXT_LIMIT) : chars };
         if (n.fontName !== figma.mixed) { o.txt.font = n.fontName.family; o.txt.style = n.fontName.style; }
         if (n.fontWeight !== figma.mixed && typeof n.fontWeight === 'number') o.txt.weight = n.fontWeight;
         if (n.fontSize !== figma.mixed) o.txt.size = n.fontSize;
@@ -404,6 +432,74 @@ export function walkerCode(pageId, {
           if (axisMetadata.error) o.txt.axisMetadataError = axisMetadata.error;
           else if (axisMetadata.ranges.length) o.txt.axisRanges = axisMetadata.ranges;
         }
+        // A TEXT node may contain several independently styled ranges. Its
+        // node-level properties become figma.mixed; without these runs the
+        // spec silently flattens emphasis, inline colors and links.
+        try {
+          if (typeof n.getStyledTextSegments === 'function' && chars.length) {
+            const rawRuns = n.getStyledTextSegments([
+              'fontName', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
+              'fills', 'textStyleId', 'fillStyleId', 'textDecoration', 'textCase',
+              'paragraphIndent', 'paragraphSpacing', 'listOptions', 'listSpacing',
+              'openTypeFeatures', 'boundVariables', 'hyperlink',
+            ]);
+            if (rawRuns.length > 1) {
+              o.txt.runs = [];
+              for (const segment of rawRuns) {
+                const run = { start: segment.start, end: segment.end, chars: segment.characters };
+                if (segment.fontName) { run.font = segment.fontName.family; run.style = segment.fontName.style; }
+                if (typeof segment.fontWeight === 'number') run.weight = segment.fontWeight;
+                if (typeof segment.fontSize === 'number') run.size = segment.fontSize;
+                if (segment.lineHeight && segment.lineHeight.unit !== 'AUTO') {
+                  run.lh = segment.lineHeight.unit === 'PERCENT' && run.size != null
+                    ? Math.round(run.size * segment.lineHeight.value / 100 * 10) / 10
+                    : segment.lineHeight.value;
+                }
+                if (segment.letterSpacing && segment.letterSpacing.value) {
+                  run.ls = segment.letterSpacing.unit === 'PERCENT'
+                    ? segment.letterSpacing.value + '%'
+                    : segment.letterSpacing.value;
+                }
+                const runPaints = paints(segment.fills, 0, 0);
+                if (runPaints) run.fills = runPaints;
+                if (segment.textDecoration && segment.textDecoration !== 'NONE') run.decoration = segment.textDecoration;
+                if (segment.textCase && segment.textCase !== 'ORIGINAL') run.case = segment.textCase;
+                const runFeatures = segment.openTypeFeatures && typeof segment.openTypeFeatures === 'object'
+                  ? Object.keys(segment.openTypeFeatures).filter(tag => segment.openTypeFeatures[tag] === true).sort()
+                  : [];
+                if (runFeatures.length) run.ot = runFeatures;
+                if (segment.paragraphIndent) run.paragraphIndent = segment.paragraphIndent;
+                if (segment.paragraphSpacing) run.paragraphSpacing = segment.paragraphSpacing;
+                if (segment.listSpacing) run.listSpacing = segment.listSpacing;
+                if (segment.listOptions && segment.listOptions.type !== 'NONE') run.list = segment.listOptions;
+                if (segment.hyperlink) run.hyperlink = segment.hyperlink;
+                if (WITH_VARS && segment.boundVariables) {
+                  const runBv = {};
+                  for (const entry of Object.entries(segment.boundVariables)) {
+                    const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
+                    if (first && first.id) { const nm = await varName(first.id); if (nm) runBv[entry[0]] = nm; }
+                  }
+                  if (Object.keys(runBv).length) run.bv = runBv;
+                }
+                if (WITH_VARS && typeof segment.textStyleId === 'string' && segment.textStyleId) {
+                  const st = await styleInfo(segment.textStyleId);
+                  if (st) {
+                    run.ts = st.name;
+                    if (st.bv) {
+                      run.bv = run.bv || {};
+                      for (const k of Object.keys(st.bv)) if (!(k in run.bv)) run.bv[k] = st.bv[k];
+                    }
+                  }
+                }
+                if (WITH_VARS && typeof segment.fillStyleId === 'string' && segment.fillStyleId) {
+                  const st = await styleInfo(segment.fillStyleId);
+                  if (st) run.fs = st.name;
+                }
+                o.txt.runs.push(run);
+              }
+            }
+          }
+        } catch (e) {}
         if (n.lineHeight !== figma.mixed && n.lineHeight && n.lineHeight.unit !== 'AUTO') {
           // PERCENT line-heights are relative to font size; resolve to absolute
           // px so the table/JSON tokens are unambiguous and re-import cleanly.
@@ -441,8 +537,21 @@ export function walkerCode(pageId, {
         // (a set has no createInstance). Capture its node id (same-file reuse)
         // and publish key (cross-file reuse, only resolvable once published).
         const dv = n.defaultVariant || n.children[0];
-        if (dv) { o.id = dv.id; try { o.key = dv.key; } catch (e) {} }
-        if (n.children.length) o.kids = [await walk(n.children[0], depth + 1)].filter(Boolean);
+        if (dv) {
+          // Exact Design Capture must keep the SET's own id on this layer;
+          // the legacy page census still uses id as the default reuse handle.
+          if (WITH_IDS) o.dvId = dv.id; else o.id = dv.id;
+          try { if (dv.key) o.key = dv.key; } catch (e) {}
+        }
+        if (n.children.length && depth < MAX_DEPTH) {
+          o.kids = [];
+          for (const child of n.children) {
+            const captured = await walk(child, depth + 1);
+            if (captured) o.kids.push(captured);
+          }
+        } else if (n.children.length && MAX_DEPTH > 0) {
+          o.more = n.children.length;
+        }
         return o;
       }
       if (n.type === 'INSTANCE') {
@@ -492,7 +601,10 @@ export function walkerCode(pageId, {
           }
         } catch (e) {}
         if ('children' in n && n.children.length) {
-          if (depth >= MAX_DEPTH) { o.more = n.children.length; return o; }
+          if (depth >= MAX_DEPTH) {
+            if (MAX_DEPTH > 0) o.more = n.children.length;
+            return o;
+          }
           o.kids = [];
           for (const c of n.children) { const k = await walk(c, depth + 1); if (k) o.kids.push(k); }
         }
@@ -507,7 +619,10 @@ export function walkerCode(pageId, {
         try { if (n.key) o.key = n.key; } catch (e) {}
       }
       if ('children' in n && n.children.length) {
-        if (depth >= MAX_DEPTH) { o.more = n.children.length; return o; }
+        if (depth >= MAX_DEPTH) {
+          if (MAX_DEPTH > 0) o.more = n.children.length;
+          return o;
+        }
         o.kids = [];
         for (const c of n.children) { const k = await walk(c, depth + 1); if (k) o.kids.push(k); }
       }
@@ -519,10 +634,17 @@ export function walkerCode(pageId, {
     let visited = 0;
     const count = (n) => { visited++; if ('children' in n) n.children.forEach(count); };
     count(page);
+    const countVisible = (n) => {
+      if (n.visible === false) return 0;
+      return 1 + ('children' in n ? n.children.reduce((sum, child) => sum + countVisible(child), 0) : 0);
+    };
+    const visibleNodeCount = MAX_DEPTH === 0
+      ? page.children.reduce((sum, child) => sum + (child.visible === false ? 0 : 1), 0)
+      : page.children.reduce((sum, child) => sum + countVisible(child), 0);
     const tops = page.children;
     const frames = [];
     for (const c of tops) { const f = await walk(c, 0); if (f) frames.push(f); }
-    return JSON.stringify({ id: page.id, name: page.name, nodeCount: visited, frames, sets: setsOut() });
+    return JSON.stringify({ id: page.id, name: page.name, nodeCount: visited, visibleNodeCount, frames, sets: setsOut() });
   })()`;
 }
 
@@ -537,13 +659,18 @@ export function nodeWalkerCode(nodeId, opts = {}) {
   // is replaced by loading the node's page (dynamic-page requirement).
   const base = walkerCode('__NODE__', opts);
   return base.replace(
-    /const page = await figma\.getNodeByIdAsync\("__NODE__"\);[\s\S]*?return JSON\.stringify\(\{ id: page\.id, name: page\.name, nodeCount: visited, frames, sets: setsOut\(\) \}\);/,
+    /const page = await figma\.getNodeByIdAsync\("__NODE__"\);[\s\S]*?return JSON\.stringify\(\{ id: page\.id, name: page\.name, nodeCount: visited, visibleNodeCount, frames, sets: setsOut\(\) \}\);/,
     `const node = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (!node) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop — if this id comes from another file (check the URL file key), open that file first.' });
     let visited = 0;
     const count = (n) => { visited++; if ('children' in n) n.children.forEach(count); };
     count(node);
-    return JSON.stringify({ id: node.id, name: node.name, nodeCount: visited, frames: [await walk(node, 0)].filter(Boolean), sets: setsOut() });`
+    const countVisible = (n) => {
+      if (n.visible === false) return 0;
+      return 1 + ('children' in n ? n.children.reduce((sum, child) => sum + countVisible(child), 0) : 0);
+    };
+    const visibleNodeCount = MAX_DEPTH === 0 ? (node.visible === false ? 0 : 1) : countVisible(node);
+    return JSON.stringify({ id: node.id, name: node.name, nodeCount: visited, visibleNodeCount, frames: [await walk(node, 0)].filter(Boolean), sets: setsOut() });`
   );
 }
 

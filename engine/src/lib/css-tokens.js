@@ -129,10 +129,10 @@ export function formatCssTokens(vars) {
     } else if (isWeightName(v.name)) {
       rules.push(`  ${prop}: ${mapFontWeight(v.value)};`);
     } else if (isFontFamilyName(v.name, v.value)) {
-      // Group under --font-family-*; keep the tail of the original name.
-      const tail = cssName(v.name).replace(/^--/, '').replace(/^(fonts?-)+/, '').replace(/^(font-)?family-?/, '') || 'default';
+      // Preserve the canonical Figma variable name. Native Inspect CSS refers
+      // to that exact custom property, so a friendly rename breaks var(...).
       const src = fontSource(v.value);
-      fontFamilies.push(`  --font-family-${tail}: "${v.value}";${src ? ` /* source: ${src} */` : ' /* source: unknown — verify before substituting */'}`);
+      fontFamilies.push(`  ${prop}: "${v.value}";${src ? ` /* source: ${src} */` : ' /* source: unknown — verify before substituting */'}`);
     } else {
       rules.push(`  ${prop}: ${v.value};`);
     }

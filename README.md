@@ -210,12 +210,22 @@ than interpreting it. Build a screen from Figma in five steps:
    `overhang`), so the manifest alone positions an overlay — no spec
    cross-reference needed. The export summary lists the absolutely-positioned
    and overhanging files explicitly: those are the ones builds lose.
+   Original raster bytes remain the fidelity default. If the summary flags a
+   multi-megabyte PNG used only at a tiny size, repeat the export with
+   `--raster-scale 2`; the PNG is downsampled to retina density while its
+   aspect ratio, manifest placement and CSS crop behavior remain unchanged.
 5. **`figma_spec` with `phase: "style"`** — apply sizes, gaps, padding,
    alignment, fill/hug sizing, paints incl. gradients (`→ var(name)` marks a
    design-token binding), radii, shadows, typography, `opacity`, `clip`
    (overflow hidden) and `abs` positioning. Decorative vectors appear as
    `vector art → assets/…` lines with placement — place the exported SVGs,
    never approximate them in CSS.
+
+   For a large section, request `depth:0` first. This is a complete contract
+   for the section container itself (including background, border, radius and
+   layout) without descendants. Then request child node ids in bounded calls.
+   Use `dedup:true` for repeated cards/lists; shared `S<n>` references remain
+   lossless and stop identical instance styles exhausting the result budget.
 6. **Verify** — screenshot your build and compare against the PNG from step 1,
    then run the mechanical check:
 
@@ -246,26 +256,38 @@ than interpreting it. Build a screen from Figma in five steps:
    differing, on the dimmed design). Informational by default;
    `--max-diff <pct>` gates the exit code.
 
-The same compact JSON spec is available as
-`figma_run ["export", "code-spec", "<nodeId>"]`. Pass `-f tree`, `-f yaml`,
-or `-f json` for an alternate presentation.
+The same spec is available as
+`figma_run ["export", "code-spec", "<nodeId>"]`. Its default is the readable
+tree; pass `-f yaml`, `-f json`, or `-f json-compact` for the canonical model.
 
 ### Lossless structured spec formats
 
-`figma_spec` and `export code-spec` default to `format:"json-compact"`, the
-smallest lossless machine-readable representation. Use `tree` explicitly for
-a compact human/LLM structure map, or `yaml` / `json` for readable structured
-output. All three structured formats serialize the **same versioned canonical model**;
-only syntax and whitespace differ. Roundtrip tests require every field — text,
+`figma_spec` and `export code-spec` default to `format:"tree"`, the compact,
+line-oriented agent view whose footers carry the required asset and fidelity
+actions. Use `yaml`, `json`, or `json-compact` explicitly when a consumer needs
+the versioned canonical model. Those three structured formats serialize the
+**same model**; only syntax and whitespace differ. Roundtrip tests require every field — text,
 ids, layout, paint, typography, variables, assets, component keys, capture
 completeness, and fidelity checks — to survive exactly. `json-compact` removes
-pretty-print whitespace without removing information.
+pretty-print whitespace without removing information, but is not the default:
+real agent tests showed that a single huge line was materially harder to act on.
 
 The model's `capture` field explicitly reports requested/actual depth,
 payload completeness, hidden-node policy, and whether the requested depth cut
 off descendants. There is no silent tool-result truncation: if a spec exceeds
 the configured output budget, the call returns `complete:false` with a
 section-by-section retry recipe and returns **no misleading partial design**.
+`depth:0` intentionally means “the requested node only” and is complete, not
+a depth-truncated tree.
+
+For MCP design-to-code calls, `dedup:false` is the default: every visible layer
+keeps its own id, native Figma Inspect `css{…}`, layout/paint/token facts and
+complete text. Mixed rich-text layers carry their individual styled ranges.
+The footer reconciles the live visible-layer count with explicit rows, SVG
+internals, component internals and non-rendering helpers. A style projection
+is rejected when depth limits or an unaccounted layer would force guessing;
+split it by the node ids from the structure map. Set `dedup:true` only for a
+compact overview using shared `S<n>` style and repeat references.
 
 For repeated explicit-node calls, `phase`, `format` and deduplication do not
 trigger another full Figma walk. The in-memory Design Capture cache is bounded
