@@ -28,6 +28,8 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['history', 'save', 'Release 1'],
     ['style', 'create', 'PAINT', 'Brand'], ['style', 'apply', 'Brand', '1:2', '--field', 'fill'],
     ['var', 'set-value', 'space/md', '12', '--mode', 'Light'], ['col', 'mode-add', 'Theme', 'Dark'],
+    ['library', 'import-variable', 'KEY'], ['library', 'import-style', 'KEY'],
+    ['library', 'import-component', 'KEY'], ['library', 'import-component-set', 'KEY'],
   ]) assert.equal(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
 
   for (const args of [
@@ -38,6 +40,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['node', 'css', '1:2'], ['export', 'node-json', '1:2'],
     ['style', 'list'], ['style', 'show', 'Brand'], ['style', 'consumers', 'Brand'],
     ['var', 'show', 'space/md'], ['var', 'resolve', 'space/md', '1:2'], ['col', 'show', 'Theme'],
+    ['library', 'collections'], ['library', 'variables', 'Primitives'],
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');

@@ -22,6 +22,7 @@ const COMMANDS = Object.freeze({
   var: readGroup('Manage local variables', ['list', 'find', 'show', 'resolve', 'publish-status']),
   col: readGroup('Manage variable collections', ['list', 'show', 'publish-status']),
   style: readGroup('Manage local paint, text, effect, and grid styles', ['list', 'show', 'consumers', 'publish-status']),
+  library: readGroup('Discover enabled libraries and import published assets', ['collections', 'variables']),
   section: readGroup('Inspect or manage Figma sections', ['list']),
   grid: readGroup('Inspect or manage layout grids', ['list']),
   dev: readGroup('Inspect or manage dev-resource links', ['list']),

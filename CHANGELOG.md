@@ -97,6 +97,10 @@ the plugin window. The panel will tell you if you forget.
   plus consumer-aware `resolve` and publish status expose values, aliases,
   scopes and Dev Mode names. `col show/update/mode-*` manages collection
   metadata and modes through the Plugin API; REST is not involved.
+- **Enabled team-library access.** `library collections` and `variables`
+  discover published variables from libraries enabled in the current file.
+  Key-based imports cover variables, styles, components and component sets;
+  every operation uses the Plugin API and the shipped `teamlibrary` permission.
 
 ### Component-aware rendering
 

@@ -523,6 +523,35 @@ aliases can resolve differently under that node's selected modes. Collection
 `publish-status` follow the same ID/exact-name/unique-substring lookup policy.
 Figma plan limits on mode count remain Figma-enforced and surface as errors.
 
+### Enabled team libraries
+
+Library discovery and imports also stay on the authenticated plugin transport:
+
+```
+figma_run ["library", "collections"]
+figma_run ["library", "variables", "Acme/Primitives", "--type", "COLOR"]
+figma_run ["library", "import-variable", "<published-variable-key>"]
+figma_run ["library", "import-style", "<published-style-key>"]
+figma_run ["library", "import-component", "<published-component-key>"]
+figma_run ["library", "import-component-set", "<published-component-set-key>"]
+```
+
+`collections` and `variables` are reads. The four `import-*` commands
+materialize published assets in the current file and are therefore writes in
+the Capability Catalog. Figma only exposes discovery for variable collections
+and variables. Published styles, components and component sets can be imported
+when their stable key is already known, but the Plugin API cannot enumerate
+them.
+
+Libraries must be enabled for the current file in Figma's UI before
+`library collections` can see them; the Plugin API cannot enable a library.
+The shipped plugin already declares the required `teamlibrary` permission.
+Name lookup uses collection key, exact collection name, then an unambiguous
+collection or library-name substring. Library discovery owns an 18-second
+Plugin-API timeout below the Bridge deadline, so a stalled Figma library
+request names the operation and suggests checking whether the library is
+enabled instead of degrading into a generic execution timeout.
+
 ### Finding what needs fixing
 
 ```
