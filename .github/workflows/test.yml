@@ -9,21 +9,35 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
 jobs:
   test:
     name: node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        # The daemon binds sockets, writes 0600 state files and spawns detached
-        # child processes — all three behave differently per platform, so the
-        # suite has to actually run on all three.
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [18, 20, 22]
+        # Keep the declared minimum on the inexpensive Linux runner, cover both
+        # active LTS lines there, and exercise OS-specific daemon behaviour on
+        # the current LTS. This avoids a redundant full Cartesian product.
+        include:
+          - os: ubuntu-latest
+            node: 18
+          - os: ubuntu-latest
+            node: 22
+          - os: ubuntu-latest
+            node: 24
+          - os: macos-latest
+            node: 24
+          - os: windows-latest
+            node: 24
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -33,11 +47,12 @@ jobs:
   pack:
     name: tarball contains the runtime
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       # packaging.test.js checks package.json's `files` list; this checks what

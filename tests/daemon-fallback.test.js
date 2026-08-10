@@ -17,10 +17,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(__dirname, '..', 'engine', 'src', 'daemon.js');
 const TOKEN = 'fallback-test-token';
 
-// Scratch port ranges far away from the real 3456-3460, one per test.
-const BASE = 34620 + Math.floor(Math.random() * 200) * 10;
-const rangeFor = (n) => [BASE + n * 3, BASE + n * 3 + 1, BASE + n * 3 + 2];
-
 const cleanups = [];
 after(() => { for (const fn of cleanups) { try { fn(); } catch {} } });
 
@@ -47,28 +43,36 @@ function spawnDaemon(tmp, range) {
   return child;
 }
 
-function occupyPort(port) {
+function reservePort() {
   return new Promise((resolve, reject) => {
     const srv = createNetServer();
     srv.once('error', reject);
-    srv.listen(port, '127.0.0.1', () => {
+    srv.listen(0, '127.0.0.1', () => {
       cleanups.push(() => srv.close());
-      resolve(srv);
+      resolve({ server: srv, port: srv.address().port });
     });
   });
 }
 
+async function reserveRange() {
+  return Promise.all([reservePort(), reservePort(), reservePort()]);
+}
+
+function releasePort(server) {
+  return new Promise((resolve) => server.close(resolve));
+}
+
 // Mimics OUR daemon's unauthenticated /health signature (403 + Unauthorized).
-function fakeOurDaemon(port) {
+function fakeOurDaemon() {
   return new Promise((resolve, reject) => {
     const srv = createHttpServer((req, res) => {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized: Invalid or missing token' }));
     });
     srv.once('error', reject);
-    srv.listen(port, '127.0.0.1', () => {
+    srv.listen(0, '127.0.0.1', () => {
       cleanups.push(() => srv.close());
-      resolve(srv);
+      resolve({ server: srv, port: srv.address().port });
     });
   });
 }
@@ -96,9 +100,13 @@ function waitForExit(child, timeoutMs = 8000) {
 }
 
 test('foreign process on first port → daemon binds the next one and publishes it', async () => {
-  const range = rangeFor(0);
+  const reservations = await reserveRange();
+  const range = reservations.map(({ port }) => port);
   const tmp = makeState();
-  await occupyPort(range[0]); // plain TCP squatter, no HTTP answer
+  // Keep the first port occupied; release the fallback candidates immediately
+  // before the daemon starts. No other test can guess these OS-assigned ports.
+  await releasePort(reservations[1].server);
+  await releasePort(reservations[2].server);
   const child = spawnDaemon(tmp, range);
 
   assert.ok(await waitForHealth(range[1]), `daemon should answer on fallback port ${range[1]}`);
@@ -109,11 +117,13 @@ test('foreign process on first port → daemon binds the next one and publishes 
 });
 
 test('our own daemon on a range port → second daemon exits 0 (singleton, split-brain guard)', async () => {
-  const range = rangeFor(1);
+  const reservations = await reserveRange();
+  await Promise.all(reservations.map(({ server }) => releasePort(server)));
+  const ours = await fakeOurDaemon();
+  const range = [reservations[0].port, ours.port, reservations[2].port];
   const tmp = makeState();
   // "Our" daemon sits on the SECOND port (as after an earlier fallback) — the
   // pre-bind range scan must find it there and exit before binding port one.
-  await fakeOurDaemon(range[1]);
   const child = spawnDaemon(tmp, range);
   const code = await waitForExit(child);
   assert.equal(code, 0);
@@ -125,9 +135,9 @@ test('our own daemon on a range port → second daemon exits 0 (singleton, split
 });
 
 test('all range ports held by foreign processes → daemon exits 1', async () => {
-  const range = rangeFor(2);
+  const reservations = await reserveRange();
+  const range = reservations.map(({ port }) => port);
   const tmp = makeState();
-  for (const port of range) await occupyPort(port);
   const child = spawnDaemon(tmp, range);
   const code = await waitForExit(child);
   assert.equal(code, 1);

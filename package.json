@@ -40,7 +40,7 @@
     "start": "node src/server.js",
     "check:contracts": "tsc -p jsconfig.contracts.json",
     "measure:architecture": "node scripts/measure-architecture-budgets.js",
-    "test": "npm run check:contracts && node --test engine/tests/*.test.js tests/*.test.js",
+    "test": "npm run check:contracts && node --test",
     "prepublishOnly": "npm test"
   },
   "dependencies": {

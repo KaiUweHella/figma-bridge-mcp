@@ -34,6 +34,15 @@ test("package identity: name, bin, repository, prepublish test gate", () => {
   assert.equal(pkg.scripts.prepublishOnly, "npm test", "publishing must run the suite");
 });
 
+test("test script uses Node discovery instead of shell-expanded globs", () => {
+  assert.match(pkg.scripts.test, /node --test(?:\s|$)/);
+  assert.doesNotMatch(
+    pkg.scripts.test,
+    /\*\.test\./,
+    "PowerShell passes npm-script globs literally, so Node must discover test files itself",
+  );
+});
+
 test("plugin dir ships exactly the three files connect installs", () => {
   for (const f of ["manifest.json", "code.js", "ui.html"]) {
     assert.ok(existsSync(join(ROOT, "plugin", f)), `plugin/${f} exists`);

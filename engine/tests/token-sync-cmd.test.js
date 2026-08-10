@@ -109,10 +109,23 @@ function addCollection(state, name) {
 }
 
 async function runSync(args, { port, cwd }) {
+  // The CLI requires the same session token its daemon would use. Keep that
+  // state inside each test's scratch workspace instead of accidentally using
+  // ~/.figma-bridge-mcp from the developer machine.
+  const tokenFile = join(cwd, '.daemon-token');
+  if (!existsSync(tokenFile)) writeFileSync(tokenFile, 'token-sync-test-token', { mode: 0o600 });
   try {
     const { stdout, stderr } = await execFileAsync(
       process.execPath, [CLI, 'tokens', 'sync', ...args],
-      { cwd, env: { ...process.env, DAEMON_PORT: String(port), FIGMA_SKIP_DAEMON_SPAWN: '1' } },
+      {
+        cwd,
+        env: {
+          ...process.env,
+          DAEMON_PORT: String(port),
+          DAEMON_TOKEN_FILE: tokenFile,
+          FIGMA_SKIP_DAEMON_SPAWN: '1',
+        },
+      },
     );
     return { code: 0, out: stdout + stderr };
   } catch (e) {

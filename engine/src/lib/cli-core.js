@@ -21,8 +21,10 @@ import {
   hexToRgb, isVarRef, getVarName, generateFillCode, generateStrokeCode,
   varLoadingCode, smartPosCode,
 } from './eval-snippets.js';
-const DAEMON_PID_FILE = join(STATE_DIR, 'daemon.pid');
-const DAEMON_TOKEN_FILE = join(STATE_DIR, '.daemon-token');
+// Match daemon.js and the MCP layer: callers/tests may isolate daemon state
+// without changing the user's real pairing directory.
+const DAEMON_PID_FILE = process.env.DAEMON_PID_FILE || join(STATE_DIR, 'daemon.pid');
+const DAEMON_TOKEN_FILE = process.env.DAEMON_TOKEN_FILE || join(STATE_DIR, '.daemon-token');
 
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {

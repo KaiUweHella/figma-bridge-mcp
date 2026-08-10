@@ -66,6 +66,11 @@ the plugin window. The panel will tell you if you forget.
   decisions, and `docu/README.md` indexes the historical evidence archive.
 - **Fast local status.** `figma_status` no longer performs a cold REST request
   unless `validateRest:true` is requested.
+- **Hermetic cross-platform CI.** CLI integration tests now isolate daemon
+  token/PID files, socket tests use OS-assigned ports, and Node discovers test
+  files without shell-expanded globs. The workflow covers the declared Node 18
+  minimum plus active Node 22/24 LTS lines without a redundant OS/runtime
+  Cartesian product, and uses current `checkout`/`setup-node` v6 actions.
 - **Truthful variable-font inspection.** `figma_run ["font","inspect",…]`
   reads range-level `fontName`, Figma's numeric read-only `fontWeight`, enabled
   OpenType features and typography-variable bindings. Because the Plugin API
