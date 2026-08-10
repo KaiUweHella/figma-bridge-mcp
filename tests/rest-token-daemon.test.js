@@ -201,7 +201,7 @@ test('selection whitelist: fileKey/fileName pass through capped; junk is dropped
     // The daemon caches synchronously on receipt; give the event loop a beat.
     await new Promise((r) => setTimeout(r, 150));
 
-    const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+    const res = await fetch(`http://127.0.0.1:${port}/selection`, {
       headers: signRequest(TOKEN, 'GET', '/selection', ''),
     });
     const body = await res.json();
@@ -219,7 +219,7 @@ test('selection whitelist: non-string fileKey is dropped, not coerced', async ()
     }));
     await new Promise((r) => setTimeout(r, 150));
 
-    const res = await fetch(`http://127.0.0.1:${PORT}/selection`, {
+    const res = await fetch(`http://127.0.0.1:${port}/selection`, {
       headers: signRequest(TOKEN, 'GET', '/selection', ''),
     });
     const body = await res.json();
