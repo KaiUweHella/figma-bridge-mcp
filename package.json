@@ -13,9 +13,13 @@
     "engine/package.json",
     "engine/LICENSE",
     "plugin",
+    "docs",
+    "CONTEXT.md",
+    "CONTRIBUTING.md",
     "README.md",
     "SECURITY.md",
     "CHANGELOG.md",
+    "SUPPORT.md",
     "LICENSE",
     "NOTICE"
   ],
@@ -54,6 +58,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT",
   "devDependencies": {

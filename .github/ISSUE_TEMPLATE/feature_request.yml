@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a workflow or capability for the bridge
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow to enable
+      description: What are you trying to accomplish, and who needs it?
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current workaround
+      description: How do you solve this today, and where does that approach fail?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Primary surface
+      options:
+        - Figma Design
+        - FigJam
+        - Figma Slides (beta)
+        - Tokens or code import
+        - MCP or CLI adapter
+        - Security or operations
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and safety
+      description: Note destructive effects, cross-file expectations, network access, or known Plugin API limitations.
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Project boundaries
+      options:
+        - label: I understand that the bridge only reaches files opened with the plugin running.
+          required: true
+        - label: I understand that bundled third-party design systems and a second transport are intentional non-goals.
+          required: true

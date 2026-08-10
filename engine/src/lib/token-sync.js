@@ -196,13 +196,13 @@ export function parseCssFlat(cssText) {
 
 /** Pick a parser from the file name and content. */
 export function parseTokenFile(fileName, content) {
-  if (/\.(css|scss)$/i.test(fileName)) return parseCssFlat(content);
+  if (/\.css$/i.test(fileName)) return parseCssFlat(content);
   if (/\.json$/i.test(fileName)) return parseDtcgFlat(content);
   // Content sniff for unusual extensions.
   if (content.trim().startsWith('{')) return parseDtcgFlat(content);
   if (content.includes('--')) return parseCssFlat(content);
   throw new Error(
-    `Cannot read tokens from "${fileName}". Supported: DTCG/W3C JSON (.json) and CSS custom properties (.css). `
+    `Cannot read tokens from "${fileName}". Supported for safe three-way sync: DTCG/W3C JSON (.json) and CSS custom properties (.css). `
     + 'Tailwind configs are an import source, not a sync source — their parser buckets values and cannot round-trip.',
   );
 }

@@ -818,6 +818,8 @@ export async function handleTool(name, rawArgs) {
         );
         if (editor === "figjam") {
           lines.push("  FigJam board — use figma_run [\"jam\", …]; design commands need a Figma file.");
+        } else if (editor === "slides") {
+          lines.push("  Slides deck — use figma_run [\"slides\", …] for the beta command surface.");
         }
       }
       // Optional REST layer: local status stays local/fast by default. Remote

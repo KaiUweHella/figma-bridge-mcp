@@ -38,6 +38,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['shader', 'import', 'shader-1'], ['shader', 'apply', '1:2', 'shader-1', '--field', 'fill'],
     ['layout', 'grid', 'set', '1:2', '--rows', '2'], ['slot', 'create', '1:2', 'Content'],
     ['draw', 'stroke-profile', '1:2', '--preset', 'TAPER'],
+    ['slides', 'create', 'Intro'], ['slides', 'delete', '1:2'],
   ]) assert.equal(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
 
   for (const args of [
@@ -52,6 +53,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['prototype', 'inspect', '1:2'], ['measure', 'list'], ['annotate', 'categories'],
     ['shader', 'list'], ['layout', 'grid', 'inspect', '1:2'], ['slot', 'validate'], ['draw', 'inspect', '1:2'],
     ['export', 'video', '1:2'],
+    ['slides', 'inspect'],
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');
@@ -71,6 +73,8 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.timeout, 'background');
   assert.deepEqual(planFigmaCommand(['history', 'diff', 'latest', 'live']).execution.okExitCodes, [0, 1]);
+  assert.equal(planFigmaCommand(['slides', 'inspect']).availability.editor, 'slides');
+  assert.equal(planFigmaCommand(['slides', 'inspect']).availability.feature, 'slides-beta');
 });
 
 test('catalog prepares every known project-relative path policy', () => {

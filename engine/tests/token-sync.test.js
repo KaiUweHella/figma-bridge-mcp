@@ -97,6 +97,11 @@ test('an unsupported source names what IS supported, and why', () => {
     () => parseTokenFile('tailwind.config.js', 'module.exports = {}'),
     /Tailwind configs are an import source/,
   );
+  assert.throws(
+    () => parseTokenFile('tokens.scss', '$brand-primary: #0d7c74;'),
+    /safe three-way sync/,
+    'a Sass file must not be silently accepted as if $variables were CSS custom properties',
+  );
 });
 
 // ------------------------------------------------------------ decisions

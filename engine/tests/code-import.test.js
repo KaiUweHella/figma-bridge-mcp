@@ -32,6 +32,17 @@ test('w3c: typography tokens keep the full shape', () => {
   assert.ok(tokens.fonts.includes('Inter'));
 });
 
+test('w3c: Tokens Studio DTCG export ignores theme metadata and resolves token-set aliases', () => {
+  const { tokens } = parseW3cTokens(fixture('tokens-tokens-studio.json'));
+  assert.equal(tokens.color['global-color-brand'], '#0d7c74');
+  assert.equal(tokens.color['global-color-action'], '#0d7c74');
+  assert.equal(tokens.spacing['spacing-md'], 16);
+  assert.deepEqual(tokens.typography['global-typography-body'], {
+    fontFamily: 'Inter', fontSize: 16, fontWeight: 400, lineHeight: 24,
+  });
+  assert.equal(tokens.color.themes, undefined, 'Tokens Studio $themes metadata is not a token');
+});
+
 test('w3c: cyclic aliases throw a clear error', () => {
   const cyclic = JSON.stringify({ a: { $value: '{b}' }, b: { $value: '{a}' } });
   assert.throws(() => parseW3cTokens(cyclic), /cycl|circular/i);
@@ -153,10 +164,11 @@ test('convert: every converter designMd output roundtrips through parseDesignMd'
   const dir = mkdtempSync(join(tmpdir(), 'code-import-'));
   for (const [src, type] of [
     [join(FIX, 'tokens-style-dictionary.json'), 'tokens'],
+    [join(FIX, 'tokens-tokens-studio.json'), 'tokens-studio'],
     [join(FIX, 'shadcn-globals.css'), 'css'],
     [join(FIX, 'tailwind.config.cjs'), 'tailwind'],
   ]) {
-    const result = await convert(src, { type });
+    const result = await convert(src, { type: type === 'tokens-studio' ? 'tokens' : type });
     const f = join(dir, `out-${type}.md`);
     writeFileSync(f, result.designMd);
     const parsed = parseDesignMd(f);

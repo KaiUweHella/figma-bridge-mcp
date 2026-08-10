@@ -169,6 +169,10 @@ export function codeBlock(source, { lang = 'TYPESCRIPT', at } = {}) {
   return wrap(`
   ${placement(at)}
   const b = figma.createCodeBlock();
+  // CodeBlockNode does not expose its internal text sublayer through
+  // fontName, but assigning code still requires its native editor font.
+  // Figma reports the exact missing face as Source Code Pro Medium.
+  await figma.loadFontAsync({ family: 'Source Code Pro', style: 'Medium' });
   b.code = ${JSON.stringify(source)};
   try { b.codeLanguage = ${JSON.stringify(String(lang).toUpperCase())}; } catch (e) {}
   b.x = origin.x; b.y = origin.y;
@@ -185,11 +189,24 @@ export function board() {
     } catch (e) {}
     return '';
   };
+  const tableOf = (n) => {
+    if (n.type !== 'TABLE') return null;
+    const data = [];
+    for (let row = 0; row < n.numRows; row++) {
+      const values = [];
+      for (let col = 0; col < n.numColumns; col++) {
+        values.push(textOf(n.cellAt(row, col)));
+      }
+      data.push(values);
+    }
+    return { rows: n.numRows, cols: n.numColumns, data };
+  };
   const nodes = figma.currentPage.children.map(n => ({
     id: n.id, type: n.type, name: n.name,
     x: Math.round(n.x), y: Math.round(n.y),
     w: Math.round(n.width), h: Math.round(n.height),
     text: textOf(n).slice(0, 200),
+    table: tableOf(n),
   }));
   const connectors = figma.currentPage.children
     .filter(n => n.type === 'CONNECTOR')
@@ -202,15 +219,31 @@ export function board() {
   return { page: figma.currentPage.name, count: nodes.length, nodes, connectors };`);
 }
 
-export function arrange({ columns = 5, gap = 48 } = {}) {
+export function arrange({ columns = 5, gap = 48, ids = [], all = false } = {}) {
   const cols = Math.max(1, parseInt(columns, 10) || 5);
   const g = parseFloat(gap) || 48;
+  const explicitIds = Array.isArray(ids) ? ids.map(String).filter(Boolean) : [];
   return wrap(`
   // Connectors follow their endpoints, and moving a section drags its whole
   // contents — neither belongs in a grid pass.
-  const movable = figma.currentPage.children
-    .filter(n => n.type !== 'CONNECTOR' && n.type !== 'SECTION');
-  if (!movable.length) return { moved: 0 };
+  const requestedIds = ${JSON.stringify(explicitIds)};
+  let candidates;
+  let scope;
+  if (requestedIds.length) {
+    const resolved = await Promise.all(requestedIds.map(id => figma.getNodeByIdAsync(id)));
+    const missing = requestedIds.filter((id, index) => !resolved[index]);
+    if (missing.length) return { error: 'Node not found: ' + missing.join(', ') };
+    candidates = resolved;
+    scope = 'ids';
+  } else if (${all ? 'true' : 'false'}) {
+    candidates = figma.currentPage.children;
+    scope = 'all';
+  } else {
+    candidates = figma.currentPage.selection;
+    scope = 'selection';
+  }
+  const movable = candidates.filter(n => n.type !== 'CONNECTOR' && n.type !== 'SECTION');
+  if (!movable.length) return { moved: 0, scope, ignored: candidates.length };
   const startX = Math.min(...movable.map(n => n.x));
   const startY = Math.min(...movable.map(n => n.y));
   const colW = Math.max(...movable.map(n => n.width)) + ${g};
@@ -219,5 +252,5 @@ export function arrange({ columns = 5, gap = 48 } = {}) {
     n.x = startX + (i % ${cols}) * colW;
     n.y = startY + Math.floor(i / ${cols}) * rowH;
   });
-  return { moved: movable.length };`);
+  return { moved: movable.length, scope, ignored: candidates.length - movable.length };`);
 }

@@ -187,7 +187,8 @@ jam
       if (options.json) { console.log(JSON.stringify(r, null, 2)); return; }
       console.log(chalk.white(`${r.page} — ${r.count} node(s)\n`));
       for (const n of r.nodes) {
-        const label = n.text ? ` "${n.text.replace(/\s+/g, ' ')}"` : '';
+        const readable = n.text || (n.table ? JSON.stringify(n.table.data) : '');
+        const label = readable ? ` "${readable.replace(/\s+/g, ' ')}"` : '';
         console.log(`  ${chalk.gray(n.id.padEnd(12))} ${n.type.padEnd(16)} ${String(n.x).padStart(6)},${String(n.y).padStart(6)}${label}`);
       }
       if (r.connectors.length) {
@@ -201,12 +202,22 @@ jam
 
 jam
   .command('arrange')
-  .description('Lay loose top-level nodes out on a grid (connectors and sections stay put)')
+  .description('Lay selected nodes out on a grid (connectors and sections stay put)')
   .option('--columns <n>', 'Nodes per row', '5')
   .option('--gap <px>', 'Gap between nodes', '48')
+  .option('--ids <ids>', 'Explicit comma/space-separated node IDs instead of the selection')
+  .option('--all', 'Arrange every loose top-level node on the page (explicitly destructive)')
   .action(async (options) => {
+    if (options.ids && options.all) {
+      console.error(chalk.red('✗ Choose either --ids or --all, not both.'));
+      process.exit(1);
+    }
+    const ids = options.ids ? String(options.ids).split(/[\s,]+/).filter(Boolean) : [];
     await run(
-      snippets.arrange({ columns: options.columns, gap: options.gap }),
-      (r) => console.log(chalk.green('✓'), r.moved ? `${r.moved} node(s) arranged` : 'Nothing to arrange'),
+      snippets.arrange({ columns: options.columns, gap: options.gap, ids, all: options.all }),
+      (r) => console.log(
+        chalk.green('✓'),
+        r.moved ? `${r.moved} node(s) arranged (${r.scope})` : `Nothing to arrange (${r.scope})`,
+      ),
     );
   });

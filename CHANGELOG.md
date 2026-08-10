@@ -208,7 +208,21 @@ the plugin window. The panel will tell you if you forget.
   gains `figjam` as an editor type and nothing else. Every snippet checks
   `figma.editorType` first, so running a board command in a design file says so
   instead of failing on an undefined API, and `figma_status` now reports the
-  editor. Figma Slides remains unsupported.
+  editor. `jam arrange` now defaults to the current selection, accepts an
+  explicit `--ids` target, and requires `--all` before touching the whole page.
+  Board readback includes table dimensions and cell values. The complete public
+  surface passed a Figma Desktop live acceptance; that run also caught and fixed
+  the required `Source Code Pro Medium` load before writing a code block.
+- **Figma Slides beta.** A guarded `slides` command group inspects the native
+  canvas grid and can create, duplicate, move, transition, skip and explicitly
+  delete slides. Because Figma renumbers native slide names after grid changes,
+  create/duplicate store optional durable Bridge labels in plugin data and
+  inspection exposes both facts. Resolution by id/name/label refuses ambiguity;
+  move and duplicate refuse missing target rows instead of accepting Figma's
+  fallback placement. The entire beta surface passed a Figma Desktop live
+  acceptance. Slides uses the same authenticated plugin transport and write
+  gate; interactive elements and speaker notes remain documented API boundaries
+  in `docs/slides-roadmap.md`.
 - **Two-way token sync.** `tokens sync <file>` compares a DTCG/W3C JSON or CSS
   custom-property file against a Figma collection and applies the difference —
   in the right direction. A `figma-tokens.lock.json` records the last agreed
@@ -219,6 +233,16 @@ the plugin window. The panel will tell you if you forget.
   Renames keep the same Figma variable (and its bindings) where the pairing is
   unambiguous. Dry run by default; exits 1 with pending changes so it works as
   a CI check.
+- **Truthful token-format contract.** One-shot import explicitly covers
+  Tailwind/CSS, Storybook and DTCG-compatible Style Dictionary/Tokens Studio
+  JSON, with a Tokens Studio fixture. Three-way sync remains limited to DTCG
+  JSON and CSS custom properties; the false `.scss` acceptance was removed
+  instead of pretending Sass `$variables` could round-trip.
+- **Release and contribution runway.** The npm tarball now carries the support
+  policy, issue/PR templates capture redacted reproduction and live-check
+  evidence, and a manual GitHub workflow is ready for npm OIDC Trusted
+  Publishing after the maintainer performs the first CLI publication. No npm
+  write token is stored in the repository.
 - **Structural version history.** `history snapshot` records a subtree,
   `history diff` compares two — locally, with no Figma credential. The report
   distinguishes added / removed / **replaced** / moved / changed; the replaced

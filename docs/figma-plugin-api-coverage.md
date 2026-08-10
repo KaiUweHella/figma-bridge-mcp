@@ -18,6 +18,9 @@ for limits and examples but does not override the declarations used by tests.
 | Auto-layout grid | tracks, gaps, placement, auto rows/flow, row/column reorder | Separate from layout guides |
 | Slots | create/edit/inspect/validate/reset; JSX support | Component-only creation; limits report violations rather than blocking edits |
 | Figma Draw | inspect, text path, transform repeats, complex strokes, width profiles, patterns | Custom brushes cannot be set; patterns require async setters |
+| FigJam | board readback including table cells; sticky/shape/connector/table/section/code creation; selection/id-scoped arrange; live-accepted 2026-08-10 | Whole-page arrange requires explicit `--all`; see `live-acceptance.md` |
+| Figma Slides (beta) | grid/slide inspect; durable Bridge labels; create, duplicate, move, transition, skip and explicit delete; live-accepted 2026-08-10 | Native names are renumbered by Figma; no speaker-notes API or native interactive-element creation; see `slides-roadmap.md` |
+| Token files | broad one-shot import from Tailwind, CSS, DTCG-compatible Style Dictionary/Tokens Studio JSON; three-way sync for DTCG JSON and CSS custom properties | Import may normalize/bucket values; sync stays narrow to avoid lossy round-trips; Sass variables are unsupported |
 
 REST is reserved for capabilities the live plugin cannot structurally provide:
 version history and version-pinned contents, comments, and file-wide published

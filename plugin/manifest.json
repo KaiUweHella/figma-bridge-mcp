@@ -8,7 +8,7 @@
   "permissions": ["teamlibrary"],
   "enableProposedApi": false,
   "enablePrivatePluginApi": true,
-  "editorType": ["figma", "figjam"],
+  "editorType": ["figma", "figjam", "slides"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [

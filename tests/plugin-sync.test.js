@@ -57,10 +57,9 @@ test('the manifest permits every port in the range and nothing beyond loopback',
 });
 
 test('the manifest keeps the plugin scoped to the editors we actually support', () => {
-  // figjam was added with the `jam` command group. "slides" and "dev" are
-  // deliberately absent: nothing here targets them, and an editorType we do
-  // not handle just offers users a plugin that does nothing.
-  assert.deepEqual(manifest.editorType, ['figma', 'figjam']);
+  // Every non-Design editor listed here has a guarded command group. "dev"
+  // remains absent: an editorType we do not handle would offer a dead plugin.
+  assert.deepEqual(manifest.editorType, ['figma', 'figjam', 'slides']);
   assert.equal(manifest.documentAccess, 'dynamic-page');
   assert.equal(manifest.enableProposedApi, false);
   assert.equal(manifest.main, 'code.js');

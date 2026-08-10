@@ -1,0 +1,37 @@
+{
+  "$themes": [
+    {
+      "id": "light",
+      "name": "Light",
+      "selectedTokenSets": { "global": "enabled" }
+    }
+  ],
+  "$metadata": { "tokenSetOrder": ["global"] },
+  "global": {
+    "color": {
+      "brand": {
+        "$type": "color",
+        "$value": "#0d7c74",
+        "$description": "Brand primary"
+      },
+      "action": {
+        "$type": "color",
+        "$value": "{global.color.brand}"
+      }
+    },
+    "spacing": {
+      "md": { "$type": "dimension", "$value": "1rem" }
+    },
+    "typography": {
+      "body": {
+        "$type": "typography",
+        "$value": {
+          "fontFamily": "Inter",
+          "fontSize": "16px",
+          "fontWeight": 400,
+          "lineHeight": "24px"
+        }
+      }
+    }
+  }
+}

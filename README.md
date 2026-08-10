@@ -364,7 +364,9 @@ figma_run ["jam", "shape", "Decide?", "--type", "DIAMOND"]
 figma_run ["jam", "connector", "1:2", "3:4", "--text", "yes"]
 figma_run ["jam", "table", "3", "4", "--data", "[[\"Step\",\"Owner\"],[\"Handshake\",\"Alex\"]]"]
 figma_run ["jam", "board"]      # read everything back, with connectors
-figma_run ["jam", "arrange"]    # tidy loose nodes onto a grid
+figma_run ["jam", "arrange"]    # arrange only the current selection
+figma_run ["jam", "arrange", "--ids", "1:2,3:4"]
+figma_run ["jam", "arrange", "--all"] # explicit: whole page
 ```
 
 New nodes land to the right of whatever is already on the board unless you pass
@@ -372,6 +374,40 @@ New nodes land to the right of whatever is already on the board unless you pass
 the origin. Every command checks `figma.editorType` first and says "this is a
 figma file, not a FigJam board" rather than failing on an undefined API.
 `figma_status` reports which editor the bridge is attached to.
+
+`jam arrange` is deliberately selection-scoped. Agents can pass exact node ids
+without changing the user's selection; rearranging the whole page requires the
+visible `--all` flag. Sections and connectors are never moved by this command.
+The public surface was exercised in Figma Desktop on 2026-08-10; the commands,
+readback evidence and runtime font fix are recorded in
+[`docs/live-acceptance.md`](docs/live-acceptance.md).
+
+## Figma Slides beta
+
+Slides uses the same authenticated plugin bridge. The beta surface covers deck
+structure and native slide properties, not a separate presentation renderer:
+
+```
+figma_run ["slides", "inspect"]
+figma_run ["slides", "create", "Agenda", "--row", "0", "--col", "1"]
+figma_run ["slides", "duplicate", "Agenda", "--label", "Agenda alternative"]
+figma_run ["slides", "move", "Agenda alternative", "1", "0"]
+figma_run ["slides", "transition", "Agenda", "DISSOLVE", "--duration", "0.4"]
+figma_run ["slides", "skip", "Appendix", "on"]
+figma_run ["slides", "delete", "1:42"]
+```
+
+Figma renumbers native slide names whenever the canvas grid changes. The
+optional argument to `create` and `--label` on `duplicate` therefore store a
+durable Bridge label in plugin data; `inspect` reports both the native `name`
+and stable `label`. References resolve by id, exact native name or label, then
+unique substring. Ambiguity is an error, delete always requires an explicit
+reference, and duplicate/move refuse a nonexistent target row rather than
+accepting Figma's fallback placement. Every operation checks
+`figma.editorType === "slides"` before touching a Slides-only API. The open
+candidates and the criteria for leaving beta live in
+[`docs/slides-roadmap.md`](docs/slides-roadmap.md); editor acceptance is tracked
+in [`docs/live-acceptance.md`](docs/live-acceptance.md).
 
 ## Token sync (two-way)
 
@@ -384,8 +420,17 @@ figma_run ["tokens", "sync", "src/tokens.json"]              # plan only
 figma_run ["tokens", "sync", "src/tokens.json", "--apply"]   # write it
 ```
 
-Formats: **DTCG / W3C design tokens** (`.json`, what `export dtcg` emits) and
-**CSS custom properties** (`.css`, what `export css` emits). Note that
+The import surface is broader than the sync surface. One-shot `import` accepts
+Tailwind v3 config, Tailwind v4/CSS, Storybook indexes, DTCG/W3C JSON, and the
+DTCG-compatible token shapes exported by Style Dictionary and Tokens Studio.
+That compatibility does not include Tokens Studio theme semantics or arbitrary
+preprocessors; metadata such as `$themes` is ignored while token sets and
+aliases are read.
+
+Safe three-way sync accepts only **DTCG / W3C design tokens** (`.json`, what
+`export dtcg` emits) and **CSS custom properties** (`.css`, what `export css`
+emits). Sass `$variables` are not CSS custom properties and `.scss` is refused
+rather than partially parsed. Note that
 `export dtcg` writes *every* local variable into one file while sync targets one
 collection — pass `--collection` accordingly. If most names in the file already
 live in another collection, sync says so instead of offering to duplicate them. Tailwind configs
@@ -879,8 +924,12 @@ Node's `crypto` so the two implementations cannot drift apart.
 
 ## Known limitations
 
-- **Figma Slides is not supported.** FigJam is (see [FigJam](#figjam)); Slides
-  would need its own command group and has not been built.
+- **Figma Slides is beta and deliberately bounded.** Grid inspection, slide
+  create/duplicate/move/delete, skip state and transitions are supported.
+  Speaker notes, interactive polls/embeds, presenter controls and a complete
+  content-authoring workflow are not. See the
+  [Slides roadmap](docs/slides-roadmap.md) for actionable candidates versus
+  Plugin API boundaries.
 - **Non-localhost network actions are few and explicit**: `api setup`
   (one-time git clone of the Figma Plugin API docs mirror, for
   `figma_reference`; `api gap` instead measures against the installed official
@@ -906,8 +955,11 @@ npm test                      # all contracts and regression suites
 ```
 
 The current domain language lives in [`CONTEXT.md`](CONTEXT.md), accepted
-architectural decisions in [`docs/adr/`](docs/adr/), and the indexed historical
-evidence archive in [`docu/README.md`](docu/README.md).
+architectural decisions in [`docs/adr/`](docs/adr/), API coverage in
+[`docs/figma-plugin-api-coverage.md`](docs/figma-plugin-api-coverage.md), and
+release instructions in [`docs/releasing.md`](docs/releasing.md). The maintained
+cross-area backlog and official-API watchlist live in
+[`docs/future-work.md`](docs/future-work.md).
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
 back within 3456–3460 when 3456 is taken, so both *can* coexist, but the plugin

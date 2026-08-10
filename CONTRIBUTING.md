@@ -26,6 +26,11 @@ Then run `figma_connect` and import `~/.figma-bridge-mcp/plugin/manifest.json`
 in Figma Desktop. `figma_connect` re-copies the plugin files on every run, so
 after editing `plugin/*` you only need to close and reopen the plugin window.
 
+Bug and feature issue forms ask for the workflow, editor, environment and
+redacted evidence needed to reproduce a report. Pull requests use the same
+test/live-check/security checklist as this guide. Support is best effort; see
+`SUPPORT.md` for channels and response expectations.
+
 ## The lines this project holds
 
 These are not style preferences — they are the reason the project exists, and a

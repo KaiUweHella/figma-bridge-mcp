@@ -134,9 +134,8 @@ async function selectionSnapshot() {
     // undefined for never-saved drafts — both degrade to null gracefully.
     fileKey: (typeof figma.fileKey === 'string' && figma.fileKey) || null,
     fileName: figma.root.name,
-    // Which editor the bridge is attached to. The plugin now runs in FigJam
-    // too, and "your jam command failed" is far easier to act on when the
-    // agent can see it is talking to a design file.
+    // Which editor the bridge is attached to. The plugin runs in FigJam and
+    // Slides too, and a command/editor mismatch must be visible to the agent.
     editorType: figma.editorType || null,
   };
 }

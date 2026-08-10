@@ -18,7 +18,7 @@ test("package.json files covers every runtime directory", () => {
     "src", "engine/src", "engine/package.json", "plugin", "NOTICE", "engine/LICENSE",
     // Shipped deliberately: the npm page is where most people decide whether to
     // trust an MCP server with write access to their design file.
-    "SECURITY.md",
+    "SECURITY.md", "SUPPORT.md", "docs", "CONTEXT.md", "CONTRIBUTING.md",
   ]) {
     assert.ok(
       pkg.files.includes(required),
@@ -32,6 +32,7 @@ test("package identity: name, bin, repository, prepublish test gate", () => {
   assert.ok(pkg.bin["figma-bridge-mcp"], "bin entry present");
   assert.match(pkg.repository.url, /github\.com/);
   assert.equal(pkg.scripts.prepublishOnly, "npm test", "publishing must run the suite");
+  assert.equal(pkg.publishConfig.access, "public");
 });
 
 test("test script uses Node discovery instead of shell-expanded globs", () => {

@@ -52,6 +52,7 @@ const COMMANDS = Object.freeze({
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
+  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect']),
   kit: { summary: 'Prepare a design system for agent use', mutation: 'read', timeout: 'long', path: 'kit-files' },
 });
 
@@ -441,8 +442,10 @@ function availabilityFor(args, capability) {
   }
   return {
     transport: 'plugin',
-    editor: args[0] === 'jam' ? 'figjam' : 'figma',
-    feature: args[0] === 'motion' ? 'motion-beta' : args[0] === 'map' ? 'storybook' : null,
+    editor: args[0] === 'jam' ? 'figjam' : args[0] === 'slides' ? 'slides' : 'figma',
+    feature: args[0] === 'motion' ? 'motion-beta'
+      : args[0] === 'slides' ? 'slides-beta'
+        : args[0] === 'map' ? 'storybook' : null,
   };
 }
 

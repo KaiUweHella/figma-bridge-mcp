@@ -1,0 +1,40 @@
+name: publish npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag whose package version should be published (for example v0.4.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: verify tagged source and publish with npm OIDC
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use an npm CLI with Trusted Publishing support
+        run: npm install --global npm@^11.5.1
+      - name: Require tag and package version to agree
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node -e "const expected='v'+require('./package.json').version;if(process.env.RELEASE_TAG!==expected){throw new Error('tag '+process.env.RELEASE_TAG+' does not match '+expected)}"
+      - run: npm ci
+      - run: npm test
+      # Trusted Publishing creates provenance automatically. No long-lived
+      # NPM_TOKEN is stored in GitHub; configure publish.yml once on npmjs.com
+      # after the first manual package publication.
+      - run: npm publish

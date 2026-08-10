@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible defect in the bridge, CLI, MCP layer, or plugin
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste plugin access keys, daemon tokens, Figma personal access tokens, or private document content.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest command sequence that reproduces the problem and redact file/node identities when necessary.
+      placeholder: |
+        1. Run figma_connect
+        2. Open ... and launch the plugin
+        3. Run figma_run ...
+    validations:
+      required: true
+  - type: dropdown
+    id: editor
+    attributes:
+      label: Figma editor
+      options:
+        - Figma Design
+        - FigJam
+        - Figma Slides (beta)
+        - No live Figma editor involved
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node version, package version or commit.
+      placeholder: macOS 15, Node 24.4.0, figma-bridge-mcp 0.4.0
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Relevant error output, screenshots, or audit-log lines with secrets and private content removed.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed all access keys, tokens, and private document content.
+          required: true
+        - label: This is not a security vulnerability. Security reports go through a private advisory.
+          required: true

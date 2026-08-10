@@ -25,7 +25,9 @@ const CASES = {
   section: () => jam.section('Ideas', { width: 400, height: 300 }),
   codeBlock: () => jam.codeBlock('const x = 1;', { lang: 'javascript' }),
   board: () => jam.board(),
-  arrange: () => jam.arrange({ columns: 3, gap: 20 }),
+  'arrange (selection)': () => jam.arrange({ columns: 3, gap: 20 }),
+  'arrange (ids)': () => jam.arrange({ ids: ['1:2', '3:4'] }),
+  'arrange (all)': () => jam.arrange({ all: true }),
 };
 
 for (const [name, build] of Object.entries(CASES)) {
@@ -79,4 +81,33 @@ test('an explicit position wins; a malformed one falls back to auto-placement', 
 test('arrange leaves connectors and sections alone', () => {
   const source = jam.arrange();
   assert.match(source, /n\.type !== 'CONNECTOR' && n\.type !== 'SECTION'/);
+});
+
+test('arrange is selection-scoped unless ids or --all were explicit', () => {
+  const selected = jam.arrange();
+  assert.match(selected, /candidates = figma\.currentPage\.selection/);
+  assert.match(selected, /else if \(false\)/);
+
+  const byId = jam.arrange({ ids: ['1:2', '3:4'] });
+  assert.match(byId, /const requestedIds = \["1:2","3:4"\]/);
+  assert.match(byId, /figma\.getNodeByIdAsync/);
+
+  const all = jam.arrange({ all: true });
+  assert.match(all, /else if \(true\)/);
+  assert.match(all, /candidates = figma\.currentPage\.children/);
+});
+
+test('code blocks load their native editor font before assigning code', () => {
+  const source = jam.codeBlock('const x = 1;');
+  const loadAt = source.indexOf("family: 'Source Code Pro', style: 'Medium'");
+  const writeAt = source.indexOf('b.code =');
+  assert.ok(loadAt !== -1, 'Source Code Pro Medium is required by CodeBlockNode');
+  assert.ok(loadAt < writeAt, 'the native code font must load before assigning code');
+});
+
+test('board readback includes table dimensions and cell values', () => {
+  const source = jam.board();
+  assert.match(source, /n\.type !== 'TABLE'/);
+  assert.match(source, /n\.cellAt\(row, col\)/);
+  assert.match(source, /rows: n\.numRows, cols: n\.numColumns, data/);
 });
