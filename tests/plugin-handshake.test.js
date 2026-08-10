@@ -25,6 +25,7 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const UI = readFileSync(join(ROOT, 'plugin', 'ui.html'), 'utf8');
+const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 
 // Lift the panel's crypto out of the HTML and evaluate it standalone. Slicing
 // on the real function boundaries means a rename or a move breaks the test
@@ -170,7 +171,14 @@ test('the shipped plugin scripts parse', () => {
   const script = UI.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(script, 'ui.html must contain a <script> block');
   new Script(script[1], { filename: 'plugin/ui.html' });
-  new Script(readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8'), { filename: 'plugin/code.js' });
+  new Script(PLUGIN_CODE, { filename: 'plugin/code.js' });
+});
+
+test('Capture revision metadata crosses both plugin threads', () => {
+  assert.match(PLUGIN_CODE, /figma\.on\('documentchange'/);
+  assert.match(PLUGIN_CODE, /documentRevisionBefore/);
+  assert.match(PLUGIN_CODE, /documentRevisionAfter/);
+  assert.match(UI, /metadata: msg\.metadata/);
 });
 
 test('verify rejects malformed proofs instead of throwing', () => {

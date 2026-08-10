@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "@figma/plugin-typings"]
+  },
+  "files": [
+    "src/figma-target.js",
+    "src/capability-catalog.js",
+    "engine/src/lib/asset-policy.js",
+    "engine/src/lib/daemon-client.js",
+    "engine/src/lib/protocol-contract.js",
+    "engine/src/lib/spec-format.js",
+    "engine/src/application/design-capture.js",
+    "engine/src/application/code-spec-command.js",
+    "engine/src/application/inspect-command.js",
+    "engine/src/application/screenshot-command.js",
+    "plugin/code.js"
+  ]
+}

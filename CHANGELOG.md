@@ -8,6 +8,65 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 Breaking for existing pairings: after upgrading, run `figma_connect` and reopen
 the plugin window. The panel will tell you if you forget.
 
+### Efficient, lossless design-to-code output
+
+- **In-process command applications.** `figma_spec`, `figma_inspect` and
+  `figma_screenshot` now share value-returning Command Application Modules with
+  their CLI counterparts instead of keeping behaviour inside Commander actions.
+  MCP skips process startup and Commander registration; five paired spec runs
+  on a 285-node screen averaged 607 ms direct versus 778 ms through the legacy
+  child-process adapter, with identical SHA-256 output. The generic `figma_run`
+  tool deliberately remains the broad CLI Adapter. A shared Daemon Client
+  Module concentrates signing, timeouts and transport errors.
+- **One Capability Catalog for command policy.** MCP and the execution wrapper
+  now consume the same immutable CommandPlan instead of maintaining separate
+  allowlists, write matrices, targeting branches, path rewrites, retry rules,
+  timeouts, accepted exit codes and asset-job keys. Unknown commands resolve to
+  denied/write/no-retry; write plans can never opt into automatic replay.
+  `figma_reference {name:"capabilities"}` exposes the generated command index
+  on demand without an engine round-trip, so the full list no longer consumes
+  tokens in every MCP tool handshake.
+- **Design Capture once, project many times.** Repeated explicit-node
+  `figma_spec` calls can now reuse one information-rich walker Capture across
+  structure/style phases, dedup modes and tree/YAML/JSON projections. The
+  plugin supplies monotonic document revisions and the Bridge Daemon binds
+  them to a daemon-owned connection identity. Every hit probes freshness;
+  changes, reconnects, unstable revisions and old plugins invalidate or bypass
+  the bounded in-memory cache immediately. Selection and named-section calls
+  deliberately remain uncached in this first Slice.
+- **One canonical spec model, three lossless structured adapters.** YAML,
+  pretty JSON and the new `json-compact` format roundtrip every design field
+  exactly. The versioned model now carries capture completeness and dynamic
+  fidelity checks; Storybook enrichment uses component-key fields instead of
+  parsing rendered tree text. `json-compact` is now the default for
+  `figma_spec` and `export code-spec`; tree, YAML and pretty JSON remain
+  explicit alternatives.
+- **No silent partial specs.** Results above the output budget now return an
+  explicit `complete:false` refusal plus a section-by-section retry recipe,
+  never a truncated prefix that could be mistaken for the whole design.
+- **Smaller MCP context.** Server instructions are an on-demand workflow index
+  instead of a repeated long guide; tree legends were compressed while their
+  existing fidelity contracts remain tested. Focused guides are available as
+  `workflow:design-to-code` and `workflow:code-to-figma`.
+- **Consistent file targeting.** Dedicated render, selection, inspect,
+  screenshot and spec tools accept `fileKey`; pasted Figma URLs infer it.
+  One immutable Figma Target Context resolves that choice once and carries it
+  through command policy, audit, job identity and daemon execution. Asset-job
+  identity includes the file, preventing cross-file collisions.
+- **One Asset Policy.** Design Capture projections and asset export now share
+  the same classification implementation for image fills, vector artwork and
+  vector clusters; plugin-side and captured-node adapters only translate their
+  input shapes.
+- **Executable architecture contracts.** TypeScript checks the JavaScript
+  module seams and Figma plugin globals; runtime validators gate both HTTP exec
+  payloads and WebSocket plugin frames. Deterministic tests track MCP metadata,
+  compact-spec, injected plugin-code and local p50/p95 latency budgets.
+- **Durable domain decisions.** `CONTEXT.md` defines the project vocabulary,
+  six ADRs record the security, command, targeting, MCP and capture-cache
+  decisions, and `docu/README.md` indexes the historical evidence archive.
+- **Fast local status.** `figma_status` no longer performs a cold REST request
+  unless `validateRest:true` is requested.
+
 ### Component-aware rendering
 
 - **`component add-variant <set> "Prop=Value"`** adds a missing variant to an

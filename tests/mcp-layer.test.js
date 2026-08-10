@@ -135,10 +135,11 @@ test('normalizeOutputArgs anchors extract / export node|screenshot outputs to th
   assert.deepEqual(normalizeOutputArgs(['export', 'css', '1:2'], base), ['export', 'css', '1:2']);
 });
 
-test('figma_selection tool schema exists and takes no parameters', async () => {
+test('figma_selection accepts only an optional file target', async () => {
   const { unknownParamError } = await import('../src/server.js');
   assert.equal(unknownParamError('figma_selection', {}), null);
-  assert.match(unknownParamError('figma_selection', { nodeId: '1:2' }), /This tool takes no parameters/);
+  assert.equal(unknownParamError('figma_selection', { fileKey: 'FILE_A' }), null);
+  assert.match(unknownParamError('figma_selection', { nodeId: '1:2' }), /Accepted parameters: fileKey/);
 });
 
 test('normalizeOutputArgs anchors map storybook output to the client workspace', async () => {
@@ -153,7 +154,7 @@ test('normalizeOutputArgs anchors map storybook output to the client workspace',
 });
 
 test('figma-map: loader tolerates missing/corrupt files, annotates via both keys', async () => {
-  const { loadFigmaMap, annotationFor, storybookTrailer } = await import('../src/figma-map.js');
+  const { loadFigmaMap, annotationFor, storybookTrailer, storybookMappingsForSpecModel } = await import('../src/figma-map.js');
   const { writeFileSync } = await import('node:fs');
   const dir = mkdtempSync(join(tmpdir(), 'figma-map-'));
 
@@ -182,6 +183,15 @@ test('figma-map: loader tolerates missing/corrupt files, annotates via both keys
   const trailer = storybookTrailer('- A · key `setkey1`\n- B · key `varkey1`\n- C · key `nope`', dir);
   assert.match(trailer, /## Storybook mapping/);
   assert.equal((trailer.match(/components-button--primary/g) || []).length, 1);
+
+  // Structured outputs carry keys as fields, not as rendered `key` text.
+  // Mapping must therefore enrich the canonical model, independent of format.
+  const mappings = storybookMappingsForSpecModel({
+    frames: [{ t: 'INSTANCE', n: 'Button', mainKey: 'varkey1' }],
+    sets: [{ name: 'Button', setKey: 'setkey1' }],
+  }, dir);
+  assert.equal(mappings.length, 1, 'same story reached through two keys is deduped');
+  assert.equal(mappings[0].storyId, 'components-button--primary');
 });
 
 test('server.js parses — a syntax error here means "cannot attach to figma-safe"', async () => {
@@ -209,22 +219,81 @@ test('unknownParamError: wrong parameter names get a "did you mean" instead of s
   assert.match(unknownParamError('figma_screenshot', { banana: 1 }), /Unknown parameter "banana"\./);
 });
 
-test('INSTRUCTIONS stay under the 2,048-char client truncation limit', async () => {
+test('MCP handshake metadata stays compact and routes detail on demand', async () => {
   // MCP clients (Claude Code) cut server instructions at 2,048 characters —
   // acceptance testing proved everything past that point silently never reaches the
   // model (the verify checklist was cut off, and exactly its items were the
   // fidelity bugs that shipped). 2,000 leaves margin for future edits; the
   // full guide belongs in WORKFLOW_GUIDE (figma_reference "workflow") or in
   // tool outputs, which are not truncated.
-  const { INSTRUCTIONS, WORKFLOW_GUIDE } = await import('../src/server.js');
-  assert.ok(INSTRUCTIONS.length < 2000,
-    `INSTRUCTIONS is ${INSTRUCTIONS.length} chars — must stay < 2000 (client truncates at 2048). ` +
-    'Move new guidance into WORKFLOW_GUIDE or into tool outputs instead.');
+  const { INSTRUCTIONS, WORKFLOW_GUIDE, TOOLS, workflowGuideFor } = await import('../src/server.js');
+  assert.ok(INSTRUCTIONS.length < 650,
+    `INSTRUCTIONS is ${INSTRUCTIONS.length} chars — keep the handshake concise; detail is on demand.`);
+  assert.ok(INSTRUCTIONS.length + JSON.stringify(TOOLS).length < 10_800,
+    'server instructions + tool schemas exceeded the Phase-1 metadata budget');
   // The short form must point at the full guide, and the guide must carry
   // the checklist that got lost in an acceptance run.
   assert.match(INSTRUCTIONS, /figma_reference \{name:"workflow"\}/);
   assert.match(WORKFLOW_GUIDE, /never border-image/);
   assert.match(WORKFLOW_GUIDE, /verify-build/);
+  assert.ok(workflowGuideFor('workflow:design-to-code').length < WORKFLOW_GUIDE.length);
+  assert.match(workflowGuideFor('workflow:code-to-figma'), /Code-to-Figma workflow/);
+});
+
+test('capability index is generated on demand without an engine round-trip', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_reference', { name: 'capabilities' });
+  const text = result.content?.[0]?.text || '';
+  assert.match(text, /^a11y — /m);
+  assert.match(text, /^render — /m);
+  assert.doesNotMatch(text, /^connect — /m);
+  assert.doesNotMatch(text, /^eval — /m);
+});
+
+test('specialized Figma tools expose consistent explicit file targeting', async () => {
+  const { TOOLS } = await import('../src/server.js');
+  for (const name of ['figma_render', 'figma_selection', 'figma_inspect', 'figma_screenshot', 'figma_spec']) {
+    const tool = TOOLS.find((candidate) => candidate.name === name);
+    assert.ok(tool?.inputSchema?.properties?.fileKey, `${name} must accept fileKey`);
+  }
+  const status = TOOLS.find((candidate) => candidate.name === 'figma_status');
+  assert.ok(status.inputSchema.properties.validateRest, 'REST validation must be explicit/lazy');
+  const spec = TOOLS.find((candidate) => candidate.name === 'figma_spec');
+  assert.ok(spec.inputSchema.properties.format.enum.includes('json-compact'));
+  assert.equal(spec.inputSchema.properties.format.default, 'json-compact');
+  assert.match(spec.inputSchema.properties.format.description, /json-compact \(default\)/);
+});
+
+test('oversized specs are refused as incomplete, never partially or silently truncated', async () => {
+  const { budgetSpecOutput } = await import('../src/server.js');
+  const original = `SECRET-TAIL-${'x'.repeat(200)}`;
+  const guarded = budgetSpecOutput(original, {
+    limit: 100, nodeId: '1:2', phase: 'all', depth: 12,
+  });
+  assert.equal(guarded.complete, false);
+  assert.equal(guarded.originalChars, original.length);
+  assert.doesNotMatch(guarded.text, /SECRET-TAIL/, 'must not return a misleading partial prefix');
+  assert.match(guarded.text, /complete: false/);
+  assert.match(guarded.text, /No partial design data was returned/);
+  assert.match(guarded.text, /phase.*structure/);
+  assert.equal(budgetSpecOutput('small', { limit: 100 }).text, 'small');
+});
+
+test('asset background jobs include the target file in their identity', async () => {
+  const { assetExportJobKey } = await import('../src/server.js');
+  const args = ['export', 'assets', '1:2', '-o', '/tmp/assets'];
+  assert.notEqual(assetExportJobKey(args, 'FILE_A'), assetExportJobKey(args, 'FILE_B'));
+  assert.equal(assetExportJobKey(args, 'FILE_A'), assetExportJobKey([...args], 'FILE_A'));
+});
+
+test('file target resolver normalizes explicit URLs and infers Figma URLs in argv', async () => {
+  const { resolveFileTarget } = await import('../src/engine.js');
+  const url = 'https://www.figma.com/design/PLACEHOLDERFILEKEY/FILE_NAME?node-id=12-34';
+  assert.equal(resolveFileTarget(url, []), 'PLACEHOLDERFILEKEY');
+  assert.equal(resolveFileTarget(undefined, ['export', 'code-spec', url]), 'PLACEHOLDERFILEKEY');
+  assert.equal(resolveFileTarget(undefined, ['map', 'storybook', 'http://localhost:6006']), null);
+  assert.equal(resolveFileTarget(undefined, ['annotate', 'set', 'text mentions ' + url]), null,
+    'a Figma URL embedded in arbitrary content must not retarget the command');
 });
 
 test('verify-build passes the figma_run allowlist as a read-only command', async () => {

@@ -11,6 +11,7 @@ import * as apiDocs from '../api-docs.js';
 import { nullDevice, killPort, getPortPid, sleepAfterStop } from '../platform.js';
 import { getDaemonPort, clearPortFile } from './daemon-port.js';
 import { signRequest } from './daemon-auth.js';
+import { createDaemonClient } from './daemon-client.js';
 import { STATE_DIR } from './state-dir.js';
 // Moved out of this file; re-exported below so command modules keep importing
 // everything from one place.
@@ -145,87 +146,29 @@ function isDaemonRunning(returnDetails = false, force = false) {
   }
 }
 
-// Send command to daemon (uses native fetch in Node 18+)
+let _asyncDaemonClient = null;
+
+function asyncDaemonClient() {
+  if (_asyncDaemonClient) return _asyncDaemonClient;
+  _asyncDaemonClient = createDaemonClient({
+    readToken: getDaemonToken,
+    getPort: getDaemonPort,
+    tokenFile: DAEMON_TOKEN_FILE,
+    defaultFileKey: targetFileKey,
+    missingTokenMessage: () => {
+      const status = getTokenStatus();
+      return status.tokenFileExists
+        ? `Failed to read daemon token from ${DAEMON_TOKEN_FILE}\n${status.readError || 'Unknown error'}`
+        : `Daemon token not found at ${DAEMON_TOKEN_FILE}\nRun "node src/index.js connect" to start the daemon and generate a token.`;
+    },
+  });
+  return _asyncDaemonClient;
+}
+
+// Send command through the shared daemon transport Module. Explicit fileKey
+// in data wins; otherwise the CLI adapter supplies its global target.
 async function daemonExec(action, data = {}, timeoutMs = 90000) {
-  const token = getDaemonToken();
-
-  // Fail fast with clear error if token is missing
-  if (!token) {
-    const status = getTokenStatus();
-    if (!status.tokenFileExists) {
-      throw new Error(
-        `Daemon token not found at ${DAEMON_TOKEN_FILE}\n` +
-        `Run "node src/index.js connect" to start the daemon and generate a token.`
-      );
-    }
-    throw new Error(
-      `Failed to read daemon token from ${DAEMON_TOKEN_FILE}\n` +
-      `${status.readError || 'Unknown error'}`
-    );
-  }
-
-  // Injected HERE rather than at each call site: fastEval, figmaEvalSync and
-  // ~50 direct daemonExec('eval', …) callers all funnel through this function,
-  // and patching only the first two left most commands unable to target a file.
-  // An explicit fileKey in `data` still wins.
-  const target = data.fileKey ?? targetFileKey();
-  const body = JSON.stringify({ action, ...data, ...(target ? { fileKey: target } : {}) });
-  // Signed request headers; the token never rides along in cleartext.
-  const headers = { 'Content-Type': 'application/json', ...signRequest(token, 'POST', '/exec', body) };
-
-  try {
-    // 127.0.0.1, not localhost: the daemon binds IPv4 only, and hosts that
-    // resolve localhost to ::1 first paid an avoidable connection detour.
-    const response = await fetch(`http://127.0.0.1:${getDaemonPort()}/exec`, {
-      method: 'POST',
-      headers,
-      body,
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      // Try to parse as JSON error from daemon
-      try {
-        const errObj = JSON.parse(text);
-        if (errObj.error) {
-          // Enhance auth errors with helpful info
-          if (errObj.error.includes('Unauthorized') || errObj.error.includes('token')) {
-            throw new Error(
-              `${errObj.error}\n` +
-              `Token file: ${DAEMON_TOKEN_FILE}\n` +
-              `Try: node src/index.js daemon restart`
-            );
-          }
-          // Safe Mode: plugin tab was closed → guide the user back to it
-          // instead of just dumping the raw error.
-          if (/Plugin not connected/i.test(errObj.error)) {
-            throw new Error(
-              'Plugin not connected.\n' +
-              'In Figma: Plugins → Development → Figma Bridge (keep that tab open).'
-            );
-          }
-          // Clean up error: remove stack trace line numbers for cleaner output
-          const cleanError = errObj.error.split('\n')[0];
-          throw new Error(cleanError);
-        }
-      } catch (parseErr) {
-        if (parseErr.message && !parseErr.message.includes('JSON')) {
-          throw parseErr; // Re-throw our clean error
-        }
-      }
-      throw new Error(`HTTP ${response.status}: ${text}`);
-    }
-
-    const result = await response.json();
-    if (result.error) throw new Error(result.error);
-    return result.result;
-  } catch (e) {
-    if (e.name === 'TimeoutError' || e.message.includes('timeout')) {
-      throw new Error(`Execution timeout (${timeoutMs/1000}s). Try reconnecting: node src/index.js connect`);
-    }
-    throw e;
-  }
+  return asyncDaemonClient().execute(action, data, { timeoutMs });
 }
 
 // Ensure the daemon is up before sending it work. The daemon idle-shuts-down

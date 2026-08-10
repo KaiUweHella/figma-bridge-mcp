@@ -12,105 +12,25 @@ import { join, dirname } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runCli, ensureSafeConnect, health, getSelection, ALLOWED_COMMANDS, withAbsoluteOutputDir, normalizeOutputArgs } from "./engine.js";
+import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, getSelection, resolveFileTarget } from "./engine.js";
+import {
+  listFigmaCapabilities,
+  planFigmaCommand,
+} from "./capability-catalog.js";
 import { buildHistory } from "./history.js";
-import { annotationFor, storybookTrailer } from "./figma-map.js";
+import { annotationFor, storybookTrailer, storybookMappingsForSpecModel } from "./figma-map.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
 import { readRestToken, getRestHealth, resolveFileKey, getVersions, getFileAtVersion, getComments, postComment, getFileComponents, NOT_CONFIGURED_MSG } from "./figma-rest.js";
 import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
 import { diffSnapshots, formatDiff, formatChangelog } from "../engine/src/lib/doc-diff.js";
+import { DEFAULT_SPEC_FORMAT, parseSpecModel, serializeSpecModel } from "../engine/src/lib/spec-format.js";
+import { executeCodeSpec } from "../engine/src/application/code-spec-command.js";
+import { executeInspect } from "../engine/src/application/inspect-command.js";
+import { executeScreenshot } from "../engine/src/application/screenshot-command.js";
 import { WRITE_CONFIRM } from "./config.js";
 
-// Subcommands that mutate the design; gated behind confirm when
-// FIGMA_WRITE_CONFIRM=1. Read commands always run.
-// Write gate, per command group. Verified against the engine's real
-// subcommands (node/component/... --help):
-// - Commands in ALWAYS_WRITE mutate the file regardless of arguments
-//   (combos/sizes generate variant grids — they even have --dry-run).
-// - For gated GROUPS, only the listed subcommands are reads; everything
-//   else in the group (create/set/delete/add/clear/prop/combine/link/...)
-//   counts as a write. Unknown future subcommands therefore default to
-//   WRITE — the safe direction for a confirm gate.
-// - `tokens` is special: the bare command exports (read); of its
-//   subcommands only `overlap` is a read.
-// - `map` is deliberately NOT gated: it writes a repo file (figma-map.json),
-//   never the Figma document — same class as `extract` (writes DESIGN.md).
-//   FIGMA_WRITE_CONFIRM protects the design file, not the filesystem.
-const ALWAYS_WRITE = new Set([
-  "render",
-  "render-batch",
-  "import",
-  "pin",
-  "gradient",
-  "combos",
-  "sizes",
-]);
-
-const READ_SUBCOMMANDS = {
-  node: new Set(["tree", "bindings"]),
-  component: new Set(["list", "main"]),
-  dev: new Set(["list"]),
-  annotate: new Set(["list"]),
-  section: new Set(["list"]),
-  grid: new Set(["list"]),
-  col: new Set(["list"]),
-  var: new Set(["list", "find"]),
-  // `canvas` was ungated while it only measured and switched pages;
-  // page-create mutates the document, so the group is gated now with the
-  // pre-existing subcommands enumerated as reads (page = switch only).
-  canvas: new Set(["info", "pages", "page", "next"]),
-  // `timeline` is deliberately NOT listed: it reads OR sets the frame duration
-  // depending on its arguments, and the gate only sees the subcommand. Treating
-  // it as a write is the safe direction.
-  motion: new Set(["styles", "inspect"]),
-  // Everything else in `jam` creates or moves nodes on the board.
-  jam: new Set(["board"]),
-};
-
-// Commands that never touch the Figma document (exports/analysis write repo
-// files at most — FIGMA_WRITE_CONFIRM protects the design, not the
-// filesystem). Everything NOT enumerated here, in READ_SUBCOMMANDS or in
-// ALWAYS_WRITE defaults to WRITE: an unlisted future command group must not
-// ship ungated — that is exactly how `canvas page-create` slipped through.
-const READ_ONLY_COMMANDS = new Set([
-  "a11y",
-  "analyze",
-  "api",
-  "export",
-  "extract",
-  "find",
-  // history reads the document and writes only into the snapshot store — the
-  // same class as extract/map: state on disk, never a change in Figma.
-  "history",
-  "inspect",
-  // kit only runs read commands and writes into the user's project.
-  "kit",
-  "map",
-  "spec",
-  "verify",
-  "verify-build",
-]);
-
 export function isWrite(args) {
-  if (!Array.isArray(args) || args.length === 0) return false;
-  // A help flag anywhere makes commander print usage and exit — never a write.
-  if (args.includes("--help") || args.includes("-h")) return false;
-  const [cmd, sub] = args;
-  if (ALWAYS_WRITE.has(cmd)) return true;
-  if (READ_ONLY_COMMANDS.has(cmd)) return false;
-  // Bare group command or a leading flag → usage output, not an action.
-  const subIsAction = sub !== undefined && !sub.startsWith("-");
-  if (cmd === "tokens") {
-    // `tokens sync` and `tokens rebind` are dry runs unless --apply is passed:
-    // they read both sides and print a plan. Gating the plan behind confirm
-    // would make an agent ask permission to look, so the flag — not the
-    // subcommand — decides for these two.
-    if (sub === "sync" || sub === "rebind") return args.includes("--apply");
-    return subIsAction && sub !== "overlap";
-  }
-  if (cmd in READ_SUBCOMMANDS) return subIsAction && !READ_SUBCOMMANDS[cmd].has(sub);
-  // Unknown command: WRITE — the safe direction for a confirm gate.
-  return true;
+  return Array.isArray(args) && args.length > 0 && planFigmaCommand(args).effects.figma === "write";
 }
 
 // Server version for figma_status: package version + short git SHA. A status
@@ -143,8 +63,15 @@ export const TOOLS = [
   {
     name: "figma_status",
     description:
-      "Show whether the Figma plugin is connected and authenticated, plus access-key state.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "Show local bridge, plugin, file and key state. REST validation is opt-in to keep status fast.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        validateRest: { type: "boolean", description: "Also validate the optional REST token remotely." },
+        fileKey: { type: "string", description: "File key/URL for REST file-access validation fallback." },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "figma_pairing",
@@ -165,7 +92,8 @@ export const TOOLS = [
   {
     name: "figma_run",
     description:
-      `Run an allowlisted engine command. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}. ` +
+      "Run a Capability Catalog-approved engine command. Discover commands with " +
+      'figma_reference {name:"capabilities"}. ' +
       "Append --help to any command for its syntax. " +
       "Note: node tree defaults to depth 3 — pass -d <n> for deeper trees.",
     inputSchema: {
@@ -182,12 +110,11 @@ export const TOOLS = [
         },
         label: {
           type: "string",
-          description: "Optional short intent note stored in the local history/audit log (see figma_history).",
+          description: "Optional audit-log intent note.",
         },
         fileKey: {
           type: "string",
-          description:
-            "Which connected Figma window to run against. Only needed when the user has the plugin open in more than one file — figma_status lists them. Accepts a bare key or a Figma URL.",
+          description: "Target connected file: bare key or Figma URL.",
         },
       },
       required: ["args"],
@@ -207,8 +134,9 @@ export const TOOLS = [
         },
         label: {
           type: "string",
-          description: "Optional short intent note stored in the local history/audit log (see figma_history).",
+          description: "Optional audit-log intent note.",
         },
+        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
       required: ["jsx"],
       additionalProperties: false,
@@ -217,8 +145,14 @@ export const TOOLS = [
   {
     name: "figma_selection",
     description:
-      "The nodes the user currently has selected in Figma — pushed automatically by the Figma Bridge plugin on every selection change. Use this instead of asking the user to copy node ids: they select in Figma, you read the ids here and feed them to figma_inspect/figma_spec/figma_screenshot.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "Read the nodes currently selected in Figma (pushed automatically by the plugin).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "figma_history",
@@ -306,11 +240,12 @@ export const TOOLS = [
   {
     name: "figma_inspect",
     description:
-      "Inspect a node by id: geometry, positioning, fills/strokes/effects, clipsContent, opacity, component context, text style (YAML output). For full design-to-code detail use figma_spec instead.",
+      "Inspect one node's geometry, paint, effects, component context and text style as YAML.",
     inputSchema: {
       type: "object",
       properties: {
         nodeId: { type: "string", description: "Figma node id (\"1:2\"), URL form (\"1-2\"), or a full Figma URL." },
+        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
       required: ["nodeId"],
       additionalProperties: false,
@@ -319,11 +254,11 @@ export const TOOLS = [
   {
     name: "figma_reference",
     description:
-      "Offline Figma Plugin API reference (one-time 'api setup' needed). Omit name to list. Special topic: name \"workflow\" returns the FULL design-to-code workflow guide (the server instructions are a truncation-safe summary of it).",
+      "Offline Plugin API reference. Special topics: capabilities, workflow, workflow:design-to-code, workflow:code-to-figma.",
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Command name to look up, or \"workflow\" for the full design-to-code guide." },
+        name: { type: "string", description: "API name, capabilities or workflow topic; omit to list API names." },
       },
       additionalProperties: false,
     },
@@ -331,7 +266,7 @@ export const TOOLS = [
   {
     name: "figma_screenshot",
     description:
-      "Save a PNG of a node (or the current selection) to a temp file and return its path + dimensions. MANDATORY first step of any design-to-code task: Read the PNG afterwards — it is the visual ground truth to compare your build against.",
+      "Save a node/selection PNG to a temp path. Read it as design-to-code visual ground truth.",
     inputSchema: {
       type: "object",
       properties: {
@@ -343,6 +278,7 @@ export const TOOLS = [
           type: "number",
           description: "Export scale (default 0.5, capped at 2000px max dimension). The result reports the applied scale — rendered pixels = node size × scale.",
         },
+        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
       additionalProperties: false,
     },
@@ -350,7 +286,7 @@ export const TOOLS = [
   {
     name: "figma_spec",
     description:
-      "Design-to-code spec of a node: real text content, resolved icon/component names, variants, layout, paints with design-token bindings. Use phase 'structure' to build the markup first (hierarchy + content only), then 'style' for the visual detail. Never invent texts or icons — copy them from this spec. Works on ANY sub-node and takes a depth limit — for large screens pull a shallow structure map first, then style per section instead of one giant spec.",
+      "Lossless design-to-code facts for a node. Pull structure first, then style per section on large screens.",
     inputSchema: {
       type: "object",
       properties: {
@@ -374,15 +310,17 @@ export const TOOLS = [
         },
         format: {
           type: "string",
-          enum: ["tree", "yaml", "json"],
+          enum: ["tree", "yaml", "json", "json-compact"],
+          default: DEFAULT_SPEC_FORMAT,
           description:
-            "tree (default) = compact text with S<n> style-bundle refs; yaml/json = structured model with a styles map.",
+            "json-compact (default) is the lossless canonical model; tree is a compact presentation; yaml/json are lossless alternatives.",
         },
         includeHidden: {
           type: "boolean",
           description:
             "Also list invisible nodes, marked hidden (default false). Useful to understand what a variant toggle would reveal.",
         },
+        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
       required: ["nodeId"],
       additionalProperties: false,
@@ -396,49 +334,19 @@ export const TOOLS = [
 // instructions at 2,048 characters — everything beyond that limit silently
 // never reaches the model (acceptance evidence: 62% of the guidance was cut off, and
 // exactly the cut-off checklist items were the fidelity bugs that shipped).
-// INSTRUCTIONS must stay under 2,000 characters — enforced by a test in
+// INSTRUCTIONS must stay under 650 characters — enforced by a test in
 // tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
 // figma_reference name "workflow") or into tool OUTPUTS, which are never
 // truncated this way.
-export const INSTRUCTIONS = `Design-to-code. The design is the complete spec — copy it, never
-interpret. Full guide: figma_reference {name:"workflow"}.
+export const INSTRUCTIONS = `Figma Bridge. Treat design output as facts: never invent or silently
+drop text, assets, tokens, layout or states. Design-to-code: screenshot first,
+then spec structure; pull style per section for large frames. Compact JSON is
+the lossless default; tree is an optional structure map. Full guides:
+figma_reference {name:"workflow"}; focused topics use
+"workflow:design-to-code" or "workflow:code-to-figma". Use fileKey when more
+than one Figma window is connected. figma_run accepts --help.`;
 
-1. figma_screenshot, then Read the PNG — the visual ground truth.
-2. figma_spec phase "structure" — skeleton; texts/icon names verbatim, never
-   invented.
-3. figma_run ["export","css","<nodeId>"] — tokens SCOPED to the frame,
-   wired as CSS variables. Load the listed font families from their named
-   sources (or ask the user) — a system-font fallback is not done.
-4. figma_run ["export","assets","<nodeId>","-o","/abs/path/src/assets"] —
-   real files + assets.json (absolute path!). Never substitute CSS
-   placeholders. "still RUNNING": re-run the same call to poll.
-5. figma_spec phase "style" — exact sizes/paints/typography; place every
-   "vector art -> assets/..." SVG at its stated place/abs offsets; keep
-   overlays that overhang their parent.
-6. Implement every flagged interactive state from the "Component sets"
-   spec trailer (hover/focus/disabled).
-7. VERIFY before declaring done:
-   - figma_run ["verify-build","/abs/project/dir"] — mechanically finds
-     assets.json files missing from the build (+ border-image lint);
-   - every abs/place/inset overlay exists in the build (file OR styled div)
-     — the spec footer counts them;
-   - no invented values; "w:fill" stays fluid (flex, no fixed px);
-     "grid RxC" is CSS grid, never a flex column;
-   - gradient stroke + radius: wrapper/mask pattern, NEVER border-image.
-
-Large frames: structure at depth 3-4 first, then style PER SECTION —
-never one giant spec. NEVER estimate values from a screenshot.
-
-Node ids: "12:34", "12-34", Figma URLs. Only files open in Figma
-Desktop are reachable.
-
-More figma_run: ["extract"], ["analyze","colors"],
-["map","storybook","<url|dir>"]. --help for syntax.
-Build IN Figma: ["component","list"] first, reuse via <Instance>;
-missing variant: ["component","add-variant","<set>","Axis=Val"].
-REST opt-in via plugin UI: figma_comments, history includeVersions.`;
-
-// Long-form workflow guide — the pre-truncation INSTRUCTIONS text, served in
+// Long-form workflow guide, served in
 // full through figma_reference {name:"workflow"} (tool results are not subject
 // to the client's 2,048-character instructions cap).
 export const WORKFLOW_GUIDE = `Design-to-code workflow (Figma -> code). The design is the complete
@@ -446,7 +354,7 @@ specification — copy it, never interpret it. Follow these steps in order:
 
 1. figma_screenshot on the target frame, then Read the saved PNG — the visual
    ground truth. Do not build from a node tree alone.
-2. figma_spec with phase "structure" — build the markup/component skeleton
+2. figma_spec with phase "structure" and format "tree" — build the markup/component skeleton
    from it: real text characters, real icon/component names, hierarchy.
    Texts and icons come verbatim from the spec; NEVER invent or paraphrase.
 3. Export the design tokens SCOPED TO YOUR FRAME (figma_run:
@@ -510,7 +418,7 @@ value is in the phase "style" spec. If you only pulled "structure", pull
 "style" too before styling anything.
 
 Large screens: do NOT pull one giant style spec. First run figma_spec with
-phase "structure" and depth 3-4 — a map of the screen with the node id of
+phase "structure", format "tree" and depth 3-4 — a map of the screen with the node id of
 every section. Then pull phase "style" PER SECTION and build section by
 section. Either pass the section's node id, or keep the ROOT nodeId and pass
 section: "<layer name from the structure map>" — that specs the named child
@@ -606,7 +514,8 @@ tokens first, then components, then screens:
 Opt-in extras the local plugin bridge cannot reach. Setup: the user pastes a
 Figma personal access token into the Figma Bridge plugin's "REST token (optional)"
 field (stored 0600 on this machine; FIGMA_REST_TOKEN env for headless runs).
-figma_status reports whether a token is configured and working.
+figma_status reports local configuration immediately; pass validateRest:true
+when an explicit remote validity check is needed.
 
 - figma_comments {action:"list"} — design review feedback with node anchors
   and thread ids. Read it, act on it, then reply with what you changed:
@@ -621,6 +530,62 @@ Default file scope is the file open in Figma Desktop; other files only via an
 explicit fileKey (bare key or Figma URL). Every REST call is audit-logged
 (method+path only). Without a token these tools explain the setup and nothing
 else changes.`;
+
+const CODE_TO_FIGMA_MARKER = "=== Code-to-Figma workflow (code -> Figma) ===";
+
+/** Return the smallest workflow guide that satisfies the requested topic. */
+export function workflowGuideFor(name) {
+  const topic = String(name || "").trim().toLowerCase();
+  if (topic === "workflow") return WORKFLOW_GUIDE;
+  const split = WORKFLOW_GUIDE.indexOf(CODE_TO_FIGMA_MARKER);
+  if (topic === "workflow:design-to-code") {
+    return (split === -1 ? WORKFLOW_GUIDE : WORKFLOW_GUIDE.slice(0, split)).trimEnd();
+  }
+  if (topic === "workflow:code-to-figma") {
+    return (split === -1 ? WORKFLOW_GUIDE : WORKFLOW_GUIDE.slice(split)).trim();
+  }
+  return null;
+}
+
+const configuredSpecLimit = Number(process.env.FIGMA_SPEC_MAX_CHARS);
+export const SPEC_OUTPUT_LIMIT_CHARS =
+  Number.isFinite(configuredSpecLimit) && configuredSpecLimit >= 10_000
+    ? configuredSpecLimit
+    : 60_000;
+
+/**
+ * Enforce a hard MCP result budget without ever returning partial design data.
+ * The caller gets an explicit incomplete response and a lossless retry path.
+ */
+export function budgetSpecOutput(text, options = {}) {
+  const value = String(text || "");
+  const limit = Number(options.limit) || SPEC_OUTPUT_LIMIT_CHARS;
+  if (value.length <= limit) {
+    return { complete: true, originalChars: value.length, text: value };
+  }
+  const phase = options.phase || "all";
+  const depth = options.depth || 12;
+  const section = options.section ? `\nrequested_section: ${JSON.stringify(options.section)}` : "";
+  return {
+    complete: false,
+    originalChars: value.length,
+    text:
+      `spec_result:\n  complete: false\n  reason: output_budget\n` +
+      `  measured_chars: ${value.length}\n  limit_chars: ${limit}\n` +
+      `  requested_node: ${JSON.stringify(options.nodeId || "selection")}\n` +
+      `  requested_phase: ${JSON.stringify(phase)}\n  requested_depth: ${depth}${section}\n\n` +
+      `No partial design data was returned; partial output could be mistaken for a complete design.\n` +
+      `Retry losslessly: call figma_spec for the same node with phase "structure" and depth 3-4, ` +
+      `then call phase "style" once per named section. Each bounded response remains complete for its requested scope.`,
+  };
+}
+
+function enrichStructuredSpec(text, format) {
+  const model = parseSpecModel(text, format);
+  const storybook = storybookMappingsForSpecModel(model);
+  if (storybook.length) model.storybook = storybook;
+  return serializeSpecModel(model, format);
+}
 
 function textResult(text) {
   return { content: [{ type: "text", text: text || "" }] };
@@ -658,8 +623,6 @@ function previewResult(args) {
 // and on timeout return a poll instruction. Re-invoking the SAME call attaches
 // to the running job (double-start protection) or returns its final result.
 const ASSET_EXPORT_WAIT_MS = Number(process.env.ASSET_EXPORT_WAIT_MS) || 45000;
-const ASSET_EXPORT_TIMEOUT_MS =
-  Number(process.env.ASSET_EXPORT_TIMEOUT_MS) || 10 * 60 * 1000;
 // Finished results linger briefly: an agent (or transport) retry of the SAME
 // call right after completion used to find the job already deleted and kicked
 // off a FULL duplicate export. Errors are not cached — a retry after a failure
@@ -667,13 +630,22 @@ const ASSET_EXPORT_TIMEOUT_MS =
 const ASSET_RESULT_CACHE_MS = 60 * 1000;
 const assetJobs = new Map(); // canonical-args key → job
 
-async function runAssetExport(rawArgs, label) {
-  const { args, outDir } = withAbsoluteOutputDir(rawArgs);
-  const key = JSON.stringify(args);
+export function assetExportJobKey(args, fileKey) {
+  const target = resolveFileTarget(fileKey, args);
+  return planFigmaCommand(args, { fileKey: target }).execution.jobKey;
+}
+
+async function runAssetExport(rawArgs, label, fileKey) {
+  const target = resolveFileTarget(fileKey, rawArgs);
+  const plan = planFigmaCommand(rawArgs, { fileKey: target });
+  const args = [...plan.argv];
+  const outDir = plan.outputs[0]?.path || null;
+  const key = plan.execution.jobKey;
+  if (!key) return errorResult("Command is not configured as a background job.");
   let job = assetJobs.get(key);
   if (!job) {
     job = { startedAt: Date.now(), done: false, result: null, error: null };
-    job.promise = runCli(args, { timeoutMs: ASSET_EXPORT_TIMEOUT_MS, label })
+    job.promise = runCli(args, { label, fileKey })
       .then((res) => { job.done = true; job.result = res; })
       .catch((err) => { job.done = true; job.error = err; });
     assetJobs.set(key, job);
@@ -717,7 +689,7 @@ async function runAssetExport(rawArgs, label) {
  * @param {string[]} normalizedArgs - map argv after normalizeOutputArgs
  * @returns {Promise<string|null>}
  */
-async function enrichFigmaMap(normalizedArgs) {
+async function enrichFigmaMap(normalizedArgs, fileKey) {
   // Locate the -o path (normalizeOutputArgs guarantees one of these forms).
   let file = null;
   const idx = normalizedArgs.findIndex((a) => a === "-o" || a === "--output");
@@ -731,7 +703,7 @@ async function enrichFigmaMap(normalizedArgs) {
   try {
     const doc = JSON.parse(readFileSync(file, "utf8"));
     if (!Array.isArray(doc.mappings) || !doc.mappings.length) return null;
-    const resolved = await resolveFileKey(undefined);
+    const resolved = await resolveFileKey(fileKey);
     if (!resolved.key) return `Library metadata skipped: ${resolved.error}`;
     const byKey = await getFileComponents(resolved.key);
     if (!byKey.size) {
@@ -848,19 +820,23 @@ export async function handleTool(name, rawArgs) {
           lines.push("  FigJam board — use figma_run [\"jam\", …]; design commands need a Figma file.");
         }
       }
-      // Optional REST layer: report presence and validity (lazy, 5-min cached)
-      // without ever echoing the token. The open file lets the check fall back
-      // to a real file probe when the token lacks the /v1/me scope.
+      // Optional REST layer: local status stays local/fast by default. Remote
+      // validation is explicit because a cold Figma REST probe can take
+      // seconds; REST-backed tools validate when they are actually used.
       if (readRestToken()) {
-        const target = await resolveFileKey();
-        const health = await getRestHealth({ fileKey: target.key || undefined });
-        lines.push(
-          health.ok
-            ? health.noUserScope
-              ? "REST token: configured and working (file access verified). No 'current_user:read' scope — that scope is not needed here."
-              : `REST token: configured (${health.handle})`
-            : `REST token: configured but NOT working — ${health.error}`,
-        );
+        if (input.validateRest === true) {
+          const target = await resolveFileKey(input.fileKey);
+          const restHealth = await getRestHealth({ fileKey: target.key || undefined });
+          lines.push(
+            restHealth.ok
+              ? restHealth.noUserScope
+                ? "REST token: configured and working (file access verified). No 'current_user:read' scope — that scope is not needed here."
+                : `REST token: configured (${restHealth.handle})`
+              : `REST token: configured but NOT working — ${restHealth.error}`,
+          );
+        } else {
+          lines.push("REST token: configured (remote validation deferred; pass validateRest:true to check now).");
+        }
       } else {
         lines.push(
           "REST token: not set (optional) — paste a Figma personal access token into the Figma Bridge plugin's 'REST token' field, or set FIGMA_REST_TOKEN. Unlocks figma_comments and figma_history {includeVersions:true}.",
@@ -892,22 +868,23 @@ export async function handleTool(name, rawArgs) {
       if (!Array.isArray(args) || args.length === 0) {
         return errorResult("args must be a non-empty array of strings.");
       }
-      if (WRITE_CONFIRM && isWrite(args) && input.confirm !== true) {
+      const target = resolveFileTarget(input.fileKey, args);
+      const plan = planFigmaCommand(args, { fileKey: target });
+      if (WRITE_CONFIRM && plan.effects.figma === "write" && input.confirm !== true) {
         return previewResult(args);
       }
-      if (args[0] === "export" && args[1] === "assets") {
-        return await runAssetExport(args, input.label);
+      if (plan.execution.mode === "tracked-job") {
+        return await runAssetExport(args, input.label, input.fileKey);
       }
-      // extract / export node|screenshot write files — resolve their output
-      // paths against the client workspace, not the engine's repo cwd.
-      const normalized = normalizeOutputArgs(args);
+      // Command-specific path rules are owned by the Capability Catalog.
+      const normalized = [...plan.argv];
       const res = await runCli(normalized, { label: input.label, fileKey: input.fileKey });
       // Library-metadata enrichment (opt-in REST layer): after a successful
       // `map storybook` run, upgrade the written figma-map.json with the
       // published components' description/documentation links — a stronger
       // mapping signal than name matching. Silent no-op without a token.
       if (args[0] === "map" && readRestToken()) {
-        const note = await enrichFigmaMap(normalized);
+        const note = await enrichFigmaMap(normalized, input.fileKey);
         if (note) res.stdout = (res.stdout || "") + "\n" + note;
       }
       return resultFromCli(res);
@@ -922,12 +899,12 @@ export async function handleTool(name, rawArgs) {
       if (WRITE_CONFIRM && input.confirm !== true) {
         return previewResult(args);
       }
-      const res = await runCli(args, { label: input.label });
+      const res = await runCli(args, { label: input.label, fileKey: input.fileKey });
       return resultFromCli(res);
     }
 
     case "figma_selection": {
-      const sel = await getSelection();
+      const sel = await getSelection(input.fileKey);
       if (!sel.ok) return errorResult(sel.message);
       // Several windows connected and none named: reporting one of them would
       // be arbitrary, so say which files are open and let the caller pick.
@@ -937,7 +914,7 @@ export async function handleTool(name, rawArgs) {
           .join("\n");
         return textResult(
           `${(sel.connections || []).length} Figma windows are connected, so "the selection" is ambiguous:\n${list}\n\n`
-          + "Ask the user which file they mean, then pass fileKey to figma_run.",
+          + "Ask the user which file they mean, then pass fileKey to this tool or figma_run.",
         );
       }
       if (!sel.selection) {
@@ -993,7 +970,7 @@ export async function handleTool(name, rawArgs) {
 
         if (isVersion(from)) {
           if (!readRestToken()) return textResult(NOT_CONFIGURED_MSG);
-          const resolved = await resolveFileKey(input.fileKey);
+          const resolved = await resolveFileKey(input.fileKey || d.nodeId);
           if (!resolved.key) return errorResult(resolved.error);
           const load = async (ref) => {
             const version = ref.slice("version:".length);
@@ -1020,7 +997,7 @@ export async function handleTool(name, rawArgs) {
         if (typeof d.nodeId === "string" && d.nodeId) args.push("--node", d.nodeId);
         if (d.changelog === true) args.push("--changelog");
         // Exit 1 means "the design differs", which is the answer, not an error.
-        const res = await runCli(args, { okExitCodes: [0, 1] });
+        const res = await runCli(args, { okExitCodes: [0, 1], fileKey: input.fileKey });
         return textResult(res.stdout || res.stderr || "No output.");
       }
 
@@ -1052,7 +1029,7 @@ export async function handleTool(name, rawArgs) {
         if (!readRestToken()) {
           notes.push(NOT_CONFIGURED_MSG);
         } else {
-          const resolved = await resolveFileKey(input.fileKey);
+          const resolved = await resolveFileKey(input.fileKey || input.nodeId);
           if (!resolved.key) {
             notes.push(`Figma versions skipped: ${resolved.error}`);
           } else {
@@ -1085,7 +1062,7 @@ export async function handleTool(name, rawArgs) {
     case "figma_comments": {
       if (!readRestToken()) return textResult(NOT_CONFIGURED_MSG);
       const action = input.action === "post" ? "post" : "list";
-      const resolved = await resolveFileKey(input.fileKey);
+      const resolved = await resolveFileKey(input.fileKey || input.nodeId);
       if (!resolved.key) return errorResult(resolved.error);
 
       if (action === "list") {
@@ -1163,8 +1140,11 @@ export async function handleTool(name, rawArgs) {
       if (typeof nodeId !== "string" || nodeId.length === 0) {
         return errorResult("nodeId must be a non-empty string.");
       }
-      // YAML: same information as --json at a fraction of the tokens.
-      const res = await runCli(["inspect", nodeId, "--format", "yaml"]);
+      const args = ["inspect", nodeId, "--format", "yaml"];
+      const res = await runInProcessCommand(args, { fileKey: input.fileKey },
+        ({ fileKey, timeoutMs }) => executeInspect({ nodeId, format: "yaml" }, {
+          evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+        }));
       return resultFromCli(res);
     }
 
@@ -1172,8 +1152,14 @@ export async function handleTool(name, rawArgs) {
       // "workflow" is served straight from this process: the full design-to-
       // code guide whose short form lives in the (client-truncated) server
       // instructions. No engine round-trip, works before any setup.
-      if (typeof input.name === "string" && /^workflow$/i.test(input.name.trim())) {
-        return textResult(WORKFLOW_GUIDE);
+      if (typeof input.name === "string" && /^capabilities$/i.test(input.name.trim())) {
+        return textResult(listFigmaCapabilities({ formatted: true }));
+      }
+      if (typeof input.name === "string" && /^workflow(?::.*)?$/i.test(input.name.trim())) {
+        const guide = workflowGuideFor(input.name);
+        return guide
+          ? textResult(guide)
+          : errorResult('Unknown workflow topic. Use "workflow", "workflow:design-to-code", or "workflow:code-to-figma".');
       }
       // `api` is figma-cli's offline Figma Plugin API reference.
       // - No name: `api list` enumerates every interface/type.
@@ -1215,23 +1201,15 @@ export async function handleTool(name, rawArgs) {
         `figma-shot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
       );
       args.push("--save", savePath);
-      let res;
-      try {
-        res = await runCli(args);
-      } catch (err) {
-        // One transparent retry — but ONLY for transient failures: the first
-        // verify after an idle stretch occasionally dies while the daemon
-        // self-heals (observed as a bare "exited with code 1" with no cause);
-        // the identical second call reliably succeeds. Deterministic errors
-        // ("Node not found", bad arguments) used to be retried too, doubling
-        // latency and audit entries for an outcome that cannot change.
-        const detail = String(err.stderr || "").trim();
-        const transient =
-          !detail ||
-          /timeout|timed out|ECONNREFUSED|ECONNRESET|not reachable|Empty response from daemon/i.test(detail);
-        if (!transient) throw err;
-        res = await runCli(args);
-      }
+      const res = await runInProcessCommand(args, { fileKey: input.fileKey },
+        ({ fileKey, timeoutMs }) => executeScreenshot({
+          nodeId: input.nodeId,
+          scale: input.scale,
+          savePath,
+        }, {
+          evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+          save: (file, bytes) => writeFileSync(file, bytes),
+        }));
       return textResult(
         (res.stdout || res.stderr || "") +
           `\n\nNow Read the PNG at ${savePath} to see the design.` +
@@ -1253,13 +1231,13 @@ export async function handleTool(name, rawArgs) {
         args.push("--section", input.section);
       }
       if (input.phase != null) args.push("-p", String(input.phase));
-      if (input.format != null) {
-        const fmt = String(input.format);
-        if (!["tree", "yaml", "json"].includes(fmt)) {
-          return errorResult("format must be tree, yaml or json.");
-        }
-        args.push("-f", fmt);
+      const format = input.format == null ? DEFAULT_SPEC_FORMAT : String(input.format);
+      if (!["tree", "yaml", "json", "json-compact"].includes(format)) {
+        return errorResult("format must be tree, yaml, json or json-compact.");
       }
+      // Pass the Interface default explicitly so the MCP contract cannot
+      // silently drift if the lower-level CLI ever chooses another default.
+      args.push("-f", format);
       if (input.depth != null) {
         const depth = Number(input.depth);
         if (!Number.isInteger(depth) || depth < 1 || depth > 30) {
@@ -1267,25 +1245,46 @@ export async function handleTool(name, rawArgs) {
         }
         args.push("-d", String(depth));
       }
-      const res = await runCli(args);
-      // Append the Storybook mirror for every component key in the spec —
-      // purely additive, no-op without a figma-map.json in the project.
-      const trailer = storybookTrailer(res.stdout || "");
-      if (trailer) res.stdout = (res.stdout || "") + trailer;
-      // Oversized specs blow the client's tool-result token limit; the
-      // client's own fallback ("read the file in chunks") sends agents down
-      // the wrong path — the intended workflow for large frames is
-      // per-section pulling. PREPEND the redirect so it survives whatever
-      // truncation or file-dump the client applies (heads survive, tails
-      // don't — the instructions-truncation lesson).
-      const SPEC_SIZE_HINT_CHARS = 60_000;
-      if ((res.stdout || "").length > SPEC_SIZE_HINT_CHARS) {
-        res.stdout =
-          `⚠ This spec is ${res.stdout.length.toLocaleString("en-US")} characters — likely beyond your tool-result limit. ` +
-          `Do NOT read a dumped file in chunks. Instead re-run figma_spec with phase "structure" and depth 3-4 ` +
-          `to map the sections, then pull phase "style" PER SECTION (each section's node id is in the structure map) — ` +
-          `that is the intended workflow for large frames.\n\n` + res.stdout;
+      const res = await runInProcessCommand(args, {
+        fileKey: input.fileKey,
+      }, async ({ fileKey, deadline }) =>
+        executeCodeSpec({
+          nodeId,
+          phase: input.phase,
+          depth: input.depth,
+          section: input.section,
+          includeHidden: input.includeHidden,
+          format,
+        }, {
+          evaluate: (code) => evaluateFigma(code, {
+            fileKey,
+            timeoutMs: Math.max(1, deadline - Date.now()),
+          }),
+          captureDesign: (request) => captureFigmaDesign(request, {
+            fileKey,
+            deadline,
+          }),
+        }),
+      );
+      if (format === "tree") {
+        // Tree mapping remains a presentation trailer. Structured formats
+        // enrich the canonical model and are then re-serialized losslessly.
+        const trailer = storybookTrailer(res.stdout || "");
+        if (trailer) res.stdout = (res.stdout || "") + trailer;
+      } else {
+        res.stdout = enrichStructuredSpec(res.stdout || "", format);
       }
+      const budgeted = budgetSpecOutput(res.stdout || "", {
+        nodeId,
+        phase: input.phase || "all",
+        depth: input.depth || 12,
+        section: input.section,
+      });
+      if (!budgeted.complete) {
+        const warning = String(res.stderr || "").trim();
+        return errorResult(budgeted.text + (warning ? `\n\nCapture warning: ${warning}` : ""));
+      }
+      res.stdout = budgeted.text;
       return resultFromCli(res);
     }
 

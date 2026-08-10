@@ -12,10 +12,18 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { signRequest } from "../engine/src/lib/daemon-auth.js";
+import { createDaemonClient, DaemonClientError } from "../engine/src/lib/daemon-client.js";
+import { createDesignCaptureModule } from "../engine/src/application/design-capture.js";
+import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
+import {
+  listFigmaCapabilities,
+  planFigmaCommand,
+} from "./capability-catalog.js";
 import {
   AUDIT_LOG_PATH,
   EXEC_TIMEOUT_MS,
+  LONG_EXEC_TIMEOUT_MS,
+  BACKGROUND_EXEC_TIMEOUT_MS,
   CONNECT_TIMEOUT_MS,
   ENGINE_CWD,
   DAEMON_HOST,
@@ -35,61 +43,9 @@ const execFileAsync = promisify(execFile);
 // the user pastes into the plugin UI (the MCP layer reads the same path).
 const engineEnv = { ...process.env, PLUGIN_KEY_FILE, REST_TOKEN_FILE };
 
-// Allowlisted first-token subcommands. `connect` is deliberately excluded.
-// Verified against figma-cli's top-level commands (`var` aliases `variables`,
-// `col` aliases `collections` — a write surface: `col create`).
-// `blocks` and `shadcn` are gone on purpose: the engine ships no third-party
-// design-system generators, so there is nothing to allowlist.
-export const ALLOWED_COMMANDS = new Set([
-  "render",
-  "render-batch",
-  "combos",
-  "sizes",
-  "node",
-  "component",
-  "tokens",
-  "var",
-  "col",
-  "section",
-  "grid",
-  "dev",
-  "annotate",
-  "a11y",
-  "canvas",
-  "find",
-  "verify",
-  "inspect",
-  "export",
-  "gradient",
-  "pin",
-  "api",
-  "import",
-  // Figma Motion (keyframes, presets, staggers, timelines). Vendored with the
-  // fork and always drove the plugin bridge — `motion` reaches Figma through
-  // cli-core's fastEval like everything else, with no CDP remnant to inherit.
-  "motion",
-  // Read-only design-to-code surface: extract writes DESIGN.md (filesystem,
-  // not the design), spec reads/enforces it, analyze reports color/typo/
-  // spacing censuses. None of them mutate the Figma file.
-  "extract",
-  "spec",
-  "analyze",
-  // map writes figma-map.json (Figma↔Storybook component mapping) into the
-  // client project — file-write only, never touches the Figma document.
-  "map",
-  // verify-build greps a project directory against assets.json — fully
-  // read-only, needs no Figma connection at all.
-  "verify-build",
-  // history snapshots/diffs the document structure. Reads Figma; writes only
-  // into ~/.figma-bridge-mcp/snapshots (and a changelog file if asked).
-  "history",
-  // jam authors FigJam boards. Same transport as everything else — the
-  // snippets guard on figma.editorType and refuse to run in a design file.
-  "jam",
-  // kit orchestrates extract/export/map — all reads of Figma; the files it
-  // writes land in the user's project.
-  "kit",
-]);
+// Compatibility view for callers/tests. The Capability Catalog is the source
+// of truth; `connect`, raw eval/run and removed generators are absent there.
+export const ALLOWED_COMMANDS = new Set(listFigmaCapabilities().map(({ name }) => name));
 
 // Discoverability: the top-level help flag is read-only (commander prints the
 // command list and exits) and safe to expose. Without this, an agent has no way
@@ -175,6 +131,70 @@ function validateArgs(args) {
 }
 
 /**
+ * Resolve one explicit Figma target for a command.
+ *
+ * An explicit fileKey wins. Otherwise a Figma URL argument
+ * supplies its file key automatically. Non-Figma URLs (for example a local
+ * Storybook) are ignored. This keeps all command adapters consistent without
+ * teaching every handler how to parse Figma URLs.
+ */
+export function resolveFileTarget(explicitFileKey, args = []) {
+  return resolveFigmaTarget({ explicitFileKey, args }).fileKey;
+}
+
+function startCommandExecution(args, opts = {}) {
+  validateArgs(args);
+  const command = args[0];
+  const targetContext = resolveFigmaTarget({ explicitFileKey: opts.fileKey, args });
+  const plan = planFigmaCommand(args, { fileKey: targetContext.fileKey });
+  if (!plan.allowed) {
+    throw new Error(
+      `Command not allowed: ${command}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
+    );
+  }
+  const fileKey = plan.target.fileKey;
+  const auditId = randomUUID();
+  const nodes = extractNodeIds(args);
+  appendAudit({
+    id: auditId,
+    ts: isoNow(),
+    args: plan.argv,
+    ...(nodes.length ? { nodes } : {}),
+    ...(opts.label ? { label: String(opts.label).slice(0, 200) } : {}),
+    ...(fileKey ? { fileKey: String(fileKey).slice(0, 64) } : {}),
+  });
+  return { args: plan.argv, opts, command, plan, targetContext, fileKey, auditId };
+}
+
+function executionTimeout(context, opts) {
+  if (opts.timeoutMs != null) return opts.timeoutMs;
+  if (context.plan.execution.timeout === "background") return BACKGROUND_EXEC_TIMEOUT_MS;
+  if (context.plan.execution.timeout === "long") return LONG_EXEC_TIMEOUT_MS;
+  return EXEC_TIMEOUT_MS;
+}
+
+function completeCommandExecution(context, code = 0) {
+  appendAudit({
+    id: context.auditId,
+    ts: isoNow(),
+    event: "done",
+    ok: true,
+    ...(code ? { exitCode: code } : {}),
+  });
+}
+
+function failCommandExecution(context, error) {
+  const detail = error?.stderr || error?.message || "Unknown error";
+  appendAudit({
+    id: context.auditId,
+    ts: isoNow(),
+    event: "done",
+    ok: false,
+    error: String(detail).trim().split("\n")[0].slice(0, 200),
+  });
+}
+
+/**
  * Run an allowlisted engine command.
  * @param {string[]} args
  * @param {{timeoutMs?: number, label?: string, fileKey?: string, okExitCodes?: number[]}} [opts]
@@ -185,44 +205,27 @@ function validateArgs(args) {
  * @returns {Promise<{stdout: string, stderr: string, code: number}>}
  */
 export async function runCli(args, opts = {}) {
-  validateArgs(args);
-
-  const command = args[0];
-  if (!ALLOWED_COMMANDS.has(command) && !HELP_TOKENS.has(command)) {
-    // Name the allowlist right in the error — agents were guessing command
-    // names one rejection at a time (style, select, selection, …).
-    throw new Error(
-      `Command not allowed: ${command}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
-    );
+  const context = startCommandExecution(args, opts);
+  try {
+    const result = await spawnCliAdapter(context.args, opts, context.fileKey, executionTimeout(context, opts), context.plan.execution.okExitCodes);
+    completeCommandExecution(context, result.code);
+    return result;
+  } catch (error) {
+    failCommandExecution(context, error);
+    throw error;
   }
+}
 
-  const { cmd, argv } = buildArgv(args, { fileKey: opts.fileKey });
-  // `nodes`/`label` feed figma_history; old {ts, args} lines stay valid.
-  // The entry is written BEFORE execution on purpose (aborted runs must be
-  // auditable too); a matching {id, event:"done"} completion entry records
-  // the outcome so failures stop reading like successes in figma_history.
-  const auditId = randomUUID();
-  const nodes = extractNodeIds(args);
-  appendAudit({
-    id: auditId,
-    ts: isoNow(),
-    args,
-    ...(nodes.length ? { nodes } : {}),
-    ...(opts.label ? { label: String(opts.label).slice(0, 200) } : {}),
-    // Which Figma window this ran against, when the user has several open.
-    // Without it, a multi-file history reads as one undifferentiated stream.
-    ...(opts.fileKey ? { fileKey: String(opts.fileKey).slice(0, 64) } : {}),
-  });
-
+async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes = [0]) {
+  const { cmd, argv } = buildArgv(args, { fileKey });
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
-      timeout: opts.timeoutMs || EXEC_TIMEOUT_MS,
+      timeout: timeoutMs,
       cwd: ENGINE_CWD,
       env: engineEnv,
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
-    appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true });
     return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };
   } catch (err) {
     // execFile rejects on nonzero exit, timeout, or spawn failure.
@@ -234,22 +237,55 @@ export async function runCli(args, opts = {}) {
     // `history diff` exits 1 when the design changed, so it works as a CI
     // gate. Callers opt in by naming the codes explicitly — a blanket "ignore
     // exit codes" would swallow real breakage.
-    if (Array.isArray(opts.okExitCodes) && opts.okExitCodes.includes(code)) {
-      appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true, exitCode: code });
+    const okay = Array.isArray(opts.okExitCodes) ? opts.okExitCodes : plannedExitCodes;
+    if (okay.includes(code)) {
       return { stdout, stderr, code };
     }
-    appendAudit({
-      id: auditId,
-      ts: isoNow(),
-      event: "done",
-      ok: false,
-      error: String(detail).trim().split("\n")[0].slice(0, 200),
-    });
     const wrapped = new Error(`the engine exited with code ${code}: ${detail}`);
     wrapped.code = code;
     wrapped.stdout = stdout;
     wrapped.stderr = stderr;
     throw wrapped;
+  }
+}
+
+/**
+ * Run a value-returning command Module in the long-lived MCP process while
+ * preserving the same allowlist, targeting and audit contract as runCli.
+ */
+export async function runInProcessCommand(args, opts = {}, operation) {
+  if (typeof operation !== "function") throw new TypeError("runInProcessCommand requires an operation");
+  const context = startCommandExecution(args, opts);
+  const timeoutMs = executionTimeout(context, opts);
+  try {
+    const result = await operation({
+      target: context.targetContext,
+      fileKey: context.fileKey,
+      timeoutMs,
+      deadline: Date.now() + timeoutMs,
+    });
+    completeCommandExecution(context);
+    return {
+      stdout: result?.stdout ?? "",
+      stderr: result?.stderr ?? "",
+      code: 0,
+    };
+  } catch (error) {
+    // Read-only vertical slices may explicitly retain CLI self-healing during
+    // migration. This is opt-in because a network failure can be ambiguous;
+    // write commands must never risk repeating an accepted mutation.
+    if (context.plan.execution.retry === "safe-read" && isDaemonUnavailable(error)) {
+      try {
+        const result = await spawnCliAdapter(context.args, opts, context.fileKey, timeoutMs, context.plan.execution.okExitCodes);
+        completeCommandExecution(context, result.code);
+        return result;
+      } catch (fallbackError) {
+        failCommandExecution(context, fallbackError);
+        throw fallbackError;
+      }
+    }
+    failCommandExecution(context, error);
+    throw error;
   }
 }
 
@@ -316,31 +352,9 @@ export async function ensureSafeConnect() {
  * @returns {{args: string[], outDir: string}}
  */
 export function withAbsoluteOutputDir(rawArgs, baseDir = process.cwd()) {
-  const args = [...rawArgs];
-  let outDir;
-  // Separated form: -o <dir> / --output <dir>
-  const idx = args.findIndex((a) => a === "-o" || a === "--output");
-  // Combined form: --output=<dir> / -o=<dir> — commander accepts it, and the
-  // old findIndex missed it, silently redirecting assets to the default dir.
-  const eqIdx = args.findIndex((a) => /^(--output|-o)=/.test(a));
-  if (idx !== -1 && typeof args[idx + 1] === "string") {
-    outDir = path.isAbsolute(args[idx + 1]) ? args[idx + 1] : path.resolve(baseDir, args[idx + 1]);
-    args[idx + 1] = outDir;
-  } else if (eqIdx !== -1) {
-    const [flag, ...rest] = args[eqIdx].split("=");
-    const value = rest.join("=");
-    outDir = path.isAbsolute(value) ? value : path.resolve(baseDir, value);
-    args[eqIdx] = `${flag}=${outDir}`;
-  } else {
-    outDir = path.resolve(baseDir, "assets");
-    args.push("-o", outDir);
-  }
-  return { args, outDir };
+  const plan = planFigmaCommand(rawArgs, { workspaceDir: baseDir });
+  return { args: [...plan.argv], outDir: plan.outputs[0]?.path || null };
 }
-
-// Engine flags (beyond -o/--output) that consume a value token — needed to
-// find positional arguments correctly.
-const VALUE_FLAGS = new Set(["--sections", "--pages", "-s", "--scale", "-f", "--format", "-d", "--depth"]);
 
 /**
  * The engine child runs with cwd = the MCP server repo, so RELATIVE output
@@ -358,81 +372,7 @@ const VALUE_FLAGS = new Set(["--sections", "--pages", "-s", "--scale", "-f", "--
  * @returns {string[]}
  */
 export function normalizeOutputArgs(rawArgs, baseDir = process.cwd()) {
-  const args = [...rawArgs];
-  const abs = (p) => (path.isAbsolute(p) ? p : path.resolve(baseDir, p));
-
-  if (args[0] === "extract") {
-    for (let i = 1; i < args.length; i++) {
-      const a = args[i];
-      if (VALUE_FLAGS.has(a)) { i++; continue; }
-      if (a.startsWith("-")) continue;
-      args[i] = abs(a); // the [output] positional
-      return args;
-    }
-    args.push(abs("DESIGN.md"));
-    return args;
-  }
-
-  if (args[0] === "export" && (args[1] === "node" || args[1] === "screenshot")) {
-    const idx = args.findIndex((a) => a === "-o" || a === "--output");
-    if (idx !== -1 && typeof args[idx + 1] === "string") {
-      args[idx + 1] = abs(args[idx + 1]);
-      return args;
-    }
-    const eqIdx = args.findIndex((a) => /^(--output|-o)=/.test(a));
-    if (eqIdx !== -1) {
-      const [flag, ...rest] = args[eqIdx].split("=");
-      args[eqIdx] = `${flag}=${abs(rest.join("="))}`;
-      return args;
-    }
-    args.push("-o", abs(args[1] === "node" ? "node-export.png" : "screenshot.png"));
-    return args;
-  }
-
-  // verify-build takes a project DIRECTORY positional plus several path
-  // flags — all of them must resolve against the client workspace, not the
-  // engine repo (a relative "." used to grep the MCP server's own repo).
-  if (args[0] === "verify-build") {
-    const PATH_FLAGS = new Set(["--assets", "--compare", "--design", "--diff-out"]);
-    const SKIP_VALUE = new Set(["--node", "--max-diff"]);
-    let positionalDone = false;
-    for (let i = 1; i < args.length; i++) {
-      const a = args[i];
-      const eq = a.match(/^(--[a-z-]+)=(.*)$/);
-      if (eq) {
-        if (PATH_FLAGS.has(eq[1])) args[i] = `${eq[1]}=${abs(eq[2])}`;
-        continue;
-      }
-      if (PATH_FLAGS.has(a)) {
-        if (typeof args[i + 1] === "string") args[i + 1] = abs(args[i + 1]);
-        i++;
-        continue;
-      }
-      if (SKIP_VALUE.has(a)) { i++; continue; }
-      if (a.startsWith("-")) continue;
-      if (!positionalDone) { args[i] = abs(a); positionalDone = true; }
-    }
-    return args;
-  }
-
-  // map storybook writes figma-map.json — anchor it in the client project.
-  if (args[0] === "map") {
-    const idx = args.findIndex((a) => a === "-o" || a === "--output");
-    if (idx !== -1 && typeof args[idx + 1] === "string") {
-      args[idx + 1] = abs(args[idx + 1]);
-      return args;
-    }
-    const eqIdx = args.findIndex((a) => /^(--output|-o)=/.test(a));
-    if (eqIdx !== -1) {
-      const [flag, ...rest] = args[eqIdx].split("=");
-      args[eqIdx] = `${flag}=${abs(rest.join("="))}`;
-      return args;
-    }
-    args.push("-o", abs("figma-map.json"));
-    return args;
-  }
-
-  return args;
+  return [...planFigmaCommand(rawArgs, { workspaceDir: baseDir }).argv];
 }
 
 /**
@@ -448,42 +388,84 @@ function readDaemonToken() {
   }
 }
 
+let _daemonClient = null;
+function daemonClient() {
+  if (_daemonClient) return _daemonClient;
+  _daemonClient = createDaemonClient({
+    readToken: readDaemonToken,
+    getPort: getDaemonPort,
+    host: DAEMON_HOST,
+    tokenFile: DAEMON_TOKEN_FILE,
+  });
+  return _daemonClient;
+}
+
+/** Evaluate code through the authenticated Safe-Mode daemon without spawning
+ * the CLI/Commander process. The caller supplies file targeting explicitly. */
+export async function evaluateFigma(code, { target, fileKey, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
+  return daemonClient().evaluate(code, {
+    fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    timeoutMs,
+  });
+}
+
+/** Metadata-aware eval for freshness-sensitive read Modules. Ordinary command
+ * callers keep the value-only evaluateFigma Interface. */
+export async function evaluateFigmaWithMetadata(code, { target, fileKey, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
+  return daemonClient().evaluateWithMetadata(code, {
+    fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    timeoutMs,
+  });
+}
+
+const designCaptureModule = createDesignCaptureModule({
+  maxEntries: Number(process.env.DESIGN_CAPTURE_CACHE_ENTRIES) || 8,
+  maxBytes: Number(process.env.DESIGN_CAPTURE_CACHE_BYTES) || 8 * 1024 * 1024,
+});
+
+/** Capture one explicit Figma node, reusing it only when the plugin proves the
+ * connection and document revision are unchanged. */
+export function captureFigmaDesign(request, { fileKey, deadline, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
+  const target = resolveFileTarget(fileKey, []);
+  const remaining = () => deadline == null
+    ? timeoutMs
+    : Math.max(1, deadline - Date.now());
+  return designCaptureModule.capture({ ...request, fileKey: target }, {
+    evaluateWithMetadata: (code) => daemonClient().evaluateWithMetadata(code, {
+      fileKey: target,
+      timeoutMs: remaining(),
+    }),
+  });
+}
+
+export function isDaemonUnavailable(error) {
+  return error instanceof DaemonClientError &&
+    (error.kind === "missing-token" || error.kind === "unavailable");
+}
+
 /**
  * Read the last selection the plugin UI pushed to the daemon (button or
  * debounced selectionchange). Null selection means nothing was pushed yet —
  * either nothing is selected, or the plugin predates the feature.
+ * @param {string} [fileKey] Bare key or Figma URL when several windows exist.
  * @returns {Promise<{ok: boolean, selection: object|null, pluginConnected: boolean, message: string}>}
  */
-export async function getSelection() {
-  const token = readDaemonToken();
-  if (!token) {
-    return {
-      ok: false,
-      selection: null,
-      pluginConnected: false,
-      message: "Daemon not started (no token file). Run figma_connect first.",
-    };
-  }
-  const daemonPort = getDaemonPort();
-  const url = `http://${DAEMON_HOST}:${daemonPort}/selection`;
+export async function getSelection(fileKey) {
+  const target = resolveFileTarget(fileKey, []);
   try {
-    const res = await fetch(url, {
-      // Signed request — the session token itself never crosses the wire.
-      headers: { ...signRequest(token, "GET", "/selection", ""), Host: `${DAEMON_HOST}:${daemonPort}` },
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!res.ok) {
+    const response = await daemonClient().selection({ fileKey: target, timeoutMs: 3000 });
+    if (!response.ok) {
       return {
         ok: false,
         selection: null,
         pluginConnected: false,
         message:
-          res.status === 404
+          response.status === 404
             ? "Daemon predates the selection feature — restart it via figma_connect."
-            : `Daemon answered HTTP ${res.status}.`,
+            : `Daemon answered HTTP ${response.status}.`,
       };
     }
-    const raw = await res.json();
+    const raw = response.data || {};
     return {
       ok: true,
       selection: raw.selection || null,
@@ -495,11 +477,19 @@ export async function getSelection() {
       message: "",
     };
   } catch (err) {
+    if (err instanceof DaemonClientError && err.kind === "missing-token") {
+      return {
+        ok: false,
+        selection: null,
+        pluginConnected: false,
+        message: "Daemon not started (no token file). Run figma_connect first.",
+      };
+    }
     return {
       ok: false,
       selection: null,
       pluginConnected: false,
-      message: `Daemon not reachable at ${url}: ${err.message}. Run figma_connect first.`,
+      message: `${err.message}. Run figma_connect first.`,
     };
   }
 }
@@ -510,33 +500,14 @@ export async function getSelection() {
  * @returns {Promise<{ok: boolean, plugin: boolean, raw: object|null, message: string}>}
  */
 export async function health() {
-  const token = readDaemonToken();
-  if (!token) {
-    return {
-      ok: false,
-      plugin: false,
-      raw: null,
-      message:
-        "Daemon not started (no token file). Run figma_connect first, then launch the Figma Bridge plugin in Figma.",
-    };
-  }
-
-  const daemonPort = getDaemonPort();
-  const url = `http://${DAEMON_HOST}:${daemonPort}/health`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch(url, {
-      // Signed request — the session token itself never crosses the wire.
-      headers: { ...signRequest(token, "GET", "/health", ""), Host: `${DAEMON_HOST}:${daemonPort}` },
-      signal: controller.signal,
-    });
-    const raw = await res.json();
+    const response = await daemonClient().health({ timeoutMs: 3000 });
+    const raw = response.data || {};
     // 403 = a daemon answered but rejected OUR token. Without this branch the
     // message below reads "plugin NOT connected" and sends the user to
     // relaunch the plugin — the actual problem is a token mismatch (stale
     // token file, or a foreign daemon on the port).
-    if (res.status === 403) {
+    if (response.status === 403) {
       return {
         ok: false,
         plugin: false,
@@ -547,7 +518,7 @@ export async function health() {
     }
     const plugin = raw.plugin === true;
     return {
-      ok: res.ok,
+      ok: response.ok,
       plugin,
       raw,
       message: plugin
@@ -555,13 +526,20 @@ export async function health() {
         : `daemon running (${raw.status}, mode: ${raw.mode}) — plugin NOT connected. Launch Plugins → Development → Figma Bridge in Figma.`,
     };
   } catch (err) {
+    if (err instanceof DaemonClientError && err.kind === "missing-token") {
+      return {
+        ok: false,
+        plugin: false,
+        raw: null,
+        message:
+          "Daemon not started (no token file). Run figma_connect first, then launch the Figma Bridge plugin in Figma.",
+      };
+    }
     return {
       ok: false,
       plugin: false,
       raw: null,
-      message: `Daemon not reachable at ${url}: ${err.message}. Run figma_connect first.`,
+      message: `${err.message}. Run figma_connect first.`,
     };
-  } finally {
-    clearTimeout(timer);
   }
 }

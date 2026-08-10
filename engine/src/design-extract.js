@@ -11,6 +11,7 @@
  */
 
 import { paintsSnippetJs } from './lib/paint-css.js';
+import { assetPolicyPluginSource } from './lib/asset-policy.js';
 
 /** Eval snippet: list all pages of the open file. */
 export function listPagesCode() {
@@ -584,32 +585,8 @@ export function assetCollectorCode(nodeId) {
   return `(async () => {
     const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop.' });
-    const SOFT_VEC = { VECTOR: 1, BOOLEAN_OPERATION: 1, STAR: 1, LINE: 1, POLYGON: 1, ELLIPSE: 1, RECTANGLE: 1 };
-    const HARD_VEC = { VECTOR: 1, BOOLEAN_OPERATION: 1, STAR: 1, POLYGON: 1 };
-    const hasImageFill = (n) => {
-      try {
-        return Array.isArray(n.fills) && n.fills.some((f) => f.type === 'IMAGE' && f.visible !== false && f.imageHash);
-      } catch (e) { return false; }
-    };
-    const isVec = (n) => {
-      /* Hidden children are IGNORED, not a veto — one invisible helper layer
-         must not shatter a 232-vector pattern into 232 files. An IMAGE-filled
-         shape is an image, never vector art — it vetoes its group. */
-      if (hasImageFill(n)) return { vec: false, hard: false };
-      if (SOFT_VEC[n.type]) return { vec: true, hard: !!HARD_VEC[n.type] };
-      if ((n.type === 'GROUP' || n.type === 'FRAME') && 'children' in n && n.children.length) {
-        let hard = false, any = false;
-        for (const c of n.children) {
-          if (c.visible === false) continue;
-          any = true;
-          const r = isVec(c);
-          if (!r.vec) return { vec: false, hard: false };
-          hard = hard || r.hard;
-        }
-        return { vec: any, hard };
-      }
-      return { vec: false, hard: false };
-    };
+    ${assetPolicyPluginSource()}
+    const hasImageFill = (n) => __assetAccess.hasImage(n);
     const images = new Map(); /* hash -> { hash, nodes: [] } */
     const vectors = [];
     /* Placement facts per node, so the manifest ALONE positions an overlay
@@ -670,7 +647,7 @@ export function assetCollectorCode(nodeId) {
       /* The requested ROOT is never itself an asset — exporting the whole
          frame as one file is the job of "export node". Always descend at 0. */
       if (depth > 0) {
-        const v = isVec(n);
+        const v = assetVectorFacts(n, __assetAccess);
         if (v.vec && v.hard) {
           pushVec(n, ancestors);
           return; /* topmost vector art — internals are the artwork itself */
@@ -681,11 +658,8 @@ export function assetCollectorCode(nodeId) {
            hundreds of shapes with one stray non-vector child) exports as ONE
            artwork, not one file per shape. */
         const visible = n.children.filter((c) => c.visible !== false);
-        if (depth > 0 && visible.length >= 6) {
-          let vecKids = 0;
-          for (const c of visible) { const r = isVec(c); if (r.vec && r.hard) vecKids++; }
-          if (vecKids / visible.length >= 0.8) { pushVec(n, ancestors, vecKids); return; }
-        }
+        const cluster = assetVectorCluster(n, __assetAccess);
+        if (depth > 0 && cluster.cluster) { pushVec(n, ancestors, cluster.vectorChildren); return; }
         for (const c of visible) walk(c, ancestors.concat(n.name), depth + 1);
       }
     };
@@ -1060,6 +1034,7 @@ export function variantMatrixTable(props) {
  * Reuse handle markdown line for a component census entry. Pure.
  * Returns the line, or null when there is no handle to emit.
  */
+/** @param {{key?:string|null,id?:string|null}} [handle] */
 export function reuseHandleLine({ key, id } = {}) {
   const parts = [];
   if (key) parts.push(`key \`${key}\``);

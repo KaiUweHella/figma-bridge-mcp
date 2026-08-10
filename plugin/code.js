@@ -10,6 +10,28 @@
 
 const KEY_STORAGE = 'daemonKey';
 
+// Monotonic document revision for freshness-safe Design Captures. A plugin
+// restart resets this counter, but the daemon assigns every authenticated
+// socket a new connectionId, so revision 0 can never revive an older Capture.
+// If this editor does not expose documentchange, null disables caching.
+let documentRevision = 0;
+let documentRevisionAvailable = true;
+try {
+  figma.on('documentchange', () => {
+    if (documentRevision < Number.MAX_SAFE_INTEGER) documentRevision++;
+    else documentRevisionAvailable = false;
+  });
+} catch (e) {
+  documentRevisionAvailable = false;
+}
+
+function revisionMetadata(before) {
+  return {
+    documentRevisionBefore: before,
+    documentRevisionAfter: documentRevisionAvailable ? documentRevision : null,
+  };
+}
+
 // Visible UI: connection status, access-key entry, activity log, pause switch,
 // selection push, save version. The UI may grow itself via the `resize` message.
 figma.showUI(__html__, { width: 360, height: 220 });
@@ -168,11 +190,12 @@ figma.ui.onmessage = async (msg) => {
   if (msg.type === 'eval') {
     const { id, code } = msg;
     evalChain = evalChain.then(async () => {
+      const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
         const result = await executeCode(code);
-        figma.ui.postMessage({ type: 'result', id, result });
+        figma.ui.postMessage({ type: 'result', id, result, metadata: revisionMetadata(revisionBefore) });
       } catch (error) {
-        figma.ui.postMessage({ type: 'result', id, error: errorMessage(error) });
+        figma.ui.postMessage({ type: 'result', id, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
       }
     });
     return;
@@ -184,11 +207,12 @@ figma.ui.onmessage = async (msg) => {
     evalChain = evalChain.then(async () => {
       const results = [];
       for (const code of codes) {
+        const revisionBefore = documentRevisionAvailable ? documentRevision : null;
         try {
           const result = await executeCode(code);
-          results.push({ success: true, result });
+          results.push({ success: true, result, metadata: revisionMetadata(revisionBefore) });
         } catch (error) {
-          results.push({ success: false, error: errorMessage(error) });
+          results.push({ success: false, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
         }
       }
       figma.ui.postMessage({ type: 'batch-result', id, results });

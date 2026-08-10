@@ -1,18 +1,15 @@
 // Commands: canvas-ops (extracted from index.js)
 import chalk from 'chalk';
-import { toYaml } from '../lib/yaml.js';
-import { normalizeNodeId } from '../lib/node-id.js';
 import { pageLookupCode } from '../lib/eval-snippets.js';
+import { executeInspect } from '../application/inspect-command.js';
 import {
   program,
   buildNodeSelector,
   checkConnection,
-  componentContextExpr,
   daemonExec,
   evalPrint,
   handleEvalError
 } from '../lib/cli-core.js';
-import { paintsSnippetJs } from '../lib/paint-css.js';
 
 // ============ CANVAS ============
 
@@ -295,154 +292,17 @@ program
   .option('--spec', 'Output only the absolute-positioning spec block (compact)')
   .action(async (nodeId, options) => {
     await checkConnection();
-    {
-      const norm = normalizeNodeId(nodeId);
-      if (norm.warning) console.error(chalk.yellow('⚠ ' + norm.warning));
-      nodeId = norm.id;
-    }
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '" — Safe Mode only reaches the file open in Figma Desktop.');
-      const p = n.parent;
-      const out = {
-        id: n.id,
-        name: n.name,
-        type: n.type,
-        width: 'width' in n ? n.width : null,
-        height: 'height' in n ? n.height : null,
-      };
-      // Absolute-positioning spec output. Mirrors the directededges spec:
-      // active keys carry computed values, inactive ones are null (so a
-      // consumer can diff variants reliably).
-      if (n.layoutPositioning === 'ABSOLUTE' && p && 'width' in p) {
-        const c = n.constraints || { horizontal: 'MIN', vertical: 'MIN' };
-        const pw = p.width, ph = p.height;
-        const pos = {
-          position: 'ABSOLUTE',
-          start: null, end: null, top: null, bottom: null,
-          centerHorizontalOffset: null, centerVerticalOffset: null,
-          width: n.width, height: n.height,
-          layoutSizingHorizontal: null, layoutSizingVertical: null,
-        };
-        const pct = (v) => {
-          const p2 = Math.round(v * 10000) / 100;
-          return (p2 % 1 === 0 ? p2.toFixed(0) : (p2 % 0.1 === 0 ? p2.toFixed(1) : p2.toFixed(2))) + '%';
-        };
-        switch (c.horizontal) {
-          case 'MIN':     pos.start = n.x; break;
-          case 'MAX':     pos.end = pw - n.x - n.width; break;
-          case 'CENTER':  pos.centerHorizontalOffset = n.x + n.width / 2 - pw / 2; break;
-          case 'STRETCH': pos.start = n.x; pos.end = pw - n.x - n.width; pos.width = null; break;
-          case 'SCALE':   pos.start = pct(n.x / pw); pos.end = pct((pw - n.x - n.width) / pw); pos.width = null; break;
-        }
-        switch (c.vertical) {
-          case 'MIN':     pos.top = n.y; break;
-          case 'MAX':     pos.bottom = ph - n.y - n.height; break;
-          case 'CENTER':  pos.centerVerticalOffset = n.y + n.height / 2 - ph / 2; break;
-          case 'STRETCH': pos.top = n.y; pos.bottom = ph - n.y - n.height; pos.height = null; break;
-          case 'SCALE':   pos.top = pct(n.y / ph); pos.bottom = pct((ph - n.y - n.height) / ph); pos.height = null; break;
-        }
-        out.absolutePositioning = pos;
-      } else if (n.layoutPositioning === 'AUTO' || p?.layoutMode !== 'NONE') {
-        out.absolutePositioning = {
-          position: 'AUTO',
-          start: null, end: null, top: null, bottom: null,
-          centerHorizontalOffset: null, centerVerticalOffset: null,
-          width: null, height: null,
-          layoutSizingHorizontal: n.layoutSizingHorizontal ?? null,
-          layoutSizingVertical: n.layoutSizingVertical ?? null,
-        };
-      }
-      // Component context: what this INSTANCE instantiates and which
-      // variant/property values it carries. Shared with the component main
-      // command via componentContextExpr (one resolution).
-      const __ctx = ${componentContextExpr('n')};
-      if (__ctx && __ctx.role) out.component = __ctx;
-      // Typography context for TEXT nodes: applied text style (resolved to
-      // its name) plus the effective font — makes "is this text styled or
-      // raw?" checkable without opening Figma.
-      if (n.type === 'TEXT') {
-        const styleId = n.textStyleId && n.textStyleId !== figma.mixed ? n.textStyleId : null;
-        let styleName = null;
-        if (styleId) {
-          try {
-            const st = await figma.getStyleByIdAsync(styleId);
-            styleName = st ? st.name : null;
-          } catch (e) {}
-        }
-        out.text = {
-          characters: n.characters.length > 60 ? n.characters.slice(0, 60) + '…' : n.characters,
-          fontSize: n.fontSize === figma.mixed ? 'mixed' : n.fontSize,
-          fontName: n.fontName === figma.mixed ? 'mixed' : n.fontName,
-          textStyle: styleName,
-        };
-      }
-      // Style block: fills/strokes/effects/clip/opacity/radius. Without
-      // these, inspect was geometry-only and useless as a detail tool for
-      // paints ("figma_inspect liefert keine Fills/Effects/clipsContent").
-      // Serialization is the SHARED snippet from lib/paint-css.js — inspect
-      // used to have its own copy that dropped gradient angles entirely
-      // (Run-7, Rectangle 28: spec said 45deg, inspect said nothing).
-      ${paintsSnippetJs}
-      const __w = 'width' in n ? n.width : 0, __h = 'height' in n ? n.height : 0;
-      const style = {};
-      try { const f = paints(n.fills, __w, __h); if (f) style.fills = f; } catch (e) {}
-      // Applied shared COLOR style (semantic handle alongside the raw fill).
-      try {
-        if (typeof n.fillStyleId === 'string' && n.fillStyleId) {
-          const fst = await figma.getStyleByIdAsync(n.fillStyleId);
-          if (fst) style.fillStyle = fst.name;
-        }
-      } catch (e) {}
-      try { const s = paints(n.strokes, __w, __h); if (s) { style.strokes = s; if (typeof n.strokeWeight === 'number') style.strokeWeight = n.strokeWeight; } } catch (e) {}
-      if ('cornerRadius' in n) {
-        if (typeof n.cornerRadius === 'number') { if (n.cornerRadius > 0) style.cornerRadius = n.cornerRadius; }
-        else style.cornerRadius = [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius];
-      }
-      if (typeof n.opacity === 'number' && n.opacity < 1) style.opacity = n.opacity;
-      if ('clipsContent' in n) style.clipsContent = n.clipsContent === true;
-      if (typeof n.rotation === 'number' && Math.abs(n.rotation) >= 0.5) style.rotation = Math.round(n.rotation * 10) / 10;
-      if (Array.isArray(n.effects) && n.effects.length) {
-        style.effects = n.effects.filter(e => e.visible !== false).map(e =>
-          (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW')
-            ? { type: e.type, x: e.offset.x, y: e.offset.y, blur: e.radius, spread: e.spread || 0, color: hex(e.color), alpha: e.color.a == null ? 1 : Math.round(e.color.a * 100) / 100 }
-            : { type: e.type, blur: e.radius });
-      }
-      if (Object.keys(style).length) out.style = style;
-      // Raw geometry alongside, useful for debugging the spec output
-      if ('x' in n) {
-        out.raw = { x: n.x, y: n.y, constraints: n.constraints };
-      }
-      return out;
-    })()`;
+    const format = options.format
+      ? String(options.format).toLowerCase()
+      : options.json ? 'json' : options.spec ? 'spec' : 'text';
     try {
-      const r = await daemonExec('eval', { code });
-      const fmt = options.format ? String(options.format).toLowerCase() : null;
-      if (fmt === 'yaml') {
-        console.log(toYaml(r));
-      } else if (options.json || fmt === 'json') {
-        console.log(JSON.stringify(r, null, 2));
-      } else if (options.spec) {
-        console.log(JSON.stringify(r.absolutePositioning, null, 2));
-      } else {
-        console.log(chalk.cyan(`${r.name || '(unnamed)'} (${r.id}) — ${r.type}`));
-        console.log(chalk.gray(`  size: ${r.width}×${r.height}`));
-        if (r.absolutePositioning) {
-          console.log(chalk.cyan('  Absolute Positioning spec:'));
-          for (const [k, v] of Object.entries(r.absolutePositioning)) {
-            if (v !== null) console.log(`    ${k}: ${typeof v === 'string' ? JSON.stringify(v) : v}`);
-          }
-        }
-        if (r.style) {
-          console.log(chalk.cyan('  Style:'));
-          for (const [k, v] of Object.entries(r.style)) console.log(`    ${k}: ${JSON.stringify(v)}`);
-        }
-        if (r.raw) {
-          console.log(chalk.gray(`  raw: x=${r.raw.x}, y=${r.raw.y}, constraints=${JSON.stringify(r.raw.constraints)}`));
-        }
-      }
-    } catch (e) {
-      handleEvalError(e);
+      const result = await executeInspect({ nodeId, format }, {
+        evaluate: (code) => daemonExec('eval', { code }),
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
     }
   });
 
@@ -475,4 +335,3 @@ return results.length === 0 ? 'No nodes found matching "${name}"' : results.slic
 })()`;
     evalPrint(code);
   });
-

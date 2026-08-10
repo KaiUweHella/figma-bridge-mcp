@@ -414,6 +414,45 @@ function pushSelection(ws, { fileKey, fileName = 'Test File', page = 'Page 1', n
   return new Promise((r) => setTimeout(r, 150)); // let the daemon process it
 }
 
+test('/exec binds revision metadata to the authenticated daemon connection', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'REV_FILE' });
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route eval')), 3000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'eval') return;
+        clearTimeout(timer);
+        ws.send(JSON.stringify({
+          type: 'result', id: msg.id, result: { captured: true },
+          metadata: {
+            connectionId: 'FORGED_BY_PLUGIN',
+            documentRevisionBefore: 9,
+            documentRevisionAfter: 9,
+          },
+        }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({ action: 'eval', code: 'capture()', fileKey: 'REV_FILE' });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.deepEqual(payload.result, { captured: true });
+    assert.match(payload.metadata.connectionId, /^[0-9a-f-]{36}$/i);
+    assert.notEqual(payload.metadata.connectionId, 'FORGED_BY_PLUGIN');
+    assert.equal(payload.metadata.fileKey, 'REV_FILE');
+    assert.equal(payload.metadata.documentRevisionBefore, 9);
+    assert.equal(payload.metadata.documentRevisionAfter, 9);
+  });
+});
+
 test('two windows on DIFFERENT files coexist and are both listed', async () => {
   const a = openWs();
   await handshake(a);

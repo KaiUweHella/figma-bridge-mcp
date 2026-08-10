@@ -18,20 +18,54 @@ in chat. See [REST add-on](#rest-add-on-optional).
 
 ```
 MCP client ──stdio──▶ figma-bridge-mcp (src/)
-                        │  execFile, command allowlist, audit log
-                        ▼
-                     vendored engine (engine/)  ──▶  local daemon :3456–3460
-                        (Safe-Mode only)                │  HTTP: signed requests
-                                                        │  WS  : challenge/response
-                                                        ▼
-                                              Figma Bridge plugin in Figma Desktop
-                                                (evals code in the Figma sandbox)
+                        │
+                    MCP tool adapters ─▶ Capability Catalog ─▶ CommandPlan
+                                                                  │
+                                          ┌───────────────────────┴──────────┐
+                                  Command Application Modules   generic CLI adapter
+                                             │            │
+                                      Design Capture      │
+                                      Asset Policy        │
+                                             └──────┬─────┘
+                                      Daemon Client Module
+                                             │  HTTP: signed requests
+                                             ▼
+                                  local daemon :3456–3460
+                                             │  WS: challenge/response
+                                             ▼
+                                  Figma Bridge plugin in Figma Desktop
 ```
 
 - The **engine** lives under `engine/`. It began as a fork of `figma-ds-cli`
   v2.1.0 and has diverged well past it (see [attribution](#inspiration--attribution)).
   The Chrome-DevTools "Yolo mode" — which patches the Figma app binary — was
   removed entirely; there is no code path to it.
+- Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
+  execute directly through value-returning **Command Application Modules**.
+  MCP and CLI are thin adapters over the same implementations; generic
+  `figma_run` remains the deliberately broad child-process CLI adapter. One
+  **Daemon Client Module** owns signing, timeouts and transport errors for both
+  paths.
+- The **Design Capture Module** walks an explicit node once and locally projects
+  structure, style and the lossless output formats from those same facts. A
+  Capture is reused only after a cheap revision probe proves the authenticated
+  plugin connection and Figma document revision are unchanged. Missing or
+  unstable revision metadata disables reuse; selection and named-section calls
+  remain uncached in this first Slice.
+- One **Capability Catalog** resolves every Figma Command entering through MCP
+  into an immutable plan before either execution adapter runs it. That plan is
+  the single source for exposure, Figma/workspace/shared-state effects, target
+  need, confirmation, normalized paths, retry, timeout, accepted exit codes
+  and background-job identity. Unknown commands default to denied/write/no-retry.
+- One immutable **Figma Target Context** resolves explicit `fileKey`, pasted
+  Figma URL or implicit single-window targeting once per command and then
+  accompanies planning, audit, job identity and daemon execution. One shared
+  **Asset Policy** classifies image fills, vector art and vector clusters for
+  both Design Capture projections and export.
+- Runtime protocol validators reject malformed HTTP execution payloads and
+  plugin frames at the transport boundary. TypeScript checks the JavaScript
+  seams (including the Figma plugin), while deterministic context, payload and
+  latency budgets catch architectural regressions in CI.
 - The **daemon** brokers commands to the Figma plugin over a localhost
   WebSocket. Two gates protect it:
   - **HTTP routes** (`/health`, `/exec`) require a per-request HMAC signature
@@ -110,14 +144,14 @@ npm install
 | Tool | Purpose |
 |------|---------|
 | `figma_connect` | Start Safe Mode, generate/show the access key, print plugin setup steps. |
-| `figma_status` | Report daemon + plugin connection, authentication, and key state. |
+| `figma_status` | Report local daemon/plugin/file/key state immediately; `validateRest:true` explicitly checks the optional REST token. |
 | `figma_pairing` | Show the access key; `{rotate:true}` generates a fresh one. |
-| `figma_run` | Run any allowlisted engine command, e.g. `{"args":["canvas","info"]}`. |
+| `figma_run` | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`. |
 | `figma_render` | Render JSX into the open Figma design. |
 | `figma_inspect` | Inspect a node by id: geometry, fills/strokes/effects, clip, opacity (YAML). |
 | `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned). |
 | `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
-| `figma_reference` | Offline Figma Plugin API reference (`api setup` once). |
+| `figma_reference` | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists the generated command index without starting the engine. |
 | `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural diff of the document itself (added/removed/replaced/moved/changed). `figma_run`/`figma_render` accept a `label` to annotate entries. |
 | `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their main component with the stable publish `key`, and mapped components show their Storybook story. |
 | `figma_comments` | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`). |
@@ -212,13 +246,38 @@ than interpreting it. Build a screen from Figma in five steps:
    differing, on the dimmed design). Informational by default;
    `--max-diff <pct>` gates the exit code.
 
-The same spec is available as `figma_run ["export", "code-spec", "<nodeId>"]`.
+The same compact JSON spec is available as
+`figma_run ["export", "code-spec", "<nodeId>"]`. Pass `-f tree`, `-f yaml`,
+or `-f json` for an alternate presentation.
+
+### Lossless structured spec formats
+
+`figma_spec` and `export code-spec` default to `format:"json-compact"`, the
+smallest lossless machine-readable representation. Use `tree` explicitly for
+a compact human/LLM structure map, or `yaml` / `json` for readable structured
+output. All three structured formats serialize the **same versioned canonical model**;
+only syntax and whitespace differ. Roundtrip tests require every field — text,
+ids, layout, paint, typography, variables, assets, component keys, capture
+completeness, and fidelity checks — to survive exactly. `json-compact` removes
+pretty-print whitespace without removing information.
+
+The model's `capture` field explicitly reports requested/actual depth,
+payload completeness, hidden-node policy, and whether the requested depth cut
+off descendants. There is no silent tool-result truncation: if a spec exceeds
+the configured output budget, the call returns `complete:false` with a
+section-by-section retry recipe and returns **no misleading partial design**.
+
+For repeated explicit-node calls, `phase`, `format` and deduplication do not
+trigger another full Figma walk. The in-memory Design Capture cache is bounded
+to 8 entries / 8 MiB by default (`DESIGN_CAPTURE_CACHE_ENTRIES` and
+`DESIGN_CAPTURE_CACHE_BYTES`). Every hit still probes the live document
+revision; there is no TTL and no stale-while-revalidate path.
 
 ## Storybook mirroring
 
 Figma components carry a **stable publish key** (survives library publishing;
-node ids are file-local). The key now flows through `figma_spec` (json/yaml
-model + the "Component sets used" trailer), `figma_selection`, `component
+node ids are file-local). The key now flows through `figma_spec` (canonical
+structured model + the "Component sets used" tree trailer), `figma_selection`, `component
 list`, `figma_inspect`, and DESIGN.md.
 
 To link them to their code mirror:
@@ -273,10 +332,13 @@ and launched the plugin there — not because a flag widened the scope.
   ```
   figma_status                                        # lists every connected window
   figma_run {args: ["canvas","info"], fileKey: "GY5SasBJ…"}
+  figma_spec {nodeId: "12:34", fileKey: "GY5SasBJ…"}
   ```
 
-  `figma_selection` says which files are open rather than guessing which
-  selection you meant. On the engine's own command line the flag is
+  `figma_render`, `figma_selection`, `figma_inspect`, `figma_screenshot`, and
+  `figma_spec` accept the same `fileKey` parameter. A full Figma node URL also
+  supplies its file key automatically. Without a target, `figma_selection`
+  says which files are open rather than guessing. On the engine CLI the flag is
   `--figma-file`, not `--file`: `eval` and `spec` already use `-f, --file`
   for a local path.
 
@@ -502,9 +564,10 @@ be unlocked with a personal access token:
 2. Open the **Figma Bridge plugin** in Figma Desktop, connect (the field
    appears once the plugin is authenticated), and expand **“REST token
    (optional)”**. Paste the token, *Save token*.
-3. `figma_status` now reports `REST token: configured (@your-handle)`, or
-   `configured and working (file access verified)` when you left out the
-   *Current user* scope.
+3. `figma_status` reports that the token is configured without making a remote
+   request. Run `figma_status {validateRest:true}` when you want an explicit
+   validity check; it reports your handle or verifies file access when the
+   optional *Current user* scope is absent.
 
 The token travels from the plugin over the **authenticated localhost
 WebSocket** to the daemon, which stores it in `~/.figma-bridge-mcp/rest-token`
@@ -528,8 +591,10 @@ read every file its account can access — keep the scopes minimal.
   the code path is inert, and with one the token lives in a 0600 file (or your
   own env var), not in the MCP client config.
 - **No binary patching** — Yolo/CDP mode is stripped from the vendored engine.
-- **Command allowlist** — `figma_run` only accepts a fixed set of subcommands;
-  `connect` is *not* on it, so Safe-Mode-only connection is enforced.
+- **Capability-gated commands** — `figma_run` only accepts Commands exposed by
+  the Capability Catalog; `connect` is *not* exposed, so Safe-Mode-only
+  connection is enforced. The same resolved plan drives the write-confirm gate,
+  target requirement and retry policy, preventing adapter drift.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
 - **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
   (per-request HMAC over method/path/body, keyed with the session token, nonce
@@ -619,8 +684,14 @@ Node's `crypto` so the two implementations cannot drift apart.
 ## Development
 
 ```bash
-npm test      # vendored engine + daemon auth + MCP layer + REST layer
+npm run check:contracts       # static JavaScript seam + plugin contracts
+npm run measure:architecture  # context, payload and local latency baselines
+npm test                      # all contracts and regression suites
 ```
+
+The current domain language lives in [`CONTEXT.md`](CONTEXT.md), accepted
+architectural decisions in [`docs/adr/`](docs/adr/), and the indexed historical
+evidence archive in [`docu/README.md`](docu/README.md).
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
 back within 3456–3460 when 3456 is taken, so both *can* coexist, but the plugin

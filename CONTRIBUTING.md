@@ -48,10 +48,18 @@ change that crosses one will not be merged without a very good argument:
 
 ## Tests
 
-`npm test` runs the vendored engine suite plus the MCP, daemon-auth, REST and
-gate suites. Anything security-relevant needs a test that fails without the fix
-— the existing negative cases in `tests/daemon-auth.test.js` (forged proof,
+`npm run check:contracts` type-checks the JavaScript module seams and the Figma
+plugin without turning the project into a TypeScript build. `npm run
+measure:architecture` prints the current MCP-context, compact-spec, injected
+payload and local latency measurements. `npm test` runs both the static contract
+and the vendored engine, MCP, daemon-auth, REST, gate, protocol and architecture
+budget suites. Anything security-relevant needs a test that fails without the
+fix — the existing negative cases in `tests/daemon-auth.test.js` (forged proof,
 replayed nonce, wrong port, proto downgrade) are the pattern to follow.
+
+Use the nouns in `CONTEXT.md` when a change crosses a Module or Interface. A
+durable architectural choice belongs in `docs/adr/`; experiments and completed
+plans stay discoverable through `docu/README.md`.
 
 `plugin/ui.html` and `plugin/code.js` are only ever parsed by Figma, so
 `tests/plugin-handshake.test.js` parses them and runs the panel's crypto against

@@ -24,6 +24,7 @@
  */
 
 import { createServer } from 'http';
+import { randomUUID } from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
@@ -40,6 +41,7 @@ import {
 } from './lib/plugin-handshake.js';
 import { STATE_DIR } from './lib/state-dir.js';
 import { getPortPid } from './platform.js';
+import { validateExecPayload, validatePluginMessage } from './lib/protocol-contract.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -226,7 +228,7 @@ resetIdleTimer();
 // File identity arrives with the first selection push (the plugin sends one
 // immediately on connect) — the handshake itself carries no file information,
 // and adding it there would mean signing data the transcript does not cover.
-const conns = new Map(); // ws → { fileKey, fileName, editorType, selection, connectedAt }
+const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, selection, connectedAt }
 let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
 
@@ -241,6 +243,7 @@ function isPluginConnected() {
 /** Public shape of the connection list — no socket, no internals. */
 function connectionList() {
   return openConns().map(([, c]) => ({
+    connectionId: c.connectionId,
     fileKey: c.fileKey ?? null,
     fileName: c.fileName ?? null,
     editorType: c.editorType ?? null,
@@ -313,6 +316,20 @@ async function evalViaPlugin(code, fileKey = null) {
 async function executeEval(code, fileKey = null) {
   // Plugin handles its own top-level-return wrapping — send code as-is.
   return evalViaPlugin(code, fileKey);
+}
+
+function resultMetadata(ws, raw) {
+  const conn = conns.get(ws);
+  const before = Number.isSafeInteger(raw?.documentRevisionBefore) && raw.documentRevisionBefore >= 0
+    ? raw.documentRevisionBefore : null;
+  const after = Number.isSafeInteger(raw?.documentRevisionAfter) && raw.documentRevisionAfter >= 0
+    ? raw.documentRevisionAfter : null;
+  return {
+    connectionId: conn?.connectionId || null,
+    fileKey: conn?.fileKey || null,
+    documentRevisionBefore: before,
+    documentRevisionAfter: after,
+  };
 }
 
 function getMode() {
@@ -442,6 +459,12 @@ function handleExec(req, res) {
       res.end(JSON.stringify({ error: 'Invalid JSON body: ' + e.message }));
       return;
     }
+    const payloadError = validateExecPayload(payload);
+    if (payloadError) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid execution request: ' + payloadError }));
+      return;
+    }
 
     // NO retries for ANY action: every action ultimately evals arbitrary,
     // usually MUTATING code in the plugin. On a timeout/disconnect the code
@@ -452,6 +475,7 @@ function handleExec(req, res) {
     try {
       const { action, code, timeoutMs, fileKey } = payload;
       let result;
+      let metadata = null;
 
       const execWithTimeout = async (fn, ms = 30000) => {
         return Promise.race([
@@ -472,7 +496,9 @@ function handleExec(req, res) {
         // must not be able to disable the timeout entirely).
         case 'eval': {
           const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
-          result = await execWithTimeout(() => executeEval(code, fileKey || null), ms);
+          const execution = await execWithTimeout(() => executeEval(code, fileKey || null), ms);
+          result = execution.result;
+          metadata = execution.metadata;
           break;
         }
         default:
@@ -480,7 +506,7 @@ function handleExec(req, res) {
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ result, mode: getMode() }));
+      res.end(JSON.stringify({ result, metadata, mode: getMode() }));
     } catch (error) {
       console.log(`[daemon] /exec failed: ${error.message}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -570,6 +596,31 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Classify a stale pre-auth hello before the strict proto-2 shape check.
+    // Proto 1 sent the raw key and therefore lacks the nonce/proof fields that
+    // validatePluginMessage intentionally requires. If validation ran first,
+    // the actionable re-import signal would be collapsed into "protocol".
+    if (!authenticated
+      && msg !== null
+      && typeof msg === 'object'
+      && !Array.isArray(msg)
+      && msg.type === 'hello'
+      && msg.proto !== HANDSHAKE_PROTO) {
+      try { ws.send(JSON.stringify({ type: 'auth-error', reason: 'proto-mismatch' })); } catch {}
+      ws.close(4401, 'Plugin handshake version mismatch');
+      return;
+    }
+    const messageError = validatePluginMessage(msg, { authenticated });
+    if (messageError) {
+      if (!authenticated) {
+        try { ws.send(JSON.stringify({ type: 'auth-error', reason: 'protocol' })); } catch {}
+        ws.close(4401, messageError);
+      } else {
+        console.error('[daemon] Plugin protocol error:', messageError);
+      }
+      return;
+    }
+
     // --- Authentication gate ---
     if (!authenticated) {
       const reject = (reason, closeText) => {
@@ -606,6 +657,7 @@ wss.on('connection', (ws) => {
       authenticated = true;
       clearTimeout(authTimer);
       conns.set(ws, {
+        connectionId: randomUUID(),
         fileKey: null, fileName: null, editorType: null,
         selection: null, connectedAt: new Date().toISOString(),
       });
@@ -629,11 +681,11 @@ wss.on('connection', (ws) => {
     // --- Authenticated message handling ---
     if (msg.type === 'result') {
       const pending = pluginPendingRequests.get(msg.id);
-      if (pending) {
+      if (pending && pending.ws === ws) {
         clearTimeout(pending.timeout);
         pluginPendingRequests.delete(msg.id);
         if (msg.error) pending.reject(new Error(msg.error));
-        else pending.resolve(msg.result);
+        else pending.resolve({ result: msg.result, metadata: resultMetadata(ws, msg.metadata) });
       }
     }
 

@@ -16,10 +16,18 @@ import {
   isDaemonRunning,
   unescapeShell
 } from '../lib/cli-core.js';
-import { nodeWalkerCode, assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode, sectionFinderCode } from '../design-extract.js';
-import { formatCodeSpec, specModel } from '../lib/code-spec.js';
+import { assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode } from '../design-extract.js';
 import { formatCssTokens, buildDtcgTree } from '../lib/css-tokens.js';
-import { toYaml } from '../lib/yaml.js';
+import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
+import {
+  executeCodeSpec,
+  walkWithDepthRetry,
+} from '../application/code-spec-command.js';
+import { executeScreenshot } from '../application/screenshot-command.js';
+
+// Compatibility export for existing tests/callers while the Implementation
+// now lives behind the command application's Interface.
+export { walkWithDepthRetry };
 
 // ============ EXPORT ============
 
@@ -36,28 +44,6 @@ const instancePathHint = (nodeId) =>
   /^I/.test(String(nodeId))
     ? ' Instance-path ids (I…;…) often cannot be resolved — use the TOP-LEVEL instance id or the main component id instead.'
     : '';
-
-/**
- * Run `attempt(depth)` at the REQUESTED depth, degrading only on payload/
- * timeout errors (never below 4) and retrying one blank result per depth.
- * Extracted because the old inline loop guarded on `depth >= 4` and silently
- * never executed for --depth 1–3 — every shallow spec came back "no data".
- * Returns { result, depth }; rethrows non-payload errors.
- */
-export async function walkWithDepthRetry(requested, attempt) {
-  let depth = Math.max(1, requested);
-  let blankRetries = 1;
-  for (;;) {
-    try {
-      const result = await attempt(depth);
-      if (!result && blankRetries-- > 0) continue; // one blank retry per run
-      return { result, depth };
-    } catch (e) {
-      if (/payload|too large|timeout/i.test(e.message) && depth > 4) { depth -= 2; continue; }
-      throw e;
-    }
-  }
-}
 
 const exp = program
   .command('export')
@@ -488,78 +474,29 @@ exp
   .option('-d, --depth <n>', 'Max depth', '12')
   .option('-s, --section <name>', 'Spec only the child section with this layer name (from the structure map), in full depth — instead of copying its node id')
   .option('--include-hidden', 'Include invisible nodes, marked "(hidden — not rendered)" (default: filtered out)')
-  .option('-f, --format <fmt>', 'tree (compact text, default) | yaml | json (structured, with styles map)', 'tree')
+  .option(
+    '-f, --format <fmt>',
+    'json-compact (lossless agent default) | tree (compact presentation) | yaml | json',
+    DEFAULT_SPEC_FORMAT,
+  )
   .option('--no-dedup', 'Print every style value inline instead of S<n> bundle refs')
   .action(async (nodeId, options) => {
     await checkConnection();
-    const phase = String(options.phase).toLowerCase();
-    if (!['structure', 'style', 'all'].includes(phase)) {
-      console.error(chalk.red(`✗ Unknown phase "${options.phase}" — use structure, style or all.`));
-      process.exit(1);
-    }
-    const format = String(options.format).toLowerCase();
-    if (!['tree', 'yaml', 'json'].includes(format)) {
-      console.error(chalk.red(`✗ Unknown format "${options.format}" — use tree, yaml or json.`));
-      process.exit(1);
-    }
-    const parse = (res) => (typeof res === 'string' ? JSON.parse(res) : res);
     try {
-      if (!nodeId) {
-        const sel = parse(await fastEval(`(async () => JSON.stringify(figma.currentPage.selection.map(n => n.id)))()`));
-        if (!sel.length) {
-          console.error(chalk.red('✗ No nodeId given and nothing selected in Figma.'), 'Pass a node id or select a frame.');
-          process.exit(1);
-        }
-        nodeId = sel[0];
-      } else {
-        nodeId = normalizedId(nodeId);
-      }
-      // --section: resolve the named child section and spec THAT node —
-      // saves the copy-the-long-instance-id roundtrip on large screens.
-      if (options.section) {
-        const sec = parse(await fastEval(sectionFinderCode(nodeId, options.section)));
-        if (sec?.error) {
-          console.error(chalk.red('✗ ' + sec.error));
-          process.exit(1);
-        }
-        console.error(chalk.gray(`section "${options.section}" → ${sec.name} [${sec.id}]${sec.matches > 1 ? ` (${sec.matches} name matches — shallowest/exact one taken; pass a node id to target another)` : ''}`));
-        nodeId = sec.id;
-      }
-      // Instance descent makes trees deep; on payload/timeout errors retry
-      // shallower (same strategy as `extract`) so big frames degrade gracefully
-      // instead of failing.
-      const requested = parseInt(options.depth) || 12;
-      const { result, depth } = await walkWithDepthRetry(requested, async (d) =>
-        parse(await fastEval(nodeWalkerCode(nodeId, {
-          maxDepth: d, textLimit: 200,
-          resolveInstances: true, withIds: true, withVars: true,
-          includeHidden: options.includeHidden === true,
-        }))));
-      if (result?.error) {
-        console.error(chalk.red('✗ ' + result.error));
-        process.exit(1);
-      }
-      if (!result || !Array.isArray(result.frames)) {
-        // Guard BEFORE the formatters — "Cannot read properties of null
-        // (reading 'frames')" told the user nothing.
-        console.error(chalk.red(`✗ code-spec: the plugin returned no data for node ${nodeId}.` +
-          instancePathHint(nodeId) + ' Otherwise retry, or reduce --depth.'));
-        process.exit(1);
-      }
-      if (depth < requested) {
-        console.error(chalk.yellow(`⚠ payload limit — reduced depth to ${depth}; nested content may be truncated`));
-      }
-      let output;
-      if (format === 'tree') {
-        output = formatCodeSpec(result, { phase, dedup: options.dedup });
-      } else {
-        const model = specModel(result, { phase, dedup: options.dedup });
-        output = format === 'yaml' ? toYaml(model) : JSON.stringify(model, null, 2);
-      }
+      const result = await executeCodeSpec({
+        nodeId,
+        phase: options.phase,
+        depth: options.depth,
+        section: options.section,
+        includeHidden: options.includeHidden,
+        format: options.format,
+        dedup: options.dedup,
+      }, { evaluate: fastEval });
+      if (result.stderr) process.stderr.write(result.stderr + '\n');
       // process.exit right after console.log DROPS unflushed stdout beyond
       // 64KB (classic Node pitfall — surfaced as yaml/json output truncated
       // at exactly 65536 bytes). Exit only once the write has been flushed.
-      process.stdout.write(output + '\n', () => process.exit(0));
+      process.stdout.write(result.stdout + '\n', () => process.exit(0));
     } catch (e) {
       console.error(chalk.red('✗ code-spec failed: ' + e.message));
       process.exit(1);
@@ -578,125 +515,25 @@ program
   .option('--measure', 'Also return real (unscaled) node + child dimensions so size bugs are caught by measurement, not just the screenshot')
   .action(async (nodeId, options) => {
     await checkConnection();
-    if (nodeId) nodeId = normalizedId(nodeId);
-    const scale = parseFloat(options.scale);
-    const maxDim = parseInt(options.max);
-    const withMeasure = !!options.measure;
-
-    const code = `(async () => {
-      let node;
-      ${nodeId ? `node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});` : `
-      const sel = figma.currentPage.selection;
-      node = sel.length > 0 ? sel[0] : null;
-      `}
-      if (!node) return { error: ${nodeId
-        ? `'Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only access the file open in Figma Desktop — if this id comes from another file (check the URL file key), open that file first.'`
-        : `'Nothing selected in Figma — select a frame or pass a node id.'`} };
-      if (node.type === 'PAGE' || node.type === 'DOCUMENT') {
-        // Pages have no width/height — the old fallback (100 * scale) exported
-        // a useless 50x50 tile. Point at the page's top-level containers instead.
-        if (node.type === 'PAGE') await node.loadAsync();
-        const kids = (node.children || [])
-          .filter(n => n.type === 'SECTION' || n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'COMPONENT_SET')
-          .slice(0, 12)
-          .map(n => '  ' + n.type + '  ' + n.id + '  "' + n.name + '"');
-        return { error: 'Cannot screenshot a whole ' + node.type + ' — pass a frame or section id instead.'
-          + (kids.length ? ' Top-level candidates:\\n' + kids.join('\\n') : '') };
-      }
-      if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-
-      // Calculate optimal scale to stay under max dimension
-      const nodeWidth = node.width || 100;
-      const nodeHeight = node.height || 100;
-      let finalScale = ${scale};
-      const maxNodeDim = Math.max(nodeWidth, nodeHeight);
-      if (maxNodeDim * finalScale > ${maxDim}) {
-        finalScale = ${maxDim} / maxNodeDim;
-      }
-      // Ensure we don't exceed 8000px (API limit)
-      if (maxNodeDim * finalScale > 7500) {
-        finalScale = 7500 / maxNodeDim;
-      }
-
-      const bytes = await node.exportAsync({
-        format: 'PNG',
-        constraint: { type: 'SCALE', value: finalScale }
+    try {
+      const result = await executeScreenshot({
+        nodeId,
+        scale: options.scale,
+        maxDimension: options.max,
+        measure: !!options.measure,
+        includeBase64: !!options.base64,
+        savePath: !options.base64 && typeof options.save === 'string' ? options.save : null,
+        saveDefault: !options.base64 && typeof options.save !== 'string',
+      }, {
+        evaluate: fastEval,
+        save: (file, bytes) => writeFileSync(file, bytes),
+        defaultSavePath: (capture) => `/tmp/figma-verify-${String(capture.id).replace(/:/g, '-')}.png`,
       });
-
-      // Convert to base64
-      const base64 = figma.base64Encode(bytes);
-
-      // Optional measurement tree: real (unscaled) dimensions of the node and
-      // its children, so size regressions ("too tall") are caught by numbers.
-      let measure = null;
-      if (${withMeasure}) {
-        const walk = (n, depth) => {
-          const m = {
-            name: n.name, type: n.type,
-            w: Math.round(n.width), h: Math.round(n.height),
-            layout: n.layoutMode && n.layoutMode !== 'NONE' ? n.layoutMode : undefined,
-            sizeH: n.layoutSizingHorizontal, sizeV: n.layoutSizingVertical
-          };
-          if (depth > 0 && 'children' in n && n.children.length) {
-            m.children = n.children.slice(0, 24).map(c => walk(c, depth - 1));
-          }
-          return m;
-        };
-        measure = walk(node, 3);
-      }
-
-      return {
-        name: node.name,
-        id: node.id,
-        width: Math.round(nodeWidth * finalScale),
-        height: Math.round(nodeHeight * finalScale),
-        scale: Math.round(finalScale * 1000) / 1000,
-        base64: base64,
-        measure: measure
-      };
-    })()`;
-
-    const result = figmaEvalSync(code);
-    if (result.error) {
-      console.error(chalk.red('✗'), result.error);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗'), error.message);
       process.exit(1);
-    }
-
-    // Default: save the PNG to disk and return only metadata (lean on tokens).
-    // Dumping the raw base64 into stdout is now opt-in via --base64, because it
-    // lands in the agent's context as raw text (tens of thousands of tokens for
-    // a full frame). Reading the saved PNG back instead enters it as a real image.
-    // The applied scale rides along: a 561×300 node rendered at 0.5 reports
-    // 281×150 — without `scale`, pixel comparisons against node dimensions
-    // are silently off by the factor.
-    if (options.base64) {
-      console.log(JSON.stringify({
-        name: result.name,
-        id: result.id,
-        width: result.width,
-        height: result.height,
-        scale: result.scale,
-        base64: result.base64,
-        ...(result.measure ? { measure: result.measure } : {})
-      }));
-    } else {
-      const safeId = result.id.replace(/:/g, '-');
-      const savePath = typeof options.save === 'string'
-        ? options.save
-        : `/tmp/figma-verify-${safeId}.png`;
-
-      const buffer = Buffer.from(result.base64, 'base64');
-      writeFileSync(savePath, buffer);
-
-      console.log(JSON.stringify({
-        name: result.name,
-        id: result.id,
-        width: result.width,
-        height: result.height,
-        scale: result.scale,
-        saved: savePath,
-        ...(result.measure ? { measure: result.measure } : {})
-      }));
     }
   });
 

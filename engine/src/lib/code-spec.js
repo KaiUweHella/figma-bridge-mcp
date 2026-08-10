@@ -14,43 +14,18 @@
  */
 import { dedupSiblings } from '../design-extract.js';
 import { assetFileName } from './asset-names.js';
-
-/** Node types that are drawing primitives, not content. */
-const VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'LINE', 'POLYGON', 'ELLIPSE', 'RECTANGLE']);
-/** Primitives that are ARTWORK (hand-drawn paths). Rects/ellipses/lines alone
- * are styling, not art — mirrors HARD_VEC in assetCollectorCode. */
-const HARD_VECTOR_TYPES = new Set(['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'POLYGON']);
+import {
+  captureVectorFacts,
+  capturedVectorCluster,
+  isCapturedVectorArt,
+} from './asset-policy.js';
 
 /**
  * True when a node renders vector geometry rather than content: a vector
  * primitive, or a GROUP/FRAME whose entire subtree is vector primitives. Pure.
  */
 export function isVectorish(node) {
-  if (VECTOR_TYPES.has(node.t)) return true;
-  if ((node.t === 'GROUP' || node.t === 'FRAME') && node.kids?.length) {
-    return node.kids.every(isVectorish);
-  }
-  return false;
-}
-
-/**
- * Exporter parity: { vec, hard } exactly like assetCollectorCode's isVec —
- * an IMAGE fill vetoes (that node is an image, not vector art), soft
- * primitives count as vector but not as art. Pure.
- */
-function vecInfo(node) {
-  if ((node.fills || []).includes('IMAGE')) return { vec: false, hard: false };
-  if (VECTOR_TYPES.has(node.t)) return { vec: true, hard: HARD_VECTOR_TYPES.has(node.t) };
-  if ((node.t === 'GROUP' || node.t === 'FRAME') && node.kids?.length) {
-    let hard = false;
-    for (const k of node.kids) {
-      const r = vecInfo(k);
-      if (!r.vec) return { vec: false, hard: false };
-      hard = hard || r.hard;
-    }
-    return { vec: true, hard };
-  }
-  return { vec: false, hard: false };
+  return captureVectorFacts(node).vec;
 }
 
 /**
@@ -61,8 +36,7 @@ function vecInfo(node) {
  * fills and all — they used to vanish from the spec entirely. Pure.
  */
 export function isVectorArt(node) {
-  const r = vecInfo(node);
-  return r.vec && r.hard;
+  return isCapturedVectorArt(node);
 }
 
 /**
@@ -72,10 +46,7 @@ export function isVectorArt(node) {
  * floods with per-shape lines the exporter never writes. Pure.
  */
 export function isVectorCluster(node) {
-  const kids = node.kids || [];
-  if (kids.length < 6) return false;
-  const vec = kids.filter(isVectorArt).length;
-  return vec / kids.length >= 0.8;
+  return capturedVectorCluster(node).cluster;
 }
 
 /**
@@ -767,6 +738,51 @@ export function gradientBorderCss(spec, cls) {
   ].join('\n');
 }
 
+const INTERACTIVE_STATE_VALUE = /^(hover|active|press(ed)?|focus(ed)?|disabled|selected|loading)$/i;
+
+/**
+ * Dynamic fidelity facts shared by every structured output adapter.
+ *
+ * These used to exist only as prose appended to the tree renderer, so YAML
+ * and JSON silently missed useful completeness information. Keeping them in
+ * the canonical model means every lossless adapter carries the same facts.
+ */
+export function specChecks(result) {
+  const frames = result.frames || [];
+  const checks = {};
+  const assets = [...countAssetFiles(frames)].sort();
+  if (assets.length) {
+    checks.assets = { count: assets.length, files: assets.map((file) => `assets/${file}`) };
+  }
+
+  const overlayCount = countOverlays(frames);
+  const transparency = overlayVisibility(frames);
+  if (overlayCount) {
+    checks.overlays = {
+      count: overlayCount,
+      ...(transparency.length ? { transparency } : {}),
+    };
+  }
+
+  const interactiveSets = [];
+  for (const set of result.sets || []) {
+    const axes = Object.entries(set.props || {})
+      .filter(([axis, values]) =>
+        /state|interaction/i.test(axis)
+        || (values || []).some((value) => INTERACTIVE_STATE_VALUE.test(String(value).trim())))
+      .map(([axis]) => axis);
+    if (axes.length) interactiveSets.push({ name: set.name, id: set.id, axes });
+  }
+  if (interactiveSets.length) checks.interactiveSets = interactiveSets;
+
+  if (anyNode(frames, (node) => node.lm === 'GRID')) checks.cssGrid = true;
+  const strokes = strokeFacts(frames);
+  if (strokes.perSide || strokes.align || strokes.gradient) checks.strokes = strokes;
+  const gradientStrokes = gradientStrokeSpecimens(frames);
+  if (gradientStrokes.length) checks.gradientStrokes = gradientStrokes;
+  return checks;
+}
+
 /**
  * Walker result ({ id, name, frames }) → the full spec document. Pure.
  * phase: 'structure' | 'style' | 'all'
@@ -801,14 +817,13 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   }
   // Component sets: the screen shows ONE variant per instance, but the axes
   // (state=default/hover/…) define the interactive states the build needs.
-  const INTERACTIVE = /^(hover|active|press(ed)?|focus(ed)?|disabled|selected|loading)$/i;
   let anyInteractive = false;
   if (result.sets?.length) {
     out.push('## Component sets used on this screen', '');
     for (const s of result.sets) {
       const axes = s.props
         ? Object.entries(s.props).map(([axis, values]) => {
-          const interactive = /state|interaction/i.test(axis) || (values || []).some((v) => INTERACTIVE.test(String(v).trim()));
+          const interactive = /state|interaction/i.test(axis) || (values || []).some((v) => INTERACTIVE_STATE_VALUE.test(String(v).trim()));
           if (interactive) anyInteractive = true;
           return `${axis}: ${(values || []).join('/')}${interactive ? ' ⚑' : ''}`;
         }).join(' · ')
@@ -820,15 +835,15 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     }
     out.push('');
     if (anyInteractive) {
-      out.push('_Axes marked ⚑ carry INTERACTIVE STATES (hover/active/focus/disabled/…). The screen is not done with only the default variants: pull the flagged variant\'s exact styles (figma_spec on the set\'s node id above) and implement them as CSS `:hover`/`:active`/`:focus-visible`/`[disabled]`._', '');
+      out.push('_⚑ = required INTERACTIVE STATES. Pull each flagged set variant and implement its exact hover/active/focus/disabled style._', '');
     }
   }
-  out.push('_Content and names above come straight from Figma — copy, never invent. `→ var(name)` marks a design-token binding; `style:<name>` (text) and `→ style(name)` (fill) name the applied shared Figma style — map those to a typography/color class or token instead of hardcoding the raw values._');
+  out.push('_Figma facts: copy, never invent content/names. `→ var(name)` = token binding; `style:<name>` / `→ style(name)` = shared style._');
   if (phase !== 'structure') {
-    out.push('', '_Sibling order = stacking order (later siblings render on top). `clip` on a frame = children outside its bounds are cut off (CSS `overflow: hidden`); no `clip` = overflow stays visible. `abs left/right/top/bottom:<px>` positions an overlay from the named parent edges (CSS-ready). Every `vector art → assets/…` line is a real artwork — export it and place it; never substitute a CSS approximation. Its `W×H` and `place left/top` are RENDERED values that match the exported SVG file exactly (rotation already applied) — use them verbatim, and keep everything marked `overhangs parent` even if it sticks out._');
+    out.push('', '_Sibling order = z-order; `clip` = `overflow:hidden`; `abs` offsets are parent-relative. Export/place every `vector art → assets/…` at its rendered W×H/offset; retain `overhangs parent`._');
   }
   if (anyNode(result.frames, (n) => n.lm === 'GRID')) {
-    out.push('', '_`grid R×C` = a CSS grid (`display: grid`), NOT a flex column — its children are placed by `cell row:N col:M` (`grid-row: N` / `grid-column: M`, `/span S` = `span S`). Cell children additionally carry their `abs left/top` offsets as a cross-check; if template and offsets ever disagree, trust the offsets._');
+    out.push('', '_`grid R×C` = a CSS grid, not flex. `cell row:N col:M /span S` maps directly to CSS grid placement; offsets are the cross-check._');
   }
   // Completeness yardstick: dropped assets (the overhanging SVGs) are the
   // top fidelity bug — give the consumer a number to check off against.
@@ -838,31 +853,31 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   // step ever "owns" them (acceptance evidence, Background Pattern).
   const assetFiles = countAssetFiles(result.frames);
   if (assetFiles.size) {
-    out.push('', `_This spec references ${assetFiles.size} distinct asset file(s) under \`assets/\` — EVERY one must appear in the build. After \`export assets\`, check each filename off (\`verify-build <projectDir>\` does this mechanically); the absolutely-positioned / overhanging ones are the ones that get forgotten._`);
+    out.push('', `_This spec references ${assetFiles.size} distinct asset file(s): export and use all of them; \`verify-build <projectDir>\` checks this._`);
   }
   const overlays = countOverlays(result.frames);
   if (overlays) {
-    out.push('', `_${overlays} absolutely-positioned overlay(s) (\`abs\`/\`place\`/\`inset\` lines) — every single one must exist in the build, INCLUDING purely decorative gradient rectangles and background shapes. Check them off one by one; when building section by section, assign each root-level overlay to a section NOW so none goes unowned._`);
+    out.push('', `_${overlays} absolutely-positioned overlay(s): implement every \`abs\`/\`place\`/\`inset\` node, INCLUDING purely decorative gradient rectangles._`);
     // Which fill-less siblings each overlay must stay visible through —
     // without this the relation had to be inferred, and builds painted the
     // transparent frames opaque (Run 7: the background pattern vanished).
     const vis = overlayVisibility(result.frames);
     for (const v of vis) {
-      out.push('', `_Overlay "${v.overlay}" stays visible through ${v.through.map((n) => `"${n}"`).join(', ')} — ${v.through.length === 1 ? 'that sibling has' : 'those siblings have'} NO fill in the design (transparent). Do not give ${v.through.length === 1 ? 'it' : 'them'} an opaque background._`);
+      out.push('', `_Overlay "${v.overlay}" stays visible through ${v.through.map((n) => `"${n}"`).join(', ')} — ${v.through.length === 1 ? 'that sibling has' : 'those siblings have'} NO fill in the design (transparent)._`);
     }
   }
   if (phase !== 'structure') {
     // The fill→fixed-px translation error is the top layout bug of real
     // rebuilds — spell the CSS mapping out instead of assuming it.
-    out.push('', '_Sizing: `w:fill` = stretch into the parent (`flex: 1` along the parent’s main axis, `align-self: stretch` across it) — NEVER a fixed px width; `w:hug` = `width: fit-content`; a bare `W×H` with neither marker = fixed px. The same applies to `h:`. `min-w`/`max-w`/`min-h`/`max-h` map to the CSS properties of the same name. Do not replace fill children with `justify-content: space-between` — use it only where `main:between` is stated._');
+    out.push('', '_Sizing: `w:fill` = stretch into the parent (`flex:1`/`align-self:stretch`), NEVER a fixed px width; `w:hug` = fit-content; bare W×H = fixed. Min/max map directly. Use space-between only for `main:between`._');
     // Stroke legends only when the screen actually uses the feature — a spec
     // without gradient borders should not pay for the how-to.
     const facts = strokeFacts(result.frames);
     if (facts.perSide || facts.align) {
-      out.push('', '_`stroke … w<t/r/b/l>` = per-side widths (top/right/bottom/left). Strokes sit INSIDE the box unless marked `outside`/`center` — inside = a normal CSS border on a border-box element; outside = `outline` or a 0-blur spread `box-shadow`._');
+      out.push('', '_`stroke … w<t/r/b/l>` = per-side widths (top/right/bottom/left). Default alignment is inside; `outside`/`center` need outline or box-shadow._');
     }
     if (facts.gradient) {
-      out.push('', '_Gradient stroke + radius: CSS `border-image` IGNORES `border-radius` — never combine them. Use the ready-made pseudo-element pattern below VERBATIM (values are this screen\'s real ones); the wrapper/padding alternative leaks at rounded corners when widths differ per side._');
+      out.push('', '_Gradient stroke + radius: `border-image` IGNORES `border-radius`. Use the ready-made pseudo-element pattern below VERBATIM._');
       const specimens = gradientStrokeSpecimens(result.frames);
       const shown = specimens.slice(0, 3);
       if (shown.length) {
@@ -870,36 +885,36 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
         out.push(shown.map((s, i) => gradientBorderCss(s, `gradient-border-${i + 1}`)).join('\n\n'));
         out.push('```');
         if (specimens.length > shown.length) {
-          out.push('', `_${specimens.length - shown.length} more gradient-stroke variant(s) on this screen — same pattern, swap radius/padding/background from the node's \`stroke …\` line._`);
+          out.push('', `_${specimens.length - shown.length} more gradient-stroke variant(s): reuse the pattern with their stated radius/width/gradient._`);
         }
       }
     }
   }
   if (anyDedup) {
-    out.push('', '_`≡S<n>` defines a repeated style bundle on its first occurrence; a bare `S<n>` on a later line means: exactly the styles of that definition. `--no-dedup` prints every value inline._');
+    out.push('', '_`≡S<n>` defines a repeated style bundle; later `S<n>` references it exactly. `--no-dedup` inlines values._');
   }
   if (anyDiff) {
-    out.push('', '_`↻ ×N more <component>` lists sibling instances that are structurally identical to the full one above — each `{ … }` row holds ONLY what differs (props, texts, variant swaps). Build them as a loop over those rows._');
+    out.push('', '_`↻ ×N more` siblings match the prior structure; `{…}` contains only differing props/text/variants. Build them as a loop._');
   }
   if (phase === 'structure') {
     // The test run showed what happens without this nudge: the agent built
     // from structure alone and guessed every color, font and radius.
-    out.push('', '_This output has NO styles — pull `--phase style` (or `all`) for exact colors/fonts/radii. Never estimate them from a screenshot._');
+    out.push('', '_This output has NO styles: pull `--phase style` (or `all`) for exact colors/fonts/radii; never estimate._');
   }
   return out.join('\n');
 }
 
-// ============ structured spec model (yaml / json formats) ============
+// ============ canonical structured spec model ============
 
 /**
- * Walker result → structured spec model for --format yaml|json:
+ * Walker result → structured spec model for every lossless format adapter:
  * { name, id, styles: { S1: {…fields} }, frames: [nodes] } where a node
  * carries `s: "S1"` INSTEAD of its style fields when its bundle repeats.
  * Same bundle key as the text renderer, so S-ids mean the same thing in
  * every format. expandSpecModel() is the exact inverse — the tests hold
  * both directions together. Pure.
  */
-export function specModel(result, { phase = 'all', dedup = true } = {}) {
+export function specModel(result, { phase = 'all', dedup = true, capture = {} } = {}) {
   const detail = phase !== 'structure';
   const counts = dedup && detail ? countStyleBundles(result.frames) : new Map();
   const styles = {};
@@ -976,9 +991,17 @@ export function specModel(result, { phase = 'all', dedup = true } = {}) {
   };
 
   const frames = (result.frames || []).map((f) => toNode(f)).filter(Boolean);
-  const model = { name: result.name, id: result.id, frames };
+  const model = {
+    schemaVersion: 1,
+    capture: { phase, ...capture },
+    name: result.name,
+    id: result.id,
+    frames,
+  };
   if (result.sets?.length) model.sets = result.sets;
   if (Object.keys(styles).length) model.styles = styles;
+  const checks = specChecks(result);
+  if (Object.keys(checks).length) model.checks = checks;
   return model;
 }
 
@@ -995,6 +1018,6 @@ export function expandSpecModel(model) {
     if (rest.kids) rest.kids = rest.kids.map(expand);
     return rest;
   };
-  const out = { name: model.name, id: model.id, frames: (model.frames || []).map(expand) };
-  return out;
+  const { styles: _styles, frames, ...envelope } = model;
+  return { ...envelope, frames: (frames || []).map(expand) };
 }

@@ -79,3 +79,48 @@ export function storybookTrailer(text, cwd = process.cwd()) {
   }
   return lines.length ? `\n\n## Storybook mapping\n${lines.join("\n")}` : "";
 }
+
+/**
+ * Resolve Storybook mappings from canonical structured-spec fields.
+ *
+ * Tree output exposes keys as rendered text; YAML/JSON keep them as `mainKey`,
+ * `setKey` and `dvKey`. Walking the model avoids a format-specific regex and
+ * makes Storybook enrichment equally available to every structured adapter.
+ * @param {object} model
+ * @param {string} [cwd]
+ * @returns {object[]}
+ */
+export function storybookMappingsForSpecModel(model, cwd = process.cwd()) {
+  const index = loadFigmaMap(cwd);
+  if (!index || !model || typeof model !== "object") return [];
+  const keys = new Set();
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    for (const field of ["mainKey", "setKey", "dvKey"]) {
+      if (typeof node[field] === "string" && node[field]) keys.add(node[field]);
+    }
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of model.frames || []) visit(frame);
+  for (const set of model.sets || []) visit(set);
+
+  const seen = new Set();
+  const mappings = [];
+  for (const key of keys) {
+    const mapping = index.byKey.get(key);
+    if (!mapping?.storyId || seen.has(mapping.storyId)) continue;
+    seen.add(mapping.storyId);
+    mappings.push({
+      figmaName: mapping.figmaName,
+      ...(mapping.figmaKey ? { figmaKey: mapping.figmaKey } : {}),
+      ...(mapping.figmaVariantKey ? { figmaVariantKey: mapping.figmaVariantKey } : {}),
+      storyId: mapping.storyId,
+      ...(mapping.importPath ? { importPath: mapping.importPath } : {}),
+      ...(mapping.description ? { description: mapping.description } : {}),
+      ...(mapping.documentationLinks?.length
+        ? { documentationLinks: mapping.documentationLinks }
+        : {}),
+    });
+  }
+  return mappings;
+}

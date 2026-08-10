@@ -45,6 +45,17 @@ export const REST_TOKEN_FILE =
 // Timeout for a single engine invocation (ms).
 export const EXEC_TIMEOUT_MS = Number(process.env.EXEC_TIMEOUT_MS) || 60000;
 
+// Durations for the Capability Catalog's execution classes. The Catalog owns
+// which Figma Command is long/background; configuration only maps that policy
+// to deployment-specific milliseconds. ASSET_EXPORT_TIMEOUT_MS remains a
+// supported compatibility name for existing installations.
+export const LONG_EXEC_TIMEOUT_MS =
+  Number(process.env.LONG_EXEC_TIMEOUT_MS) || Math.max(EXEC_TIMEOUT_MS, 120_000);
+export const BACKGROUND_EXEC_TIMEOUT_MS =
+  Number(process.env.BACKGROUND_EXEC_TIMEOUT_MS) ||
+  Number(process.env.ASSET_EXPORT_TIMEOUT_MS) ||
+  10 * 60 * 1000;
+
 // Timeout for `connect --safe` (ms). The engine prints its daemon-started +
 // plugin-import instructions within ~1-2s, then blocks up to 90s waiting for
 // the plugin to connect. Because the daemon is spawned detached (unref'd), we

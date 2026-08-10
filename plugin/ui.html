@@ -994,7 +994,7 @@
       if (msg.type === 'result') {
         finishLog(msg.id, msg.error);
         if (ws && ws.readyState === WebSocket.OPEN && authed) {
-          ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error }));
+          ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error, metadata: msg.metadata }));
         }
       }
       if (msg.type === 'batch-result') {

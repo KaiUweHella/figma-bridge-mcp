@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   styleFields, bundleKey, stableStringify, countStyleBundles, newDedupCtx,
-  specLines, formatCodeSpec, specModel, expandSpecModel,
+  specLines, formatCodeSpec, specModel, expandSpecModel, specChecks,
 } from '../src/lib/code-spec.js';
 import { toYaml, fromYaml } from '../src/lib/yaml.js';
 
@@ -143,6 +143,17 @@ test('deduped spec is measurably smaller on the repeat fixture', () => {
   assert.ok(deduped.length < plain.length, `expected ${deduped.length} < ${plain.length}`);
 });
 
+test('tree presentation guidance has a hard size budget without dropping fidelity rules', () => {
+  const output = formatCodeSpec(FIXTURE, { phase: 'all' });
+  const marker = output.indexOf('\n_Figma facts');
+  assert.ok(marker > 0, 'footer marker missing');
+  const footer = output.slice(marker + 1);
+  assert.ok(footer.length < 1_000, `tree guidance grew to ${footer.length} chars`);
+  assert.match(footer, /copy, never invent/);
+  assert.match(footer, /`w:fill` = stretch into the parent/);
+  assert.match(footer, /defines a repeated style bundle/);
+});
+
 test('defining lines equal their undeduped counterparts except for the ≡ tag', () => {
   const dedupedLines = formatCodeSpec(FIXTURE, { phase: 'style' }).split('\n');
   const plainLines = formatCodeSpec(FIXTURE, { phase: 'style', dedup: false }).split('\n');
@@ -229,6 +240,45 @@ test('specModel preserves hidden/repeat/more markers', () => {
 test('PROPERTY: yaml roundtrip preserves the spec model exactly', () => {
   const model = specModel(FIXTURE, { phase: 'all' });
   assert.deepEqual(fromYaml(toYaml(model)), model);
+});
+
+test('canonical model declares capture completeness and keeps it through dedup expansion', () => {
+  const capture = {
+    requestedDepth: 12,
+    actualDepth: 8,
+    includeHidden: true,
+    payloadComplete: false,
+    depthLimited: true,
+  };
+  const deduped = specModel(FIXTURE, { phase: 'all', capture });
+  const plain = specModel(FIXTURE, { phase: 'all', dedup: false, capture });
+  assert.equal(deduped.schemaVersion, 1);
+  assert.deepEqual(deduped.capture, { phase: 'all', ...capture });
+  assert.deepEqual(expandSpecModel(deduped), plain);
+});
+
+test('structured model carries dynamic fidelity checks instead of relying on tree prose', () => {
+  const result = {
+    id: '1:1', name: 'Screen',
+    frames: [{
+      t: 'FRAME', n: 'Root', id: '1:2', kids: [
+        { t: 'VECTOR', n: 'Wave', id: '1:3', abs: { left: 0, top: -5 }, strokes: ['gradient(90deg,#fff,#000)'], sw: [1, 2, 1, 2], r: 8 },
+        { t: 'FRAME', n: 'Content', id: '1:4', kids: [{ t: 'TEXT', n: 'T', txt: { chars: 'Hi' } }] },
+      ],
+    }],
+    sets: [{ name: 'Button', id: '2:1', props: { State: ['Default', 'Hover'] } }],
+  };
+  const checks = specChecks(result);
+  assert.deepEqual(checks.assets, { count: 1, files: ['assets/wave.svg'] });
+  assert.equal(checks.overlays.count, 1);
+  assert.deepEqual(checks.overlays.transparency, [{ overlay: 'Wave', through: ['Content'] }]);
+  assert.deepEqual(checks.interactiveSets, [{ name: 'Button', id: '2:1', axes: ['State'] }]);
+  assert.equal(checks.strokes.gradient, true);
+  assert.equal(checks.gradientStrokes[0].n, 'Wave');
+
+  const model = specModel(result, { phase: 'all' });
+  assert.deepEqual(model.checks, checks);
+  assert.deepEqual(fromYaml(toYaml(model)).checks, checks);
 });
 
 test('yaml quoting: tricky scalars survive the roundtrip typed correctly', () => {
