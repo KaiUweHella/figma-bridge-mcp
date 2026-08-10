@@ -16,7 +16,7 @@ const COMMANDS = Object.freeze({
   'render-batch': { summary: 'Render several JSX frames into Figma', mutation: 'write', timeout: 'long', path: 'render-inputs' },
   combos: { summary: 'Generate component variant combinations', mutation: 'write' },
   sizes: { summary: 'Generate component size variants', mutation: 'write' },
-  node: readGroup('Inspect or mutate nodes', ['tree', 'bindings'], { path: 'node-inputs' }),
+  node: readGroup('Inspect or mutate nodes', ['tree', 'bindings', 'css'], { path: 'node-inputs' }),
   component: readGroup('Manage component properties and variants', ['list', 'main']),
   tokens: { summary: 'Read, generate or sync design tokens', mutation: 'tokens', path: 'token-files' },
   var: readGroup('Manage local variables', ['list', 'find']),
@@ -39,10 +39,10 @@ const COMMANDS = Object.freeze({
   extract: { summary: 'Extract the open file into DESIGN.md', mutation: 'read', path: 'design-doc' },
   spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'spec-file' },
   analyze: { summary: 'Analyze colors, typography and spacing', mutation: 'read' },
-  font: readGroup('Inspect font facts or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
+  font: readGroup('Inspect typography, bind variables, or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
   map: { summary: 'Map Figma components to code', mutation: 'read', path: 'map-file' },
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
-  history: { summary: 'Create or compare structural snapshots', mutation: 'read', path: 'history-output' },
+  history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
   kit: { summary: 'Prepare a design system for agent use', mutation: 'read', timeout: 'long', path: 'kit-files' },
 });
@@ -121,6 +121,8 @@ function specializedPolicy(name, entry, args) {
       retry = 'safe-read';
     } else if (sub === 'dtcg') {
       pathPolicy = 'dtcg-output';
+    } else if (sub === 'node-json') {
+      pathPolicy = 'node-json-output';
     }
   }
   return { execution, timeoutClass, pathPolicy, retry };
@@ -218,6 +220,20 @@ function outputFlag(args, baseDir, defaultValue) {
   return value;
 }
 
+function optionalOutputFlag(args, baseDir) {
+  const index = args.findIndex((arg) => arg === '-o' || arg === '--output');
+  if (index !== -1 && typeof args[index + 1] === 'string') {
+    args[index + 1] = absolute(baseDir, args[index + 1]);
+    return args[index + 1];
+  }
+  const combined = args.findIndex((arg) => /^(--output|-o)=/.test(arg));
+  if (combined === -1) return null;
+  const [flag, ...rest] = args[combined].split('=');
+  const value = absolute(baseDir, rest.join('='));
+  args[combined] = `${flag}=${value}`;
+  return value;
+}
+
 function normalizeVerifyBuild(args, baseDir) {
   const pathFlags = new Set(['--assets', '--compare', '--design', '--diff-out']);
   const skipValue = new Set(['--node', '--max-diff']);
@@ -264,6 +280,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
         args[2] = absolute(baseDir, value);
         markWrite(args[2]);
       }
+      break;
+    }
+    case 'node-json-output': {
+      const output = optionalOutputFlag(args, baseDir);
+      if (output) markWrite(output);
       break;
     }
     case 'design-doc': {

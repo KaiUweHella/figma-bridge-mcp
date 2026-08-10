@@ -7,6 +7,17 @@
 
 export const FONT_AXIS_METADATA_KEY = 'figmaBridge.variableFontAxes';
 
+export const TYPOGRAPHY_VARIABLE_FIELDS = Object.freeze({
+  fontFamily: 'STRING',
+  fontSize: 'FLOAT',
+  fontStyle: 'STRING',
+  fontWeight: 'FLOAT',
+  letterSpacing: 'FLOAT',
+  lineHeight: 'FLOAT',
+  paragraphSpacing: 'FLOAT',
+  paragraphIndent: 'FLOAT',
+});
+
 const AXIS_TAG = /^[A-Za-z0-9]{4}$/;
 
 export function parseAxisSpec(value) {
@@ -33,6 +44,133 @@ export function parseOptionalIndex(value, name) {
   const number = Number(value);
   if (!Number.isInteger(number) || number < 0) throw new Error(`${name} must be a non-negative integer.`);
   return number;
+}
+
+export function parseTypographyField(value) {
+  const raw = String(value ?? '').trim();
+  const aliases = {
+    'font-family': 'fontFamily',
+    'font-size': 'fontSize',
+    'font-style': 'fontStyle',
+    'font-weight': 'fontWeight',
+    'letter-spacing': 'letterSpacing',
+    'line-height': 'lineHeight',
+    'paragraph-spacing': 'paragraphSpacing',
+    'paragraph-indent': 'paragraphIndent',
+  };
+  const field = aliases[raw] || raw;
+  if (!Object.prototype.hasOwnProperty.call(TYPOGRAPHY_VARIABLE_FIELDS, field)) {
+    throw new Error(`Unknown typography field "${raw}". Known: ${Object.keys(TYPOGRAPHY_VARIABLE_FIELDS).join(', ')}.`);
+  }
+  return field;
+}
+
+function assertBindingRange(start, end) {
+  for (const [name, value] of [['start', start], ['end', end]]) {
+    if (value != null && (!Number.isInteger(value) || value < 0)) {
+      throw new Error(`${name} must be a non-negative integer.`);
+    }
+  }
+}
+
+export function fontVariableBindingCode({
+  nodeId,
+  field,
+  variableName = null,
+  collection = null,
+  start = null,
+  end = null,
+  unbind = false,
+}) {
+  const normalizedField = parseTypographyField(field);
+  assertBindingRange(start, end);
+  if (!unbind && !String(variableName ?? '').trim()) throw new Error('Variable name or id must not be empty.');
+  const ranged = start != null || end != null;
+  const expectedType = TYPOGRAPHY_VARIABLE_FIELDS[normalizedField];
+  return `(async () => {
+    const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+    if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
+    if (node.type !== 'TEXT') throw new Error('Expected a TEXT node, got ' + node.type + ': ' + node.id);
+    const start = ${JSON.stringify(start)} == null ? 0 : ${JSON.stringify(start)};
+    const end = ${JSON.stringify(end)} == null ? node.characters.length : ${JSON.stringify(end)};
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > node.characters.length) {
+      throw new Error('Range [' + start + ',' + end + ') is outside text length ' + node.characters.length + '.');
+    }
+    const fontNames = start < end
+      ? node.getRangeAllFontNames(start, end)
+      : (node.fontName && node.fontName !== figma.mixed ? [node.fontName] : []);
+    const loaded = new Set();
+    const loadFont = async (fontName) => {
+      const key = fontName.family + '\\u0000' + fontName.style;
+      if (loaded.has(key)) return;
+      await figma.loadFontAsync(fontName);
+      loaded.add(key);
+    };
+    for (const fontName of fontNames) await loadFont(fontName);
+    let variable = null;
+    ${unbind ? '' : `
+    const reference = ${JSON.stringify(String(variableName ?? '').trim())};
+    try { variable = await figma.variables.getVariableByIdAsync(reference); } catch (error) {}
+    if (!variable) {
+      const collections = await figma.variables.getLocalVariableCollectionsAsync();
+      const variables = await figma.variables.getLocalVariablesAsync();
+      let pool = variables;
+      const collectionHint = ${JSON.stringify(collection)};
+      if (collectionHint) {
+        const q = String(collectionHint).toLowerCase();
+        const match = collections.find((item) => item.name.toLowerCase() === q)
+          || collections.find((item) => item.name.toLowerCase().includes(q));
+        if (!match) throw new Error('No collection matching "' + collectionHint + '".');
+        pool = variables.filter((item) => item.variableCollectionId === match.id);
+      }
+      const exact = pool.filter((item) => item.name === reference);
+      const tail = pool.filter((item) => item.name.endsWith('/' + reference));
+      const matches = exact.length ? exact : tail;
+      if (matches.length === 0) throw new Error('No variable named "' + reference + '".');
+      if (matches.length > 1) throw new Error(matches.length + ' variables match "' + reference + '"; pass --collection.');
+      variable = matches[0];
+    }
+    if (variable.resolvedType !== ${JSON.stringify(expectedType)}) {
+      throw new Error(${JSON.stringify(normalizedField)} + ' needs a ' + ${JSON.stringify(expectedType)} + ' variable; "' + variable.name + '" is ' + variable.resolvedType + '.');
+    }
+    if (${JSON.stringify(['fontFamily', 'fontStyle', 'fontWeight'].includes(normalizedField))}
+        && typeof figma.listAvailableFontsAsync === 'function') {
+      const families = new Set(fontNames.map((fontName) => fontName.family));
+      if (${JSON.stringify(normalizedField)} === 'fontFamily') {
+        for (let value of Object.values(variable.valuesByMode || {})) {
+          let guard = 20;
+          while (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS' && guard-- > 0) {
+            const target = await figma.variables.getVariableByIdAsync(value.id);
+            value = target ? Object.values(target.valuesByMode || {})[0] : null;
+          }
+          if (typeof value === 'string' && value) families.add(value);
+        }
+      }
+      const available = await figma.listAvailableFontsAsync();
+      for (const entry of available) {
+        const fontName = entry && entry.fontName ? entry.fontName : entry;
+        if (fontName && families.has(fontName.family)) await loadFont(fontName);
+      }
+    }`}
+    ${ranged
+      ? `node.setRangeBoundVariable(start, end, ${JSON.stringify(normalizedField)}, variable);`
+      : `node.setBoundVariable(${JSON.stringify(normalizedField)}, variable);`}
+    const alias = ${ranged
+      ? `node.getRangeBoundVariable(start, end, ${JSON.stringify(normalizedField)})`
+      : `(node.boundVariables && node.boundVariables[${JSON.stringify(normalizedField)}]) || null`};
+    return {
+      id: node.id,
+      name: node.name,
+      field: ${JSON.stringify(normalizedField)},
+      range: ${ranged ? '{ start, end }' : 'null'},
+      variable: variable ? { id: variable.id, name: variable.name, type: variable.resolvedType } : null,
+      alias,
+      unbound: variable === null,
+      note: ${normalizedField === 'fontWeight'
+        ? JSON.stringify('Figma maps numeric fontWeight values to a valid weight for the active font; this is not a general variable-axis setter.')
+        : 'null'},
+    };
+  })()`;
 }
 
 function assertAxes(axes) {

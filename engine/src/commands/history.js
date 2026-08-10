@@ -23,10 +23,26 @@ import {
   saveSnapshot, listSnapshots, readSnapshot, resolveRef, snapshotDir,
 } from '../lib/snapshot-store.js';
 import { diffSnapshots, formatDiff, formatChangelog, isEmptyDiff } from '../lib/doc-diff.js';
+import { saveVersionCode } from '../lib/version-history.js';
 
 const historyCmd = program
   .command('history')
-  .description('Structural snapshots and diffs of the open file (no Figma credential needed)');
+  .description('Structural snapshots, diffs, and named Figma versions');
+
+historyCmd
+  .command('save <title>')
+  .description('Save a named version through the Plugin API (no REST token; reading versions remains REST-only)')
+  .option('-d, --description <text>', 'Optional version description')
+  .action(async (title, options) => {
+    await checkConnection();
+    try {
+      const result = await fastEval(saveVersionCode({ title, description: options.description }));
+      console.log(chalk.green('✓'), `Saved Figma version "${result.title}"${result.id ? ` (${result.id})` : ''}`);
+      if (result.description) console.log(chalk.gray(`  ${result.description}`));
+    } catch (error) {
+      handleEvalError(error);
+    }
+  });
 
 /** Take a snapshot via the plugin bridge and normalize it. */
 async function capture({ nodeId, depth, label }) {

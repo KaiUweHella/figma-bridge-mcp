@@ -74,6 +74,21 @@ the plugin window. The panel will tell you if you forget.
   `font forget-axes` removes them. Design specs carry the reported weight,
   enabled features and `axes-meta[…]` records losslessly without claiming that
   metadata changed Figma's glyph rendering.
+- **Plugin-first native facts.** `node css` exposes Figma's own
+  `getCSSAsync()` result, and `export node-json` emits `JSON_REST_V1` directly
+  from the live document. Both avoid a REST token and network request;
+  `export node-json -o` is separately classified as a workspace write.
+- **Typography-variable bindings.** `font bind` and `font unbind` cover all
+  Plugin-API bindable typography fields on a whole TextNode or character
+  range, with local-name disambiguation, STRING/FLOAT validation and font
+  loading. The output continues to state that numeric weight bindings are not
+  a general variable-axis setter.
+- **Named versions from the command line.** `history save` calls
+  `saveVersionHistoryAsync()` through the authenticated plugin transport;
+  reading native historical versions remains an explicit REST-only feature.
+- **Official API coverage input.** `api gap` now scans the installed
+  `@figma/plugin-typings` declarations. The optional Markdown clone is retained
+  for prose lookup but is no longer the canonical coverage inventory.
 
 ### Component-aware rendering
 

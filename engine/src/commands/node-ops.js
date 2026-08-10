@@ -8,6 +8,7 @@ import {
 import { normalizeNodeId } from '../lib/node-id.js';
 import { generateFillCode, isVarRef, pageLookupCode, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
 import { readImageBase64 } from '../lib/image-file.js';
+import { formatNodeCss, nodeCssCode } from '../lib/native-node-data.js';
 
 // ============ NODE OPERATIONS ============
 
@@ -148,6 +149,23 @@ node
       } catch (e) {
         console.log(chalk.red('✗ Bindings failed: ' + e.message));
       }
+    }
+  });
+
+node
+  .command('css <nodeId>')
+  .description("Read the node's native Figma Inspect CSS via getCSSAsync() (not token CSS)")
+  .option('--json', 'Output node metadata and CSS as JSON')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+    const normalized = normalizeNodeId(nodeId);
+    if (normalized.warning) console.error(chalk.yellow('⚠ ' + normalized.warning));
+    try {
+      const result = await fastEval(nodeCssCode(normalized.id));
+      console.log(formatNodeCss(result, { json: options.json === true }));
+    } catch (error) {
+      console.error(chalk.red('✗ Native CSS failed: ' + error.message));
+      process.exit(1);
     }
   });
 

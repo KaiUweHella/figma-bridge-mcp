@@ -10,15 +10,17 @@ import { normalizeNodeId } from '../lib/node-id.js';
 import {
   fontAxesCode,
   fontInspectCode,
+  fontVariableBindingCode,
   forgetAxesCode,
   parseAxisSpec,
   parseOptionalIndex,
+  parseTypographyField,
   rememberAxesCode,
 } from '../lib/font-introspection.js';
 
 const font = program
   .command('font')
-  .description('Inspect range typography and preserve variable-font axis intent as metadata');
+  .description('Inspect typography, bind variables, and preserve variable-font axis intent as metadata');
 
 const rangeOptions = (command) => command
   .option('--start <index>', 'Start character index (inclusive)')
@@ -30,6 +32,52 @@ const parsedRange = (options) => ({
 });
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
+
+rangeOptions(font
+  .command('bind <nodeId> <field> <variable>')
+  .description('Bind a STRING/FLOAT variable to a typography field on a TEXT node or character range'))
+  .option('-c, --collection <name>', 'Narrow an ambiguous local variable name to one collection')
+  .action(async (nodeId, field, variable, options) => {
+    try {
+      const id = normalizeNodeId(nodeId).id;
+      const normalizedField = parseTypographyField(field);
+      const range = parsedRange(options);
+      await checkConnection();
+      const result = await fastEval(fontVariableBindingCode({
+        nodeId: id,
+        field: normalizedField,
+        variableName: variable,
+        collection: options.collection || null,
+        ...range,
+      }));
+      console.log(chalk.green('✓'), `Bound ${normalizedField} to ${result.variable.name}.`);
+      print(result);
+    } catch (error) {
+      handleEvalError(error);
+    }
+  });
+
+rangeOptions(font
+  .command('unbind <nodeId> <field>')
+  .description('Remove a typography-variable binding from a TEXT node or character range'))
+  .action(async (nodeId, field, options) => {
+    try {
+      const id = normalizeNodeId(nodeId).id;
+      const normalizedField = parseTypographyField(field);
+      const range = parsedRange(options);
+      await checkConnection();
+      const result = await fastEval(fontVariableBindingCode({
+        nodeId: id,
+        field: normalizedField,
+        unbind: true,
+        ...range,
+      }));
+      console.log(chalk.green('✓'), `Unbound ${normalizedField}.`);
+      print(result);
+    } catch (error) {
+      handleEvalError(error);
+    }
+  });
 
 rangeOptions(font
   .command('inspect <nodeId>')

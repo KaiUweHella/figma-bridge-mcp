@@ -13,6 +13,9 @@ import { execSync } from 'child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = path.resolve(__dirname, '..', 'docs', 'figma-api');
 const REPO = 'https://github.com/iamtekeste/figma.git';
+const OFFICIAL_TYPINGS_PATH = path.resolve(
+  __dirname, '..', '..', 'node_modules', '@figma', 'plugin-typings', 'plugin-api.d.ts',
+);
 
 function isInstalled() {
   return fs.existsSync(path.join(DOCS_DIR, 'interfaces'));
@@ -413,10 +416,41 @@ function readSourceTree(dir) {
   return out;
 }
 
+/**
+ * Extract the public named declarations from Figma's official typings.
+ * The Markdown mirror remains useful for prose lookup, but coverage must be
+ * measured against the package Figma updates with every Plugin API release.
+ */
+export function parseOfficialTypingNames(source) {
+  const found = new Map();
+  const declaration = /^(?:export\s+)?(?:declare\s+)?(interface|type|class|enum)\s+([A-Za-z_$][\w$]*)\b/gm;
+  for (const match of String(source ?? '').matchAll(declaration)) {
+    const [, declarationKind, name] = match;
+    if (!found.has(name)) {
+      found.set(name, {
+        kind: declarationKind === 'interface' ? 'interface' : 'type',
+        name,
+        file: OFFICIAL_TYPINGS_PATH,
+      });
+    }
+  }
+  return [...found.values()];
+}
+
+function officialTypingItems() {
+  try {
+    const items = parseOfficialTypingNames(fs.readFileSync(OFFICIAL_TYPINGS_PATH, 'utf8'));
+    return items.length ? items : null;
+  } catch {
+    return null;
+  }
+}
+
 export function gap() {
-  const all = listAll();
+  const official = officialTypingItems();
+  const all = official || listAll();
   if (!all) {
-    console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
+    console.error('✗ neither @figma/plugin-typings nor offline docs are installed. Run npm install.');
     process.exit(1);
   }
   // Which Figma API names does this engine actually mention? The corpus has
@@ -468,7 +502,8 @@ export function gap() {
     else groups.other.push(i);
   }
 
-  console.log(`Figma Plugin API: ${all.length} total (${interesting.length} interesting)\n`);
+  console.log(`Figma Plugin API: ${all.length} total (${interesting.length} interesting)`);
+  console.log(`source: ${official ? '@figma/plugin-typings (official, installed)' : 'offline Markdown fallback'}\n`);
   console.log(`✓ Referenced in the engine: ${referenced.length}`);
   console.log(`✗ NOT referenced (potential gap): ${missing.length}\n`);
 
@@ -483,7 +518,7 @@ export function gap() {
     console.log();
   }
 
-  console.log('Tip: figma_run ["api","<Name>"]   to read the full spec for any of these.');
+  console.log('Tip: figma_run ["api","<Name>"]   to read the prose reference; api gap itself uses the official typings.');
 }
 
 /** Path to the compact index. Rebuilt by buildIndex(); lives alongside the docs. */

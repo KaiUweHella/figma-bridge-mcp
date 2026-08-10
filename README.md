@@ -443,6 +443,24 @@ A variable name that is not unique is **refused, not guessed** — this file has
 settle it. The variable's type is checked against the property first, so a
 COLOR on `radius` fails with a sentence rather than a plugin stack trace.
 
+Typography variables have their own range-aware command because text can carry
+different bindings on different character spans:
+
+```
+figma_run ["font", "bind", "12:36", "fontWeight", "type/weight", "--collection", "Typography"]
+figma_run ["font", "bind", "12:36", "line-height", "type/line-height", "--start", "0", "--end", "12"]
+figma_run ["font", "unbind", "12:36", "lineHeight", "--start", "0", "--end", "12"]
+```
+
+Bindable fields are `fontFamily`, `fontSize`, `fontStyle`, `fontWeight`,
+`letterSpacing`, `lineHeight`, `paragraphSpacing` and `paragraphIndent`;
+kebab-case spellings are accepted too. Existing fonts—and for family/style/
+weight bindings the relevant available family styles—are loaded before the
+binding is changed. Variable names are refused when ambiguous, and STRING vs
+FLOAT is checked before Figma is called. A numeric `fontWeight` binding still
+is not a general variable-font-axis setter: Figma selects a valid weight for
+the active font.
+
 `tokens rebind` is the theme switch: it walks a subtree and repoints every
 binding at the same-named variable in a target collection. Design a card
 against `SOURCE_COLLECTION`, run rebind with `TARGET_COLLECTION`, and the same card follows
@@ -521,6 +539,25 @@ glyphs — and is therefore classified as a write by the Capability Catalog.
 Figma's reported `fw…` value and enabled `ot(…)` tags, so design-to-code capture
 does not silently discard the documented intent.
 
+## Native Plugin API facts
+
+Two read commands expose Figma's own representations without contacting the
+REST API:
+
+```
+figma_run ["node", "css", "12:34"]
+figma_run ["node", "css", "12:34", "--json"]
+figma_run ["export", "node-json", "12:34"]
+figma_run ["export", "node-json", "12:34", "-o", "facts/card.json"]
+```
+
+`node css` calls `getCSSAsync()` and returns the declarations Figma exposes for
+its Inspect panel. This is deliberately separate from `export css`, which
+exports design-token custom properties. `export node-json` uses
+`exportAsync({format:"JSON_REST_V1"})`: the shape resembles the REST file
+schema, but the bytes come from the live plugin document and need neither a
+token nor a network request.
+
 ## Version history and diffs
 
 Figma's plugin API can *write* a version but not read one back, so "what changed
@@ -529,10 +566,16 @@ without any credential: record the structure of a subtree, record it again
 later, diff the two.
 
 ```
+figma_run ["history", "save", "Before refactor", "--description", "Agent restore point"]
 figma_run ["history", "snapshot", "--label", "before refactor"]
 # … agent works …
 figma_run ["history", "diff", "latest", "live"]
 ```
+
+`history save` creates the named entry directly through
+`saveVersionHistoryAsync()` and is a Figma write. `snapshot`, `list` and `diff`
+remain local/read-only Figma operations; reading Figma's native historical
+versions still requires the optional REST add-on.
 
 A snapshot stores one normalized record per node — geometry, layout, paints,
 typography, component keys — plus a content hash and a subtree hash, so the
@@ -702,7 +745,9 @@ Node's `crypto` so the two implementations cannot drift apart.
   would need its own command group and has not been built.
 - **Non-localhost network actions are few and explicit**: `api setup`
   (one-time git clone of the Figma Plugin API docs mirror, for
-  `figma_reference`), the Storybook index fetch of `import`/`map storybook`
+  `figma_reference`; `api gap` instead measures against the installed official
+  `@figma/plugin-typings` package), the Storybook index fetch of `import`/`map
+  storybook`
   (the URL/directory you pass in), and — only when you opt into the REST
   add-on — calls to `api.figma.com`. Nothing else talks to the network — the
   upstream's iconify/unsplash/remove.bg/screenshot-url integrations were

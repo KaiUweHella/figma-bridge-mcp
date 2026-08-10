@@ -2,7 +2,7 @@
 import chalk from 'chalk';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { assetSlug, effectiveAssetName } from '../lib/asset-names.js';
 import { mergeAssetManifest } from '../lib/asset-manifest.js';
 import { normalizeNodeId } from '../lib/node-id.js';
@@ -19,6 +19,7 @@ import {
 import { assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode } from '../design-extract.js';
 import { formatCssTokens, buildDtcgTree } from '../lib/css-tokens.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
+import { nodeRestJsonCode } from '../lib/native-node-data.js';
 import {
   executeCodeSpec,
   walkWithDepthRetry,
@@ -123,6 +124,30 @@ return {
       : options.output;
     writeFileSync(outputFile, buffer);
     console.log(chalk.green('✓'), `Exported ${result.name} (${result.width}x${result.height}) to ${outputFile}`);
+  });
+
+exp
+  .command('node-json <nodeId>')
+  .description('Export REST-shaped JSON for a live node through the Plugin API (no REST token or network)')
+  .option('-o, --output <file>', 'Write JSON to a file instead of stdout')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+    nodeId = normalizedId(nodeId);
+    try {
+      const result = await fastEval(nodeRestJsonCode(nodeId));
+      const json = JSON.stringify(result, null, 2) + '\n';
+      if (options.output) {
+        const outputFile = resolve(options.output);
+        mkdirSync(dirname(outputFile), { recursive: true });
+        writeFileSync(outputFile, json);
+        console.log(chalk.green('✓'), `Native node JSON written to ${outputFile}`);
+      } else {
+        process.stdout.write(json);
+      }
+    } catch (error) {
+      console.error(chalk.red('✗ Native node JSON export failed: ' + error.message));
+      process.exit(1);
+    }
   });
 
 exp

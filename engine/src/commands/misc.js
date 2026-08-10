@@ -830,7 +830,7 @@ apiCmd
 
 apiCmd
   .command('gap')
-  .description('Show Figma Plugin API capabilities this engine does not expose yet')
+  .description('Compare engine coverage with the installed official @figma/plugin-typings')
   .action(() => apiDocs.gap());
 
 apiCmd
