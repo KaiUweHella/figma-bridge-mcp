@@ -101,6 +101,23 @@ the plugin window. The panel will tell you if you forget.
   discover published variables from libraries enabled in the current file.
   Key-based imports cover variables, styles, components and component sets;
   every operation uses the Plugin API and the shipped `teamlibrary` permission.
+- **Complete design-system authoring.** `col extend` covers local and published
+  collection extensions (with Figma's Enterprise limit surfaced), while
+  `style bind-font` / `unbind-font` bind the official TextStyle typography
+  fields to local variables.
+- **Native prototypes, measurements, and annotations.** Prototype reactions
+  roundtrip through `setReactionsAsync()` including multiple, variable, and
+  conditional actions. Dev Mode measurements use `PageNode` methods with an
+  editor guard. Annotations now include categories, properties, and indexed
+  edit/removal.
+- **2026 Plugin API coverage.** Added animated MP4/GIF/WebM export, shader
+  discovery/import/application, auto-layout GRID tracks/placement/flow/reorder,
+  Slot GA settings/reset/limit validation, and Figma Draw text paths, transform
+  repeats, brushes, variable-width strokes, and async patterns.
+- **Closed REST boundary.** `figma-rest.js` now rejects every method/path not
+  named in its metadata/history allowlist before token lookup or network I/O.
+  Current file contents require the plugin; REST document reads require an
+  explicit historical version ID.
 
 ### Component-aware rendering
 

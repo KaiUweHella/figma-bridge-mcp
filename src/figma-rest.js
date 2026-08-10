@@ -23,6 +23,25 @@ import { appendAudit, getSelection } from "./engine.js";
 const BASE_URL = "https://api.figma.com";
 const TIMEOUT_MS = 10000;
 
+// Closed internal allowlist. There is intentionally no generic "REST request"
+// capability: adding an endpoint requires a named reason here plus tests.
+export const REST_ENDPOINTS = Object.freeze([
+  { id: "token-health", methods: ["GET"], pattern: /^\/v1\/me$/ },
+  { id: "version-list", methods: ["GET"], pattern: /^\/v1\/files\/[^/?]+\/versions(?:\?.*)?$/ },
+  { id: "version-content", methods: ["GET"], pattern: /^\/v1\/files\/[^/?]+\?(?=[^#]*\bversion=)[^#]+$/ },
+  { id: "comments", methods: ["GET", "POST"], pattern: /^\/v1\/files\/[^/?]+\/comments$/ },
+  { id: "published-components", methods: ["GET"], pattern: /^\/v1\/files\/[^/?]+\/components$/ },
+]);
+
+export function classifyRestRequest(path, method = "GET") {
+  const normalizedMethod = String(method).toUpperCase();
+  const match = REST_ENDPOINTS.find((endpoint) => endpoint.methods.includes(normalizedMethod) && endpoint.pattern.test(String(path)));
+  return match ? match.id : null;
+}
+
+export const REST_DENIED_MSG =
+  "Figma REST endpoint blocked by the plugin-first boundary. Current document content, nodes, CSS, exports, variables, styles, Dev Resources and known-key assets must use the local Plugin API/CLI.";
+
 /**
  * Resolve the REST token: env override first (headless/CI), then the file the
  * daemon wrote from the plugin UI. Returns null when unconfigured.
@@ -140,10 +159,11 @@ function restErrorMessage(status, path, headers) {
  * @returns {Promise<any>} parsed JSON
  */
 export async function restFetch(path, opts = {}) {
+  const method = String(opts.method || "GET").toUpperCase();
+  if (!classifyRestRequest(path, method)) throw new Error(`${REST_DENIED_MSG} Rejected: ${method} ${path}`);
   const token = readRestToken(opts.env);
   if (!token) throw new Error(NOT_CONFIGURED_MSG);
   const doFetch = opts.fetchImpl || fetch;
-  const method = opts.method || "GET";
   const id = randomUUID();
   appendAudit({ id, ts: new Date().toISOString(), rest: { method, path } });
   let ok = false;
@@ -252,6 +272,7 @@ export async function getVersions(fileKey, opts = {}) {
  * @returns {Promise<{document: object, name: string, version: string}>}
  */
 export async function getFileAtVersion(fileKey, opts = {}) {
+  if (!opts.version) throw new Error("A version ID is required: live/current file content must use the local Plugin API");
   const query = [];
   if (opts.version) query.push(`version=${encodeURIComponent(opts.version)}`);
   if (Number.isInteger(opts.depth) && opts.depth > 0) query.push(`depth=${opts.depth}`);

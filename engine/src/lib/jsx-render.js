@@ -1703,6 +1703,13 @@ export class FigmaClient {
           const slotHeight = (item.h ?? item.height) !== undefined ? numOr(item.h ?? item.height, 100) : undefined;
           const fillWidth = item.w === 'fill';
           const fillHeight = item.h === 'fill';
+          const slotSettings = {
+            ...(item.stretchChildOnInsert !== undefined ? { stretchChildOnInsert: item.stretchChildOnInsert === true || item.stretchChildOnInsert === 'true' } : {}),
+            ...(item.displayEmptyByDefault !== undefined ? { displayEmptyByDefault: item.displayEmptyByDefault === true || item.displayEmptyByDefault === 'true' } : {}),
+            ...(item.minChildren !== undefined ? { minChildren: numOr(item.minChildren, 0) } : {}),
+            ...(item.maxChildren !== undefined ? { maxChildren: numOr(item.maxChildren, 0) } : {}),
+            ...(item.allowPreferredValuesOnly !== undefined ? { allowPreferredValuesOnly: item.allowPreferredValuesOnly === true || item.allowPreferredValuesOnly === 'true' } : {}),
+          };
 
           const nestedChildren = item._children ? this.generateChildrenCode(item._children, `slot${idx}`, slotFlex, ctx) : '';
           const slotFillCode = slotBg ? this.generateFillCode(slotBg, `slot${idx}`) : { code: '' };
@@ -1710,8 +1717,15 @@ export class FigmaClient {
           return `
         // Create slot (only works if parent is a component)
         let slot${idx} = null;
-        if (${parentVar}.type === 'COMPONENT' || ${parentVar}.type === 'COMPONENT_SET') {
-          slot${idx} = ${parentVar}.createSlot(${JSON.stringify(slotName)});
+        let __slotProperty${idx} = null;
+        if (${parentVar}.type === 'COMPONENT') {
+          const __slotPropsBefore${idx} = new Set(Object.keys(${parentVar}.componentPropertyDefinitions || {}));
+          slot${idx} = ${parentVar}.createSlot();
+          slot${idx}.name = ${JSON.stringify(slotName)};
+          __slotProperty${idx} = Object.keys(${parentVar}.componentPropertyDefinitions || {}).find(k => !__slotPropsBefore${idx}.has(k) && ${parentVar}.componentPropertyDefinitions[k].type === 'SLOT') || null;
+          if (__slotProperty${idx} && Object.keys(${JSON.stringify(slotSettings)}).length) {
+            ${parentVar}.editComponentProperty(__slotProperty${idx}, { name: ${JSON.stringify(slotName)}, slotSettings: ${JSON.stringify(slotSettings)} });
+          }
         } else {
           // Fall back to regular frame if parent is not a component
           slot${idx} = figma.createFrame();
@@ -1731,7 +1745,10 @@ export class FigmaClient {
         ${fillWidth ? `slot${idx}.layoutSizingHorizontal = 'FILL';` : ''}
         ${fillHeight ? `slot${idx}.layoutSizingVertical = 'FILL';` : ''}
         ${slotFillCode.code}
-        ${nestedChildren}`;
+        ${nestedChildren}
+        if (slot${idx}.type === 'SLOT' && slot${idx}.limitViolations && slot${idx}.limitViolations.length) {
+          throw new Error('Slot ${slotName} violates configured limits: ' + slot${idx}.limitViolations.join(', '));
+        }`;
         }
         return '';
       }).join('\n');

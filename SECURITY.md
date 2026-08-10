@@ -83,6 +83,13 @@ into MCP client config), travels over the authenticated socket, and is stored
 0600. It is never echoed back by any tool and never written to the audit log —
 REST calls are logged as method and path only.
 
+**REST is closed by method and path.** The internal client accepts only token
+health, version lists, version-pinned document contents, comments, and
+published-component metadata. It is not a generic fetch primitive. Current
+file contents, node JSON, CSS, exports, variables, styles, Dev Resources and
+known-key asset imports are rejected before token lookup and must use the
+authenticated local Plugin API transport.
+
 ### What it does not protect against
 
 Stated plainly, because a security document that only lists strengths is

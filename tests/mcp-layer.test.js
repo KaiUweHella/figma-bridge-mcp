@@ -69,9 +69,10 @@ test('pairing: ensureKey persists a stable base64url key, rotate changes it', as
 
 test('rejection names the full allowlist so agents stop guessing commands', async () => {
   const { ALLOWED_COMMANDS, runCli } = await import('../src/engine.js');
-  // "style" was one of the real guesses from the test session.
-  await assert.rejects(() => runCli(['style']), (err) => {
-    assert.match(err.message, /Command not allowed: style\. Allowed: /);
+  // Use a permanently unknown sentinel: real command groups may become
+  // allowlisted as the Plugin API coverage grows (as `style` did).
+  await assert.rejects(() => runCli(['definitely-not-a-command']), (err) => {
+    assert.match(err.message, /Command not allowed: definitely-not-a-command\. Allowed: /);
     // Every allowlisted command must be listed in the message.
     for (const cmd of ALLOWED_COMMANDS) assert.ok(err.message.includes(cmd), `missing ${cmd}`);
     return true;

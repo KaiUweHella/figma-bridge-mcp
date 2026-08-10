@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { coveredApiTypeNames } from './lib/api-capability-claims.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = path.resolve(__dirname, '..', 'docs', 'figma-api');
@@ -471,8 +472,9 @@ export function gap() {
 
   const referenced = [];
   const missing = [];
+  const claimed = coveredApiTypeNames();
   for (const i of interesting) {
-    if (usageForms(i.name).some(form => new RegExp(`\\b${form}\\b`).test(usage))) {
+    if (claimed.has(i.name) || usageForms(i.name).some(form => new RegExp(`\\b${form}\\b`).test(usage))) {
       referenced.push(i);
     } else {
       missing.push(i);
@@ -504,7 +506,7 @@ export function gap() {
 
   console.log(`Figma Plugin API: ${all.length} total (${interesting.length} interesting)`);
   console.log(`source: ${official ? '@figma/plugin-typings (official, installed)' : 'offline Markdown fallback'}\n`);
-  console.log(`✓ Referenced in the engine: ${referenced.length}`);
+  console.log(`✓ Referenced or explicitly command-covered: ${referenced.length}`);
   console.log(`✗ NOT referenced (potential gap): ${missing.length}\n`);
 
   console.log('=== Missing capabilities (grouped) ===\n');

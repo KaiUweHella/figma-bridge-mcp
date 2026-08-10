@@ -5,6 +5,11 @@ import { componentInventoryCode } from '../lib/component-inventory.js';
 import { parseVariantPairs, addVariantCode } from '../lib/variant-snippets.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
+  annotationAddCode, annotationCategoriesCode, annotationCategoryCreateCode,
+  annotationCategoryEditCode, annotationCategoryRemoveCode, annotationEditCode,
+  annotationRemoveCode, parseProperties,
+} from '../lib/annotation-management.js';
+import {
   program,
   checkConnection,
   componentContextExpr,
@@ -684,19 +689,40 @@ annotateCmd
   .option('-m, --markdown', 'Treat text as markdown')
   .option('-n, --node <id>', 'Node ID to annotate')
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern> (case-insensitive)')
+  .option('-c, --category <idOrLabel>', 'Annotation category ID or label')
+  .option('-p, --properties <list>', 'Comma-separated Figma annotation property names')
   .action(async (text, options) => {
     await checkConnection();
     if (!options.node && !options.query) {
       console.error(chalk.red('✗'), 'Provide either --node <id> or --query <pattern>');
       process.exit(1);
     }
+    if (options.node) {
+      try {
+        const r = await daemonExec('eval', { code: annotationAddCode({ nodeId: options.node, text, markdown: options.markdown, category: options.category, properties: options.properties }) });
+        console.log(chalk.green('✓'), `Annotated ${r.name} (${r.id}) at index ${r.index}`);
+      } catch (e) { handleEvalError(e); }
+      return;
+    }
     const labelKey = options.markdown ? 'labelMarkdown' : 'label';
+    const properties = parseProperties(options.properties);
     const targetSelector = options.query
       ? `(figma.currentPage.findAll(n => 'annotations' in n && typeof n.name === 'string' && n.name.toLowerCase().includes(${JSON.stringify(options.query.toLowerCase())})))`
       : `[await figma.getNodeByIdAsync(${JSON.stringify(options.node)})].filter(Boolean)`;
     const code = `(async () => {
       const nodes = ${targetSelector};
       if (nodes.length === 0) throw new Error(${options.query ? `'No nodes matched query: ${options.query}'` : `'Node not found: ${options.node}'`});
+      let category = null;
+      if (${JSON.stringify(options.category || null)}) {
+        const query = ${JSON.stringify(options.category || null)};
+        category = await figma.annotations.getAnnotationCategoryByIdAsync(query);
+        if (!category) {
+          const categories = await figma.annotations.getAnnotationCategoriesAsync();
+          const matches = categories.filter(c => c.label === query || c.label.toLowerCase().includes(query.toLowerCase()));
+          if (matches.length !== 1) throw new Error(matches.length ? 'Ambiguous annotation category: ' + query : 'Annotation category not found: ' + query);
+          category = matches[0];
+        }
+      }
       const results = [];
       for (const n of nodes) {
         if (!('annotations' in n)) continue;
@@ -708,7 +734,7 @@ annotateCmd
           if (a.properties) c.properties = a.properties;
           return c;
         });
-        n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)} }];
+        n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)}, ...(category ? { categoryId: category.id } : {})${properties === undefined ? '' : `, properties: ${JSON.stringify(properties)}`} }];
         results.push({ id: n.id, name: n.name });
       }
       return results;
@@ -721,6 +747,40 @@ annotateCmd
       handleEvalError(e);
     }
   });
+
+annotateCmd.command('edit <nodeId> <index>')
+  .description('Edit one zero-based annotation index')
+  .option('-t, --text <text>').option('-m, --markdown').option('-c, --category <idOrLabel>', 'Pass an empty string to clear')
+  .option('-p, --properties <list>', 'Comma-separated properties; pass an empty string to clear')
+  .action(async (nodeId, index, options) => {
+    try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationEditCode({ nodeId, index, text: options.text, markdown: options.markdown, category: options.category, properties: options.properties }) }), null, 2)); }
+    catch (e) { handleEvalError(e); }
+  });
+
+annotateCmd.command('remove <nodeId> <index>')
+  .description('Remove one zero-based annotation index')
+  .action(async (nodeId, index) => {
+    try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationRemoveCode({ nodeId, index }) }), null, 2)); }
+    catch (e) { handleEvalError(e); }
+  });
+
+annotateCmd.command('categories').description('List annotation categories in the open file').action(async () => {
+  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoriesCode() }), null, 2)); }
+  catch (e) { handleEvalError(e); }
+});
+
+annotateCmd.command('category-add <label>').requiredOption('--color <color>').action(async (label, options) => {
+  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryCreateCode({ label, color: options.color }) }), null, 2)); }
+  catch (e) { handleEvalError(e); }
+});
+annotateCmd.command('category-edit <category>').option('--label <label>').option('--color <color>').action(async (category, options) => {
+  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryEditCode({ category, label: options.label, color: options.color }) }), null, 2)); }
+  catch (e) { handleEvalError(e); }
+});
+annotateCmd.command('category-remove <category>').action(async (category) => {
+  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryRemoveCode({ category }) }), null, 2)); }
+  catch (e) { handleEvalError(e); }
+});
 
 annotateCmd
   .command('list [nodeId]')

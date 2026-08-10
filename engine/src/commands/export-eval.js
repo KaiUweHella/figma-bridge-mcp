@@ -127,6 +127,42 @@ return {
   });
 
 exp
+  .command('video <nodeId>')
+  .description('Export the containing top-level animated frame as MP4, GIF, or WebM through the Plugin API')
+  .option('-o, --output <file>', 'Output file')
+  .option('-f, --format <format>', 'mp4, gif, or webm', 'mp4')
+  .option('--fps <fps>', 'MP4/WebM: 12|24|30|60; GIF: 8|12|15|24|30', '30')
+  .option('--quality <quality>', 'MP4/WebM quality: low, medium, high', 'high')
+  .option('--loop <count>', 'GIF loop count, 0 means forever', '0')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+    nodeId = normalizedId(nodeId);
+    const format = String(options.format).toUpperCase();
+    if (!['MP4', 'GIF', 'WEBM'].includes(format)) throw new Error('--format must be mp4, gif, or webm');
+    const fps = Number(options.fps);
+    const allowedFps = format === 'GIF' ? [8, 12, 15, 24, 30] : [12, 24, 30, 60];
+    if (!allowedFps.includes(fps)) throw new Error(`${format} fps must be one of: ${allowedFps.join(', ')}`);
+    const quality = String(options.quality).toUpperCase();
+    if (format !== 'GIF' && !['LOW', 'MEDIUM', 'HIGH'].includes(quality)) throw new Error('--quality must be low, medium, or high');
+    const loopCount = Number(options.loop);
+    if (format === 'GIF' && (!Number.isInteger(loopCount) || loopCount < 0 || loopCount > 1000)) throw new Error('--loop must be an integer from 0 to 1000');
+    const settings = format === 'GIF' ? { format, fps, loopCount } : { format, fps, quality };
+    const result = await fastEval(`(async () => {
+if (figma.editorType !== 'figma') throw new Error('Video export is only available in Figma Design');
+const requested = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+if (!requested || typeof requested.exportAsync !== 'function') throw new Error('Exportable node not found: ${nodeId}');
+const frame = requested.type === 'FRAME' && requested.parent && requested.parent.type === 'PAGE' ? requested : (typeof requested.getTopLevelFrame === 'function' ? requested.getTopLevelFrame() : null);
+if (!frame || frame.type !== 'FRAME' || !frame.parent || frame.parent.type !== 'PAGE') throw new Error('Video export requires a top-level frame or one of its descendants');
+const bytes = await frame.exportAsync(${JSON.stringify(settings)});
+return { requestedId: requested.id, frame: { id: frame.id, name: frame.name }, format: ${JSON.stringify(format)}, fps: ${fps}, base64: figma.base64Encode(bytes) };
+})()`);
+    const outputFile = resolve(options.output || `video.${format.toLowerCase()}`);
+    mkdirSync(dirname(outputFile), { recursive: true });
+    writeFileSync(outputFile, Buffer.from(result.base64, 'base64'));
+    console.log(chalk.green('✓'), `Exported ${result.frame.name} as ${format} at ${fps} fps → ${outputFile}`);
+  });
+
+exp
   .command('node-json <nodeId>')
   .description('Export REST-shaped JSON for a live node through the Plugin API (no REST token or network)')
   .option('-o, --output <file>', 'Write JSON to a file instead of stdout')

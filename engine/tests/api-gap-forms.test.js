@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOfficialTypingNames, usageForms } from '../src/api-docs.js';
+import { API_CAPABILITY_CLAIMS, coveredApiTypeNames } from '../src/lib/api-capability-claims.js';
+import { readFileSync } from 'node:fs';
 
 // `api gap` reports which documented Figma API names the engine never touches.
 // The docs name TYPES; plugin code writes factory calls and type strings. When
@@ -32,4 +34,12 @@ export enum Foo { A }
     { kind: 'type', name: 'Paint' },
     { kind: 'type', name: 'Foo' },
   ]);
+});
+
+test('explicit command coverage claims all exist in the installed official typings', () => {
+  const declarations = parseOfficialTypingNames(readFileSync(new URL('../../node_modules/@figma/plugin-typings/plugin-api.d.ts', import.meta.url), 'utf8'));
+  const official = new Set(declarations.map(({ name }) => name));
+  const claimed = coveredApiTypeNames();
+  assert.ok(Object.keys(API_CAPABILITY_CLAIMS).includes('draw'));
+  assert.deepEqual([...claimed].filter((name) => !official.has(name)), []);
 });

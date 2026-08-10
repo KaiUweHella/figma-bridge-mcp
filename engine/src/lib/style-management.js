@@ -155,8 +155,40 @@ const facts = __styleFacts(target); target.remove(); return facts;
 })()`;
 }
 
+const TEXT_VARIABLE_FIELDS = Object.freeze([
+  'fontFamily', 'fontSize', 'fontStyle', 'fontWeight', 'letterSpacing',
+  'lineHeight', 'paragraphSpacing', 'paragraphIndent',
+]);
+
+function styleBindVariableCode({ style, field, variable = null }) {
+  const normalizedField = String(field || '').trim();
+  if (!TEXT_VARIABLE_FIELDS.includes(normalizedField)) {
+    throw new Error(`Text style variable field must be one of: ${TEXT_VARIABLE_FIELDS.join(', ')}`);
+  }
+  return `(async () => {${styleHelpersCode()}
+const target = await __resolveStyle(${JSON.stringify(style)}, 'TEXT');
+if (target.remote) throw new Error('Remote text styles cannot be updated');
+let variable = null;
+if (${JSON.stringify(variable)} !== null) {
+  const vars = await figma.variables.getLocalVariablesAsync();
+  const query = ${JSON.stringify(variable)};
+  variable = await figma.variables.getVariableByIdAsync(query);
+  if (!variable) {
+    const exact = vars.filter(v => v.name === query);
+    const matches = exact.length ? exact : vars.filter(v => v.name.toLowerCase().includes(String(query).toLowerCase()));
+    if (matches.length > 1) throw new Error('Ambiguous variable "' + query + '": ' + matches.map(v => v.name).join(', '));
+    if (!matches.length) throw new Error('Variable not found: ' + query);
+    variable = matches[0];
+  }
+}
+target.setBoundVariable(${JSON.stringify(normalizedField)}, variable);
+return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)}, variable: variable ? { id: variable.id, name: variable.name, resolvedType: variable.resolvedType } : null };
+})()`;
+}
+
 export {
-  STYLE_FIELDS, STYLE_TYPES, parseStyleProperties, parseStyleType,
+  STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
+  styleBindVariableCode,
   styleApplyCode, styleConsumersCode, styleCreateCode, styleDeleteCode,
   styleListCode, stylePublishStatusCode, styleShowCode, styleUpdateCode,
 };

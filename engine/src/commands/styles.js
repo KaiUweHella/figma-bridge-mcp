@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { checkConnection, fastEval, handleEvalError, program } from '../lib/cli-core.js';
 import {
   parseStyleProperties, parseStyleType, styleApplyCode, styleConsumersCode,
+  styleBindVariableCode,
   styleCreateCode, styleDeleteCode, styleListCode, stylePublishStatusCode,
   styleShowCode, styleUpdateCode,
 } from '../lib/style-management.js';
@@ -50,4 +51,12 @@ styles.command('publish-status <style>').action(async (style) => {
 });
 styles.command('delete <style>').action(async (style) => {
   try { const result = await run(styleDeleteCode({ style })); console.log(chalk.green('✓'), `Deleted ${result.type} style ${result.name}.`); } catch (error) { handleEvalError(error); }
+});
+styles.command('bind-font <style> <field>')
+  .requiredOption('--variable <variable>', 'Local variable ID or name')
+  .action(async (style, field, options) => {
+    try { print(await run(styleBindVariableCode({ style, field, variable: options.variable }))); } catch (error) { handleEvalError(error); }
+  });
+styles.command('unbind-font <style> <field>').action(async (style, field) => {
+  try { print(await run(styleBindVariableCode({ style, field, variable: null }))); } catch (error) { handleEvalError(error); }
 });

@@ -29,7 +29,7 @@ import {
 } from '../lib/token-sync.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
-  collectionModeCode, collectionPublishStatusCode, collectionShowCode,
+  collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
   collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
 
@@ -87,6 +87,12 @@ collections.command('publish-status <collection>').action(async (collection) => 
   try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionPublishStatusCode({ collection })), null, 2)); }
   catch (error) { handleEvalError(error); }
 });
+collections.command('extend <collection> <name>')
+  .description('Create an Enterprise collection extension from a local collection or published collection key')
+  .action(async (collection, name) => {
+    try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionExtendCode({ collection, name })), null, 2)); }
+    catch (error) { handleEvalError(error); }
+  });
 
 // ============ TOKENS (PRESETS) ============
 

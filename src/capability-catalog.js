@@ -23,10 +23,16 @@ const COMMANDS = Object.freeze({
   col: readGroup('Manage variable collections', ['list', 'show', 'publish-status']),
   style: readGroup('Manage local paint, text, effect, and grid styles', ['list', 'show', 'consumers', 'publish-status']),
   library: readGroup('Discover enabled libraries and import published assets', ['collections', 'variables']),
+  prototype: readGroup('Inspect or manage native prototype reactions', ['inspect']),
+  measure: readGroup('Inspect or manage Dev Mode measurements', ['list']),
+  shader: readGroup('Discover, import, and apply native shaders', ['list']),
+  layout: { summary: 'Inspect or manage native auto-layout features', mutation: 'layout' },
+  slot: readGroup('Create, configure, validate, or reset component slots', ['inspect', 'validate']),
+  draw: readGroup('Inspect or manage native Figma Draw features', ['inspect']),
   section: readGroup('Inspect or manage Figma sections', ['list']),
   grid: readGroup('Inspect or manage layout grids', ['list']),
   dev: readGroup('Inspect or manage dev-resource links', ['list']),
-  annotate: readGroup('Inspect or manage annotations', ['list']),
+  annotate: readGroup('Inspect or manage annotations and categories', ['list', 'categories']),
   a11y: { summary: 'Run accessibility checks', mutation: 'read' },
   canvas: readGroup('Inspect pages or mutate the canvas', ['info', 'pages', 'page', 'next']),
   find: { summary: 'Find nodes by name', mutation: 'read' },
@@ -86,6 +92,7 @@ function mutatesDesign(entry, args) {
   if (entry.mutation === 'gradient') {
     return sub !== 'extract' || args.includes('--apply-to');
   }
+  if (entry.mutation === 'layout') return !(sub === 'grid' && args[2] === 'inspect');
   const subIsAction = sub !== undefined && !sub.startsWith('-');
   if (entry.mutation === 'tokens') {
     if (sub === 'sync' || sub === 'rebind') return args.includes('--apply');
@@ -117,6 +124,8 @@ function specializedPolicy(name, entry, args) {
       execution = 'background';
       timeoutClass = 'background';
       pathPolicy = 'assets-dir';
+    } else if (sub === 'video') {
+      pathPolicy = 'video-output';
     } else if (sub === 'node' || sub === 'screenshot') {
       pathPolicy = 'export-image';
     } else if (sub === 'code-spec') {
@@ -275,6 +284,17 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       outputPath = outputFlag(args, baseDir, args[1] === 'node' ? 'node-export.png' : 'screenshot.png');
       markWrite(outputPath);
       break;
+    case 'video-output': {
+      let format = 'mp4';
+      for (let index = 2; index < args.length; index++) {
+        const combined = args[index].match(/^(?:--format|-f)=(.+)$/);
+        if (combined) format = combined[1].toLowerCase();
+        if ((args[index] === '--format' || args[index] === '-f') && args[index + 1]) format = args[index + 1].toLowerCase();
+      }
+      outputPath = outputFlag(args, baseDir, `video.${format}`);
+      markWrite(outputPath);
+      break;
+    }
     case 'dtcg-output': {
       const value = args[2];
       const nodeReference = typeof value === 'string' && /^(\d+[:-]\d+$|I\d|https?:\/\/)/.test(value);

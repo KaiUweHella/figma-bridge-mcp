@@ -494,6 +494,8 @@ figma_run ["style", "create", "PAINT", "Brand/Primary", "--properties", "{\"pain
 figma_run ["style", "apply", "Brand/Primary", "12:34,12:35", "--field", "fill"]
 figma_run ["style", "consumers", "Brand/Primary"]
 figma_run ["style", "publish-status", "Brand/Primary"]
+figma_run ["style", "bind-font", "Body", "fontSize", "--variable", "type/size/body"]
+figma_run ["style", "unbind-font", "Body", "fontSize"]
 ```
 
 `style` covers local PAINT, TEXT, EFFECT and GRID styles. `update` accepts the
@@ -514,6 +516,7 @@ figma_run ["var", "code-syntax", "space/md", "WEB", "var(--space-md)"]
 figma_run ["var", "resolve", "space/md", "12:34"]
 figma_run ["col", "mode-add", "Primitives", "Dark"]
 figma_run ["col", "mode-rename", "Primitives", "Dark", "Dim"]
+figma_run ["col", "extend", "Primitives", "Brand"]
 ```
 
 `var show` returns values by mode, scopes, code syntax, collection metadata and
@@ -522,6 +525,11 @@ aliases can resolve differently under that node's selected modes. Collection
 `show`, `update`, `mode-add`, `mode-rename`, `mode-remove` and
 `publish-status` follow the same ID/exact-name/unique-substring lookup policy.
 Figma plan limits on mode count remain Figma-enforced and surface as errors.
+Collection extensions use `VariableCollection.extend()` for local collections
+and `extendLibraryCollectionByKeyAsync()` for published keys. Figma restricts
+this feature to Enterprise plans; the CLI reports Figma's plan error unchanged.
+Text-style bindings support exactly Figma's bindable typography fields:
+family, style, weight, size, line height, letter spacing, and paragraph values.
 
 ### Enabled team libraries
 
@@ -551,6 +559,59 @@ collection or library-name substring. Library discovery owns an 18-second
 Plugin-API timeout below the Bridge deadline, so a stalled Figma library
 request names the operation and suggests checking whether the library is
 enabled instead of degrading into a generic execution timeout.
+
+### Prototypes, Dev Mode measurements, and annotations
+
+These document features are also Plugin-API-first:
+
+```
+figma_run ["prototype", "inspect", "12:34"]
+figma_run ["prototype", "add", "12:34", "--trigger", "click", "--navigate-to", "12:36"]
+figma_run ["prototype", "set", "12:34", "--json", "[{\"trigger\":{\"type\":\"ON_CLICK\"},\"actions\":[{\"type\":\"BACK\"}]}]"]
+figma_run ["measure", "add", "12:34:right", "12:36:left", "--offset", "16", "--text", "gap"]
+figma_run ["annotate", "categories"]
+figma_run ["annotate", "add", "Review spacing", "--node", "12:34", "--category", "Review", "--properties", "width,fontSize"]
+figma_run ["annotate", "edit", "12:34", "0", "--text", "Resolved"]
+```
+
+`prototype set --json` is the lossless form for Figma's multiple actions,
+`SET_VARIABLE`, `SET_VARIABLE_MODE`, and conditional blocks. It writes through
+`setReactionsAsync()` so dynamic-page manifests are supported. Measurement
+writes are guarded to Figma Dev Mode and use `PageNode`'s native measurement
+methods. Annotation indexes are zero-based; custom category create/edit/remove
+commands are available alongside `categories`.
+
+### 2026 Plugin APIs: video, shaders, grid, slots, and Draw
+
+The current official Plugin API surface is exposed as Figma Commands rather
+than REST calls:
+
+```
+figma_run ["export", "video", "12:34", "--format", "mp4", "--fps", "30", "-o", "/abs/demo.mp4"]
+figma_run ["shader", "list"]
+figma_run ["shader", "import", "<shader-id>"]
+figma_run ["shader", "apply", "12:34", "<shader-id>", "--field", "fill", "--properties", "{\"definition-id\":0.8}"]
+figma_run ["layout", "grid", "set", "12:34", "--rows", "2", "--columns", "3", "--row-gap", "12"]
+figma_run ["layout", "grid", "auto-flow", "12:34", "--auto-tracks", "rows", "--positioning", "row_auto_flow"]
+figma_run ["slot", "create", "12:37", "Content", "--settings", "{\"minChildren\":1,\"maxChildren\":3}"]
+figma_run ["slot", "validate", "12:37"]
+figma_run ["draw", "inspect", "12:38"]
+figma_run ["draw", "text-path", "12:38", "--text", "Around the curve"]
+figma_run ["draw", "stroke-profile", "12:38", "--preset", "TAPER"]
+figma_run ["draw", "pattern", "12:38", "12:39", "--field", "fill"]
+```
+
+Video export resolves a selected descendant to its top-level animated frame
+and accepts only Figma's format-specific FPS values. Shader properties are
+keyed by definition ID, not display name, and an available shader must be
+imported before it is applied. `layout grid` means the auto-layout `GRID`
+model; the older top-level `grid` command remains layout-guide management.
+Slots expose GA `SlotSettings`, preferred values, reset, and limit violations;
+JSX `<Slot>` now uses `ComponentNode.createSlot()` and validates configured
+limits after rendering. Draw commands cover text paths, repeat transform
+groups, stretch/scatter/dynamic strokes, variable-width profiles, and async
+pattern fill/stroke setters. Run the corresponding `inspect`/`validate` read
+before writes when modifying an unfamiliar document.
 
 ### Finding what needs fixing
 
@@ -729,6 +790,13 @@ overrides the file.
 Desktop (the plugin pushes its file key). Other files require an explicit
 `fileKey` parameter (bare key or full Figma URL). Note that a PAT itself can
 read every file its account can access — keep the scopes minimal.
+
+The REST client is a closed internal allowlist, not a generic HTTP escape
+hatch. It permits token health, version lists, version-pinned document
+contents, comments, and file-wide published-component metadata. A bare current
+file fetch and all node/CSS/export/variable/style/Dev-Resource endpoints are
+rejected before the token is read or the network is touched; those operations
+must use the local Plugin API commands above.
 
 ## Security model
 

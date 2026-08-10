@@ -27,9 +27,16 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['font', 'bind', '1:2', 'fontWeight', 'type/weight'], ['font', 'unbind', '1:2', 'fontWeight'],
     ['history', 'save', 'Release 1'],
     ['style', 'create', 'PAINT', 'Brand'], ['style', 'apply', 'Brand', '1:2', '--field', 'fill'],
+    ['style', 'bind-font', 'Body', 'fontSize', '--variable', 'type/size/body'],
     ['var', 'set-value', 'space/md', '12', '--mode', 'Light'], ['col', 'mode-add', 'Theme', 'Dark'],
+    ['col', 'extend', 'Theme', 'Market'],
     ['library', 'import-variable', 'KEY'], ['library', 'import-style', 'KEY'],
     ['library', 'import-component', 'KEY'], ['library', 'import-component-set', 'KEY'],
+    ['prototype', 'add', '1:2', '--navigate-to', '3:4'], ['measure', 'add', '1:2:right', '3:4:left'],
+    ['annotate', 'category-add', 'Review', '--color', 'blue'],
+    ['shader', 'import', 'shader-1'], ['shader', 'apply', '1:2', 'shader-1', '--field', 'fill'],
+    ['layout', 'grid', 'set', '1:2', '--rows', '2'], ['slot', 'create', '1:2', 'Content'],
+    ['draw', 'stroke-profile', '1:2', '--preset', 'TAPER'],
   ]) assert.equal(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
 
   for (const args of [
@@ -41,6 +48,9 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['style', 'list'], ['style', 'show', 'Brand'], ['style', 'consumers', 'Brand'],
     ['var', 'show', 'space/md'], ['var', 'resolve', 'space/md', '1:2'], ['col', 'show', 'Theme'],
     ['library', 'collections'], ['library', 'variables', 'Primitives'],
+    ['prototype', 'inspect', '1:2'], ['measure', 'list'], ['annotate', 'categories'],
+    ['shader', 'list'], ['layout', 'grid', 'inspect', '1:2'], ['slot', 'validate'], ['draw', 'inspect', '1:2'],
+    ['export', 'video', '1:2'],
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');
@@ -71,6 +81,7 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-1), ['--output=/work/project/facts.json']);
   assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), ['-o=/work/project/facts.json']);
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);
+  assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', '/work/project/video.gif']);
   assert.deepEqual(argv(['map', 'storybook', 'url']).slice(-2), ['-o', '/work/project/figma-map.json']);
   assert.deepEqual(
     argv(['verify-build', '.', '--compare', 'shot.png']),

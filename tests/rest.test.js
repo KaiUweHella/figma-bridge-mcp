@@ -27,6 +27,8 @@ const {
   getFileComponents,
   getRestHealth,
   clearRestHealthCache,
+  classifyRestRequest,
+  REST_DENIED_MSG,
   NOT_CONFIGURED_MSG,
 } = await import("../src/figma-rest.js");
 
@@ -71,6 +73,24 @@ test("restFetch without a token throws the setup message", async () => {
     () => restFetch("/v1/me", { env: {} }),
     (err) => err.message === NOT_CONFIGURED_MSG,
   );
+});
+
+test("closed REST allowlist permits only named metadata/history endpoints", async () => {
+  assert.equal(classifyRestRequest('/v1/me'), 'token-health');
+  assert.equal(classifyRestRequest('/v1/files/k/versions?page_size=1'), 'version-list');
+  assert.equal(classifyRestRequest('/v1/files/k?version=123&depth=2'), 'version-content');
+  assert.equal(classifyRestRequest('/v1/files/k/comments', 'POST'), 'comments');
+  assert.equal(classifyRestRequest('/v1/files/k/components'), 'published-components');
+  for (const path of [
+    '/v1/files/k', '/v1/files/k/nodes?ids=1:2', '/v1/images/k',
+    '/v1/files/k/styles', '/v1/files/k/variables/local', '/v1/files/k/dev_resources',
+  ]) assert.equal(classifyRestRequest(path), null, path);
+  let called = false;
+  await assert.rejects(
+    () => restFetch('/v1/files/k/nodes?ids=1:2', { env: { FIGMA_REST_TOKEN: TOKEN }, fetchImpl: async () => { called = true; } }),
+    (error) => error.message.includes(REST_DENIED_MSG),
+  );
+  assert.equal(called, false, 'blocked endpoints never reach the network');
 });
 
 test("error mapping: 401/403/404/429 → actionable messages", async () => {
@@ -134,13 +154,11 @@ test("getFileAtVersion pins the version and depth in the query string", async ()
   assert.equal(res.name, "My File");
   assert.equal(res.document.id, "0:0");
 
-  // No version and no depth: a bare file fetch, no stray "?" on the URL.
-  await getFileAtVersion("KEY", { env, fetchImpl: spy(200, payload) });
-  assert.match(seen[1], /\/v1\/files\/KEY$/);
+  await assert.rejects(() => getFileAtVersion("KEY", { env, fetchImpl: spy(200, payload) }), /version ID is required/);
 
   // The version reported back falls through from the response when Figma
   // answers with one, so callers can label a diff accurately.
-  const latest = await getFileAtVersion("KEY", { env, fetchImpl: spy(200, payload) });
+  const latest = await getFileAtVersion("KEY", { env, version: '123', fetchImpl: spy(200, payload) });
   assert.equal(latest.version, "999");
 });
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  collectionModeCode, collectionUpdateCode, parseBoolean, parseCodePlatform,
+  collectionExtendCode, collectionModeCode, collectionUpdateCode, parseBoolean, parseCodePlatform,
   parseScopes, variableCodeSyntaxCode, variableResolveCode, variableSetValueCode,
   variableShowCode, variableUpdateCode,
 } from '../src/lib/variable-management.js';
@@ -17,6 +17,7 @@ function fixture(type = 'FLOAT') {
     addMode(name) { const modeId = `M:${this.modes.length + 1}`; this.modes.push({ modeId, name }); return modeId; },
     renameMode(id, name) { this.modes.find((mode) => mode.modeId === id).name = name; },
     removeMode(id) { this.modes = this.modes.filter((mode) => mode.modeId !== id); },
+    extend(name) { return { ...this, id: 'C:2', name, isExtension: true }; },
   };
   const variable = {
     id: 'V:1', key: 'vk', name: 'space/md', description: '', resolvedType: type,
@@ -45,6 +46,19 @@ test('variable metadata parsers are strict and match current plugin typings', ()
   assert.equal(parseCodePlatform('ios'), 'iOS');
   assert.deepEqual(parseScopes('font_size, line_height'), ['FONT_SIZE', 'LINE_HEIGHT']);
   assert.throws(() => parseScopes('made_up'), /Unknown variable scopes/);
+});
+
+test('collection extension prefers the native local collection and supports a library key', async () => {
+  const { figma } = fixture();
+  const local = await execute(collectionExtendCode({ collection: 'Primitives', name: 'Brand' }), figma);
+  assert.equal(local.name, 'Brand');
+  assert.equal(local.isExtension, true);
+  figma.variables.extendLibraryCollectionByKeyAsync = async (key, name) => ({
+    id: 'C:3', key, name, remote: false, isExtension: true, hiddenFromPublishing: false,
+    defaultModeId: 'M:1', modes: [], variableIds: [], getPublishStatusAsync: async () => 'UNPUBLISHED',
+  });
+  const remote = await execute(collectionExtendCode({ collection: 'LIBRARY_KEY', name: 'Market' }), figma);
+  assert.equal(remote.key, 'LIBRARY_KEY');
 });
 
 test('variable show and update expose metadata, modes, values, scopes, and publish status', async () => {
