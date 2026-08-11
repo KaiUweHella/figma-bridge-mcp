@@ -112,3 +112,25 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     return true;
   });
 });
+
+test('daemon client preserves actionable multi-window target details', async () => {
+  const client = createDaemonClient({
+    readToken: () => 'token',
+    getPort: () => 3456,
+    fetchImpl: async () => response(500, {
+      error: '2 Figma windows are connected — name one with fileKey. Connected:\n'
+        + '  FILE_A  Alpha\n'
+        + '  FILE_B  Beta\n'
+        + 'There is no "all files" option: each file is targeted explicitly.',
+    }),
+  });
+
+  await assert.rejects(() => client.evaluate('x'), (error) => {
+    assert.equal(error.kind, 'response');
+    assert.match(error.message, /name one with fileKey/);
+    assert.match(error.message, /FILE_A  Alpha/);
+    assert.match(error.message, /FILE_B  Beta/);
+    assert.match(error.message, /no "all files" option/);
+    return true;
+  });
+});

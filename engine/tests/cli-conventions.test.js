@@ -57,6 +57,19 @@ test('a11y checks fail loudly (no console.log for execution errors)', () => {
     'the four violation-reporting checks offer --fail-on-issues for CI');
 });
 
+test('eval rejects execution errors instead of printing and returning success', () => {
+  const src = sources.get('export-eval.js');
+  assert.ok(src, 'export-eval.js exists');
+  const start = src.indexOf(".command('eval [code]')");
+  const end = src.indexOf('// Run command - alias for eval', start);
+  const evalCommand = src.slice(start, end);
+
+  assert.match(evalCommand, /else\s*{[^}]*throw e;\s*}/s,
+    'async daemon errors must reject the Commander action');
+  assert.match(evalCommand, /catch \(error\)\s*{\s*throw error;\s*}/,
+    'sync fallback errors must reject the Commander action');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {

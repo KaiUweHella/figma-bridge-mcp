@@ -697,9 +697,10 @@ program
           // Connection/daemon error - fall back to sync path
           console.log(chalk.yellow('⚠ Daemon error, trying sync path...'));
         } else {
-          // User code error - display directly, don't fall back
-          console.log(chalk.red('✗ ' + e.message));
-          return;
+          // User code/targeting error: reject the Commander action so the
+          // top-level CLI handler reports a non-zero exit. Printing and
+          // returning here made failed evals look successful to scripts.
+          throw e;
         }
       }
     }
@@ -711,7 +712,7 @@ program
         console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
       }
     } catch (error) {
-      console.log(chalk.red('✗ ' + error.message));
+      throw error;
     }
   });
 

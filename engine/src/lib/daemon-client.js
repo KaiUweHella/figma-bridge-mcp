@@ -117,7 +117,11 @@ export function createDaemonClient({
 
     if (!response.ok || response.data?.error) {
       const raw = response.data?.error || response.text || `HTTP ${response.status}`;
-      let message = String(raw).split('\n')[0];
+      // Unknown response errors may carry actionable structured prose after
+      // the first line (notably the connected file list for an ambiguous
+      // Figma Target Context). Preserve it unless a known error kind below
+      // deliberately replaces it with a tailored message.
+      let message = String(raw);
       let kind = 'response';
       if (/Unauthorized|token/i.test(raw)) {
         kind = 'authentication';
