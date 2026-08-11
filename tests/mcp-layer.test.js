@@ -275,11 +275,11 @@ test('specialized Figma tools expose consistent explicit file targeting', async 
   assert.ok(status.inputSchema.properties.probePlugin, 'plugin responsiveness probe must be controllable');
   assert.match(status.description, /round-trip/i);
   const spec = TOOLS.find((candidate) => candidate.name === 'figma_spec');
-  assert.ok(spec.inputSchema.properties.format.enum.includes('json-compact'));
+  assert.deepEqual(spec.inputSchema.properties.format.enum, ['tree', 'yaml', 'json']);
   assert.equal(spec.inputSchema.properties.format.default, 'tree');
   assert.match(spec.inputSchema.properties.format.description, /tree \(default\)/);
   assert.equal(spec.inputSchema.properties.dedup.default, false,
-    'MCP design-to-code must inline local styles unless compact mapping is requested');
+    'MCP design-to-code must inline local styles unless deduplication is requested');
   assert.match(spec.inputSchema.properties.dedup.description, /every layer/i);
   assert.match(spec.description, /never invent/i);
   const screenshot = TOOLS.find((candidate) => candidate.name === 'figma_screenshot');

@@ -311,10 +311,10 @@ export const TOOLS = [
         },
         format: {
           type: "string",
-          enum: ["tree", "yaml", "json", "json-compact"],
+          enum: ["tree", "yaml", "json"],
           default: DEFAULT_SPEC_FORMAT,
           description:
-            "tree (default) is readable; yaml/json/json-compact are lossless canonical adapters.",
+            "tree (default) is readable; yaml/json are lossless canonical adapters.",
         },
         includeHidden: {
           type: "boolean",
@@ -1298,8 +1298,8 @@ export async function handleTool(name, rawArgs) {
       const dedup = input.dedup === true;
       if (!dedup) args.push("--no-dedup");
       const format = input.format == null ? DEFAULT_SPEC_FORMAT : String(input.format);
-      if (!["tree", "yaml", "json", "json-compact"].includes(format)) {
-        return errorResult("format must be tree, yaml, json or json-compact.");
+      if (!["tree", "yaml", "json"].includes(format)) {
+        return errorResult("format must be tree, yaml or json.");
       }
       // Pass the Interface default explicitly so the MCP contract cannot
       // silently drift if the lower-level CLI ever chooses another default.

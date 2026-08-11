@@ -15,8 +15,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   verify sequence to the initial MCP instructions. The 0.4.0 on-demand guide
   accidentally made asset export and verification optional in practice; the
   observed build shipped zero of 34 Figma assets and never ran `verify-build`.
-- Kept YAML, pretty JSON and compact JSON as explicit lossless canonical-model
-  adapters; the rollback changes presentation defaults, not captured facts.
+- Removed minified JSON from the public and internal design-spec formats after
+  agent tests showed its one-line presentation harmed implementation fidelity.
+  Tree remains the default; YAML and formatted JSON preserve the full model.
 - Added an exact per-layer implementation contract: MCP specs inline native
   Figma Inspect CSS and existing layout/paint/token facts by default, expose
   every layer id, retain complete copy and mixed rich-text range styles, and
@@ -72,13 +73,11 @@ the plugin window. The panel will tell you if you forget.
   changes, reconnects, unstable revisions and old plugins invalidate or bypass
   the bounded in-memory cache immediately. Selection and named-section calls
   deliberately remain uncached in this first Slice.
-- **One canonical spec model, three lossless structured adapters.** YAML,
-  pretty JSON and the new `json-compact` format roundtrip every design field
-  exactly. The versioned model now carries capture completeness and dynamic
-  fidelity checks; Storybook enrichment uses component-key fields instead of
-  parsing rendered tree text. `json-compact` is now the default for
-  `figma_spec` and `export code-spec`; tree, YAML and pretty JSON remain
-  explicit alternatives.
+- **One canonical spec model, two lossless structured adapters.** YAML and
+  formatted JSON roundtrip every design field exactly. The versioned model
+  carries capture completeness and dynamic fidelity checks; Storybook
+  enrichment uses component-key fields instead of parsing rendered tree text.
+  Tree is the agent-facing default.
 - **No silent partial specs.** Results above the output budget now return an
   explicit `complete:false` refusal plus a section-by-section retry recipe,
   never a truncated prefix that could be mistaken for the whole design.

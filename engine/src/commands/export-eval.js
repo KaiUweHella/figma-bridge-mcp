@@ -585,7 +585,7 @@ exp
   .option('--include-hidden', 'Include invisible nodes, marked "(hidden — not rendered)" (default: filtered out)')
   .option(
     '-f, --format <fmt>',
-    'tree (readable agent default) | yaml | json | json-compact (lossless canonical model)',
+    'tree (readable agent default) | yaml | json (lossless canonical model)',
     DEFAULT_SPEC_FORMAT,
   )
   .option('--no-dedup', 'Print every style value inline instead of S<n> bundle refs')

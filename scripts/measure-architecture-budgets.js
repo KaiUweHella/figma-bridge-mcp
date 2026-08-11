@@ -42,14 +42,14 @@ export function measureArchitectureBudgets() {
     styles: { S1: { font: 'Inter Semibold', fs: 18, color: '#102018' } },
   };
   const pretty = serializeSpecModel(model, 'json');
-  const compact = serializeSpecModel(model, 'json-compact');
+  const yaml = serializeSpecModel(model, 'yaml');
   return {
     metadata: { chars: metadata.length, estimatedTokens: estimateModelTokens(metadata) },
     spec: {
-      compactChars: compact.length,
+      yamlChars: yaml.length,
       prettyChars: pretty.length,
-      compactEstimatedTokens: estimateModelTokens(compact),
-      ratio: compact.length / pretty.length,
+      yamlEstimatedTokens: estimateModelTokens(yaml),
+      ratio: yaml.length / pretty.length,
     },
     pluginPayload: {
       assetPolicyChars: assetPolicyPluginSource().length,
@@ -58,7 +58,10 @@ export function measureArchitectureBudgets() {
     },
     latency: {
       commandPlan: batchTimings(() => planFigmaCommand(['export', 'code-spec', '1:2'], { fileKey: 'FILE' })),
-      compactProjection: batchTimings(() => serializeSpecModel(model, 'json-compact')),
+      // YAML is intentionally human-readable and its serializer is heavier
+      // than JSON.stringify; measure 100 complete projections per batch so
+      // the architecture check stays fast while still catching regressions.
+      yamlProjection: batchTimings(() => serializeSpecModel(model, 'yaml'), { iterations: 100 }),
     },
   };
 }

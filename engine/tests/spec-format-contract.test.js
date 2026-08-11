@@ -1,6 +1,6 @@
 // Lossless structured-output contract for design-to-code specs.
 //
-// YAML, pretty JSON and compact JSON are transport adapters over the SAME
+// YAML and formatted JSON are transport adapters over the SAME
 // canonical model. A format is allowed to change syntax and whitespace only;
 // it may never drop, coerce or invent a design fact.
 import { test } from 'node:test';
@@ -43,19 +43,12 @@ const COMPLETE_MODEL = {
 
 test('all structured spec adapters roundtrip the complete canonical model exactly', () => {
   assert.equal(DEFAULT_SPEC_FORMAT, 'tree');
-  assert.deepEqual(STRUCTURED_SPEC_FORMATS, ['yaml', 'json', 'json-compact']);
+  assert.deepEqual(STRUCTURED_SPEC_FORMATS, ['yaml', 'json']);
   for (const format of STRUCTURED_SPEC_FORMATS) {
     const encoded = serializeSpecModel(COMPLETE_MODEL, format);
     const decoded = parseSpecModel(encoded, format);
     assert.deepEqual(decoded, COMPLETE_MODEL, `${format} changed the canonical model`);
   }
-});
-
-test('compact JSON only removes presentation whitespace', () => {
-  const pretty = serializeSpecModel(COMPLETE_MODEL, 'json');
-  const compact = serializeSpecModel(COMPLETE_MODEL, 'json-compact');
-  assert.ok(compact.length < pretty.length, `${compact.length} !< ${pretty.length}`);
-  assert.deepEqual(JSON.parse(compact), JSON.parse(pretty));
 });
 
 test('unknown structured formats fail explicitly', () => {

@@ -258,19 +258,19 @@ than interpreting it. Build a screen from Figma in five steps:
 
 The same spec is available as
 `figma_run ["export", "code-spec", "<nodeId>"]`. Its default is the readable
-tree; pass `-f yaml`, `-f json`, or `-f json-compact` for the canonical model.
+tree; pass `-f yaml` or `-f json` for the canonical model.
 
 ### Lossless structured spec formats
 
-`figma_spec` and `export code-spec` default to `format:"tree"`, the compact,
+`figma_spec` and `export code-spec` default to `format:"tree"`, the concise,
 line-oriented agent view whose footers carry the required asset and fidelity
-actions. Use `yaml`, `json`, or `json-compact` explicitly when a consumer needs
-the versioned canonical model. Those three structured formats serialize the
-**same model**; only syntax and whitespace differ. Roundtrip tests require every field — text,
+actions. Use `yaml` or formatted `json` explicitly when a consumer needs the
+versioned canonical model. Both structured formats serialize the **same model**;
+only syntax differs. Roundtrip tests require every field — text,
 ids, layout, paint, typography, variables, assets, component keys, capture
-completeness, and fidelity checks — to survive exactly. `json-compact` removes
-pretty-print whitespace without removing information, but is not the default:
-real agent tests showed that a single huge line was materially harder to act on.
+completeness, and fidelity checks — to survive exactly. Minified JSON is not
+offered: real agent tests showed that a single huge line was materially harder
+to act on despite carrying the same raw fields.
 
 The model's `capture` field explicitly reports requested/actual depth,
 payload completeness, hidden-node policy, and whether the requested depth cut

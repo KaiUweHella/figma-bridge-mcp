@@ -41,11 +41,11 @@ test('code-spec command defaults to the readable agent tree without a process ad
   assert.equal(adapter.calls.length, 1);
 });
 
-test('compact JSON remains an explicit lossless adapter', async () => {
+test('YAML remains an explicit lossless adapter', async () => {
   const adapter = evaluator();
-  const result = await executeCodeSpec({ nodeId: '1:2', depth: 12, format: 'json-compact' }, adapter);
-  const model = JSON.parse(result.stdout);
-  assert.equal(result.format, 'json-compact');
+  const result = await executeCodeSpec({ nodeId: '1:2', depth: 12, format: 'yaml' }, adapter);
+  const model = parseSpecModel(result.stdout, 'yaml');
+  assert.equal(result.format, 'yaml');
   assert.equal(model.name, 'Screen');
   assert.equal(model.frames[0].kids[0].n, 'Exact copy');
   assert.deepEqual(model.capture, {
@@ -213,7 +213,7 @@ test('cached projections equal fresh projections and execute only one walker', a
   const requests = [
     { nodeId: '1:2', phase: 'structure', format: 'json' },
     { nodeId: '1:2', phase: 'style', format: 'yaml' },
-    { nodeId: '1:2', phase: 'all', format: 'json-compact', dedup: false },
+    { nodeId: '1:2', phase: 'all', format: 'json', dedup: false },
   ];
 
   for (const request of requests) {

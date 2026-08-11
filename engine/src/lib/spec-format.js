@@ -6,12 +6,11 @@
 // test and prevents an output-specific projection from dropping design facts.
 import { fromYaml, toYaml } from './yaml.js';
 
-export const STRUCTURED_SPEC_FORMATS = ['yaml', 'json', 'json-compact'];
-// The transport-efficient adapter remains available explicitly, but the
-// agent-facing default must be the readable tree. A real Sonnet 5 rebuild
-// expanded from a 6.5k/83-line tree to a 45k one-line compact JSON response,
-// skipped asset export and invented the missing artwork. Lossless on paper is
-// not sufficient when the consumer cannot reliably act on the presentation.
+export const STRUCTURED_SPEC_FORMATS = ['yaml', 'json'];
+// A real Sonnet 5 rebuild showed that minifying an otherwise lossless model
+// made it materially harder for the consumer to act on hierarchy and fidelity
+// constraints. The agent-facing default therefore remains the readable tree;
+// YAML and formatted JSON are the only structured adapters.
 export const DEFAULT_SPEC_FORMAT = 'tree';
 
 function assertFormat(format) {
@@ -26,7 +25,6 @@ function assertFormat(format) {
 export function serializeSpecModel(model, format) {
   assertFormat(format);
   if (format === 'yaml') return toYaml(model);
-  if (format === 'json-compact') return JSON.stringify(model);
   return JSON.stringify(model, null, 2);
 }
 
