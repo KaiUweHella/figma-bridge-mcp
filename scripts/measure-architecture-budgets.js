@@ -20,7 +20,14 @@ export function estimateModelTokens(text) {
   return fragments.reduce((sum, fragment) => sum + Math.max(1, Math.ceil(fragment.length / 4)), 0);
 }
 
-function batchTimings(operation, { batches = 25, iterations = 1000 } = {}) {
+export function measureBatchTimings(
+  operation,
+  { batches = 25, iterations = 1000, warmupBatches = 2 } = {},
+) {
+  for (let batch = 0; batch < warmupBatches; batch++) {
+    for (let iteration = 0; iteration < iterations; iteration++) operation(iteration);
+  }
+
   const values = [];
   for (let batch = 0; batch < batches; batch++) {
     const start = performance.now();
@@ -30,9 +37,8 @@ function batchTimings(operation, { batches = 25, iterations = 1000 } = {}) {
   return { p50Ms: percentile(values, 0.5), p95Ms: percentile(values, 0.95), iterations };
 }
 
-export function measureArchitectureBudgets() {
-  const metadata = INSTRUCTIONS + JSON.stringify(TOOLS);
-  const model = {
+function architectureModel() {
+  return {
     schemaVersion: 1,
     capture: { phase: 'all', requestedDepth: 12, actualDepth: 12, payloadComplete: true },
     frames: Array.from({ length: 40 }, (_, index) => ({
@@ -41,6 +47,11 @@ export function measureArchitectureBudgets() {
     })),
     styles: { S1: { font: 'Inter Semibold', fs: 18, color: '#102018' } },
   };
+}
+
+export function measureStaticArchitectureBudgets() {
+  const metadata = INSTRUCTIONS + JSON.stringify(TOOLS);
+  const model = architectureModel();
   const pretty = serializeSpecModel(model, 'json');
   const yaml = serializeSpecModel(model, 'yaml');
   return {
@@ -56,13 +67,29 @@ export function measureArchitectureBudgets() {
       inspectChars: inspectNodeCode('1:2').length,
       screenshotChars: screenshotCode({ nodeId: '1:2', scale: 0.5, maxDimension: 2000, measure: false }).length,
     },
-    latency: {
-      commandPlan: batchTimings(() => planFigmaCommand(['export', 'code-spec', '1:2'], { fileKey: 'FILE' })),
-      // YAML is intentionally human-readable and its serializer is heavier
-      // than JSON.stringify; measure 100 complete projections per batch so
-      // the architecture check stays fast while still catching regressions.
-      yamlProjection: batchTimings(() => serializeSpecModel(model, 'yaml'), { iterations: 100 }),
-    },
+  };
+}
+
+export function measureArchitectureLatency() {
+  const model = architectureModel();
+  return {
+    commandPlan: measureBatchTimings(
+      () => planFigmaCommand(['export', 'code-spec', '1:2'], { fileKey: 'FILE' }),
+    ),
+    // YAML is intentionally human-readable and its serializer is heavier
+    // than JSON.stringify; measure 100 complete projections per batch so
+    // the architecture check stays fast while still catching regressions.
+    yamlProjection: measureBatchTimings(
+      () => serializeSpecModel(model, 'yaml'),
+      { iterations: 100 },
+    ),
+  };
+}
+
+export function measureArchitectureBudgets() {
+  return {
+    ...measureStaticArchitectureBudgets(),
+    latency: measureArchitectureLatency(),
   };
 }
 

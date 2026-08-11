@@ -43,6 +43,7 @@
   "scripts": {
     "start": "node src/server.js",
     "check:contracts": "tsc -p jsconfig.contracts.json",
+    "check:architecture-latency": "node scripts/check-architecture-latency.js",
     "measure:architecture": "node scripts/measure-architecture-budgets.js",
     "test": "npm run check:contracts && node --test",
     "prepublishOnly": "npm test"

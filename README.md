@@ -977,6 +977,7 @@ Node's `crypto` so the two implementations cannot drift apart.
 
 ```bash
 npm run check:contracts       # static JavaScript seam + plugin contracts
+npm run check:architecture-latency # warmed latency budget in an idle process
 npm run measure:architecture  # context, payload and local latency baselines
 npm test                      # all contracts and regression suites
 ```

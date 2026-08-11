@@ -44,6 +44,21 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  architecture-latency:
+    name: architecture latency budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Wall-clock budgets need an otherwise idle Node process. Running this
+      # inside `node --test` lets parallel test files create false regressions.
+      - run: npm run check:architecture-latency
+
   pack:
     name: tarball contains the runtime
     runs-on: ubuntu-latest
