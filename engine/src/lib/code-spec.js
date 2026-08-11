@@ -170,7 +170,9 @@ export function layoutSeg(node, { detail }) {
       HORIZONTAL_SCROLLING: 'horizontal', VERTICAL_SCROLLING: 'vertical',
       HORIZONTAL_AND_VERTICAL_SCROLLING: 'both',
     }[node.scroll] || String(node.scroll).toLowerCase();
-    parts.push(`scroll:${scroll}`);
+    parts.push(node.scrollIntent === 'incidental-hug' || node.sv === 'HUG'
+      ? `scroll:${scroll} (prototype setting is incidental on h:hug — use document scroll, not an inner scrollbar)`
+      : `scroll:${scroll}`);
   }
   if (node.fixed) parts.push('prototype-fixed');
   // Structural placement reads BEFORE the flow detail — the reader must know
@@ -203,10 +205,16 @@ export function paintSeg(node, opts = {}) {
   const parts = [];
   if (node.fills) {
     // A bare "IMAGE" was a dead end (the test run fell back to screenshot
-    // cropping). Point at the file `export assets` will write — both sides
-    // derive the same name from the same node name + ancestor chain.
-    const fills = node.fills.map((f) =>
-      f === 'IMAGE' ? `IMAGE → assets/${assetFileName(node.n, 'png', opts.ancestors || [])} (export assets)` : f);
+    // cropping). Point at the file `export assets` will write. Fresh captures
+    // carry the hash-derived canonical filename; the ancestor-name path stays
+    // only as backwards-compatible fallback for older/raw capture objects.
+    let imageIndex = 0;
+    const fills = node.fills.map((f) => {
+      if (f !== 'IMAGE') return f;
+      const captured = node.images?.[imageIndex++]?.file;
+      const file = captured || assetFileName(node.n, 'png', opts.ancestors || []);
+      return `IMAGE → assets/${file} (export assets)`;
+    });
     // fs = applied COLOR STYLE name — the semantic handle when a file uses
     // shared styles instead of (or in addition to) variables.
     const styleRef = node.fs ? ` → style(${node.fs})` : '';
@@ -309,7 +317,7 @@ export function cssSeg(node) {
 
 // NOTE: `abs` (overlay position) is deliberately NOT a style field — position
 // is per-node geometry; two badges sharing a style sit at different corners.
-const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'fx', 'op', 'rot', 'clip', 'bv', 'css'];
+const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'images', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'fx', 'op', 'rot', 'clip', 'bv', 'css'];
 const STYLE_TXT_KEYS = ['ts', 'font', 'style', 'weight', 'size', 'lh', 'ls', 'ot', 'axisRanges', 'axisMetadataError', 'runs'];
 /** Below this rendered length a ref saves nothing — leave the value inline. */
 const DEDUP_MIN_DEF_LEN = 16;
@@ -339,7 +347,9 @@ export function styleFields(node) {
   // An IMAGE fill renders as a per-node asset reference — two image nodes
   // with different names must NOT share a style bundle, or the ref line
   // would silently point at the wrong file.
-  if ((node.fills || []).includes('IMAGE')) out.asset = node.n;
+  if ((node.fills || []).includes('IMAGE')) {
+    out.asset = node.images?.map((image) => image.file) || node.n;
+  }
   return out;
 }
 
@@ -584,7 +594,7 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
     const structural = layoutSeg(
       {
         lm: node.lm, grid: node.grid, cell: node.cell, abs: node.abs, ov: node.ov,
-        scroll: node.scroll, fixed: node.fixed,
+        scroll: node.scroll, scrollIntent: node.scrollIntent, fixed: node.fixed,
       },
       { detail: false },
     );
@@ -646,7 +656,17 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
       behindOverlays.length ? [...behindOverlays] : null));
     if (k.abs && !k.hidden && !isInvisibleHelper(k)) behindOverlays.push(k.n);
   }
-  if (node.more) lines.push(`${'  '.repeat(depth + 1)}- …${node.more} more (depth limit — re-run with -d)`);
+  if (node.more) {
+    const allFrontier = node.frontier || [];
+    const shownFrontier = allFrontier.slice(0, 8);
+    const frontier = shownFrontier
+      .map((child) => `${child.name} [${child.id}]`)
+      .join(', ');
+    const remainder = allFrontier.length > shownFrontier.length
+      ? `, …${allFrontier.length - shownFrontier.length} more`
+      : '';
+    lines.push(`${'  '.repeat(depth + 1)}- …${node.more} more (depth limit${frontier ? `; exact child calls: ${frontier}${remainder}` : ' — re-run with -d'})`);
+  }
   return lines;
 }
 
@@ -664,7 +684,11 @@ export function countAssetFiles(frames) {
       return;
     }
     if (isInvisibleHelper(node)) return;
-    if ((node.fills || []).includes('IMAGE')) files.add(assetFileName(node.n, 'png', ancestors));
+    if ((node.fills || []).includes('IMAGE')) {
+      const captured = (node.images || []).map((image) => image.file).filter(Boolean);
+      if (captured.length) for (const file of captured) files.add(file);
+      else files.add(assetFileName(node.n, 'png', ancestors));
+    }
     if (isIconInstance(node)) return;
     for (const k of node.kids || []) visit(k, ancestors.concat(node.n));
   };
@@ -932,7 +956,7 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     }
     out.push('');
     if (anyInteractive) {
-      out.push('_⚑ = required INTERACTIVE STATES. Pull each flagged set variant and implement its exact hover/active/focus/disabled style._', '');
+      out.push('_⚑ = required INTERACTIVE STATES. One figma_spec call on the listed SET id captures ALL variants; implement their exact hover/active/focus/disabled styles._', '');
     }
   }
   out.push('_Figma facts: copy, never invent content/names. `→ var(name)` = token binding; `style:<name>` / `→ style(name)` = shared style._');
@@ -945,7 +969,7 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     out.push('', '_`grid R×C` = a CSS grid, not flex. `cell row:N col:M /span S` maps directly to CSS grid placement; offsets are the cross-check._');
   }
   if (anyNode(result.frames, (n) => n.scroll || n.fixed)) {
-    out.push('', '_Prototype facts are explicit: `scroll:vertical|horizontal|both` is the Figma overflow direction; `prototype-fixed` stays fixed inside that scrolling frame. Do not infer fixed/sticky behavior for unmarked layers._');
+    out.push('', '_Prototype facts are explicit: `scroll:vertical|horizontal|both` is the Figma overflow direction; on `h:hug` it is marked incidental because an unbounded container cannot scroll internally—use document scroll. `prototype-fixed` stays fixed inside a genuinely bounded scrolling frame._');
   }
   // Completeness yardstick: dropped assets (the overhanging SVGs) are the
   // top fidelity bug — give the consumer a number to check off against.
@@ -1049,6 +1073,7 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     if (node.hidden) o.hidden = true;
     if (node.lm) o.dir = dirName(node.lm);
     if (node.scroll) o.scroll = node.scroll;
+    if (node.scrollIntent) o.scrollIntent = node.scrollIntent;
     if (node.fixed) o.fixed = true;
     if (node.grid) o.grid = node.grid;
     if (node.cell) o.cell = node.cell;
@@ -1080,6 +1105,7 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     }
     if (node.repeat) o.repeat = node.repeat;
     if (node.more) o.more = node.more;
+    if (node.frontier?.length) o.frontier = node.frontier;
     // Icon instances collapse (identity = main-component name); everything
     // else lists its vector kids as vectorArt pointer nodes.
     const rawKids = isIconInstance(node) ? [] : node.kids || [];

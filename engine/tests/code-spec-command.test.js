@@ -144,6 +144,37 @@ test('style projection refuses a depth-limited capture instead of inviting guess
   );
 });
 
+test('depth-limited style error gives concrete frontier node calls', async () => {
+  const adapter = evaluator();
+  const captureDesign = async () => ({
+    result: {
+      id: '1:2', name: 'Screen', visibleNodeCount: 3,
+      frames: [{
+        t: 'FRAME', n: 'Screen', id: '1:2', more: 2,
+        frontier: [
+          { id: '1:3', name: 'Header' },
+          { id: '1:4', name: 'Content' },
+        ],
+      }],
+      sets: [],
+    },
+    completeness: {
+      requestedDepth: 0, actualDepth: 0, payloadComplete: true, depthLimited: true,
+    },
+  });
+  await assert.rejects(
+    () => executeCodeSpec({ nodeId: '1:2', phase: 'style', depth: 0 }, {
+      ...adapter, captureDesign,
+    }),
+    (error) => {
+      assert.match(error.message, /Header \[1:3\]/);
+      assert.match(error.message, /Content \[1:4\]/);
+      assert.match(error.message, /depth 0/);
+      return true;
+    },
+  );
+});
+
 test('style projection refuses unaccounted visible Figma layers even without a depth marker', async () => {
   const adapter = evaluator();
   const captureDesign = async () => ({

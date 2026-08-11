@@ -33,8 +33,27 @@ export function assetVectorFacts(node, access) {
   return { vec: false, hard: false };
 }
 
+/** A compact square vector-only INSTANCE is an icon asset. Exporting its
+ * inner path loses the component frame's optical padding and size token. */
+export function isIconAssetFrame(node, access) {
+  if (!node || access.visible(node) === false || access.type(node) !== 'INSTANCE' || access.hasImage(node)) return false;
+  const w = access.width(node);
+  const h = access.height(node);
+  if (!(w > 0 && h > 0 && w <= 48 && h <= 48 && Math.abs(w - h) <= 1)) return false;
+  const kids = access.children(node).filter((child) => access.visible(child) !== false);
+  if (!kids.length) return false;
+  let hard = false;
+  for (const child of kids) {
+    const facts = assetVectorFacts(child, access);
+    if (!facts.vec) return false;
+    hard = hard || facts.hard;
+  }
+  return hard;
+}
+
 /** One top-level artwork file: pure vector geometry with a path primitive. */
 export function isAssetVectorArt(node, access) {
+  if (isIconAssetFrame(node, access)) return true;
   const facts = assetVectorFacts(node, access);
   return facts.vec && facts.hard;
 }
@@ -57,6 +76,8 @@ export const CAPTURE_ASSET_ACCESS = Object.freeze({
   children: (node) => node.kids || [],
   visible: (node) => node.hidden !== true,
   hasImage: (node) => (node.fills || []).includes('IMAGE'),
+  width: (node) => node.w,
+  height: (node) => node.h,
 });
 
 export const captureVectorFacts = (node) => assetVectorFacts(node, CAPTURE_ASSET_ACCESS);
@@ -74,6 +95,7 @@ export function assetPolicyPluginSource() {
     const VECTOR_TYPES = ${JSON.stringify(VECTOR_TYPES)};
     const HARD_VECTOR_TYPES = ${JSON.stringify(HARD_VECTOR_TYPES)};
     const assetVectorFacts = ${assetVectorFacts.toString()};
+    const isIconAssetFrame = ${isIconAssetFrame.toString()};
     const isAssetVectorArt = ${isAssetVectorArt.toString()};
     const assetVectorCluster = ${assetVectorCluster.toString()};
     const __assetAccess = {
@@ -84,5 +106,7 @@ export function assetPolicyPluginSource() {
         try { return Array.isArray(n.fills) && n.fills.some((f) => f.type === 'IMAGE' && f.visible !== false && f.imageHash); }
         catch (e) { return false; }
       },
+      width: (n) => n.width,
+      height: (n) => n.height,
     };`;
 }

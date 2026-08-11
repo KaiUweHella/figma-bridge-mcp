@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PNG } from 'pngjs';
-import { optimizePngForUsages } from '../src/lib/raster-optimize.js';
+import { DEFAULT_RASTER_SCALE, optimizePngForUsages } from '../src/lib/raster-optimize.js';
 
 const noisyPng = (width, height) => {
   const png = new PNG({ width, height });
@@ -16,6 +16,7 @@ const noisyPng = (width, height) => {
 };
 
 test('PNG optimization keeps 2x pixels for the largest Figma usage', () => {
+  assert.equal(DEFAULT_RASTER_SCALE, 2);
   const source = noisyPng(400, 300);
   const result = optimizePngForUsages(source, [{ w: 35, h: 35 }, { w: 100, h: 50 }], 2);
   assert.equal(result.optimized, true);
@@ -24,7 +25,7 @@ test('PNG optimization keeps 2x pixels for the largest Figma usage', () => {
   assert.ok(result.buffer.length < source.length);
 });
 
-test('PNG optimization is opt-in and never upscales', () => {
+test('PNG scale 0 keeps originals and optimization never upscales', () => {
   const source = noisyPng(40, 30);
   assert.equal(optimizePngForUsages(source, [{ w: 10, h: 10 }], 0).optimized, false);
   const largerUsage = optimizePngForUsages(source, [{ w: 100, h: 100 }], 2);

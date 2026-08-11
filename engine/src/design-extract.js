@@ -12,6 +12,7 @@
 
 import { paintsSnippetJs } from './lib/paint-css.js';
 import { assetPolicyPluginSource } from './lib/asset-policy.js';
+import { imageAssetBase } from './lib/asset-names.js';
 import { axisMetadataExpression } from './lib/font-introspection.js';
 
 /** Eval snippet: list all pages of the open file. */
@@ -145,12 +146,33 @@ export function walkerCode(pageId, {
     const WITH_IDS = ${withIds === true};
     const WITH_VARS = ${withVars === true};
     const INCLUDE_HIDDEN = ${includeHidden === true};
+    const imageAssetBase = ${imageAssetBase.toString()};
     /* A bare type name ("GRADIENT_LINEAR") is not implementable — paints()
        emits real stops + angle as a css-ready gradient() instead. One shared
        serializer (lib/paint-css.js) for walker AND inspect — the two used to
        drift (mirrored angles here, no angle at all there). */
     ${paintsSnippetJs}
     const varNameCache = new Map();
+    const imageMetaCache = new Map();
+    const imageMeta = async (hash) => {
+      if (imageMetaCache.has(hash)) return imageMetaCache.get(hash);
+      let ext = 'png';
+      try {
+        const image = figma.getImageByHash(hash);
+        if (image) {
+          const bytes = await image.getBytesAsync();
+          if (bytes[0] === 0xff && bytes[1] === 0xd8) ext = 'jpg';
+          else if (bytes[0] === 0x47 && bytes[1] === 0x49) ext = 'gif';
+          else if (bytes[0] === 0x52 && bytes[1] === 0x49) ext = 'webp';
+        }
+      } catch (e) {}
+      const meta = { hash, file: imageAssetBase(hash) + '.' + ext };
+      imageMetaCache.set(hash, meta);
+      return meta;
+    };
+    const childFrontier = (n) => ('children' in n ? Array.from(n.children) : [])
+      .filter((child) => INCLUDE_HIDDEN || child.visible !== false)
+      .map((child) => ({ id: child.id, name: child.name }));
     const varName = async (id) => {
       if (varNameCache.has(id)) return varNameCache.get(id);
       let name = null;
@@ -291,6 +313,7 @@ export function walkerCode(pageId, {
       try {
         if ('overflowDirection' in n && n.overflowDirection && n.overflowDirection !== 'NONE') {
           o.scroll = n.overflowDirection;
+          if (n.layoutSizingVertical === 'HUG') o.scrollIntent = 'incidental-hug';
         }
       } catch (e) {}
       try {
@@ -374,6 +397,17 @@ export function walkerCode(pageId, {
         }
       }
       try { const f = paints(n.fills, 'width' in n ? n.width : 0, 'height' in n ? n.height : 0); if (f) o.fills = f; } catch (e) {}
+      try {
+        if (Array.isArray(n.fills)) {
+          const images = [];
+          for (const fill of n.fills) {
+            if (fill.type === 'IMAGE' && fill.visible !== false && fill.imageHash) {
+              images.push(await imageMeta(fill.imageHash));
+            }
+          }
+          if (images.length) o.images = images;
+        }
+      } catch (e) {}
       // Shared COLOR style applied to the fill (fillStyleId): its name is the
       // semantic handle ("Color/Primary") — capture alongside the raw value.
       if (WITH_VARS && typeof n.fillStyleId === 'string' && n.fillStyleId) {
@@ -550,7 +584,8 @@ export function walkerCode(pageId, {
             if (captured) o.kids.push(captured);
           }
         } else if (n.children.length && MAX_DEPTH > 0) {
-          o.more = n.children.length;
+          o.frontier = childFrontier(n);
+          if (o.frontier.length) o.more = o.frontier.length;
         }
         return o;
       }
@@ -602,7 +637,10 @@ export function walkerCode(pageId, {
         } catch (e) {}
         if ('children' in n && n.children.length) {
           if (depth >= MAX_DEPTH) {
-            if (MAX_DEPTH > 0) o.more = n.children.length;
+            if (MAX_DEPTH > 0) {
+              o.frontier = childFrontier(n);
+              if (o.frontier.length) o.more = o.frontier.length;
+            }
             return o;
           }
           o.kids = [];
@@ -620,7 +658,10 @@ export function walkerCode(pageId, {
       }
       if ('children' in n && n.children.length) {
         if (depth >= MAX_DEPTH) {
-          if (MAX_DEPTH > 0) o.more = n.children.length;
+          if (MAX_DEPTH > 0) {
+            o.frontier = childFrontier(n);
+            if (o.frontier.length) o.more = o.frontier.length;
+          }
           return o;
         }
         o.kids = [];
@@ -752,7 +793,7 @@ export function assetCollectorCode(nodeId) {
       out.absolute = n.layoutPositioning === 'ABSOLUTE' || !!freeParent;
       return out;
     };
-    const pushVec = (n, ancestors, cluster) => {
+    const pushVec = (n, ancestors, cluster, icon) => {
       /* Rendered (post-transform) box: a rotated vector's width/height are
          pre-rotation and do NOT match the exported SVG. Prefer render bounds;
          fall back to node dimensions when boxes are unavailable. */
@@ -764,6 +805,7 @@ export function assetCollectorCode(nodeId) {
         ...posInfo(n),
       };
       if (cluster) entry.cluster = cluster;
+      if (icon) entry.icon = true;
       vectors.push(entry);
     };
     const walk = (n, ancestors, depth) => {
@@ -785,9 +827,8 @@ export function assetCollectorCode(nodeId) {
       /* The requested ROOT is never itself an asset — exporting the whole
          frame as one file is the job of "export node". Always descend at 0. */
       if (depth > 0) {
-        const v = assetVectorFacts(n, __assetAccess);
-        if (v.vec && v.hard) {
-          pushVec(n, ancestors);
+        if (isAssetVectorArt(n, __assetAccess)) {
+          pushVec(n, ancestors, null, isIconAssetFrame(n, __assetAccess));
           return; /* topmost vector art — internals are the artwork itself */
         }
       }

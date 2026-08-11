@@ -32,9 +32,14 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   exported CSS token names identical to native Figma `var(...)` references,
   and expose explicit prototype scrolling/fixed-child facts without inferring
   sticky behavior from geometry.
-- Flag multi-megabyte PNGs used only at small sizes and add opt-in
-  `export assets --raster-scale 2` downsampling with retina-density and
-  manifest source/output-dimension facts; originals remain the default.
+- Downsample oversized PNGs by default to 2× their largest Figma usage, only
+  when this reduces bytes and never by upscaling. `--raster-scale 0` retains
+  originals; the manifest records source/output dimensions.
+- Export compact vector-only icon instances at their component-frame bounds,
+  preserving optical padding and the 16/20/24px icon-size contract. IMAGE
+  filenames are now hash-stable across isolated specs and full asset exports.
+- Mark prototype scrolling on `h:hug` frames as incidental document scroll,
+  and include exact omitted child IDs/depth-0 calls in depth-limit errors.
 
 ## [0.4.0] — 2026-08-10
 

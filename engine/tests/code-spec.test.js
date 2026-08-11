@@ -139,6 +139,13 @@ test('walker exposes Figma prototype scrolling and fixed-child facts', async () 
   assert.equal(model.frames[0].kids[1].fixed, true);
 });
 
+test('scroll on a vertically HUG node is marked incidental, not an inner-scroll contract', () => {
+  const segment = layoutSeg({ scroll: 'VERTICAL_SCROLLING', sv: 'HUG' }, { detail: true });
+  assert.match(segment, /scroll:vertical/);
+  assert.match(segment, /incidental/);
+  assert.match(segment, /document scroll/);
+});
+
 test('a hidden ROOT yields an empty spec rather than a crash', async () => {
   const root = { ...frameFixture(), visible: false };
   const result = JSON.parse(await runWalker(nodeWalkerCode('9:1'), root));

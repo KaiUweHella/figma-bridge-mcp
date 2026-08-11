@@ -1,11 +1,11 @@
 // M4: asset export (collector + naming) and the spec's asset references.
-// The naming contract is the load-bearing part: spec and exporter derive the
-// SAME filename from the SAME node name, so `fill IMAGE → assets/dls-logo.png`
-// is true before the export has even run.
+// The naming contract is the load-bearing part: vector files use semantic
+// layer names; IMAGE fills use their stable Figma hash so isolated spec and
+// export calls still agree on the exact filename.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assetSlug, isGenericName, effectiveAssetName, assetFileName } from '../src/lib/asset-names.js';
-import { assetCollectorCode, imageBytesCode, svgBytesCode } from '../src/design-extract.js';
+import { assetSlug, isGenericName, effectiveAssetName, assetFileName, imageAssetBase } from '../src/lib/asset-names.js';
+import { assetCollectorCode, imageBytesCode, nodeWalkerCode, svgBytesCode } from '../src/design-extract.js';
 import { paintSeg, specLines, styleFields, bundleKey } from '../src/lib/code-spec.js';
 
 // ---- naming contract ----
@@ -26,6 +26,12 @@ test('generic layer names fall back to the nearest meaningful ancestor', () => {
   assert.equal(effectiveAssetName('Group', ['content', 'test-logo']), 'test-logo');
   assert.equal(effectiveAssetName('Group', ['Frame 1', 'Group']), 'Group', 'all-generic chain keeps own name');
   assert.equal(assetFileName('Group', 'svg', ['sidebar', 'test-logo']), 'test-logo.svg');
+});
+
+test('IMAGE filename base is stable across layer names and requested roots', () => {
+  assert.equal(imageAssetBase('HASH-1'), 'image-hash1');
+  assert.equal(imageAssetBase('HASH-1'), imageAssetBase('HASH-1'));
+  assert.notEqual(imageAssetBase('HASH-1'), imageAssetBase('HASH-2'));
 });
 
 // ---- collector eval (against a stub figma) ----
@@ -107,6 +113,52 @@ test('collector: images deduped by hash, vector art topmost, hidden + soft-only 
   assert.equal(result.vectors[0].name, 'test-logo');
 });
 
+test('collector and spec export a small vector-only icon INSTANCE at frame bounds', async () => {
+  const vector = {
+    id: 'icon:2', name: 'Vector', type: 'VECTOR', visible: true,
+    width: 20, height: 22, x: 2, y: 1, children: [],
+  };
+  const icon = {
+    id: 'icon:1', name: 'distinguish/m/bell', type: 'INSTANCE', visible: true,
+    width: 24, height: 24, x: 0, y: 0, children: [vector],
+  };
+  const root = {
+    id: 'icon:0', name: 'Toolbar', type: 'FRAME', visible: true,
+    width: 100, height: 40, children: [icon],
+  };
+  icon.parent = root;
+  vector.parent = icon;
+  const collected = JSON.parse(await run(assetCollectorCode(root.id), root));
+  assert.deepEqual(collected.vectors.map(({ id, name, w, h }) => ({ id, name, w, h })), [{
+    id: 'icon:1', name: 'distinguish/m/bell', w: 24, h: 24,
+  }]);
+
+  const lines = specLines({
+    t: 'INSTANCE', n: 'distinguish/m/bell', id: 'icon:1', w: 24, h: 24,
+    kids: [{ t: 'VECTOR', n: 'Vector', id: 'icon:2', w: 20, h: 22 }],
+  }, 0, 'style');
+  assert.match(lines[0], /distinguish\/m\/bell · 24×24 · vector art → assets\/distinguish-m-bell\.svg/);
+});
+
+test('node walker captures the canonical hash-derived IMAGE filename used by export', async () => {
+  const imageNode = {
+    id: 'image:1', name: 'Frame 64', type: 'RECTANGLE', visible: true,
+    width: 80, height: 80, fills: [{ type: 'IMAGE', imageHash: 'HASH-1', visible: true }],
+    strokes: [], effects: [], children: [],
+  };
+  const figma = {
+    mixed: Symbol('mixed'),
+    getNodeByIdAsync: async (id) => (id === imageNode.id ? imageNode : null),
+    getImageByHash: (hash) => hash === 'HASH-1'
+      ? { getBytesAsync: async () => Uint8Array.from([0x89, 0x50, 0x4e, 0x47]) }
+      : null,
+  };
+  const raw = await new Function('figma', `return ${nodeWalkerCode(imageNode.id, { withIds: true })}`)(figma);
+  const capture = JSON.parse(raw);
+  assert.deepEqual(capture.frames[0].images, [{ hash: 'HASH-1', file: 'image-hash1.png' }]);
+  assert.equal(paintSeg(capture.frames[0]), 'fill IMAGE → assets/image-hash1.png (export assets)');
+});
+
 test('byte-fetch snippets are valid JS and target the right ids', () => {
   assert.doesNotThrow(() => new Function(`return ${imageBytesCode('HASH-1')}`));
   assert.doesNotThrow(() => new Function(`return ${svgBytesCode('a:4')}`));
@@ -150,6 +202,14 @@ test('mergeAssetManifest without a prior manifest returns just the new export', 
 test('paintSeg: IMAGE fill points at the deterministic asset file', () => {
   const seg = paintSeg({ n: 'DLS Logo', fills: ['IMAGE'] });
   assert.equal(seg, 'fill IMAGE → assets/dls-logo.png (export assets)');
+});
+
+test('paintSeg prefers the canonical hash-derived IMAGE filename from capture', () => {
+  const seg = paintSeg({
+    n: 'Frame 64', fills: ['IMAGE'],
+    images: [{ hash: 'HASH-1', file: 'image-hash1.png' }],
+  });
+  assert.equal(seg, 'fill IMAGE → assets/image-hash1.png (export assets)');
 });
 
 test('NAMING CONTRACT: generic layer names resolve via ancestors in spec AND exporter alike', () => {

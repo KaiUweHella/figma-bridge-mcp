@@ -210,10 +210,10 @@ than interpreting it. Build a screen from Figma in five steps:
    `overhang`), so the manifest alone positions an overlay — no spec
    cross-reference needed. The export summary lists the absolutely-positioned
    and overhanging files explicitly: those are the ones builds lose.
-   Original raster bytes remain the fidelity default. If the summary flags a
-   multi-megabyte PNG used only at a tiny size, repeat the export with
-   `--raster-scale 2`; the PNG is downsampled to retina density while its
-   aspect ratio, manifest placement and CSS crop behavior remain unchanged.
+   Oversized PNGs are downsampled by default to 2× their largest Figma usage
+   (retina density), without upscaling and only when the encoded file becomes
+   smaller. Aspect ratio, manifest placement and CSS crop behavior remain
+   unchanged; pass `--raster-scale 0` to retain original PNG bytes.
 5. **`figma_spec` with `phase: "style"`** — apply sizes, gaps, padding,
    alignment, fill/hug sizing, paints incl. gradients (`→ var(name)` marks a
    design-token binding), radii, shadows, typography, `opacity`, `clip`
@@ -279,6 +279,11 @@ the configured output budget, the call returns `complete:false` with a
 section-by-section retry recipe and returns **no misleading partial design**.
 `depth:0` intentionally means “the requested node only” and is complete, not
 a depth-truncated tree.
+
+IMAGE-fill filenames are keyed by Figma's stable image hash, not by the local
+layer name/path. This keeps `figma_spec`, isolated child calls, asset export and
+`assets.json` on the same filename even when generic layers such as “Frame 64”
+are reached through different roots.
 
 For MCP design-to-code calls, `dedup:false` is the default: every visible layer
 keeps its own id, native Figma Inspect `css{…}`, layout/paint/token facts and

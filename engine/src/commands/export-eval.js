@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join, resolve } from 'path';
-import { assetSlug, effectiveAssetName } from '../lib/asset-names.js';
+import { assetSlug, effectiveAssetName, imageAssetBase } from '../lib/asset-names.js';
 import { mergeAssetManifest } from '../lib/asset-manifest.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
@@ -25,7 +25,7 @@ import {
   walkWithDepthRetry,
 } from '../application/code-spec-command.js';
 import { executeScreenshot } from '../application/screenshot-command.js';
-import { optimizePngForUsages } from '../lib/raster-optimize.js';
+import { DEFAULT_RASTER_SCALE, optimizePngForUsages } from '../lib/raster-optimize.js';
 
 // Compatibility export for existing tests/callers while the Implementation
 // now lives behind the command application's Interface.
@@ -291,7 +291,7 @@ exp
   .description('Export every image fill and vector artwork under a node as real files (PNG/JPG, SVG) plus an assets.json manifest — the spec\'s `→ assets/…` references point at exactly these files')
   .option('-o, --output <dir>', 'Output directory', 'assets')
   .option('--max <n>', 'Maximum number of assets to export (largest first; dropped ones are LISTED, never silent)', '100')
-  .option('--raster-scale <n>', 'Downsample oversized PNG fills to n× their largest Figma usage (0 keeps originals; try 2 for retina)', '0')
+  .option('--raster-scale <n>', 'PNG density relative to largest Figma usage (default 2× retina; 0 keeps originals)', String(DEFAULT_RASTER_SCALE))
   .action(async (nodeId, options) => {
     await checkConnection();
     nodeId = normalizedId(nodeId);
@@ -329,7 +329,7 @@ exp
         jobs.push({ kind: 'image', hash: img.hash, nodes: img.nodes, name: first.name, ancestors: first.ancestors, area: first.w * first.h });
       }
       for (const v of found.vectors) {
-        jobs.push({ kind: 'vector', id: v.id, nodes: [v], name: v.name, ancestors: v.ancestors, area: v.w * v.h });
+        jobs.push({ kind: 'vector', id: v.id, nodes: [v], name: v.name, ancestors: v.ancestors, area: v.w * v.h, icon: v.icon === true });
       }
       jobs.sort((a, b) => b.area - a.area);
       const dropped = jobs.length > max ? jobs.splice(max) : [];
@@ -365,7 +365,9 @@ exp
       const optimizedRasters = [];
       const oversizedRasters = [];
       for (const job of jobs) {
-        const base = assetSlug(effectiveAssetName(job.name, job.ancestors));
+        const base = job.kind === 'image'
+          ? imageAssetBase(job.hash)
+          : assetSlug(effectiveAssetName(job.name, job.ancestors));
         try {
           if (job.kind === 'image') {
             const res = parse(await fastEval(imageBytesCode(job.hash)));
@@ -385,6 +387,7 @@ exp
             for (const n of job.nodes) {
               manifest.push({
                 nodeId: n.id, name: n.name, file, kind: 'image', width: n.w, height: n.h,
+                imageHash: job.hash,
                 ...(raster.optimized ? {
                   optimizedForScale: rasterScale,
                   pixelWidth: raster.width,
@@ -407,8 +410,9 @@ exp
             const dims = buf.toString('utf8', 0, Math.min(buf.length, 500))
               .match(/<svg[^>]*?\bwidth="([0-9.]+)"[^>]*?\bheight="([0-9.]+)"/);
             manifest.push({
-              nodeId: n.id, name: n.name, file, kind: 'vector',
+              nodeId: n.id, name: n.name, file, kind: job.icon ? 'icon' : 'vector',
               width: dims ? Math.round(+dims[1]) : n.w, height: dims ? Math.round(+dims[2]) : n.h,
+              ...(job.icon ? { frameSize: { w: n.w, h: n.h } } : {}),
               ...placement(n),
             });
           }

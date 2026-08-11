@@ -1,6 +1,8 @@
 import { PNG } from 'pngjs';
 import { scaleImage } from './image-diff.js';
 
+export const DEFAULT_RASTER_SCALE = 2;
+
 /**
  * Downsample an oversized PNG while retaining enough source pixels for every
  * Figma usage at the requested device-pixel ratio. The source aspect ratio is

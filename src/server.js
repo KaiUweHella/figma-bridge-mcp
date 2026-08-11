@@ -393,10 +393,10 @@ specification — copy it, never interpret it. Follow these steps in order:
    Pass an ABSOLUTE output path (relative paths resolve against the MCP
    server, not your project). Large exports keep running after this call
    returns "still RUNNING" — re-run the same call to poll; assets.json is
-   written last and marks completion. Use the original images and SVGs;
-   never substitute CSS placeholders. If the summary flags an oversized PNG
-   used only at a small size, repeat with "--raster-scale","2"; this preserves
-   retina density and CSS crop semantics while reducing bundle size.
+   written last and marks completion. Use the exported images and SVGs;
+   never substitute CSS placeholders. Oversized PNGs default to 2x their
+   largest Figma usage (retina); pass "--raster-scale","0" only when original
+   PNG bytes are explicitly required.
 5. figma_spec with phase "style" — for each section, first request depth 0
    to get that container's own background/border/radius/layout without its
    descendants. Then pull its child ids in bounded calls; use dedup true for
@@ -409,9 +409,9 @@ specification — copy it, never interpret it. Follow these steps in order:
    overlays marked "overhangs parent" even when they stick out; never
    approximate artwork with CSS.
 6. Interactive states: the spec ends with "Component sets used on this
-   screen". For every axis flagged with a state marker (hover/active/focus/
-   disabled), pull that variant's exact styles (figma_spec on the set's node
-   id listed there) and implement it as CSS :hover/:active/:focus-visible/
+   screen". One figma_spec call on the listed SET node id captures every
+   variant and its exact styles; use sufficient depth or its frontier calls.
+   Implement flagged axes as CSS :hover/:active/:focus-visible/
    [disabled]. A screen with only default states is incomplete.
 7. Verify: screenshot your build and compare it against the Figma PNG from
    step 1. Then walk this checklist before declaring done:

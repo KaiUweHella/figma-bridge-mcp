@@ -1,8 +1,8 @@
 /**
- * Deterministic asset naming, shared between `export assets` (writes the
- * files) and the code-spec renderer (references them). Both sides derive the
- * SAME filename from the SAME node name — the spec can say
- * `fill IMAGE → assets/dls-logo.png` before the export has even run.
+ * Deterministic asset naming shared by `export assets` (writes files) and the
+ * code-spec renderer (references them). Vector art uses semantic layer names;
+ * IMAGE fills use Figma's stable image hash because separate requested roots
+ * do not necessarily have the same ancestor-name context.
  */
 
 const GENERIC = new Set(['group', 'frame', 'vector', 'rectangle', 'ellipse', 'image', 'union', 'subtract', 'intersect', 'exclude']);
@@ -41,4 +41,14 @@ export function effectiveAssetName(name, ancestors = []) {
 
 export function assetFileName(name, kind, ancestors = []) {
   return `${assetSlug(effectiveAssetName(name, ancestors))}.${kind}`;
+}
+
+/** Stable base for IMAGE-fill files. A node name/path changes with the
+ * requested spec root; Figma's image hash does not. */
+export function imageAssetBase(hash) {
+  const stable = String(hash || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase()
+    .slice(0, 24);
+  return `image-${stable || 'unknown'}`;
 }

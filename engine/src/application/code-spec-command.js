@@ -35,6 +35,29 @@ function parseEval(value) {
   return typeof value === 'string' ? JSON.parse(value) : value;
 }
 
+function frontierNodes(frames = []) {
+  const found = new Map();
+  const visit = (node) => {
+    for (const child of node.frontier || []) {
+      if (child?.id) found.set(child.id, { id: child.id, name: child.name || 'Unnamed layer' });
+    }
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of frames) visit(frame);
+  return [...found.values()];
+}
+
+function frontierRetryHint(result) {
+  const all = frontierNodes(result.frames);
+  const nodes = all.slice(0, 20);
+  if (!nodes.length) return '';
+  const lines = nodes.map((node) =>
+    `- ${node.name} [${node.id}] → figma_spec {"nodeId":${JSON.stringify(node.id)},"phase":"style","depth":0}`);
+  const total = all.length;
+  if (total > nodes.length) lines.push(`- …${total - nodes.length} more frontier node(s); request their parent structure map.`);
+  return `\nExact follow-up calls for the omitted frontier:\n${lines.join('\n')}`;
+}
+
 function normalizedRequest(request = {}) {
   const phase = String(request.phase ?? 'all').toLowerCase();
   if (!CODE_SPEC_PHASES.includes(phase)) {
@@ -130,8 +153,8 @@ export async function executeCodeSpec(request, adapters = {}) {
   if (input.phase !== 'structure' && capture.completeness.depthLimited) {
     throw new Error(
       `Exact style contract is incomplete at depth ${depth}. ` +
-      'Request the child node ids from the structure map as smaller figma_spec calls, ' +
-      'or raise depth; styling from a truncated tree would require guessing.',
+      'Use the exact depth 0 child calls below, or raise depth; styling from a truncated tree would require guessing.' +
+      frontierRetryHint(result),
     );
   }
   const coverage = layerCoverage(result.frames, result.visibleNodeCount);
