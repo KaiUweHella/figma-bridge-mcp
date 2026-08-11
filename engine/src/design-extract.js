@@ -147,6 +147,19 @@ export function walkerCode(pageId, {
     const WITH_VARS = ${withVars === true};
     const INCLUDE_HIDDEN = ${includeHidden === true};
     const imageAssetBase = ${imageAssetBase.toString()};
+    /* Figma exposes scaled-instance geometry as floating-point noise. Keep
+       meaningful fractions, but never make a code agent reproduce values
+       such as 0.0000415px or negative padding. */
+    const cleanNumber = (value, nonNegative) => {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return value;
+      let out = Math.abs(value) < 0.05 ? 0 : Math.round(value * 100) / 100;
+      if (nonNegative && out < 0) out = 0;
+      return Object.is(out, -0) ? 0 : out;
+    };
+    const cleanCssValue = (value) => typeof value !== 'string' ? value
+      : value.replace(/-?\\d+\\.\\d+/g, (raw) => String(cleanNumber(Number(raw), false)));
+    const cssFallbackOnly = (value) => typeof value !== 'string' ? value
+      : value.replace(/var\\([^,]+,\\s*([^)]+)\\)/g, '$1');
     /* A bare type name ("GRADIENT_LINEAR") is not implementable — paints()
        emits real stops + angle as a css-ready gradient() instead. One shared
        serializer (lib/paint-css.js) for walker AND inspect — the two used to
@@ -180,15 +193,21 @@ export function walkerCode(pageId, {
         ? Array.from(n.children).reduce((sum, child) => sum + visibleSubtreeSize(child), 0)
         : 0);
     };
-    const collapseVectorCluster = (n, out) => {
+    const collapseVectorAsset = (n, out) => {
       const cluster = assetVectorCluster(n, __assetAccess);
-      if (!cluster.cluster) return false;
-      out.vectorCluster = {
-        vectorChildren: cluster.vectorChildren,
-        totalChildren: cluster.totalChildren,
-        internalLayers: Math.max(0, visibleSubtreeSize(n) - 1),
-      };
-      return true;
+      if (cluster.cluster) {
+        out.vectorCluster = {
+          vectorChildren: cluster.vectorChildren,
+          totalChildren: cluster.totalChildren,
+          internalLayers: Math.max(0, visibleSubtreeSize(n) - 1),
+        };
+        return true;
+      }
+      if (isAssetVectorArt(n, __assetAccess)) {
+        out.vectorAsset = { internalLayers: Math.max(0, visibleSubtreeSize(n) - 1) };
+        return true;
+      }
+      return false;
     };
     const varName = async (id) => {
       if (varNameCache.has(id)) return varNameCache.get(id);
@@ -266,13 +285,19 @@ export function walkerCode(pageId, {
       try {
         if (typeof n.getCSSAsync === 'function') {
           const css = await n.getCSSAsync();
-          if (css && typeof css === 'object' && Object.keys(css).length) o.css = css;
+          if (css && typeof css === 'object' && Object.keys(css).length) {
+            o.css = Object.fromEntries(Object.entries(css).map(([key, value]) => [key, cleanCssValue(value)]));
+          }
         }
       } catch (e) {}
       if ('layoutMode' in n && n.layoutMode !== 'NONE') {
         o.lm = n.layoutMode;
-        if (n.itemSpacing) o.gap = n.itemSpacing;
-        const pad = [n.paddingTop, n.paddingRight, n.paddingBottom, n.paddingLeft];
+        if (n.itemSpacing) {
+          const gap = cleanNumber(n.itemSpacing, true);
+          if (gap > 0) o.gap = gap;
+        }
+        const pad = [n.paddingTop, n.paddingRight, n.paddingBottom, n.paddingLeft]
+          .map((value) => cleanNumber(value, true));
         if (pad.some(v => v > 0)) o.pad = pad;
         if (n.primaryAxisAlignItems && n.primaryAxisAlignItems !== 'MIN') o.ap = n.primaryAxisAlignItems;
         if (n.counterAxisAlignItems && n.counterAxisAlignItems !== 'MIN') o.ac = n.counterAxisAlignItems;
@@ -287,8 +312,8 @@ export function walkerCode(pageId, {
           try {
             if (typeof n.gridRowCount === 'number') g.rows = n.gridRowCount;
             if (typeof n.gridColumnCount === 'number') g.cols = n.gridColumnCount;
-            if (typeof n.gridRowGap === 'number') g.rowGap = n.gridRowGap;
-            if (typeof n.gridColumnGap === 'number') g.colGap = n.gridColumnGap;
+            if (typeof n.gridRowGap === 'number') g.rowGap = cleanNumber(n.gridRowGap, true);
+            if (typeof n.gridColumnGap === 'number') g.colGap = cleanNumber(n.gridColumnGap, true);
           } catch (e) {}
           if (Object.keys(g).length) o.grid = g;
         }
@@ -435,29 +460,32 @@ export function walkerCode(pageId, {
         const s = paints(n.strokes, 'width' in n ? n.width : 0, 'height' in n ? n.height : 0);
         if (s) {
           o.strokes = s;
-          if (typeof n.strokeWeight === 'number') o.sw = n.strokeWeight;
+          if (typeof n.strokeWeight === 'number') o.sw = cleanNumber(n.strokeWeight, true);
           else {
             // Per-side borders: strokeWeight is figma.mixed then, and the
             // width used to vanish from the spec entirely (the gradient-border
             // cards). Capture the four sides as [t, r, b, l].
             const t = n.strokeTopWeight, r = n.strokeRightWeight, b = n.strokeBottomWeight, l = n.strokeLeftWeight;
-            if ([t, r, b, l].some(v => typeof v === 'number')) o.sw = [t || 0, r || 0, b || 0, l || 0];
+            if ([t, r, b, l].some(v => typeof v === 'number')) {
+              o.sw = [t || 0, r || 0, b || 0, l || 0].map((value) => cleanNumber(value, true));
+            }
           }
           // Stroke alignment changes geometry: INSIDE (the default, = CSS
           // border with border-box) is implicit; OUTSIDE/CENTER are emitted.
           if (n.strokeAlign && n.strokeAlign !== 'INSIDE') o.sa = String(n.strokeAlign).toLowerCase();
         }
       } catch (e) {}
-      try { if (Array.isArray(n.dashPattern) && n.dashPattern.length) o.dash = n.dashPattern; } catch (e) {}
+      try { if (Array.isArray(n.dashPattern) && n.dashPattern.length) o.dash = n.dashPattern.map((value) => cleanNumber(value, true)); } catch (e) {}
       if ('cornerRadius' in n) {
-        if (typeof n.cornerRadius === 'number') { if (n.cornerRadius > 0) o.r = n.cornerRadius; }
-        else o.r = [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius];
+        if (typeof n.cornerRadius === 'number') { if (n.cornerRadius > 0) o.r = cleanNumber(n.cornerRadius, true); }
+        else o.r = [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius]
+          .map((value) => cleanNumber(value, true));
       }
       if (Array.isArray(n.effects) && n.effects.length) {
         const fx = n.effects.filter(e => e.visible !== false).map(e =>
           (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW')
-            ? { type: e.type, x: e.offset.x, y: e.offset.y, blur: e.radius, spread: e.spread || 0, color: hex(e.color), a: Math.round((e.color.a == null ? 1 : e.color.a) * 100) / 100 }
-            : { type: e.type, blur: e.radius });
+            ? { type: e.type, x: cleanNumber(e.offset.x, false), y: cleanNumber(e.offset.y, false), blur: cleanNumber(e.radius, true), spread: cleanNumber(e.spread || 0, false), color: hex(e.color), a: Math.round((e.color.a == null ? 1 : e.color.a) * 100) / 100 }
+            : { type: e.type, blur: cleanNumber(e.radius, true) });
         if (fx.length) o.fx = fx;
       }
       if (WITH_VARS && n.boundVariables) {
@@ -465,6 +493,31 @@ export function walkerCode(pageId, {
         for (const entry of Object.entries(n.boundVariables)) {
           const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
           if (first && first.id) { const nm = await varName(first.id); if (nm) bv[entry[0]] = nm; }
+        }
+        /* A scaled instance may report one spacing token on several padding
+           sides even though the resolved raw values differ. That binding is
+           not a truthful implementation contract: keep the four raw sides
+           and remove the misleading token/fallback pair. */
+        const paddingKeys = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+        const byPaddingVar = new Map();
+        for (let i = 0; i < paddingKeys.length; i++) {
+          const key = paddingKeys[i], name = bv[key];
+          if (!name || !o.pad) continue;
+          if (!byPaddingVar.has(name)) byPaddingVar.set(name, []);
+          byPaddingVar.get(name).push({ key, value: o.pad[i] });
+        }
+        let inconsistentPadding = false;
+        for (const uses of byPaddingVar.values()) {
+          const values = new Set(uses.map((use) => use.value));
+          if (uses.length > 1 && values.size > 1) {
+            inconsistentPadding = true;
+            for (const use of uses) delete bv[use.key];
+          }
+        }
+        if (inconsistentPadding && o.css) {
+          for (const key of Object.keys(o.css)) {
+            if (/^padding(?:-|$)/.test(key)) o.css[key] = cssFallbackOnly(o.css[key]);
+          }
         }
         if (Object.keys(bv).length) o.bv = bv;
       }
@@ -654,6 +707,7 @@ export function walkerCode(pageId, {
         } catch (e) {}
         if ('children' in n && n.children.length) {
           if (depth >= MAX_DEPTH) {
+            if (MAX_DEPTH > 0 && collapseVectorAsset(n, o)) return o;
             if (MAX_DEPTH > 0) {
               o.frontier = childFrontier(n);
               if (o.frontier.length) o.more = o.frontier.length;
@@ -678,7 +732,7 @@ export function walkerCode(pageId, {
           // Hundreds of path children are one exported artwork, not hundreds
           // of missing style contracts. Classify against the live subtree at
           // the cutoff and carry its exact accounted-layer count compactly.
-          if (MAX_DEPTH > 0 && collapseVectorCluster(n, o)) return o;
+          if (MAX_DEPTH > 0 && collapseVectorAsset(n, o)) return o;
           if (MAX_DEPTH > 0) {
             o.frontier = childFrontier(n);
             if (o.frontier.length) o.more = o.frontier.length;
@@ -786,6 +840,7 @@ export function assetCollectorCode(nodeId) {
     const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop.' });
     ${assetPolicyPluginSource()}
+    const rootBox = root.absoluteBoundingBox || root.absoluteRenderBounds;
     const hasImageFill = (n) => __assetAccess.hasImage(n);
     const images = new Map(); /* hash -> { hash, nodes: [] } */
     const vectors = [];
@@ -807,6 +862,12 @@ export function assetCollectorCode(nodeId) {
         out.overhang = rb.x < pb.x - 1 || rb.y < pb.y - 1
           || rb.x + rb.width > pb.x + pb.width + 1
           || rb.y + rb.height > pb.y + pb.height + 1;
+      }
+      if (rb && rootBox) {
+        out.rootX = Math.round(rb.x - rootBox.x);
+        out.rootY = Math.round(rb.y - rootBox.y);
+        out.coordinateSpace = 'export-root';
+        out.rootId = root.id;
       }
       const parentLm = p && 'layoutMode' in p ? p.layoutMode : null;
       const freeParent = p && typeof p.width === 'number'

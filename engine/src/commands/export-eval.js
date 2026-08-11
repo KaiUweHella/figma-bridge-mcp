@@ -273,13 +273,19 @@ return JSON.stringify({ file: figma.root.name, vars: vars.map(v => {
 /**
  * Placement block of a manifest entry, from a collector node. The manifest
  * alone must suffice to place an overlay (no spec cross-reference): parent
- * NODE ID next to the human-readable name path, x/y `place` offsets in the
- * parent, and the two flags builders need to not lose the asset —
+ * NODE ID next to the human-readable name path, x/y offsets in the immediate
+ * parent, post-transform rootX/rootY offsets in the requested export root,
+ * and the two flags builders need to not lose the asset —
  * absolutePosition (out of flow) and overhang (renders beyond the parent).
  */
 function placement(n) {
   return {
     ...(n.x != null ? { x: n.x, y: n.y } : {}),
+    ...(n.rootX != null ? {
+      rootX: n.rootX, rootY: n.rootY,
+      coordinateSpace: n.coordinateSpace || 'export-root',
+      ...(n.rootId ? { rootId: n.rootId } : {}),
+    } : {}),
     parent: n.parent,
     ...(n.parentId ? { parentId: n.parentId } : {}),
     ...(n.absolute != null ? { absolutePosition: !!n.absolute } : {}),
@@ -447,7 +453,9 @@ exp
       if (flagged.length) {
         console.log(chalk.yellow(`⚠ ${flagged.length} of ${files.size} file(s) are absolutely positioned or overhang their parent — exactly these get lost in builds:`));
         for (const m of flagged) {
-          const at = m.x != null ? ` @ ${m.x},${m.y}` : '';
+          const at = m.rootX != null
+            ? ` @ root ${m.rootX},${m.rootY}`
+            : (m.x != null ? ` @ parent ${m.x},${m.y}` : '');
           const over = m.overhang ? ' — overhangs, keep visible' : '';
           console.log(`  - ${m.file}${at} in "${m.parent || 'root'}"${over}`);
         }

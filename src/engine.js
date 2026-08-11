@@ -440,7 +440,13 @@ export function captureFigmaDesign(request, { fileKey, deadline, timeoutMs = EXE
 
 export function isDaemonUnavailable(error) {
   return error instanceof DaemonClientError &&
-    (error.kind === "missing-token" || error.kind === "unavailable");
+    [
+      "missing-token",
+      "unavailable",
+      "timeout",
+      "plugin-unavailable",
+      "plugin-timeout",
+    ].includes(error.kind);
 }
 
 /**

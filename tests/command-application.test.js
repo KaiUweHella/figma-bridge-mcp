@@ -62,3 +62,13 @@ test('in-process execution never repeats an ambiguous daemon failure by default'
   );
   assert.equal(attempts, 1);
 });
+
+test('read-only fallback recognizes daemon and plugin disconnect/timeout kinds', async () => {
+  const { isDaemonUnavailable } = await import('../src/engine.js');
+  const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
+  for (const kind of ['missing-token', 'unavailable', 'timeout', 'plugin-unavailable', 'plugin-timeout']) {
+    assert.equal(isDaemonUnavailable(new DaemonClientError(kind, { kind })), true, kind);
+  }
+  assert.equal(isDaemonUnavailable(new DaemonClientError('write result unknown', { kind: 'response' })), false);
+  assert.equal(isDaemonUnavailable(new Error('timeout')), false, 'only normalized bridge failures retry');
+});

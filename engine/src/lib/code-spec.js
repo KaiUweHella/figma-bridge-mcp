@@ -36,7 +36,7 @@ export function isVectorish(node) {
  * fills and all — they used to vanish from the spec entirely. Pure.
  */
 export function isVectorArt(node) {
-  return isCapturedVectorArt(node);
+  return node?.vectorAsset?.internalLayers >= 0 || isCapturedVectorArt(node);
 }
 
 /**
@@ -68,6 +68,20 @@ const pad4 = (pad) => {
   if (t === b && r === l) return `pad${t}/${r}`;
   return `pad${t}/${r}/${b}/${l}`;
 };
+
+/** Small but actionable visual contract for the structure phase. It prevents
+ * paint-bearing containers from looking like generic wrappers while keeping
+ * colors/effects in the style phase. */
+export function structureVisualHint(node) {
+  const parts = [];
+  if (node.fills) parts.push('fill');
+  if (node.strokes) parts.push('border');
+  if (node.pad) parts.push(pad4(node.pad));
+  if (node.r != null) parts.push(`r${Array.isArray(node.r) ? node.r.join('/') : node.r}`);
+  if (node.fx?.length) parts.push('effects');
+  if (node.clip) parts.push('clip');
+  return parts.length ? `visual:${parts.join('+')}` : '';
+}
 
 const ALIGN_NAMES = { CENTER: 'center', MAX: 'end', SPACE_BETWEEN: 'between', BASELINE: 'baseline' };
 
@@ -603,6 +617,10 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
   } else {
     const layout = layoutSeg(node, { detail });
     if (layout) segs.push(layout);
+    if (!detail) {
+      const visualHint = structureVisualHint(node);
+      if (visualHint) segs.push(visualHint);
+    }
     if (detail) {
       const css = cssSeg(node);
       if (css) segs.push(css);
@@ -715,8 +733,9 @@ export function layerCoverage(frames, sourceVisible = null) {
   const visit = (node) => {
     if (node.hidden) return;
     if (isVectorArt(node) || isVectorCluster(node)) {
-      const size = node.vectorCluster?.internalLayers != null
-        ? 1 + node.vectorCluster.internalLayers
+      const internalLayers = node.vectorAsset?.internalLayers ?? node.vectorCluster?.internalLayers;
+      const size = internalLayers != null
+        ? 1 + internalLayers
         : subtreeSize(node);
       coverage.captured += size;
       coverage.explicitRows += 1;
@@ -809,6 +828,35 @@ export function componentGeometryChecklist(frames) {
   return out;
 }
 
+/** Same component set, different auto-layout alignment. This is a per-instance
+ * fact, not a reusable-component default: applying one `justify-content` to
+ * every Button caused the Equiluna sidebar regression. */
+export function componentLayoutDifferences(frames) {
+  const groups = new Map();
+  const visit = (node) => {
+    if (node.hidden) return;
+    if (node.t === 'INSTANCE' && (node.set || node.main || node.mc) && node.lm) {
+      const component = node.set || node.main || node.mc;
+      if (!groups.has(component)) groups.set(component, []);
+      groups.get(component).push({
+        id: node.id || null,
+        name: node.n || node.main || 'Instance',
+        main: ALIGN_NAMES[node.ap] || String(node.ap || 'start').toLowerCase(),
+        cross: ALIGN_NAMES[node.ac] || String(node.ac || 'start').toLowerCase(),
+      });
+    }
+    if (isVectorArt(node) || isVectorCluster(node) || isIconInstance(node)) return;
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of frames || []) visit(frame);
+  const out = [];
+  for (const [component, items] of groups) {
+    const signatures = new Set(items.map((item) => `${item.main}/${item.cross}`));
+    if (signatures.size > 1) out.push({ component, items });
+  }
+  return out;
+}
+
 /** Exact CSS font-family values present in text nodes and rich-text runs. */
 export function typographyFamilies(frames) {
   const found = new Set();
@@ -841,7 +889,11 @@ export function overlayVisibility(frames) {
       const through = kids.slice(i + 1)
         .filter((s) => !s.fills && s.kids?.length && !isVectorArt(s) && !isVectorCluster(s))
         .map((s) => s.n);
-      if (through.length) out.push({ overlay: ov.n, through });
+      if (through.length) out.push({
+        overlay: ov.n,
+        through,
+        stackingRule: 'later siblings stay above the overlay; create an explicit stacking context when CSS positioning would otherwise reorder them',
+      });
     }
     for (const k of kids) visit(k);
   };
@@ -940,6 +992,8 @@ export function specChecks(result) {
 
   const componentGeometry = componentGeometryChecklist(frames);
   if (componentGeometry.length) checks.componentGeometry = componentGeometry;
+  const componentLayout = componentLayoutDifferences(frames);
+  if (componentLayout.length) checks.componentLayoutDifferences = componentLayout;
   const fonts = typographyFamilies(frames);
   if (fonts.length) checks.typographyFamilies = fonts;
 
@@ -1056,7 +1110,19 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     const vis = overlayVisibility(result.frames);
     for (const v of vis) {
       out.push('', `_Overlay "${v.overlay}" stays visible through ${v.through.map((n) => `"${n}"`).join(', ')} — ${v.through.length === 1 ? 'that sibling has' : 'those siblings have'} NO fill in the design (transparent)._`);
+      out.push('', `_Stacking is explicit here: keep the later sibling(s) above "${v.overlay}" (for example \`position:relative; z-index:1\` on the later content and a lower z-index on the overlay). Do not let \`position:absolute\` move the overlay above them._`);
     }
+  }
+  const componentLayout = componentLayoutDifferences(result.frames);
+  if (componentLayout.length) {
+    out.push('', '**Required same-component layout differences:**');
+    for (const group of componentLayout) {
+      out.push(`- ${group.component}:`);
+      for (const item of group.items) {
+        out.push(`  - ${item.name}${item.id ? ` [${item.id}]` : ''} · main:${item.main} · cross:${item.cross}`);
+      }
+    }
+    out.push('', '_Alignment belongs to each rendered instance. Do not generalize one component instance’s main-axis alignment to every instance in the same set; absent `main:center` means start._');
   }
   if (phase !== 'structure') {
     const componentGeometry = componentGeometryChecklist(result.frames);
@@ -1157,6 +1223,10 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     if (node.fixed) o.fixed = true;
     if (node.grid) o.grid = node.grid;
     if (node.cell) o.cell = node.cell;
+    if (!detail) {
+      const visualHint = structureVisualHint(node);
+      if (visualHint) o.visualHint = visualHint.slice('visual:'.length);
+    }
     // Content / identity (structure information):
     if (node.txt?.chars !== undefined) o.text = node.txt.chars;
     if (node.main) o.main = node.main;

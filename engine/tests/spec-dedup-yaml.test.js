@@ -271,7 +271,10 @@ test('structured model carries dynamic fidelity checks instead of relying on tre
   const checks = specChecks(result);
   assert.deepEqual(checks.assets, { count: 1, files: ['assets/wave.svg'] });
   assert.equal(checks.overlays.count, 1);
-  assert.deepEqual(checks.overlays.transparency, [{ overlay: 'Wave', through: ['Content'] }]);
+  assert.deepEqual(checks.overlays.transparency, [{
+    overlay: 'Wave', through: ['Content'],
+    stackingRule: 'later siblings stay above the overlay; create an explicit stacking context when CSS positioning would otherwise reorder them',
+  }]);
   assert.deepEqual(checks.interactiveSets, [{ name: 'Button', id: '2:1', axes: ['State'] }]);
   assert.equal(checks.strokes.gradient, true);
   assert.equal(checks.gradientStrokes[0].n, 'Wave');

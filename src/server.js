@@ -869,7 +869,31 @@ export async function handleTool(name, rawArgs) {
       }
       if (h.plugin && input.probePlugin !== false) {
         if (conns.length > 1 && !input.fileKey) {
-          lines.push("plugin responsive: not probed — several windows are connected; pass fileKey to target one");
+          // Status is read-only, so probing every identified socket is safe
+          // and much more useful after a disconnect than asking the caller to
+          // make one status call per window. Run the probes concurrently so
+          // several sleeping windows still cost only one timeout interval.
+          const targets = [...new Map(conns.filter((c) => c.fileKey).map((c) => [c.fileKey, c])).values()];
+          if (!targets.length) {
+            lines.push("plugin responsive: not probed — connected windows have no fileKey yet; bring Figma Desktop to the foreground and retry");
+          } else {
+            const results = await Promise.all(targets.map(async (connection) => ({
+              connection,
+              probe: await probePluginResponsiveness(connection.fileKey),
+            })));
+            for (const { connection, probe } of results) {
+              const label = `${connection.fileName || "(unnamed)"} (${connection.fileKey})`;
+              if (probe.responsive) {
+                lines.push(`plugin responsive: yes — ${label} (${probe.latencyMs}ms round-trip)`);
+              } else {
+                lines.push(`plugin responsive: NO — ${label} (${probe.latencyMs}ms)`);
+                if (probe.error) lines.push(`  probe error: ${probe.error.split("\n")[0]}`);
+              }
+            }
+            if (results.some(({ probe }) => !probe.responsive)) {
+              lines.push("  Bring the unresponsive Figma window and its Figma Bridge plugin tab to the foreground, then retry; run figma_connect if it persists.");
+            }
+          }
         } else {
           const probe = await probePluginResponsiveness(input.fileKey);
           if (probe.responsive) {

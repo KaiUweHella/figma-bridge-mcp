@@ -56,14 +56,19 @@ test('describeMissing: placement fields make the report line actionable', () => 
   const line = describeMissing({
     file: 'navigation-step.svg',
     entries: [{
-      width: 26, height: 34, x: -13, y: 4,
+      width: 26, height: 34, x: -13, y: 4, rootX: 0, rootY: 488, rootId: '12:34',
       parent: 'Sidebar / Menu', parentId: '12:35',
       absolutePosition: true, overhang: true,
     }],
   });
-  assert.match(line, /navigation-step\.svg \(26×34\) @ -13,4 in "Sidebar \/ Menu" \[parent 12:35\]/);
+  assert.match(line, /navigation-step\.svg \(26×34\) @ root 0,488 \[root 12:34\] in "Sidebar \/ Menu" \[parent 12:35\]/);
   assert.match(line, /absolutely positioned/);
   assert.match(line, /overhangs its parent/);
+});
+
+test('describeMissing: legacy parent coordinates stay explicitly labeled', () => {
+  assert.equal(describeMissing({ file: 'x.svg', entries: [{ x: -13, y: 4 }] }),
+    'x.svg @ parent -13,4');
 });
 
 test('describeMissing: degrades gracefully without placement data', () => {

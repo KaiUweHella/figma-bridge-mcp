@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   specLines, formatCodeSpec, specModel,
-  overlayVisibility, gradientStrokeSpecimens, gradientBorderCss,
+  overlayVisibility, componentLayoutDifferences,
+  gradientStrokeSpecimens, gradientBorderCss,
 } from '../src/lib/code-spec.js';
 import { sectionFinderCode } from '../src/design-extract.js';
 
@@ -52,13 +53,17 @@ test('no fill:none note without an abs overlay behind, and none in structure pha
 
 test('overlayVisibility: overlay → later fill-less container siblings', () => {
   assert.deepEqual(overlayVisibility(screen().frames), [
-    { overlay: 'Background Pattern', through: ['menu'] },
+    {
+      overlay: 'Background Pattern', through: ['menu'],
+      stackingRule: 'later siblings stay above the overlay; create an explicit stacking context when CSS positioning would otherwise reorder them',
+    },
   ]);
 });
 
 test('footer names the visibility relation next to the overlay checklist', () => {
   const md = formatCodeSpec(screen(), { phase: 'style' });
   assert.match(md, /Overlay "Background Pattern" stays visible through "menu" — that sibling has NO fill in the design \(transparent\)/);
+  assert.match(md, /position:relative; z-index:1/);
 });
 
 test('specModel carries seeThrough on the transparent frame', () => {
@@ -67,6 +72,36 @@ test('specModel carries seeThrough on the transparent frame', () => {
   assert.deepEqual(menu.seeThrough, ['Background Pattern']);
   const content = model.frames[0].kids.find((k) => k.n === 'content');
   assert.equal(content.seeThrough, undefined);
+});
+
+test('structure phase marks paint-bearing wrappers without expanding full styles', () => {
+  const node = {
+    t: 'FRAME', n: 'Room Panel', id: 'room:1', lm: 'VERTICAL',
+    fills: ['#faf7f5'], strokes: ['#f8f5f2'], pad: [12, 12, 16, 12], r: 10,
+    kids: [{ t: 'TEXT', n: 'Title', txt: { chars: 'Bad' } }],
+  };
+  assert.match(specLines(node, 0, 'structure').join('\n'), /visual:fill\+border\+pad12\/12\/16\/12\+r10/);
+  assert.equal(specModel({ id: 'x', name: 'x', frames: [node] }, { phase: 'structure' }).frames[0].visualHint,
+    'fill+border+pad12/12/16/12+r10');
+});
+
+test('same component set with different alignment gets an explicit warning', () => {
+  const frames = [{
+    t: 'FRAME', n: 'Root', kids: [
+      { t: 'INSTANCE', n: 'Sidebar action', id: 'b:1', set: 'Button', main: 'primary', lm: 'HORIZONTAL', ac: 'CENTER' },
+      { t: 'INSTANCE', n: 'KV action', id: 'b:2', set: 'Button', main: 'primary', lm: 'HORIZONTAL', ap: 'CENTER', ac: 'CENTER' },
+    ],
+  }];
+  assert.deepEqual(componentLayoutDifferences(frames), [{
+    component: 'Button',
+    items: [
+      { id: 'b:1', name: 'Sidebar action', main: 'start', cross: 'center' },
+      { id: 'b:2', name: 'KV action', main: 'center', cross: 'center' },
+    ],
+  }]);
+  const md = formatCodeSpec({ id: 'x', name: 'x', frames }, { phase: 'structure' });
+  assert.match(md, /Required same-component layout differences/);
+  assert.match(md, /absent `main:center` means start/);
 });
 
 // ── gradient-stroke: ready-made CSS ──

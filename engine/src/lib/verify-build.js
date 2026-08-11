@@ -22,7 +22,7 @@
  */
 export function verifyBuild(manifests, files) {
   // Distinct asset file → its manifest entries (an entry per referencing node;
-  // placement fields x/y/parent/parentId/absolutePosition/overhang ride along
+  // placement fields x/y/rootX/rootY/parent/parentId/absolutePosition/overhang ride along
   // so a missing file reports WHERE it belongs, not just that it is gone).
   const byFile = new Map();
   for (const m of manifests || []) {
@@ -57,12 +57,15 @@ export function verifyBuild(manifests, files) {
 export function describeMissing({ file, entries }) {
   const e = entries[0] || {};
   const size = e.width != null ? ` (${e.width}×${e.height})` : '';
-  const at = e.x != null ? ` @ ${e.x},${e.y}` : '';
+  const at = e.rootX != null
+    ? ` @ root ${e.rootX},${e.rootY}`
+    : (e.x != null ? ` @ parent ${e.x},${e.y}` : '');
+  const root = e.rootId ? ` [root ${e.rootId}]` : '';
   const parent = e.parent ? ` in "${e.parent}"` : '';
   const id = e.parentId ? ` [parent ${e.parentId}]` : '';
   const flags = [
     e.absolutePosition ? 'absolutely positioned' : null,
     e.overhang ? 'overhangs its parent — keep visible' : null,
   ].filter(Boolean);
-  return `${file}${size}${at}${parent}${id}${flags.length ? ` — ${flags.join(', ')}` : ''}`;
+  return `${file}${size}${at}${root}${parent}${id}${flags.length ? ` — ${flags.join(', ')}` : ''}`;
 }

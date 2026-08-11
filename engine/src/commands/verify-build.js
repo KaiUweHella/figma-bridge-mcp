@@ -246,7 +246,7 @@ program
     if (result.missing.length) {
       console.log(chalk.red(`✗ ${result.missing.length} exported file(s) are NOT referenced anywhere:`));
       for (const m of result.missing) console.log('  - ' + describeMissing(m));
-      console.log('  Each of these is real artwork from the design. Place the file at its x/y offsets inside its parent (placement fields are in assets.json) — never approximate it with CSS.');
+      console.log('  Each of these is real artwork from the design. Prefer rootX/rootY in the export-root coordinate space (rotation-safe); x/y are immediate-parent offsets. Placement fields are in assets.json — never approximate the asset with CSS.');
     } else if (result.total) {
       console.log(chalk.green('✓ every exported asset file is referenced.'));
     }

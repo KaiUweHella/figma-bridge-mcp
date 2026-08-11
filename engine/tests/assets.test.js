@@ -113,6 +113,31 @@ test('collector: images deduped by hash, vector art topmost, hidden + soft-only 
   assert.equal(result.vectors[0].name, 'test-logo');
 });
 
+test('collector reports post-transform placement in both parent and export-root coordinates', async () => {
+  const root = {
+    id: 'rot:0', name: 'Screen', type: 'FRAME', visible: true, width: 1194, height: 834,
+    absoluteBoundingBox: { x: 200, y: 300, width: 1194, height: 834 },
+    children: [{
+      id: 'rot:1', name: 'layout', type: 'GROUP', visible: true, width: 834, height: 1194,
+      absoluteBoundingBox: { x: 200, y: 300, width: 1194, height: 834 },
+      children: [{
+        id: 'rot:2', name: 'Ring', type: 'GROUP', visible: true, width: 346, height: 346,
+        absoluteBoundingBox: { x: 200, y: 788, width: 346, height: 346 },
+        absoluteRenderBounds: { x: 200, y: 788, width: 346, height: 346 },
+        children: [{ id: 'rot:3', name: 'Vector', type: 'VECTOR', visible: true, width: 346, height: 346, children: [] }],
+      }, { id: 'rot:4', name: 'Dashboard', type: 'FRAME', visible: true, width: 1194, height: 834, children: [] }],
+    }],
+  };
+  const layout = root.children[0], ring = layout.children[0], vector = ring.children[0], dashboard = layout.children[1];
+  layout.parent = root; ring.parent = layout; vector.parent = ring; dashboard.parent = layout;
+  const result = JSON.parse(await run(assetCollectorCode(root.id), root));
+  assert.deepEqual({
+    x: result.vectors[0].x, y: result.vectors[0].y,
+    rootX: result.vectors[0].rootX, rootY: result.vectors[0].rootY,
+    coordinateSpace: result.vectors[0].coordinateSpace, rootId: result.vectors[0].rootId,
+  }, { x: 0, y: 488, rootX: 0, rootY: 488, coordinateSpace: 'export-root', rootId: 'rot:0' });
+});
+
 test('collector and spec export a small vector-only icon INSTANCE at frame bounds', async () => {
   const vector = {
     id: 'icon:2', name: 'Vector', type: 'VECTOR', visible: true,
@@ -157,6 +182,49 @@ test('node walker captures the canonical hash-derived IMAGE filename used by exp
   const capture = JSON.parse(raw);
   assert.deepEqual(capture.frames[0].images, [{ hash: 'HASH-1', file: 'image-hash1.png' }]);
   assert.equal(paintSeg(capture.frames[0]), 'fill IMAGE → assets/image-hash1.png (export assets)');
+});
+
+test('node walker cleans float noise and drops inconsistent shared padding bindings', async () => {
+  const variable = { id: 'v:1', name: 'space/2xs' };
+  const node = {
+    id: 'float:1', name: 'Scaled Panel', type: 'FRAME', visible: true,
+    width: 100, height: 40, layoutMode: 'VERTICAL', itemSpacing: 0.0000415,
+    paddingTop: 4.463, paddingRight: 4.51, paddingBottom: -0.02, paddingLeft: 4.463,
+    primaryAxisAlignItems: 'MIN', counterAxisAlignItems: 'MIN',
+    fills: [], strokes: [{ type: 'SOLID', visible: true, color: { r: 0, g: 0, b: 0 } }],
+    strokeWeight: 0.743875, cornerRadius: 1.48777, effects: [], children: [],
+    boundVariables: {
+      paddingTop: variable, paddingRight: variable, paddingBottom: variable, paddingLeft: variable,
+    },
+    getCSSAsync: async () => ({ padding: 'var(--space-2xs, 4.463px) var(--space-2xs, 4.510px)' }),
+  };
+  const figma = {
+    mixed: Symbol('mixed'),
+    getNodeByIdAsync: async (id) => id === node.id ? node : null,
+    variables: { getVariableByIdAsync: async (id) => id === variable.id ? variable : null },
+  };
+  const capture = JSON.parse(await new Function('figma', `return ${nodeWalkerCode(node.id, { withIds: true, withVars: true })}`)(figma));
+  const out = capture.frames[0];
+  assert.equal(out.gap, undefined, 'sub-0.05 gap becomes zero and is omitted');
+  assert.deepEqual(out.pad, [4.46, 4.51, 0, 4.46]);
+  assert.equal(out.sw, 0.74);
+  assert.equal(out.r, 1.49);
+  assert.equal(out.bv, undefined, 'misleading same-token padding bindings removed');
+  assert.equal(out.css.padding, '4.46px 4.51px');
+});
+
+test('style cutoff collapses a small SVG subtree instead of exposing vector frontier calls', async () => {
+  const vector = { id: 'cut:3', name: 'Vector', type: 'VECTOR', visible: true, width: 16, height: 16, fills: [], strokes: [], effects: [], children: [] };
+  const icon = { id: 'cut:2', name: 'interaction/s/link', type: 'GROUP', visible: true, width: 16, height: 16, fills: [], strokes: [], effects: [], children: [vector] };
+  const wrapper = { id: 'cut:1', name: 'Button content', type: 'FRAME', visible: true, width: 100, height: 32, layoutMode: 'HORIZONTAL', itemSpacing: 8, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0, fills: [], strokes: [], effects: [], children: [icon] };
+  const root = { id: 'cut:0', name: 'Button', type: 'FRAME', visible: true, width: 100, height: 32, fills: [], strokes: [], effects: [], children: [wrapper] };
+  wrapper.parent = root; icon.parent = wrapper; vector.parent = icon;
+  const figma = { mixed: Symbol('mixed'), getNodeByIdAsync: async (id) => id === root.id ? root : null };
+  const capture = JSON.parse(await new Function('figma', `return ${nodeWalkerCode(root.id, { maxDepth: 2, withIds: true })}`)(figma));
+  const capturedIcon = capture.frames[0].kids[0].kids[0];
+  assert.deepEqual(capturedIcon.vectorAsset, { internalLayers: 1 });
+  assert.equal(capturedIcon.frontier, undefined);
+  assert.match(specLines(capturedIcon, 0, 'style')[0], /vector art → assets\/interaction-s-link\.svg/);
 });
 
 test('byte-fetch snippets are valid JS and target the right ids', () => {
