@@ -18,7 +18,7 @@ test("package.json files covers every runtime directory", () => {
     "src", "engine/src", "engine/package.json", "plugin", "NOTICE", "engine/LICENSE",
     // Shipped deliberately: the npm page is where most people decide whether to
     // trust an MCP server with write access to their design file.
-    "SECURITY.md", "SUPPORT.md", "docs", "CONTEXT.md", "CONTRIBUTING.md",
+    "SECURITY.md", "CHANGELOG.md", "README.md", "LICENSE",
   ]) {
     assert.ok(
       pkg.files.includes(required),
@@ -27,9 +27,24 @@ test("package.json files covers every runtime directory", () => {
   }
 });
 
+test("package.json keeps maintainer-only documentation out of the tarball", () => {
+  for (const repositoryOnly of ["docs", "CONTEXT.md", "CONTRIBUTING.md", "SUPPORT.md"]) {
+    assert.equal(
+      pkg.files.includes(repositoryOnly),
+      false,
+      `"${repositoryOnly}" is repository documentation and should not ship to npm`,
+    );
+  }
+});
+
 test("package identity: name, bin, repository, prepublish test gate", () => {
   assert.equal(pkg.name, "figma-bridge-mcp");
   assert.ok(pkg.bin["figma-bridge-mcp"], "bin entry present");
+  assert.match(
+    readFileSync(join(ROOT, pkg.bin["figma-bridge-mcp"]), "utf8"),
+    /^#!\/usr\/bin\/env node\r?\n/,
+    "the installed npm executable needs a portable Node shebang",
+  );
   assert.equal(
     pkg.repository.url,
     "git+https://github.com/KaiUweHella/figma-bridge-mcp.git",
@@ -37,6 +52,8 @@ test("package identity: name, bin, repository, prepublish test gate", () => {
   );
   assert.equal(pkg.scripts.prepublishOnly, "npm test", "publishing must run the suite");
   assert.equal(pkg.publishConfig.access, "public");
+  assert.equal(pkg.publishConfig.registry, "https://registry.npmjs.org/");
+  assert.equal(pkg.main, undefined, "the executable package must not claim a library entry point");
 });
 
 test("root MIT license stays canonical; third-party notices stay complete", () => {

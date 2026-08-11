@@ -10,12 +10,15 @@ token, and no custom REST client publishes packages.
    `package-lock.json`, and replace `unreleased` in `CHANGELOG.md` with the
    release date.
 3. Run `npm test` and `npm pack --dry-run --json`. Inspect the tarball list for
-   `src/`, `engine/src/`, all three plugin files, `SECURITY.md`, `NOTICE`, both
-   licenses, and `SUPPORT.md`.
+   `src/`, `engine/src/`, all three plugin files, `README.md`, `SECURITY.md`,
+   `CHANGELOG.md`, `NOTICE`, and both licenses. Confirm that repository-only
+   material (`docs/`, `CONTEXT.md`, `CONTRIBUTING.md`, `SUPPORT.md`) is absent.
 4. Install the packed artifact in a temporary directory and run
+   `node_modules/.bin/figma-bridge-mcp < /dev/null` followed by
    `node node_modules/figma-bridge-mcp/engine/src/index.js --help` there. This
-   proves the packaged command graph starts without resolving files from the
-   checkout; the CI `pack` job performs the same smoke test.
+   proves both the public executable and packaged command graph start without
+   resolving files from the checkout; the CI `pack` job performs the same smoke
+   test.
 5. Commit, create an exact `v<version>` tag, and push the commit and tag.
 
 The repository must be public before a provenance-bearing release, and

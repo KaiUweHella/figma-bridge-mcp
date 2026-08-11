@@ -1,25 +1,20 @@
 {
   "name": "figma-bridge-mcp",
   "version": "0.4.0",
-  "description": "Self-contained MCP server for controlling Figma locally via a vendored Safe-Mode engine plus a plugin access key. Efficiency of a CLI bridge, security of a hardened local plugin socket. No Figma API token required.",
+  "description": "Local MCP server for inspecting and editing Figma Desktop through an authenticated localhost plugin bridge.",
   "type": "module",
   "bin": {
     "figma-bridge-mcp": "src/server.js"
   },
-  "main": "src/server.js",
   "files": [
     "src",
     "engine/src",
     "engine/package.json",
     "engine/LICENSE",
     "plugin",
-    "docs",
-    "CONTEXT.md",
-    "CONTRIBUTING.md",
     "README.md",
     "SECURITY.md",
     "CHANGELOG.md",
-    "SUPPORT.md",
     "LICENSE",
     "NOTICE"
   ],
@@ -33,7 +28,9 @@
   },
   "keywords": [
     "figma",
+    "figma-mcp",
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "design-to-code",
     "figma-plugin",
@@ -61,8 +58,10 @@
     "node": ">=18"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
+  "author": "Kai-Uwe Hella",
   "license": "MIT",
   "devDependencies": {
     "@figma/plugin-typings": "^1.133.0",

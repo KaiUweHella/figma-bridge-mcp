@@ -1,18 +1,96 @@
 # figma-bridge-mcp
 
-A **self-contained** MCP server that lets an AI assistant drive **Figma Desktop
-locally** — a plugin bridge with terse, token-efficient commands, hardened by
-a **locally generated access key** you paste into the plugin once.
+A local MCP server that lets AI assistants inspect, create, and update designs
+in **Figma Desktop**. It connects through a small Figma development plugin and
+exposes focused tools for screenshots, design specs, JSX rendering, tokens,
+assets, components, FigJam, and Figma Slides.
 
 Everything runs on `127.0.0.1`. No Figma Personal Access Token required. No
 cloud. No binary patching of the Figma app.
 
-An **optional REST add-on** (version history, comments, published library
-metadata) can be enabled by pasting a Figma PAT into the plugin window — the
-token is stored 0600 on your machine, never in your MCP client config, never
-in chat. See [REST add-on](#rest-add-on-optional).
+An [optional REST add-on](#rest-add-on-optional) adds version history, comments,
+and published-library metadata. Its Figma token stays on your machine and is
+never placed in your MCP client configuration or chat.
 
----
+Requirements: Node.js 18 or newer, Figma Desktop, and an MCP client that can
+start local stdio servers.
+
+## Quick start
+
+### 1. Add the MCP server
+
+The recommended setup uses `npx`: no clone and no build step. For Claude Code:
+
+```bash
+claude mcp add figma-bridge -- npx -y figma-bridge-mcp@latest
+```
+
+For another MCP client, add the equivalent server configuration:
+
+```json
+{
+  "mcpServers": {
+    "figma-bridge": {
+      "command": "npx",
+      "args": ["-y", "figma-bridge-mcp@latest"]
+    }
+  }
+}
+```
+
+Restart the MCP client if it does not discover the server immediately. There is
+intentionally no `env` block: the bridge creates its local credentials during
+pairing.
+
+<details>
+<summary>From source (contributors)</summary>
+
+```bash
+git clone https://github.com/KaiUweHella/figma-bridge-mcp.git
+cd figma-bridge-mcp
+npm install
+```
+
+```json
+{
+  "mcpServers": {
+    "figma-bridge": {
+      "command": "node",
+      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
+    }
+  }
+}
+```
+
+</details>
+
+### 2. Pair Figma Desktop once
+
+1. Ask your AI assistant to **connect to Figma**, or call `figma_connect`
+   directly. It starts the local bridge and returns an access key plus a plugin
+   manifest path.
+2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
+   and choose **`~/.figma-bridge-mcp/plugin/manifest.json`** (the path
+   returned by `figma_connect`).
+3. Open `Plugins → Development → Figma Bridge`, paste the access key, and
+   click **Save & connect**.
+4. When the plugin shows **Connected (authenticated)**, the assistant can work
+   with that Figma file. The pairing is remembered; on later sessions, only
+   reopen the plugin in the file you want to use.
+
+### 3. Use it with Figma
+
+Select a frame or layer in Figma and describe the outcome you want. For example:
+
+- "Inspect my current selection and explain its layout."
+- "Create a settings card next to the selected frame."
+- "Export the selected screen's tokens and assets into this project."
+- "Implement the selected frame, then compare the result with Figma."
+
+The assistant can read the current selection, capture screenshots and specs,
+render JSX, export assets, or apply targeted edits. Keep the Figma Bridge plugin
+open in every document the assistant should access. If more than one document
+is connected, pass a Figma URL or file key so the target is unambiguous.
 
 ## How it works
 
@@ -77,67 +155,6 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
     This closes the upstream gap where *any* local process could connect to the
     plugin socket and run code in your Figma document — and the inverse gap,
     where anything answering on a local port could drive an honest plugin.
-
-## Install
-
-The recommended setup is **npx** — no clone, no build, always the latest
-version:
-
-```bash
-claude mcp add figma-safe -- npx -y figma-bridge-mcp@latest
-```
-
-Or in any MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "figma-safe": {
-      "command": "npx",
-      "args": ["-y", "figma-bridge-mcp@latest"]
-    }
-  }
-}
-```
-
-Note there is **no `env` block** — unlike PAT-based Figma MCP servers, no
-token lives in your client config. Everything the server needs is generated
-locally on first connect.
-
-<details>
-<summary>From source (contributors)</summary>
-
-```bash
-git clone https://github.com/KaiUweHella/figma-bridge-mcp.git
-cd figma-bridge-mcp
-npm install
-```
-
-```json
-{
-  "mcpServers": {
-    "figma-safe": {
-      "command": "node",
-      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
-    }
-  }
-}
-```
-
-</details>
-
-## One-time pairing
-
-1. Call **`figma_connect`**. It generates your access key (if needed), starts
-   the daemon, installs the plugin files to a stable location, and prints the
-   key plus the import path.
-2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
-   and choose **`~/.figma-bridge-mcp/plugin/manifest.json`** (the path
-   `figma_connect` printed — stable across npx updates).
-3. Launch the plugin: `Plugins → Development → Figma Bridge`. **Paste the
-   access key** into its input and click *Save & connect*. The key is stored in
-   the plugin (`figma.clientStorage`) and reused every session.
-4. The plugin shows **“Connected (authenticated)”**. Verify with **`figma_status`**.
 
 ## Tools
 
