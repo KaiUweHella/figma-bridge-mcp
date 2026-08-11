@@ -1,6 +1,11 @@
 node_modules/
 .DS_Store
 *.log
+.claude/
+.env
+.env.*
+!.env.example
+.npmrc
 # downloaded by figma_run ["api","setup"] (offline API docs; machine-local)
 engine/docs/
 # local working docs (plans, reports, scratch)
