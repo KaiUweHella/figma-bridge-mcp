@@ -228,7 +228,7 @@ resetIdleTimer();
 // File identity arrives with the first selection push (the plugin sends one
 // immediately on connect) — the handshake itself carries no file information,
 // and adding it there would mean signing data the transcript does not cover.
-const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, selection, connectedAt }
+const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, selection, connectedAt, lastResponseAt }
 let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
 
@@ -248,6 +248,7 @@ function connectionList() {
     fileName: c.fileName ?? null,
     editorType: c.editorType ?? null,
     connectedAt: c.connectedAt,
+    lastResponseAt: c.lastResponseAt ?? null,
   }));
 }
 
@@ -659,7 +660,7 @@ wss.on('connection', (ws) => {
       conns.set(ws, {
         connectionId: randomUUID(),
         fileKey: null, fileName: null, editorType: null,
-        selection: null, connectedAt: new Date().toISOString(),
+        selection: null, connectedAt: new Date().toISOString(), lastResponseAt: null,
       });
       console.log(`[daemon] Plugin authenticated (version: ${version}) — ${openConns().length} window(s) connected`);
       // Prove ourselves back before the plugin will accept a single eval.
@@ -682,6 +683,8 @@ wss.on('connection', (ws) => {
     if (msg.type === 'result') {
       const pending = pluginPendingRequests.get(msg.id);
       if (pending && pending.ws === ws) {
+        const conn = conns.get(ws);
+        if (conn) conn.lastResponseAt = new Date().toISOString();
         clearTimeout(pending.timeout);
         pluginPendingRequests.delete(msg.id);
         if (msg.error) pending.reject(new Error(msg.error));
@@ -692,6 +695,8 @@ wss.on('connection', (ws) => {
     if (msg.type === 'batch-result') {
       const pending = pluginPendingRequests.get(msg.id);
       if (pending) {
+        const conn = conns.get(ws);
+        if (conn) conn.lastResponseAt = new Date().toISOString();
         clearTimeout(pending.timeout);
         pluginPendingRequests.delete(msg.id);
         pending.resolve(msg.results);

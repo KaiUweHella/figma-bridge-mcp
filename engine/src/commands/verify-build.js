@@ -275,7 +275,8 @@ program
       console.log('  A solid red band with correct content above it usually means a block was inserted/dropped there — everything below shifts. Cross-check the missing-asset findings above; region coordinates match the spec and assets.json placement fields.');
       if (visualFail) console.log(chalk.red(`✗ --max-diff ${maxDiff}% exceeded.`));
     } else if (!result.missing.length) {
-      console.log('Mechanical check passed — for the visual pass: screenshot your build at the design\'s width and re-run with --compare <build.png> (add --design <figma.png> to stay offline).');
+      console.log(chalk.yellow('⚠ ASSET-ONLY CHECK PASSED; VISUAL FIDELITY IS NOT VERIFIED. Do not declare the implementation done yet.'));
+      console.log('  Screenshot your build at the design\'s width and re-run with --compare <build.png> (add --design <figma.png> to stay offline). This catches omitted gradients, wrong component variants/sizes, and shifted absolute overlays.');
     }
     process.exit(exitCode);
   });

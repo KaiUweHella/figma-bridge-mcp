@@ -26,6 +26,7 @@ import {
 } from '../application/code-spec-command.js';
 import { executeScreenshot } from '../application/screenshot-command.js';
 import { DEFAULT_RASTER_SCALE, optimizePngForUsages } from '../lib/raster-optimize.js';
+import { svgVisualFingerprint } from '../lib/svg-dedup.js';
 
 // Compatibility export for existing tests/callers while the Implementation
 // now lives behind the command application's Interface.
@@ -342,11 +343,13 @@ exp
         usedNames.add(file);
         return file;
       };
-      // Content-hash dedup: identical bytes get ONE file, however many nodes
-      // export them ("state-s-circle-check.svg/-2/-3" were byte-identical).
+      // Content dedup: raster bytes must match exactly; SVGs use a visual
+      // fingerprint that ignores generated ids and imperceptible float noise.
       const byContent = new Map(); // sha1 → file name already written
       const writeUnique = (base, ext, buf) => {
-        const digest = createHash('sha1').update(buf).digest('hex');
+        const digest = ext === 'svg'
+          ? svgVisualFingerprint(buf)
+          : createHash('sha1').update(buf).digest('hex');
         const prior = byContent.get(digest);
         if (prior) return prior;
         const file = uniqueName(base, ext);

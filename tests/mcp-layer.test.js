@@ -272,6 +272,8 @@ test('specialized Figma tools expose consistent explicit file targeting', async 
   }
   const status = TOOLS.find((candidate) => candidate.name === 'figma_status');
   assert.ok(status.inputSchema.properties.validateRest, 'REST validation must be explicit/lazy');
+  assert.ok(status.inputSchema.properties.probePlugin, 'plugin responsiveness probe must be controllable');
+  assert.match(status.description, /round-trip/i);
   const spec = TOOLS.find((candidate) => candidate.name === 'figma_spec');
   assert.ok(spec.inputSchema.properties.format.enum.includes('json-compact'));
   assert.equal(spec.inputSchema.properties.format.default, 'tree');

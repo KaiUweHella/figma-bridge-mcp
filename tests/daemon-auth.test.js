@@ -450,6 +450,10 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     assert.equal(payload.metadata.fileKey, 'REV_FILE');
     assert.equal(payload.metadata.documentRevisionBefore, 9);
     assert.equal(payload.metadata.documentRevisionAfter, 9);
+    const health = await (await httpHealth(auth('GET', '/health'))).json();
+    const connection = health.connections.find((item) => item.fileKey === 'REV_FILE');
+    assert.match(connection.lastResponseAt, /^\d{4}-\d{2}-\d{2}T/,
+      'health must distinguish a merely open socket from a plugin that has answered');
   });
 });
 

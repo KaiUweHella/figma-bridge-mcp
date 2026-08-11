@@ -90,6 +90,17 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     return true;
   });
 
+  const pluginStalled = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async () => response(503, { error: 'Plugin execution timeout (25s)' }),
+  });
+  await assert.rejects(() => pluginStalled.evaluate('x'), (error) => {
+    assert.equal(error.kind, 'plugin-timeout');
+    assert.match(error.message, /foreground/i);
+    assert.match(error.message, /socket is open/i);
+    return true;
+  });
+
   const authFailure = createDaemonClient({
     readToken: () => 'token', getPort: () => 3456, tokenFile: '/state/.daemon-token',
     fetchImpl: async () => response(403, { error: 'Unauthorized request token' }),

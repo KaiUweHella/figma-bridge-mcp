@@ -169,6 +169,85 @@ test('structure map exposes every layer id so exact style calls are unambiguous'
   assert.match(lines.join('\n'), /Repeated name · \[1:3\]/);
 });
 
+test('overlay checklist names every absolute layer and forbids turning offsets into parent spacing', () => {
+  const result = {
+    id: '1:1', name: 'Screen', visibleNodeCount: 3, sets: [],
+    frames: [{ t: 'FRAME', n: 'Screen', id: '1:1', kids: [
+      {
+        t: 'RECTANGLE', n: 'Rectangle 28', id: '1:2', w: 900, h: 700,
+        abs: { a: 'top-left', x: 0, y: 0 }, fills: ['linear-gradient(red, blue)'],
+      },
+      { t: 'FRAME', n: 'Content', id: '1:3' },
+    ] }],
+  };
+  const output = formatCodeSpec(result, { phase: 'structure', dedup: false });
+  assert.match(output, /Required absolute-layer checklist/);
+  assert.match(output, /Rectangle 28 \[1:2\]/);
+  assert.match(output, /figma_spec \{"nodeId":"1:2","phase":"style","depth":0\}/);
+  assert.match(output, /out of flow/i);
+  assert.match(output, /never become parent padding, margin, gap, or a sibling shift/i);
+  const model = specModel(result, { phase: 'structure', dedup: false });
+  assert.deepEqual(model.checks.overlays.items, [{ id: '1:2', name: 'Rectangle 28' }]);
+  assert.match(model.checks.overlays.implementationRule, /out-of-flow/);
+});
+
+test('component size variants are emitted as mandatory geometry constraints', () => {
+  const result = {
+    id: '1:1', name: 'Screen', visibleNodeCount: 2, sets: [],
+    frames: [{ t: 'FRAME', n: 'Screen', kids: [{
+      t: 'INSTANCE', n: 'button', id: '1:2', main: 'button',
+      props: { size: 'medium', state: 'default' }, w: 321, h: 48,
+      pad: [16, 24, 16, 24],
+    }] }],
+  };
+  const output = formatCodeSpec(result, { phase: 'style', dedup: false });
+  assert.match(output, /Required component-geometry checklist/);
+  assert.match(output, /button \[1:2\].*size=medium.*321×48.*pad16\/24/);
+  assert.match(output, /modifier\/variant must be attached to the rendered instance/i);
+  const model = specModel(result, { phase: 'style', dedup: false });
+  assert.equal(model.checks.componentGeometry[0].size, 'medium');
+  assert.equal(model.checks.componentGeometry[0].h, 48);
+});
+
+test('font package choice cannot silently rename the Figma font family', () => {
+  const result = {
+    id: '1:1', name: 'Screen', visibleNodeCount: 2, sets: [],
+    frames: [{ t: 'FRAME', n: 'Screen', kids: [{
+      t: 'TEXT', n: 'Title', txt: { chars: 'Hello', font: 'Geist', size: 24 },
+    }] }],
+  };
+  const output = formatCodeSpec(result, { phase: 'style', dedup: false });
+  assert.match(output, /Required CSS font-family value\(s\): `Geist`/);
+  assert.match(output, /package name is not a CSS family name/i);
+  assert.deepEqual(specModel(result, { phase: 'style', dedup: false }).checks.typographyFamilies, ['Geist']);
+});
+
+test('depth cutoff collapses a large live vector cluster instead of requesting every path', async () => {
+  const children = Array.from({ length: 24 }, (_, index) => ({
+    id: `art:${index + 1}`, name: `Vector ${index + 1}`, type: 'VECTOR',
+    visible: true, width: 4, height: 4, children: [],
+  }));
+  const pattern = {
+    id: 'art:1', name: 'Background Pattern', type: 'FRAME', visible: true,
+    width: 800, height: 600, children,
+  };
+  const root = {
+    id: 'art:0', name: 'Screen', type: 'FRAME', visible: true,
+    width: 800, height: 600, children: [pattern],
+  };
+  pattern.parent = root;
+  for (const child of children) child.parent = pattern;
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, {
+    maxDepth: 1, withIds: true,
+  }), root));
+  assert.equal(result.frames[0].kids[0].vectorCluster.internalLayers, 24);
+  assert.equal(result.frames[0].kids[0].frontier, undefined);
+  assert.equal(result.frames[0].kids[0].more, undefined);
+  assert.match(formatCodeSpec(result, { phase: 'style', dedup: false }),
+    /Background Pattern.*vector art ×24.*assets\/background-pattern\.svg/);
+  assert.equal(layerCoverage(result.frames, result.visibleNodeCount).complete, true);
+});
+
 test('layer coverage accounts for explicit rows, SVG internals and non-rendering helpers', () => {
   const frames = [{
     t: 'FRAME', n: 'Screen', kids: [

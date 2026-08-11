@@ -152,6 +152,7 @@ export function walkerCode(pageId, {
        serializer (lib/paint-css.js) for walker AND inspect — the two used to
        drift (mirrored angles here, no angle at all there). */
     ${paintsSnippetJs}
+    ${assetPolicyPluginSource()}
     const varNameCache = new Map();
     const imageMetaCache = new Map();
     const imageMeta = async (hash) => {
@@ -173,6 +174,22 @@ export function walkerCode(pageId, {
     const childFrontier = (n) => ('children' in n ? Array.from(n.children) : [])
       .filter((child) => INCLUDE_HIDDEN || child.visible !== false)
       .map((child) => ({ id: child.id, name: child.name }));
+    const visibleSubtreeSize = (n) => {
+      if (n.visible === false && !INCLUDE_HIDDEN) return 0;
+      return 1 + ('children' in n
+        ? Array.from(n.children).reduce((sum, child) => sum + visibleSubtreeSize(child), 0)
+        : 0);
+    };
+    const collapseVectorCluster = (n, out) => {
+      const cluster = assetVectorCluster(n, __assetAccess);
+      if (!cluster.cluster) return false;
+      out.vectorCluster = {
+        vectorChildren: cluster.vectorChildren,
+        totalChildren: cluster.totalChildren,
+        internalLayers: Math.max(0, visibleSubtreeSize(n) - 1),
+      };
+      return true;
+    };
     const varName = async (id) => {
       if (varNameCache.has(id)) return varNameCache.get(id);
       let name = null;
@@ -658,6 +675,10 @@ export function walkerCode(pageId, {
       }
       if ('children' in n && n.children.length) {
         if (depth >= MAX_DEPTH) {
+          // Hundreds of path children are one exported artwork, not hundreds
+          // of missing style contracts. Classify against the live subtree at
+          // the cutoff and carry its exact accounted-layer count compactly.
+          if (MAX_DEPTH > 0 && collapseVectorCluster(n, o)) return o;
           if (MAX_DEPTH > 0) {
             o.frontier = childFrontier(n);
             if (o.frontier.length) o.more = o.frontier.length;

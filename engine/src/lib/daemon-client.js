@@ -80,7 +80,7 @@ export function createDaemonClient({
     } catch (error) {
       if (timeoutError(error)) {
         throw new DaemonClientError(
-          `Execution timeout (${timeoutMs / 1000}s). Try reconnecting: node src/index.js connect`,
+          `Execution timeout (${timeoutMs / 1000}s). Bring the Figma Desktop window and Figma Bridge plugin to the foreground, then retry; use figma_connect if it stays unresponsive`,
           { kind: 'timeout', cause: error },
         );
       }
@@ -125,6 +125,9 @@ export function createDaemonClient({
       } else if (/Plugin not connected/i.test(raw)) {
         kind = 'plugin-unavailable';
         message = 'Plugin not connected.\nIn Figma: Plugins → Development → Figma Bridge (keep that tab open).';
+      } else if (/Plugin execution timeout|Execution timeout/i.test(raw)) {
+        kind = 'plugin-timeout';
+        message = `${String(raw).split('\n')[0]}\nThe socket is open but Figma did not answer. Bring Figma Desktop and the plugin tab to the foreground, then retry; use figma_connect if it persists.`;
       }
       throw new DaemonClientError(message, { kind, status: response.status });
     }

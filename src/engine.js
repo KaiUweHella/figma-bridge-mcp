@@ -543,3 +543,24 @@ export async function health() {
     };
   }
 }
+
+/** A real read-only plugin round trip. A WebSocket can remain OPEN while a
+ * backgrounded Figma/plugin runtime no longer services eval messages, so
+ * socket state alone is not a useful readiness signal. */
+export async function probePluginResponsiveness(fileKey, timeoutMs = 4000) {
+  const target = resolveFileTarget(fileKey, []);
+  const started = Date.now();
+  try {
+    await daemonClient().execute('eval', {
+      code: '(async () => ({ ok: true }))()',
+      timeoutMs: Math.max(1000, timeoutMs - 500),
+    }, { fileKey: target, timeoutMs });
+    return { responsive: true, latencyMs: Date.now() - started, error: null };
+  } catch (error) {
+    return {
+      responsive: false,
+      latencyMs: Date.now() - started,
+      error: error?.message || String(error),
+    };
+  }
+}

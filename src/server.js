@@ -12,7 +12,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, getSelection, resolveFileTarget } from "./engine.js";
+import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, getSelection, resolveFileTarget } from "./engine.js";
 import {
   listFigmaCapabilities,
   planFigmaCommand,
@@ -63,11 +63,12 @@ export const TOOLS = [
   {
     name: "figma_status",
     description:
-      "Show local bridge, plugin, file and key state. REST validation is opt-in to keep status fast.",
+      "Show bridge/plugin/file/key state. Performs a real plugin round-trip by default; REST validation is opt-in.",
     inputSchema: {
       type: "object",
       properties: {
         validateRest: { type: "boolean", description: "Also validate the optional REST token remotely." },
+        probePlugin: { type: "boolean", default: true, description: "Plugin eval probe (default true); false = socket only." },
         fileKey: { type: "string", description: "File key/URL for REST file-access validation fallback." },
       },
       additionalProperties: false,
@@ -865,6 +866,23 @@ export async function handleTool(name, rawArgs) {
         } else if (editor === "slides") {
           lines.push("  Slides deck — use figma_run [\"slides\", …] for the beta command surface.");
         }
+      }
+      if (h.plugin && input.probePlugin !== false) {
+        if (conns.length > 1 && !input.fileKey) {
+          lines.push("plugin responsive: not probed — several windows are connected; pass fileKey to target one");
+        } else {
+          const probe = await probePluginResponsiveness(input.fileKey);
+          if (probe.responsive) {
+            lines.push(`plugin responsive: yes (${probe.latencyMs}ms round-trip)`);
+          } else {
+            lines.push(`plugin responsive: NO (${probe.latencyMs}ms) — socket is connected but Figma did not answer`);
+            lines.push("  Bring Figma Desktop and the Figma Bridge plugin tab to the foreground, then retry; run figma_connect if it persists.");
+            if (probe.error) lines.push(`  probe error: ${probe.error.split("\n")[0]}`);
+          }
+        }
+      } else if (h.plugin) {
+        const recent = conns.map((connection) => connection.lastResponseAt).filter(Boolean).sort().at(-1);
+        lines.push(`plugin responsive: not probed (socket only)${recent ? `; last successful response ${recent}` : "; no successful response recorded"}`);
       }
       // Optional REST layer: local status stays local/fast by default. Remote
       // validation is explicit because a cold Figma REST probe can take

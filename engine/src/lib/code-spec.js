@@ -46,7 +46,7 @@ export function isVectorArt(node) {
  * floods with per-shape lines the exporter never writes. Pure.
  */
 export function isVectorCluster(node) {
-  return capturedVectorCluster(node).cluster;
+  return node?.vectorCluster?.internalLayers > 0 || capturedVectorCluster(node).cluster;
 }
 
 /**
@@ -556,7 +556,7 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
   if (isVectorCluster(node)) {
     // Mostly-vector container (pattern of hundreds of shapes): ONE line,
     // exactly like `export assets` writes ONE file for it.
-    return [vectorArtLine(node, ` ×${(node.kids || []).length}`)];
+    return [vectorArtLine(node, ` ×${node.vectorCluster?.totalChildren ?? (node.kids || []).length}`)];
   }
   if (isInvisibleHelper(node)) return []; // paint-less bounding/mask shape — renders nothing
   // Soft primitives (RECTANGLE/ELLIPSE/LINE, incl. gradient overlays) fall
@@ -715,7 +715,9 @@ export function layerCoverage(frames, sourceVisible = null) {
   const visit = (node) => {
     if (node.hidden) return;
     if (isVectorArt(node) || isVectorCluster(node)) {
-      const size = subtreeSize(node);
+      const size = node.vectorCluster?.internalLayers != null
+        ? 1 + node.vectorCluster.internalLayers
+        : subtreeSize(node);
       coverage.captured += size;
       coverage.explicitRows += 1;
       coverage.assetInternalLayers += Math.max(0, size - 1);
@@ -769,6 +771,55 @@ export function countOverlays(frames) {
   };
   for (const f of frames || []) visit(f);
   return count;
+}
+
+/** Every emitted absolute layer with the exact id needed for a node-only
+ * style follow-up. This turns a lossy count into a checkable contract. */
+export function overlayChecklist(frames) {
+  const out = [];
+  const visit = (node) => {
+    if (node.hidden || isInvisibleHelper(node)) return;
+    if (node.abs) out.push({ id: node.id || null, name: node.n || 'Unnamed layer' });
+    if (isVectorArt(node) || isVectorCluster(node) || isIconInstance(node)) return;
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of frames || []) visit(frame);
+  return out;
+}
+
+/** Component instances whose size variant controls actual geometry. */
+export function componentGeometryChecklist(frames) {
+  const out = [];
+  const visit = (node) => {
+    if (node.hidden) return;
+    if (node.t === 'INSTANCE' && node.props) {
+      const size = Object.entries(node.props).find(([key]) => /^size$/i.test(key));
+      if (size) {
+        out.push({
+          id: node.id || null,
+          name: node.n || node.main || 'Instance',
+          size: String(size[1]), w: node.w, h: node.h, pad: node.pad,
+        });
+      }
+    }
+    if (isVectorArt(node) || isVectorCluster(node) || isIconInstance(node)) return;
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of frames || []) visit(frame);
+  return out;
+}
+
+/** Exact CSS font-family values present in text nodes and rich-text runs. */
+export function typographyFamilies(frames) {
+  const found = new Set();
+  const visit = (node) => {
+    if (node.hidden) return;
+    if (node.txt?.font) found.add(String(node.txt.font));
+    for (const run of node.txt?.runs || []) if (run.font) found.add(String(run.font));
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of frames || []) visit(frame);
+  return [...found].sort();
 }
 
 /**
@@ -881,9 +932,16 @@ export function specChecks(result) {
   if (overlayCount) {
     checks.overlays = {
       count: overlayCount,
+      items: overlayChecklist(frames),
+      implementationRule: 'out-of-flow; child offsets never become parent padding/margin/gap or shift siblings',
       ...(transparency.length ? { transparency } : {}),
     };
   }
+
+  const componentGeometry = componentGeometryChecklist(frames);
+  if (componentGeometry.length) checks.componentGeometry = componentGeometry;
+  const fonts = typographyFamilies(frames);
+  if (fonts.length) checks.typographyFamilies = fonts;
 
   const interactiveSets = [];
   for (const set of result.sets || []) {
@@ -984,6 +1042,14 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   const overlays = countOverlays(result.frames);
   if (overlays) {
     out.push('', `_${overlays} absolutely-positioned overlay(s): implement every \`abs\`/\`place\`/\`inset\` node, INCLUDING purely decorative gradient rectangles._`);
+    out.push('', '**Required absolute-layer checklist (all are out of flow):**');
+    for (const overlay of overlayChecklist(result.frames)) {
+      const followup = overlay.id
+        ? ` → figma_spec {"nodeId":${JSON.stringify(overlay.id)},"phase":"style","depth":0}`
+        : '';
+      out.push(`- ${overlay.name}${overlay.id ? ` [${overlay.id}]` : ''}${followup}`);
+    }
+    out.push('', '_An absolute child’s offset belongs only to that child. It must never become parent padding, margin, gap, or a sibling shift._');
     // Which fill-less siblings each overlay must stay visible through —
     // without this the relation had to be inferred, and builds painted the
     // transparent frames opaque (Run 7: the background pattern vanished).
@@ -993,6 +1059,20 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     }
   }
   if (phase !== 'structure') {
+    const componentGeometry = componentGeometryChecklist(result.frames);
+    if (componentGeometry.length) {
+      out.push('', '**Required component-geometry checklist:**');
+      for (const item of componentGeometry) {
+        const size = item.w != null && item.h != null ? ` · ${item.w}×${item.h}` : '';
+        const pad = Array.isArray(item.pad) ? ` · ${pad4(item.pad)}` : '';
+        out.push(`- ${item.name}${item.id ? ` [${item.id}]` : ''} · size=${item.size}${size}${pad}`);
+      }
+      out.push('', '_A size modifier/variant must be attached to the rendered instance and its outer W×H/padding verified; merely defining the CSS class does not satisfy the Figma constraint._');
+    }
+    const fonts = typographyFamilies(result.frames);
+    if (fonts.length) {
+      out.push('', `_Required CSS font-family value(s): ${fonts.map((font) => `\`${font}\``).join(', ')}. A package name is not a CSS family name; verify the browser's computed font-family and loaded face instead of renaming or approximating it._`);
+    }
     // The fill→fixed-px translation error is the top layout bug of real
     // rebuilds — spell the CSS mapping out instead of assuming it.
     out.push('', '_Sizing: `w:fill` = stretch into the parent (`flex:1`/`align-self:stretch`), NEVER a fixed px width; `w:hug` = fit-content; bare W×H = fixed. Min/max map directly. Use space-between only for `main:between`._');
@@ -1052,7 +1132,7 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     // used to swallow them entirely (the missing-decor bug class).
     if (isVectorArt(node) || isVectorCluster(node)) {
       const o = { t: node.t, n: node.n, vectorArt: `assets/${assetFileName(node.n, 'svg', ancestors)}` };
-      if (!isVectorArt(node)) o.shapes = (node.kids || []).length; // cluster: N shapes → one artwork
+      if (!isVectorArt(node)) o.shapes = node.vectorCluster?.totalChildren ?? (node.kids || []).length; // cluster: N shapes → one artwork
       if (node.id) o.id = node.id;
       if (node.hidden) o.hidden = true;
       // Rendered box wins over pre-rotation w/h — same rule as the text
