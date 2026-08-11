@@ -43,7 +43,10 @@ test("root MIT license stays canonical; third-party notices stay complete", () =
   const license = readFileSync(join(ROOT, "LICENSE"), "utf8");
   const notice = readFileSync(join(ROOT, "NOTICE"), "utf8");
   const upstreamLicense = readFileSync(join(ROOT, "engine", "LICENSE"), "utf8");
-  assert.match(license, /^MIT License\n\nCopyright \(c\) 2026 Kai-Uwe Hella and contributors\n\nPermission is hereby granted,/);
+  const licenseHeader = /^MIT License\r?\n\r?\nCopyright \(c\) 2026 Kai-Uwe Hella and contributors\r?\n\r?\nPermission is hereby granted,/;
+  assert.match(license, licenseHeader);
+  assert.match(license.replace(/\r?\n/g, "\r\n"), licenseHeader,
+    "the canonical license contract must also hold after a Windows CRLF checkout");
   assert.doesNotMatch(license, /figma-ds-cli|Feather/, "attribution belongs in NOTICE, not the canonical license");
   assert.match(notice, /Sil Bormüller/);
   assert.match(notice, /retained in full at engine\/LICENSE/);
