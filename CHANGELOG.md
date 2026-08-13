@@ -40,10 +40,9 @@ the daemon/state directory and key themselves remain unchanged.
   variable bindings now survive as structured facts. Authored Auto Layout/Grid
   wins over marked Figma `inferredAutoLayout`; geometry remains the last,
   explicit fallback.
-- Added semantic-subtree delta navigation to report-only Round-trip Plans and
-  an optional offline Dev Mode Codegen adapter. Dev Mode shows document-local
-  Bridge context, native CSS and component contracts; repository links and
-  baselines continue to resolve through `link context`.
+- Added semantic-subtree delta navigation to report-only Round-trip Plans.
+  Changed semantic paths resolve to their current Figma node ids without
+  turning report-only reconciliation into an automatic write.
 
 ### Fixed
 

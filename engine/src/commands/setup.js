@@ -1,6 +1,6 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -15,14 +15,19 @@ const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
 // The path the user imports in Figma. Under an npx install the package lives
 // in an EPHEMERAL cache that npx may garbage-collect — importing the manifest
 // from there breaks the plugin on cache eviction. So connect copies both
-// plugin adapters to the stable state dir and prints THAT path; only if the copy
-// fails does it fall back to the in-package path.
+// connected plugin adapters to the stable state dir and prints THAT path; only
+// if the copy fails does it fall back to the in-package path.
 function installPluginFiles() {
   const dest = join(STATE_DIR, 'plugin');
   try {
     mkdirSync(dest, { recursive: true });
-    for (const f of ['manifest.json', 'manifest.dev.json', 'code.js', 'ui.html', 'manifest.codegen.json', 'codegen.js']) {
+    for (const f of ['manifest.json', 'manifest.dev.json', 'code.js', 'ui.html']) {
       copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
+    }
+    // 0.5.0 briefly shipped a separate offline Codegen adapter. It is not
+    // needed by the MCP workflow; remove stable-cache leftovers on upgrade.
+    for (const retired of ['manifest.codegen.json', 'codegen.js']) {
+      try { rmSync(join(dest, retired), { force: true }); } catch {}
     }
     return join(dest, 'manifest.json');
   } catch {
@@ -323,11 +328,9 @@ program
     console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(pluginManifestPath));
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
 
-    console.log(chalk.white.bold('  DEV MODE (SEPARATE READ-ONLY ADAPTERS):\n'));
+    console.log(chalk.white.bold('  OPTIONAL DEV MODE (SEPARATE READ-ONLY ADAPTER):\n'));
     console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
-      + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.dev.json')));
-    console.log(chalk.cyan('  → ') + chalk.white('Optional native Code panel: ')
-      + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.codegen.json')) + '\n');
+      + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.dev.json')) + '\n');
 
     console.log(chalk.white.bold('  EACH SESSION:\n'));
     console.log(chalk.cyan('  → ') + chalk.white('Design mode: ') + chalk.yellow('Plugins → Development → Figma Bridge'));

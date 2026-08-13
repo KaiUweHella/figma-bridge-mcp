@@ -86,13 +86,6 @@ the existing FigJam editor target with `dev` in one manifest:
   inspection, specs and exports. Dev Mode is read-only, so rendering and canvas
   edits still require switching the file to Design mode and opening the normal
   **Figma Bridge** plugin there.
-- Optionally import `~/.figma-bridge-mcp/plugin/manifest.codegen.json` for
-  **Figma Bridge Codegen**. This separate offline adapter appears in Dev Mode's
-  native Code dropdown and shows the selected node's Bridge semantic path and
-  fallback provenance, native Figma CSS, designer annotations and component
-  contract. Repository paths and accepted baselines intentionally stay out of
-  the Figma document; use the displayed `link context <entityId>` read to
-  resolve them through MCP.
 
 ### 3. Use it with Figma
 
@@ -1245,7 +1238,7 @@ transport and the plugin are unrelated. Where this project differs is that the
 socket also proves who is on the other end of it.
 
 **Plugin identity.** The development manifests use the product-aligned ids
-`figma-bridge-mcp`, `figma-bridge-mcp-dev` and
-`figma-bridge-mcp-codegen`. Figma keys `clientStorage` — where the paired
-access key lives — on the plugin id. Installations from before 0.5.0 therefore
-need to re-import the manifest and paste their existing Bridge access key once.
+`figma-bridge-mcp` and `figma-bridge-mcp-dev`. Figma keys `clientStorage` —
+where the paired access key lives — on the plugin id. Installations from before
+0.5.0 therefore need to re-import the manifest and paste their existing Bridge
+access key once.

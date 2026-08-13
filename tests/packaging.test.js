@@ -83,9 +83,13 @@ test("test script uses Node discovery instead of shell-expanded globs", () => {
 
 test("plugin dir ships every adapter connect installs", () => {
   const setupSource = readFileSync(join(ROOT, "engine", "src", "commands", "setup.js"), "utf8");
-  for (const f of ["manifest.json", "manifest.dev.json", "code.js", "ui.html", "manifest.codegen.json", "codegen.js"]) {
+  for (const f of ["manifest.json", "manifest.dev.json", "code.js", "ui.html"]) {
     assert.ok(existsSync(join(ROOT, "plugin", f)), `plugin/${f} exists`);
     assert.ok(setupSource.includes(`'${f}'`), `figma_connect installs plugin/${f}`);
+  }
+  for (const removed of ["manifest.codegen.json", "codegen.js"]) {
+    assert.equal(existsSync(join(ROOT, "plugin", removed)), false, `plugin/${removed} stays removed`);
+    assert.ok(setupSource.includes(`'${removed}'`), `figma_connect retires cached plugin/${removed}`);
   }
 });
 
