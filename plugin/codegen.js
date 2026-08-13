@@ -86,7 +86,7 @@ async function componentContract(node) {
   return Object.keys(contract).length ? contract : null;
 }
 
-figma.codegen.on('generate', async ({ node, language }) => {
+if (figma.editorType === 'dev' && figma.mode === 'codegen') figma.codegen.on('generate', async ({ node, language }) => {
   /** @type {CodegenResult[]} */
   const results = [];
   const context = bridgeContext(node);

@@ -81,9 +81,11 @@ test("test script uses Node discovery instead of shell-expanded globs", () => {
   );
 });
 
-test("plugin dir ships both adapters connect installs", () => {
-  for (const f of ["manifest.json", "code.js", "ui.html", "manifest.codegen.json", "codegen.js"]) {
+test("plugin dir ships every adapter connect installs", () => {
+  const setupSource = readFileSync(join(ROOT, "engine", "src", "commands", "setup.js"), "utf8");
+  for (const f of ["manifest.json", "manifest.dev.json", "code.js", "ui.html", "manifest.codegen.json", "codegen.js"]) {
     assert.ok(existsSync(join(ROOT, "plugin", f)), `plugin/${f} exists`);
+    assert.ok(setupSource.includes(`'${f}'`), `figma_connect installs plugin/${f}`);
   }
 });
 

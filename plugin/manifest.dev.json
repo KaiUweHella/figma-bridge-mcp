@@ -1,0 +1,32 @@
+{
+  "name": "Figma Bridge Dev Mode",
+  "id": "figma-safe-mcp-bridge-dev",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "capabilities": ["inspect"],
+  "permissions": ["teamlibrary"],
+  "enableProposedApi": false,
+  "enablePrivatePluginApi": true,
+  "editorType": ["dev"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "ws://localhost",
+      "ws://localhost:3456",
+      "ws://localhost:3457",
+      "ws://localhost:3458",
+      "ws://localhost:3459",
+      "ws://localhost:3460"
+    ],
+    "devAllowedDomains": [
+      "ws://localhost",
+      "ws://localhost:3456",
+      "ws://localhost:3457",
+      "ws://localhost:3458",
+      "ws://localhost:3459",
+      "ws://localhost:3460"
+    ],
+    "reasoning": "Read-only Dev Mode inspection through the authenticated local CLI daemon only."
+  }
+}

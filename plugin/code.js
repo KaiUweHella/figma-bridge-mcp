@@ -2170,6 +2170,13 @@ figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'render-plan') {
     const { id, plan } = msg;
+    if (figma.editorType === 'dev') {
+      figma.ui.postMessage({
+        type: 'result', id,
+        error: 'Figma Dev Mode is read-only. Switch this file to Design mode and open Figma Bridge there to render or edit nodes.',
+      });
+      return;
+    }
     evalChain = evalChain.then(async () => {
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
@@ -2184,6 +2191,13 @@ figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'render-plan-batch') {
     const { id, plans, options } = msg;
+    if (figma.editorType === 'dev') {
+      figma.ui.postMessage({
+        type: 'result', id,
+        error: 'Figma Dev Mode is read-only. Switch this file to Design mode and open Figma Bridge there to render or edit nodes.',
+      });
+      return;
+    }
     evalChain = evalChain.then(async () => {
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
@@ -2220,7 +2234,7 @@ figma.ui.onmessage = async (msg) => {
   if (msg.type === 'resize') {
     const w = Math.max(280, Math.min(500, Number(msg.width) || 360));
     const h = Math.max(200, Math.min(700, Number(msg.height) || 272));
-    figma.ui.resize(w, h);
+    if (figma.editorType !== 'dev') figma.ui.resize(w, h);
     return;
   }
 
@@ -2228,6 +2242,12 @@ figma.ui.onmessage = async (msg) => {
   // history. No restore API exists — this is a safety net the user restores
   // from via Figma's own version history panel.
   if (msg.type === 'save-version') {
+    if (figma.editorType === 'dev') {
+      const error = 'Figma Dev Mode is read-only. Switch to Design mode to save a named version.';
+      figma.ui.postMessage({ type: 'version-saved', error });
+      figma.notify(error, { error: true, timeout: 4000 });
+      return;
+    }
     try {
       await figma.saveVersionHistoryAsync('Figma Bridge — ' + new Date().toISOString());
       figma.ui.postMessage({ type: 'version-saved' });
@@ -2240,7 +2260,12 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'connected') {
-    figma.notify('✓ Figma Bridge connected', { timeout: 2000 });
+    figma.notify(
+      figma.editorType === 'dev'
+        ? '✓ Figma Bridge connected in Dev Mode (read-only)'
+        : '✓ Figma Bridge connected',
+      { timeout: 2500 },
+    );
     // Seed the daemon with the current selection right away.
     pushSelection();
   }

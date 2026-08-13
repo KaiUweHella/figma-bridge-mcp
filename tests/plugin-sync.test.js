@@ -11,7 +11,7 @@
 // mismatch, so it is checked here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORT_RANGE, DEFAULT_PORT } from '../engine/src/lib/daemon-port.js';
@@ -66,6 +66,19 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.enableProposedApi, false);
   assert.equal(manifest.main, 'code.js');
   assert.equal(manifest.ui, 'ui.html');
+});
+
+test('Dev Mode exposes a connectable read-only Inspect adapter', () => {
+  const devManifestPath = join(ROOT, 'plugin', 'manifest.dev.json');
+  assert.ok(existsSync(devManifestPath), 'plugin/manifest.dev.json must ship for the connected Dev Mode workflow');
+  const devManifest = JSON.parse(readFileSync(devManifestPath, 'utf8'));
+  assert.deepEqual(devManifest.editorType, ['dev']);
+  assert.deepEqual(devManifest.capabilities, ['inspect']);
+  assert.equal(devManifest.main, 'code.js');
+  assert.equal(devManifest.ui, 'ui.html');
+  assert.deepEqual(devManifest.networkAccess.allowedDomains, manifest.networkAccess.allowedDomains);
+  assert.deepEqual(devManifest.networkAccess.devAllowedDomains, manifest.networkAccess.devAllowedDomains);
+  assert.match(PLUGIN_CODE, /Figma Dev Mode is read-only\. Switch this file to Design mode/);
 });
 
 test('selection snapshots expose the shared Design Entity identity', () => {

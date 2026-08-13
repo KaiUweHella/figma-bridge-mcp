@@ -18,7 +18,7 @@ test('Dev Mode adapter is a separate offline codegen manifest', () => {
 
 test('Dev Mode projects Bridge context, native CSS and component contracts', async () => {
   let generate;
-  const figma = { codegen: { on(type, callback) { if (type === 'generate') generate = callback; } } };
+  const figma = { editorType: 'dev', mode: 'codegen', codegen: { on(type, callback) { if (type === 'generate') generate = callback; } } };
   new Function('figma', source)(figma);
   assert.equal(typeof generate, 'function');
   const data = {
@@ -52,4 +52,19 @@ test('Dev Mode projects Bridge context, native CSS and component contracts', asy
   const contract = JSON.parse(results[2].code);
   assert.equal(contract.properties['Icon#1'].type, 'INSTANCE_SWAP');
   assert.equal(contract.mainComponent.key, 'BUTTON_KEY');
+});
+
+test('Codegen registers only in the Dev Mode codegen context', () => {
+  for (const context of [
+    { editorType: 'figma', mode: 'default' },
+    { editorType: 'dev', mode: 'inspect' },
+  ]) {
+    let registered = false;
+    const figma = {
+      ...context,
+      codegen: { on() { registered = true; } },
+    };
+    new Function('figma', source)(figma);
+    assert.equal(registered, false);
+  }
 });

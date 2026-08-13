@@ -21,7 +21,7 @@ function installPluginFiles() {
   const dest = join(STATE_DIR, 'plugin');
   try {
     mkdirSync(dest, { recursive: true });
-    for (const f of ['manifest.json', 'code.js', 'ui.html', 'manifest.codegen.json', 'codegen.js']) {
+    for (const f of ['manifest.json', 'manifest.dev.json', 'code.js', 'ui.html', 'manifest.codegen.json', 'codegen.js']) {
       copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
     }
     return join(dest, 'manifest.json');
@@ -323,12 +323,15 @@ program
     console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(pluginManifestPath));
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
 
-    console.log(chalk.white.bold('  OPTIONAL DEV MODE CODEGEN:\n'));
-    console.log(chalk.cyan('  → ') + chalk.white('Import this second manifest: ')
+    console.log(chalk.white.bold('  DEV MODE (SEPARATE READ-ONLY ADAPTERS):\n'));
+    console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
+      + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.dev.json')));
+    console.log(chalk.cyan('  → ') + chalk.white('Optional native Code panel: ')
       + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.codegen.json')) + '\n');
 
     console.log(chalk.white.bold('  EACH SESSION:\n'));
-    console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → Figma Bridge'));
+    console.log(chalk.cyan('  → ') + chalk.white('Design mode: ') + chalk.yellow('Plugins → Development → Figma Bridge'));
+    console.log(chalk.cyan('  → ') + chalk.white('Dev Mode: ') + chalk.yellow('Plugins → Development → Figma Bridge Dev Mode'));
     console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
 
     // Wait for the plugin to connect AND authenticate.

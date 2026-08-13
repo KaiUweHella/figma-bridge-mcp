@@ -950,6 +950,8 @@ export async function handleTool(name, rawArgs) {
           lines.push("  FigJam board — use figma_run [\"jam\", …]; design commands need a Figma file.");
         } else if (editor === "slides") {
           lines.push("  Slides deck — use figma_run [\"slides\", …] for the beta command surface.");
+        } else if (editor === "dev") {
+          lines.push("  Dev Mode — connected for inspection only; switch to Design mode and open Figma Bridge there before any canvas write.");
         }
       }
       if (h.plugin && input.probePlugin !== false) {

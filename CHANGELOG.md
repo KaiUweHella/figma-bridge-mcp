@@ -43,6 +43,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Add a separate connected Dev Mode Inspect manifest, keep the normal Bridge
+  available for read-only MCP inspection in Dev Mode, and report the Design
+  mode boundary explicitly for canvas writes.
 - Restored the readable `tree` design-spec default after a Sonnet 5 regression
   test showed that the lossless compact-JSON default expanded a 6.5k/83-line
   structure map into a 45k one-line response, pushed a central style response

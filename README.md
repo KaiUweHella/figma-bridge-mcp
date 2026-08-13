@@ -78,13 +78,21 @@ npm install
    with that Figma file. The pairing is remembered; on later sessions, only
    reopen the plugin in the file you want to use.
 
-Optional for Figma Dev Mode: import the second path printed by
-`figma_connect`, `~/.figma-bridge-mcp/plugin/manifest.codegen.json`. **Figma
-Bridge Codegen** is a separate, offline, read-only plugin. Its Inspect sections
-show the selected node's Bridge semantic path and fallback provenance, native
-Figma CSS, designer annotations and component contract. Repository paths and
-accepted baselines intentionally stay out of the Figma document; use the
-displayed `link context <entityId>` read to resolve them through MCP.
+Figma Dev Mode needs separate adapters because Figma does not support combining
+the existing FigJam editor target with `dev` in one manifest:
+
+- Import `~/.figma-bridge-mcp/plugin/manifest.dev.json` for **Figma Bridge Dev
+  Mode**. It keeps the authenticated MCP bridge connected for selection,
+  inspection, specs and exports. Dev Mode is read-only, so rendering and canvas
+  edits still require switching the file to Design mode and opening the normal
+  **Figma Bridge** plugin there.
+- Optionally import `~/.figma-bridge-mcp/plugin/manifest.codegen.json` for
+  **Figma Bridge Codegen**. This separate offline adapter appears in Dev Mode's
+  native Code dropdown and shows the selected node's Bridge semantic path and
+  fallback provenance, native Figma CSS, designer annotations and component
+  contract. Repository paths and accepted baselines intentionally stay out of
+  the Figma document; use the displayed `link context <entityId>` read to
+  resolve them through MCP.
 
 ### 3. Use it with Figma
 
