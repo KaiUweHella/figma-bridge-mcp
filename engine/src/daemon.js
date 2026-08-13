@@ -177,7 +177,7 @@ function nonceReplayed(nonce, now = Date.now()) {
 function validateRequest(req, body = '') {
   // Layer 1: Host header validation (blocks DNS rebinding)
   const host = req.headers.host || '';
-  if (!host.match(/^(localhost|127\.0\.0\.1)(:\d+)?$/)) {
+  if (!host.match(/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/)) {
     return 'Invalid host header';
   }
 
@@ -228,7 +228,7 @@ resetIdleTimer();
 // File identity arrives with the first selection push (the plugin sends one
 // immediately on connect) — the handshake itself carries no file information,
 // and adding it there would mean signing data the transcript does not cover.
-const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, selection, connectedAt, lastResponseAt }
+const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, capabilities, selection, connectedAt, lastResponseAt }
 let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
 
@@ -247,6 +247,7 @@ function connectionList() {
     fileKey: c.fileKey ?? null,
     fileName: c.fileName ?? null,
     editorType: c.editorType ?? null,
+    capabilities: c.capabilities || [],
     connectedAt: c.connectedAt,
     lastResponseAt: c.lastResponseAt ?? null,
   }));
@@ -290,8 +291,15 @@ function resolveTarget(fileKey) {
   );
 }
 
-async function evalViaPlugin(code, fileKey = null) {
+async function requestViaPlugin(action, data, fileKey = null) {
   const ws = resolveTarget(fileKey);
+  const conn = conns.get(ws);
+  if (action === 'render-plan' && !conn?.capabilities?.includes('render-plan-v1')) {
+    throw new Error('Plugin capability missing: render-plan-v1. Reload the installed Figma Bridge plugin to enable structured rendering.');
+  }
+  if (action === 'render-plan-batch' && !conn?.capabilities?.includes('render-plan-batch-v1')) {
+    throw new Error('Plugin capability missing: render-plan-batch-v1. Reload the installed Figma Bridge plugin to enable structured batch rendering.');
+  }
 
   return new Promise((resolve, reject) => {
     const id = ++pluginMsgId;
@@ -303,7 +311,7 @@ async function evalViaPlugin(code, fileKey = null) {
     pluginPendingRequests.set(id, { resolve, reject, timeout, ws });
 
     try {
-      ws.send(JSON.stringify({ action: 'eval', id, code }));
+      ws.send(JSON.stringify({ action, id, ...data }));
     } catch (sendError) {
       clearTimeout(timeout);
       pluginPendingRequests.delete(id);
@@ -316,7 +324,15 @@ async function evalViaPlugin(code, fileKey = null) {
 
 async function executeEval(code, fileKey = null) {
   // Plugin handles its own top-level-return wrapping — send code as-is.
-  return evalViaPlugin(code, fileKey);
+  return requestViaPlugin('eval', { code }, fileKey);
+}
+
+async function executeRenderPlan(plan, fileKey = null) {
+  return requestViaPlugin('render-plan', { plan }, fileKey);
+}
+
+async function executeRenderPlanBatch(plans, options, fileKey = null) {
+  return requestViaPlugin('render-plan-batch', { plans, options }, fileKey);
 }
 
 function resultMetadata(ws, raw) {
@@ -474,7 +490,7 @@ function handleExec(req, res) {
     // exempted only render/render-batch and re-ran evals; that was wrong.
     inFlightExecs++;
     try {
-      const { action, code, timeoutMs, fileKey } = payload;
+      const { action, code, plan, plans, options, timeoutMs, fileKey } = payload;
       let result;
       let metadata = null;
 
@@ -488,16 +504,29 @@ function handleExec(req, res) {
       };
 
       switch (action) {
-        // 'eval' is the ONLY execution action. The 'render'/'render-batch'
-        // actions that compiled JSX daemon-side were removed: they ran a
-        // potentially stale copy of the compiler (until daemon restart) and
-        // could never carry CLI-side state (image bytes, project icons,
-        // presets) — the CLI now always compiles and sends the code here.
+        // `eval` remains the compatibility action. `render-plan` carries the
+        // validated Semantic Render Plan to the plugin's static native
+        // executor; unlike the removed daemon-side JSX render actions it does
+        // not keep a second parser/compiler or lose CLI-side semantic state.
         // Long renders pass their budget via timeoutMs (clamped: a client
         // must not be able to disable the timeout entirely).
         case 'eval': {
           const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
           const execution = await execWithTimeout(() => executeEval(code, fileKey || null), ms);
+          result = execution.result;
+          metadata = execution.metadata;
+          break;
+        }
+        case 'render-plan': {
+          const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
+          const execution = await execWithTimeout(() => executeRenderPlan(plan, fileKey || null), ms);
+          result = execution.result;
+          metadata = execution.metadata;
+          break;
+        }
+        case 'render-plan-batch': {
+          const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
+          const execution = await execWithTimeout(() => executeRenderPlanBatch(plans, options || {}, fileKey || null), ms);
           result = execution.result;
           metadata = execution.metadata;
           break;
@@ -521,25 +550,25 @@ function handleExec(req, res) {
 // ============ START SERVERS ============
 
 const httpServer = createServer(handleRequest);
+const ipv6HttpServer = createServer(handleRequest);
 
 // WebSocket server for plugin connections.
 // verifyClient is the first gate: only localhost Host headers and the sandboxed
 // Figma plugin origin (null/absent) or figma.com are allowed through. Everything
 // else — including any browser page on another origin — is rejected with 401.
-const wss = new WebSocketServer({
-  server: httpServer,
-  path: '/plugin',
-  verifyClient(info) {
+function verifyPluginClient(info) {
     const req = info.req;
     const host = req.headers.host || '';
-    if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return false;
+    if (!/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host)) return false;
     const origin = info.origin;
     if (origin && origin !== 'null' && !/^https:\/\/(www\.)?figma\.com$/.test(origin)) {
       return false;
     }
     return true;
-  }
-});
+}
+
+const wss = new WebSocketServer({ server: httpServer, path: '/plugin', verifyClient: verifyPluginClient });
+const ipv6Wss = new WebSocketServer({ server: ipv6HttpServer, path: '/plugin', verifyClient: verifyPluginClient });
 
 // ws re-emits the underlying server's errors (including the EADDRINUSE of a
 // failed bind attempt) on the WebSocketServer. Without a listener that becomes
@@ -547,15 +576,15 @@ const wss = new WebSocketServer({
 // start() can try the next port. The HTTP-server side owns PRE-bind error
 // handling — but post-bind ws-server errors must not vanish silently, so they
 // are logged once the daemon holds a port.
-wss.on('error', (err) => {
-  if (boundPort !== null) {
-    console.error('[daemon] WebSocket server error:', err.message);
-  }
-});
+for (const socketServer of [wss, ipv6Wss]) {
+  socketServer.on('error', (err) => {
+    if (boundPort !== null) console.error('[daemon] WebSocket server error:', err.message);
+  });
+}
 
 const AUTH_TIMEOUT_MS = 5000;
 
-wss.on('connection', (ws) => {
+function handlePluginSocket(ws) {
   // Each socket starts unauthenticated. The daemon speaks first with a random
   // challenge; the FIRST message back must be a {type:'hello'} carrying a proof
   // over (our nonce, their nonce, our bound port, their version). Until that
@@ -660,6 +689,8 @@ wss.on('connection', (ws) => {
       conns.set(ws, {
         connectionId: randomUUID(),
         fileKey: null, fileName: null, editorType: null,
+        capabilities: Array.isArray(msg.capabilities)
+          ? msg.capabilities.filter((item) => ['render-plan-v1', 'render-plan-batch-v1'].includes(item)) : [],
         selection: null, connectedAt: new Date().toISOString(), lastResponseAt: null,
       });
       console.log(`[daemon] Plugin authenticated (version: ${version}) — ${openConns().length} window(s) connected`);
@@ -809,7 +840,10 @@ wss.on('connection', (ws) => {
   ws.on('error', (error) => {
     console.error('[daemon] Plugin WebSocket error:', error.message);
   });
-});
+}
+
+wss.on('connection', handlePluginSocket);
+ipv6Wss.on('connection', handlePluginSocket);
 
 // Cross-check the response signature against the OS: is the PID listening on
 // `port` the one in our PID file? Returns true/false, or null when unknown
@@ -855,15 +889,32 @@ async function looksLikeOurDaemon(port) {
   }
 }
 
-function tryListen(port) {
+function listenOn(server, port, host) {
   return new Promise((resolve, reject) => {
     const onError = (err) => reject(err);
-    httpServer.once('error', onError);
-    httpServer.listen(port, '127.0.0.1', () => {
-      httpServer.removeListener('error', onError);
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.removeListener('error', onError);
       resolve();
     });
   });
+}
+
+function closeListener(server) {
+  return new Promise((resolve) => {
+    if (!server.listening) return resolve();
+    server.close(() => resolve());
+  });
+}
+
+async function tryListen(port) {
+  await listenOn(httpServer, port, '127.0.0.1');
+  try {
+    await listenOn(ipv6HttpServer, port, '::1');
+  } catch (error) {
+    await closeListener(httpServer);
+    throw error;
+  }
 }
 
 async function start() {
@@ -917,11 +968,13 @@ async function start() {
 }
 
 // Unexpected errors after a successful bind (the pre-bind path handles its own).
-httpServer.on('error', (err) => {
-  if (boundPort === null) return; // tryListen owns pre-bind errors
-  console.error('[daemon] server error:', err);
-  process.exit(1);
-});
+for (const server of [httpServer, ipv6HttpServer]) {
+  server.on('error', (err) => {
+    if (boundPort === null) return; // tryListen owns pre-bind errors
+    console.error('[daemon] server error:', err);
+    process.exit(1);
+  });
+}
 
 start();
 
@@ -942,6 +995,7 @@ function shutdown() {
   if (idleTimer) clearTimeout(idleTimer);
   // Stop accepting new connections; established in-flight responses live on.
   httpServer.close(() => {});
+  ipv6HttpServer.close(() => {});
   // Keep the plugin socket OPEN until in-flight evals have answered — closing
   // it first reset every running /exec with a connection error even though the
   // code kept executing in Figma (duplicate-mutation bait on manual restart).

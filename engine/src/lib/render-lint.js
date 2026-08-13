@@ -81,7 +81,7 @@ export function formatReuseWarning(finding) {
   const m = finding.match;
   const lines = [];
   if (finding.kind === 'set') {
-    lines.push(`"${finding.name}" already exists as component set "${m.name}" (${m.id}).`);
+    lines.push(`"${finding.name}" has a name-match candidate in component set "${m.name}" (${m.id}).`);
     const axes = m.variantAxes || {};
     const axisLines = Object.entries(axes)
       .map(([axis, def]) => `${axis}: ${(def.values || []).join(' | ')}`);
@@ -94,11 +94,13 @@ export function formatReuseWarning(finding) {
         if (hit) { variantAttr = ` variant="${axis}=${hit}"`; break; }
       }
     }
-    lines.push(`  instead of rebuilding: <Instance component="${m.name}"${variantAttr} />`);
-    lines.push(`  missing a variant? figma_run ["component","add-variant","${m.name}","Axis=Value"]`);
+    lines.push('  decision required: is this the same Design Entity and visually/structurally compatible?');
+    lines.push(`  if yes, link ${m.id} to a repository entity and instrument data-figma-component="<entity-id>"${variantAttr ? ` with${variantAttr}` : ''}.`);
+    lines.push(`  name equality alone never authorizes <Instance component="${m.name}" />.`);
   } else {
-    lines.push(`"${finding.name}" already exists as component "${m.name}" (${m.id}).`);
-    lines.push(`  instead of rebuilding: <Instance component="${m.name}" />`);
+    lines.push(`"${finding.name}" has a name-match candidate in component "${m.name}" (${m.id}).`);
+    lines.push('  decision required: if it is the same Design Entity, link it and instrument data-figma-component="<entity-id>".');
+    lines.push(`  name equality alone never authorizes <Instance component="${m.name}" />.`);
   }
   return lines.join('\n');
 }

@@ -53,6 +53,26 @@ test('exact capture keeps complete text and native Figma CSS on every layer', as
   assert.match(output, /css\{color:#123456; font-size:32px; text-align:center\}/);
 });
 
+test('Design Entity identity survives Figma capture into tree and structured specs', async () => {
+  const root = {
+    id: 'entity:1', name: 'Settings', type: 'FRAME', visible: true,
+    width: 1024, height: 768, children: [],
+    getPluginData: (key) => key === 'figma-bridge-design-entity'
+      ? JSON.stringify({ version: 1, id: 'screen.settings', kind: 'screen' })
+      : '',
+  };
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, {
+    withIds: true,
+  }), root));
+  assert.equal(result.frames[0].entityId, 'screen.settings');
+  assert.equal(result.frames[0].entityKind, 'screen');
+  assert.match(formatCodeSpec(result, { phase: 'structure', dedup: false }),
+    /entity `screen\.settings` \[screen\]/);
+  const modelNode = specModel(result, { phase: 'structure', dedup: false }).frames[0];
+  assert.equal(modelNode.entityId, 'screen.settings');
+  assert.equal(modelNode.entityKind, 'screen');
+});
+
 // ============ hidden-node filtering (IMPROVEMENTS #1) ============
 // The walker snippets run inside Figma, but they are plain JS — so we can
 // execute them against a stub `figma` global and assert real behavior

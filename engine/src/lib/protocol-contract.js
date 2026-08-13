@@ -1,16 +1,46 @@
-// Runtime contracts for the two dynamic transport seams.
+// Runtime contracts for the authenticated execution and plugin-message seams.
 //
 // Cryptographic verification remains in daemon-auth/plugin-handshake. This
 // module owns message shape, size and required-field validation before the
 // daemon interprets any caller-controlled value.
 
+import { assertSemanticRenderPlan } from './semantic-render-plan.js';
+
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export function validateExecPayload(value) {
   if (!isRecord(value)) return 'request body must be an object';
-  if (value.action !== 'eval') return 'action must be "eval"';
-  if (typeof value.code !== 'string' || !value.code.length) return 'eval code must be a non-empty string';
-  if (value.code.length > 5_000_000) return 'eval code exceeds the 5 MB protocol limit';
+  if (!['eval', 'render-plan', 'render-plan-batch'].includes(value.action)) return 'action must be "eval", "render-plan", or "render-plan-batch"';
+  if (value.action === 'eval') {
+    if (typeof value.code !== 'string' || !value.code.length) return 'eval code must be a non-empty string';
+    if (value.code.length > 5_000_000) return 'eval code exceeds the 5 MB protocol limit';
+  }
+  if (value.action === 'render-plan') {
+    try { assertSemanticRenderPlan(value.plan, { executable: true }); }
+    catch (error) { return `render plan is invalid: ${error.message}`; }
+    let bytes;
+    try { bytes = JSON.stringify(value.plan).length; }
+    catch (error) { return `render plan is not serializable: ${error.message}`; }
+    if (bytes > 5_000_000) return 'render plan exceeds the 5 MB protocol limit';
+  }
+  if (value.action === 'render-plan-batch') {
+    if (!Array.isArray(value.plans) || value.plans.length < 1 || value.plans.length > 100) {
+      return 'render plan batch must contain 1-100 plans';
+    }
+    for (let index = 0; index < value.plans.length; index++) {
+      try { assertSemanticRenderPlan(value.plans[index], { executable: true }); }
+      catch (error) { return `render plan batch item ${index + 1} is invalid: ${error.message}`; }
+    }
+    if (value.options != null && !isRecord(value.options)) return 'render plan batch options must be an object';
+    if (value.options?.gap != null && (!Number.isFinite(Number(value.options.gap)) || Number(value.options.gap) < 0 || Number(value.options.gap) > 10000)) {
+      return 'render plan batch gap must be between 0 and 10000';
+    }
+    if (value.options?.vertical != null && typeof value.options.vertical !== 'boolean') return 'render plan batch vertical must be boolean';
+    let bytes;
+    try { bytes = JSON.stringify({ plans: value.plans, options: value.options || {} }).length; }
+    catch (error) { return `render plan batch is not serializable: ${error.message}`; }
+    if (bytes > 5_000_000) return 'render plan batch exceeds the 5 MB protocol limit';
+  }
   if (value.fileKey != null && (typeof value.fileKey !== 'string' || value.fileKey.length > 64)) {
     return 'fileKey must be a string of at most 64 characters';
   }

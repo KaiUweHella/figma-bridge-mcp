@@ -18,7 +18,14 @@ import {
   planFigmaCommand,
 } from "./capability-catalog.js";
 import { buildHistory } from "./history.js";
-import { annotationFor, storybookTrailer, storybookMappingsForSpecModel } from "./figma-map.js";
+import {
+  annotationFor,
+  designEntityAnnotationFor,
+  designEntityMappingsForSpecModel,
+  designEntityTrailer,
+  storybookTrailer,
+  storybookMappingsForSpecModel,
+} from "./figma-map.js";
 import { ensureKey, readKey, rotateKey, keyPath } from "./pairing.js";
 import { readRestToken, getRestHealth, resolveFileKey, getVersions, getFileAtVersion, getComments, postComment, getFileComponents, NOT_CONFIGURED_MSG } from "./figma-rest.js";
 import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
@@ -27,6 +34,12 @@ import { DEFAULT_SPEC_FORMAT, parseSpecModel, serializeSpecModel } from "../engi
 import { executeCodeSpec } from "../engine/src/application/code-spec-command.js";
 import { executeInspect } from "../engine/src/application/inspect-command.js";
 import { executeScreenshot } from "../engine/src/application/screenshot-command.js";
+import {
+  designLinkFileKeyFromArgv,
+  designLinkRequestFromArgv,
+  executeDesignLink,
+  formatDesignLinkResult,
+} from "../engine/src/application/design-link-command.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 export function isWrite(args) {
@@ -255,7 +268,7 @@ export const TOOLS = [
   {
     name: "figma_reference",
     description:
-      "Offline Plugin API reference. Special topics: capabilities, workflow, workflow:design-to-code, workflow:code-to-figma.",
+      "Offline Plugin API reference. Special topics: capabilities, variable-scopes, workflow, workflow:design-to-code, workflow:code-to-figma.",
     inputSchema: {
       type: "object",
       properties: {
@@ -464,11 +477,18 @@ figma_run gives access to further read commands: ["node","tree","<id>"],
 ["analyze","colors"], ["extract"] (writes DESIGN.md), ["verify","<id>"].
 Append --help to any command for syntax.
 
-Storybook mirroring: ["map","storybook","<url|dir>"] matches the Figma file's
-components (stable publish keys) against a running/built Storybook and writes
-figma-map.json into your project. When that file exists, figma_selection and
-figma_spec annotate components with their story (↔ story <id>). Edit entries
-by hand and set "matchedBy": "manual" to pin them across re-runs.
+Design memory: ["link","set","<nodeId>","<entity.id>","--source",
+"src/Component.tsx","--export","Component"] gives the Figma node and code one
+durable identity in figma-bridge.json. Pass confirm:true. Then figma_selection
+and figma_spec resolve that exact entity/code; reuse it instead of creating a
+look-alike. For a screen, acceptance requires its browser screenshot and a
+passing pixel gate: ["link","accept","<entity.id>","--compare",
+"/abs/browser.png","--max-diff","5"]. The baseline records the diff and image
+hashes; fingerprints alone can no longer accept a visually wrong screen. Start later work with
+["link","context","<entity.id>"]: it reports unchanged/code-only/figma-only/
+conflict/untracked plus exact next reads. A conflict never picks a winner.
+["link","inspect","<nodeId>"] resolves a link; ["link","list"] reads the
+repository Registry. Existing figma-map.json mappings remain a legacy adapter.
 
 When you BUILD components + stories from a Figma design: name each component
 and its story title after the Figma component/set name from the spec (the
@@ -482,6 +502,26 @@ LAST step, once the stories exist.
 The reverse direction: build designs IN Figma from code. Order matters —
 tokens first, then components, then screens:
 
+0. Existing rendered UI: do NOT manually simplify React/CSS into a second JSX
+   screen. Run ["render","--print-browser-capture",".screen"] without a Figma
+   connection, evaluate the printed expression in the page at the reference
+   viewport, and save its returned JSON string. Then run
+   ["render","--dom-capture","/abs/capture.json","--verify"]. The semantic
+   capture preserves Flexbox, Grid, sizing, authored CSS-variable provenance,
+   true absolute overlays, direct text, ::before/::after, assets and SVGs.
+   Flex becomes Auto Layout and representable Grid becomes native Figma Grid;
+   unclassified layout fallbacks stop the render instead of silently flattening
+   it. Unresolved icon roles are reported and must receive SVG or Design Entity
+   mappings before acceptance. Hand-authored JSX remains the path for new
+   components that do not yet have a rendered DOM.
+   Reviewed boundary defaults are: minmax.native-grid,
+   space-around.equal-slots, border.single-paint-native, sticky.metadata-only and
+   filters.layer-stack. CSS masks only proceed when a real Figma mask shape can
+   be materialized. Variable-font axes stop before render and require an
+   install-font vs available-named-face decision. Native Figma Glass is kept as
+   an editable effect; never claim its reverse CSS is exact because Figma omits
+   Glass-specific parameters from CSS export.
+
 1. Format first: read the reference frame's dimensions from figma_selection
    before rendering anything. figma_run ["render","--preset","macbook-14",...]
    (or iphone-15, ipad-11, ...) sets the root frame size when the JSX has no
@@ -490,6 +530,12 @@ tokens first, then components, then screens:
    creates the collection + variables in one call (nested JSON flattens to
    a/b/c names). Reference them in JSX as var:<name>; pass
    ["render","-c","<Collection>"] to pin resolution.
+   Inspect every scopeQuestions / SCOPE DECISION REQUIRED result. Explicit
+   spacing/* and space/* FLOAT names auto-scope to GAP; radius/* and radii/*
+   auto-scope to CORNER_RADIUS. For every other newly created variable with
+   specialized options, ASK THE USER whether it should remain ALL_SCOPES or
+   use one or more compatible scopes. Never guess from a vague name. Read
+   figma_reference {name:"variable-scopes"} for the complete typed catalog.
 3. Components: render each variant as "axis=value" named frames with
    --as-component, then ["component","combine","<ids>","-n","Name"] into a
    variant set. Give EVERY <Text> a name= (name="label") — text: overrides
@@ -534,7 +580,10 @@ tokens first, then components, then screens:
    ["section","create","<name>","<ids>"] to group,
    ["section","arrange","<id>","--cols","4"] to tidy,
    ["section","fit","<id>"] after manual moves. ["render","--verify"]
-   returns a screenshot in the same call — always look at it.
+   returns a screenshot in the same call — always look at it. For a linked
+   screen, compare that PNG to the browser screenshot and only then accept via
+   ["link","accept","<entity.id>","--compare","/abs/browser.png",
+   "--max-diff","5"].
 
 === Optional REST add-on (Figma personal access token) ===
 
@@ -557,6 +606,40 @@ Default file scope is the file open in Figma Desktop; other files only via an
 explicit fileKey (bare key or Figma URL). Every REST call is audit-logged
 (method+path only). Without a token these tools explain the setup and nothing
 else changes.`;
+
+export const VARIABLE_SCOPE_GUIDE = `Figma variable scopes — agent decision guide
+
+ALL_SCOPES means the variable is unrestricted. It does not mean "select every
+specialized scope". A variable may use one or more compatible specialized
+scopes. Scope only newly created local variables; never silently rewrite an
+existing local/library variable.
+
+Compatible scopes by resolved type:
+- COLOR: ALL_SCOPES, ALL_FILLS, FRAME_FILL, SHAPE_FILL, TEXT_FILL,
+  STROKE_COLOR, EFFECT_COLOR
+- FLOAT: ALL_SCOPES, CORNER_RADIUS, WIDTH_HEIGHT, GAP, STROKE_FLOAT,
+  EFFECT_FLOAT, OPACITY, FONT_WEIGHT, FONT_SIZE, LINE_HEIGHT, LETTER_SPACING,
+  PARAGRAPH_SPACING, PARAGRAPH_INDENT
+- STRING: ALL_SCOPES, TEXT_CONTENT, FONT_FAMILY, FONT_STYLE
+- BOOLEAN: ALL_SCOPES (Figma has no specialized Boolean scope)
+
+Required behavior:
+1. Auto-scope only explicit FLOAT namespaces: spacing/* or space/* -> GAP;
+   radius/* or radii/* -> CORNER_RADIUS. Names containing those words without
+   the namespace do not qualify.
+2. If a command returns scopeQuestions or SCOPE DECISION REQUIRED, present the
+   variable name, type and compatible scopes to the user. Ask whether it should
+   stay ALL_SCOPES or which compatible scope(s) they want. Do not choose for
+   them from an ambiguous name.
+3. Apply the answer with figma_run:
+   ["var","update","<variable>","--collection","<collection>",
+    "--scopes","TEXT_FILL,STROKE_COLOR"]
+   Multiple comma-separated scopes are valid. Use ALL_SCOPES alone to remove a
+   restriction.
+4. If a name strongly suggests a different scope (for example opacity/*,
+   font-size/*, text/*, stroke/* or effect/*), mention that compatible candidate
+   in the question, but still ask unless a project policy explicitly decided it.
+`;
 
 const CODE_TO_FIGMA_MARKER = "=== Code-to-Figma workflow (code -> Figma) ===";
 
@@ -629,6 +712,8 @@ function enrichStructuredSpec(text, format) {
   const model = parseSpecModel(text, format);
   const storybook = storybookMappingsForSpecModel(model);
   if (storybook.length) model.storybook = storybook;
+  const designEntities = designEntityMappingsForSpecModel(model);
+  if (designEntities.length) model.designEntities = designEntities;
   return serializeSpecModel(model, format);
 }
 
@@ -956,7 +1041,11 @@ export async function handleTool(name, rawArgs) {
       if (!Array.isArray(args) || args.length === 0) {
         return errorResult("args must be a non-empty array of strings.");
       }
-      const target = resolveFileTarget(input.fileKey, args);
+      const prepared = planFigmaCommand(args);
+      const inferredLinkFile = prepared.argv[0] === "link"
+        ? designLinkFileKeyFromArgv([...prepared.argv])
+        : null;
+      const target = resolveFileTarget(input.fileKey || inferredLinkFile, args);
       const plan = planFigmaCommand(args, { fileKey: target });
       if (WRITE_CONFIRM && plan.effects.figma === "write" && input.confirm !== true) {
         return previewResult(args);
@@ -966,6 +1055,16 @@ export async function handleTool(name, rawArgs) {
       }
       // Command-specific path rules are owned by the Capability Catalog.
       const normalized = [...plan.argv];
+      if (normalized[0] === "link") {
+        const res = await runInProcessCommand(normalized, { label: input.label, fileKey: input.fileKey },
+          async ({ fileKey, timeoutMs }) => {
+            const result = await executeDesignLink(designLinkRequestFromArgv(normalized), {
+              evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+            });
+            return { stdout: formatDesignLinkResult(result), stderr: "" };
+          });
+        return resultFromCli(res);
+      }
       const res = await runCli(normalized, { label: input.label, fileKey: input.fileKey });
       // Library-metadata enrichment (opt-in REST layer): after a successful
       // `map storybook` run, upgrade the written figma-map.json with the
@@ -1022,9 +1121,16 @@ export async function handleTool(name, rawArgs) {
         const comp = n.mainName ? ` → ${n.setName ? n.setName + " / " : ""}${n.mainName}` : "";
         const key = n.setKey || n.componentKey;
         const keyPart = key ? `  key \`${key}\`` : "";
-        // Storybook mirror from figma-map.json, when one exists.
-        const story = key ? annotationFor(key) : null;
-        return `- ${n.id}  ${n.type}  "${n.name}"${size}${comp}${keyPart}${story ? `  ${story}` : ""}`;
+        const entity = designEntityAnnotationFor({
+          id: n.entityId,
+          componentKey: key,
+          nodeId: n.id,
+          fileKey: s.fileKey,
+        });
+        // Legacy Storybook-only maps remain readable until they are migrated.
+        const legacyStory = !entity && key ? annotationFor(key) : null;
+        const link = entity || legacyStory;
+        return `- ${n.id}  ${n.type}  "${n.name}"${size}${comp}${keyPart}${link ? `  ${link}` : ""}`;
       });
       const more = s.total > s.nodes.length ? `\n(+${s.total - s.nodes.length} more selected)` : "";
       return textResult(
@@ -1243,6 +1349,9 @@ export async function handleTool(name, rawArgs) {
       if (typeof input.name === "string" && /^capabilities$/i.test(input.name.trim())) {
         return textResult(listFigmaCapabilities({ formatted: true }));
       }
+      if (typeof input.name === "string" && /^variable-scopes$/i.test(input.name.trim())) {
+        return textResult(VARIABLE_SCOPE_GUIDE);
+      }
       if (typeof input.name === "string" && /^workflow(?::.*)?$/i.test(input.name.trim())) {
         const guide = workflowGuideFor(input.name);
         return guide
@@ -1363,6 +1472,8 @@ export async function handleTool(name, rawArgs) {
         // enrich the canonical model and are then re-serialized losslessly.
           const trailer = storybookTrailer(result.stdout || "");
           if (trailer) result.stdout = (result.stdout || "") + trailer;
+          const entityLinks = designEntityTrailer(result.stdout || "");
+          if (entityLinks) result.stdout = (result.stdout || "") + entityLinks;
         } else {
           result.stdout = enrichStructuredSpec(result.stdout || "", format);
         }

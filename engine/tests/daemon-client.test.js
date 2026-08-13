@@ -48,6 +48,28 @@ test('metadata-aware eval preserves daemon-owned Capture freshness facts', async
   assert.deepEqual(await client.evaluate('capture()'), { ok: true }, 'value-only Adapter stays compatible');
 });
 
+test('daemon client sends Semantic Render Plans as structured authenticated payloads', async () => {
+  let body;
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return response(200, { result: { id: '1:2' } }); },
+  });
+  const plan = { kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx', root: {}, diagnostics: {} };
+  assert.deepEqual(await client.renderPlan(plan), { id: '1:2' });
+  assert.deepEqual(body, { action: 'render-plan', plan });
+});
+
+test('daemon client sends native Semantic Render Plan batches without JavaScript code', async () => {
+  let body;
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return response(200, { result: { frames: [] } }); },
+  });
+  const plans = [{ kind: 'figma-bridge/semantic-render-plan', version: 1 }];
+  assert.deepEqual(await client.renderPlanBatch(plans, { gap: 20, vertical: false }), { frames: [] });
+  assert.deepEqual(body, { action: 'render-plan-batch', plans, options: { gap: 20, vertical: false } });
+});
+
 test('daemon client signs the stable selection path while targeting through the query', async () => {
   let seen;
   const client = createDaemonClient({

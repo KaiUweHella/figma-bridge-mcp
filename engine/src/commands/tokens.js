@@ -32,6 +32,7 @@ import {
   collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
   collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
+import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 
 // ============ COLLECTIONS ============
 
@@ -100,6 +101,21 @@ const tokens = program
   .command('tokens')
   .description('Create design token presets');
 
+function printVariableScopeQuestions(questions) {
+  if (!questions?.length) return;
+  console.log(chalk.yellow(`\n⚠ SCOPE DECISION REQUIRED for ${questions.length} new variable(s).`));
+  console.log(chalk.yellow('  Ask the user before choosing a narrower Figma scope; do not infer it from an ambiguous name.'));
+  for (const item of questions) {
+    console.log(chalk.gray(`  - ${item.collection ? item.collection + '/' : ''}${item.name} (${item.resolvedType})`));
+    console.log(chalk.gray(`    compatible: ${item.allowedScopes.join(', ')}`));
+  }
+  console.log(chalk.gray('  Scope reference: figma_reference {name:"variable-scopes"}'));
+}
+
+function parsedEvalPayload(result) {
+  try { return JSON.parse(result); } catch { return null; }
+}
+
 // NOTE: there are deliberately NO third-party design-system presets here —
 // no tailwind/shadcn/radix/material palettes, no branded starter kits. This
 // tool ships neutral scales only (spacing, radii); bring your own system via
@@ -124,6 +140,7 @@ tokens
 
     const code = `(async () => {
 const spacings = ${JSON.stringify(spacings)};
+${variableScopePolicyCode()}
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
 let col = cols.find(c => c.name === ${JSON.stringify(options.collection)});
 if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(options.collection)});
@@ -134,6 +151,7 @@ for (const [name, value] of Object.entries(spacings)) {
   const existing = existingVars.find(v => v.name === 'spacing/' + name);
   if (!existing) {
     const v = figma.variables.createVariable('spacing/' + name, col, 'FLOAT');
+    __scopeTokenVariable(v, 'spacing/' + name, 'FLOAT');
     v.setValueForMode(modeId, value);
     count++;
   }
@@ -164,6 +182,7 @@ tokens
 
     const code = `(async () => {
 const radii = ${JSON.stringify(radii)};
+${variableScopePolicyCode()}
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
 let col = cols.find(c => c.name === ${JSON.stringify(options.collection)});
 if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(options.collection)});
@@ -174,6 +193,7 @@ for (const [name, value] of Object.entries(radii)) {
   const existing = existingVars.find(v => v.name === 'radius/' + name);
   if (!existing) {
     const v = figma.variables.createVariable('radius/' + name, col, 'FLOAT');
+    __scopeTokenVariable(v, 'radius/' + name, 'FLOAT');
     v.setValueForMode(modeId, value);
     count++;
   }
@@ -229,6 +249,7 @@ tokens
     const code = `(async () => {
 const data = ${JSON.stringify(tokensData)};
 const collectionName = ${JSON.stringify(collectionName)};
+${variableScopePolicyCode()}
 
 function hexToRgb(hex) {
   const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
@@ -266,6 +287,7 @@ const modeId = col.modes[0].modeId;
 const existingVars = await figma.variables.getLocalVariablesAsync();
 const tokens = flattenTokens(data);
 let count = 0;
+const scopeQuestions = [];
 
 for (const { name, value, type } of tokens) {
   // Scoped to the target collection — overlapping names across collections OK
@@ -274,6 +296,9 @@ for (const { name, value, type } of tokens) {
     try {
       const figmaType = type === 'COLOR' ? 'COLOR' : type === 'FLOAT' || type === 'NUMBER' ? 'FLOAT' : type === 'BOOLEAN' ? 'BOOLEAN' : 'STRING';
       const v = figma.variables.createVariable(name, col, figmaType);
+      __scopeTokenVariable(v, name, figmaType);
+      const scopeQuestion = __variableScopeQuestion(name, figmaType, collectionName);
+      if (scopeQuestion) scopeQuestions.push(scopeQuestion);
       let figmaValue = value;
       if (figmaType === 'COLOR') figmaValue = hexToRgb(value);
       if (figmaValue !== null) {
@@ -284,12 +309,14 @@ for (const { name, value, type } of tokens) {
   }
 }
 
-return 'Imported ' + count + ' tokens into ' + collectionName;
+return { message: 'Imported ' + count + ' tokens into ' + collectionName, scopeQuestions };
 })()`;
 
     try {
       const result = evalPrint(code, { silent: true });
-      spinnerSucceed(spinner, result?.trim() || 'Tokens imported');
+      const payload = parsedEvalPayload(result);
+      spinnerSucceed(spinner, payload?.message || result?.trim() || 'Tokens imported');
+      printVariableScopeQuestions(payload?.scopeQuestions);
     } catch (error) {
       spinner.fail('Failed to import tokens');
       console.error(error.message);
@@ -355,6 +382,7 @@ async function applyPlan(plan, collectionName) {
 
   const code = `(async () => {
   const ops = ${JSON.stringify(ops)};
+  ${variableScopePolicyCode()}
   const cols = await figma.variables.getLocalVariableCollectionsAsync();
   let col = cols.find(c => c.name === ${JSON.stringify(collectionName)});
   if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(collectionName)});
@@ -378,6 +406,7 @@ async function applyPlan(plan, collectionName) {
       const old = byId.get(op.id);
       if (old) old.remove();
       const v = figma.variables.createVariable(op.name, col, op.type);
+      __scopeTokenVariable(v, op.name, op.type);
       v.setValueForMode(modeId, op.value);
       done.retyped++;
     } catch (e) { failed.push(op.name + ': retype failed — ' + e.message); }
@@ -385,6 +414,7 @@ async function applyPlan(plan, collectionName) {
   for (const op of ops.create) {
     try {
       const v = figma.variables.createVariable(op.name, col, op.type);
+      __scopeTokenVariable(v, op.name, op.type);
       v.setValueForMode(modeId, op.value);
       done.created++;
     } catch (e) { failed.push(op.name + ': create failed — ' + e.message); }
@@ -476,6 +506,12 @@ tokens
       apply: !!options.apply,
       prune: !!options.prune,
     }));
+
+    const plannedScopeQuestions = variableScopeQuestions([
+      ...plan.create,
+      ...plan.update.filter((token) => token.typeChange),
+    ], options.collection);
+    printVariableScopeQuestions(plannedScopeQuestions);
 
     // A plan that is ALL creates, for names that already exist in another
     // collection, is almost always the wrong --collection rather than a genuine
@@ -707,6 +743,7 @@ tokens
         if (r) {
           spinnerSucceed(spinner, `Created ${r.createdCount} variable(s), wired ${r.aliasCount} alias(es) across ${r.collections} collection(s)`);
           if (r.unresolved) console.log(chalk.yellow(`  ⚠ ${r.unresolved} alias value(s) unresolved (target outside this file / type mismatch)`));
+          printVariableScopeQuestions(r.scopeQuestions);
         } else {
           spinnerSucceed(spinner, 'Variables imported');
         }
@@ -733,6 +770,7 @@ tokens
     const code = `(async () => {
 const data = ${JSON.stringify({ ...tokensData.color, _radii: tokensData.radius })};
 const collectionName = ${JSON.stringify(collectionName)};
+${variableScopePolicyCode()}
 
 function hexToRgb(hex) {
   const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
@@ -747,6 +785,7 @@ const modeId = col.modes[0].modeId;
 
 const existingVars = await figma.variables.getLocalVariablesAsync();
 let count = 0;
+const scopeQuestions = [];
 
 // Colors. Skip-check scoped to the TARGET collection so multiple design
 // systems can coexist with overlapping token names (Airbnb's primary AND
@@ -759,6 +798,8 @@ for (const [name, entry] of Object.entries(data)) {
   if (existingVars.find(v => v.name === name && v.variableCollectionId === col.id)) continue;
   try {
     const v = figma.variables.createVariable(name, col, 'COLOR');
+    const scopeQuestion = __variableScopeQuestion(name, 'COLOR', collectionName);
+    if (scopeQuestion) scopeQuestions.push(scopeQuestion);
     v.setValueForMode(modeId, rgb);
     count++;
   } catch (e) {}
@@ -771,18 +812,21 @@ if (data._radii) {
     if (existingVars.find(v => v.name === name && v.variableCollectionId === col.id)) continue;
     try {
       const v = figma.variables.createVariable(name, col, 'FLOAT');
+      v.scopes = ['CORNER_RADIUS'];
       v.setValueForMode(modeId, num);
       count++;
     } catch (e) {}
   }
 }
 
-return 'Imported ' + count + ' tokens into ' + collectionName;
+return JSON.stringify({ message: 'Imported ' + count + ' tokens into ' + collectionName, scopeQuestions });
 })()`;
 
     try {
       const result = await daemonExec('eval', { code });
-      spinnerSucceed(spinner, result || 'Tokens imported');
+      const payload = typeof result === 'string' ? parsedEvalPayload(result) : result;
+      spinnerSucceed(spinner, payload?.message || result || 'Tokens imported');
+      printVariableScopeQuestions(payload?.scopeQuestions);
     } catch (error) {
       spinner.fail('Failed to import tokens');
       console.error(error.message);
@@ -804,6 +848,7 @@ tokens
     await checkConnection();
 
     const code = `(async () => {
+${variableScopePolicyCode()}
 function hexToRgb(hex) {
   const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
   if (!r) return null;
@@ -825,18 +870,22 @@ if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(option
 const modeId = col.modes[0].modeId;
 
 const v = figma.variables.createVariable(${JSON.stringify(name)}, col, type);
+__scopeTokenVariable(v, ${JSON.stringify(name)}, type);
+const scopeQuestion = __variableScopeQuestion(${JSON.stringify(name)}, type, ${JSON.stringify(options.collection)});
 let figmaValue = value;
 if (type === 'COLOR') figmaValue = hexToRgb(value);
 else if (type === 'FLOAT') figmaValue = parseFloat(value);
 else if (type === 'BOOLEAN') figmaValue = value === 'true';
 v.setValueForMode(modeId, figmaValue);
 
-return 'Created ' + type.toLowerCase() + ' token: ${name}';
+return { message: 'Created ' + type.toLowerCase() + ' token: ${name}', scopeQuestions: scopeQuestion ? [scopeQuestion] : [] };
 })()`;
 
     try {
       const result = evalPrint(code, { silent: true });
-      console.log(chalk.green(result?.trim() || `✓ Created token: ${name}`));
+      const payload = parsedEvalPayload(result);
+      console.log(chalk.green(payload?.message || result?.trim() || `✓ Created token: ${name}`));
+      printVariableScopeQuestions(payload?.scopeQuestions);
     } catch (error) {
       console.log(chalk.red(`✗ Failed to create token: ${name}`));
     }

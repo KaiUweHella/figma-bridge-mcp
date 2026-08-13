@@ -176,6 +176,14 @@ describe('parseGradient', () => {
     assert.ok(client.parseGradient('diamond-gradient(#000, #fff)').includes('GRADIENT_DIAMOND'));
   });
 
+  it('parses positioned CSS radial gradients and transparent stops', () => {
+    const code = client.parseGradient('radial-gradient(circle at 64% 42%, rgba(118, 87, 232, 0.16), transparent 36%)');
+    assert.ok(code.includes("type:'GRADIENT_RADIAL'"));
+    assert.ok(code.includes('position:0.36'));
+    assert.ok(code.includes('a:0'));
+    assert.match(code, /gradientTransform:\[\[1\.0000,0\.0000,0\.1400\],\[0\.0000,1\.0000,-0\.0800\]\]/);
+  });
+
   it('returns null for invalid input', () => {
     assert.strictEqual(client.parseGradient('not-a-gradient'), null);
     assert.strictEqual(client.parseGradient('linear-gradient(#000)'), null);
@@ -193,6 +201,16 @@ describe('parseShadowString', () => {
     assert.strictEqual(e.y, 4);
     assert.strictEqual(e.blur, 12);
     assert.strictEqual(e.color.a, 0.1);
+  });
+
+  it('parses computed color-first shadows', () => {
+    const e = client.parseShadowString('rgb(201, 255, 88) 0px 0px 22px');
+    assert.equal(e.x, 0);
+    assert.equal(e.y, 0);
+    assert.equal(e.blur, 22);
+    assert.equal(e.color.r, 201 / 255);
+    assert.equal(e.color.g, 1);
+    assert.equal(e.color.b, 88 / 255);
   });
 
   it('parses 8-digit hex alpha', () => {

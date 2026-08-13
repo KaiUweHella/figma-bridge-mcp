@@ -153,6 +153,12 @@ export function createDaemonClient({
     evaluateWithMetadata(code, options) {
       return executeWithMetadata('eval', { code }, options);
     },
+    renderPlan(plan, options) {
+      return execute('render-plan', { plan }, options);
+    },
+    renderPlanBatch(plans, batchOptions = {}, options) {
+      return execute('render-plan-batch', { plans, options: batchOptions }, options);
+    },
     health(options = {}) {
       return request('/health', { timeoutMs: options.timeoutMs || 3000 });
     },

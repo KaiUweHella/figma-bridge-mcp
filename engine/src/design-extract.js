@@ -14,6 +14,7 @@ import { paintsSnippetJs } from './lib/paint-css.js';
 import { assetPolicyPluginSource } from './lib/asset-policy.js';
 import { imageAssetBase } from './lib/asset-names.js';
 import { axisMetadataExpression } from './lib/font-introspection.js';
+import { DESIGN_ENTITY_PLUGIN_DATA_KEY } from './lib/design-link-registry.js';
 
 /** Eval snippet: list all pages of the open file. */
 export function listPagesCode() {
@@ -274,6 +275,18 @@ export function walkerCode(pageId, {
       // marked, for debugging what a toggle would reveal.
       if (n.visible === false && !INCLUDE_HIDDEN) return null;
       const o = { t: n.type, n: n.name };
+      try {
+        const raw = typeof n.getPluginData === 'function'
+          ? n.getPluginData(${JSON.stringify(DESIGN_ENTITY_PLUGIN_DATA_KEY)})
+          : '';
+        if (raw) {
+          const link = JSON.parse(raw);
+          if (link && link.version === 1 && typeof link.id === 'string' && link.id) {
+            o.entityId = link.id;
+            if (typeof link.kind === 'string' && link.kind) o.entityKind = link.kind;
+          }
+        }
+      } catch (e) {}
       if (n.visible === false) o.hidden = true;
       if (WITH_IDS) o.id = n.id;
       if ('width' in n) { o.w = Math.round(n.width); o.h = Math.round(n.height); }
@@ -482,10 +495,36 @@ export function walkerCode(pageId, {
           .map((value) => cleanNumber(value, true));
       }
       if (Array.isArray(n.effects) && n.effects.length) {
-        const fx = n.effects.filter(e => e.visible !== false).map(e =>
-          (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW')
-            ? { type: e.type, x: cleanNumber(e.offset.x, false), y: cleanNumber(e.offset.y, false), blur: cleanNumber(e.radius, true), spread: cleanNumber(e.spread || 0, false), color: hex(e.color), a: Math.round((e.color.a == null ? 1 : e.color.a) * 100) / 100 }
-            : { type: e.type, blur: cleanNumber(e.radius, true) });
+        const fx = n.effects.filter(e => e.visible !== false).map(e => {
+          if (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') {
+            return { type: e.type, x: cleanNumber(e.offset.x, false), y: cleanNumber(e.offset.y, false), blur: cleanNumber(e.radius, true), spread: cleanNumber(e.spread || 0, false), color: hex(e.color), a: Math.round((e.color.a == null ? 1 : e.color.a) * 100) / 100 };
+          }
+          if (e.type === 'GLASS') {
+            return {
+              type: e.type,
+              refraction: cleanNumber(e.refraction, false), depth: cleanNumber(e.depth, false),
+              radius: cleanNumber(e.radius, true), dispersion: cleanNumber(e.dispersion, false),
+              lightIntensity: cleanNumber(e.lightIntensity, false), lightAngle: cleanNumber(e.lightAngle, false),
+            };
+          }
+          if (e.type === 'NOISE') {
+            return {
+              type: e.type, noiseType: e.noiseType, density: cleanNumber(e.density, false),
+              noiseSize: cleanNumber(e.noiseSize, false), color: e.color ? hex(e.color) : undefined,
+              secondaryColor: e.secondaryColor ? hex(e.secondaryColor) : undefined,
+              opacity: typeof e.opacity === 'number' ? cleanNumber(e.opacity, false) : undefined,
+            };
+          }
+          if (e.type === 'TEXTURE') {
+            return { type: e.type, noiseSize: cleanNumber(e.noiseSize, false), radius: cleanNumber(e.radius, true), clipToShape: e.clipToShape };
+          }
+          if (e.type === 'SHADER') return { type: e.type, shaderId: e.shaderId, uniforms: e.uniforms };
+          return {
+            type: e.type, blur: cleanNumber(e.radius, true), blurType: e.blurType,
+            startRadius: typeof e.startRadius === 'number' ? cleanNumber(e.startRadius, true) : undefined,
+            startOffset: e.startOffset, endOffset: e.endOffset,
+          };
+        });
         if (fx.length) o.fx = fx;
       }
       if (WITH_VARS && n.boundVariables) {

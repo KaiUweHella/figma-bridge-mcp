@@ -1,7 +1,7 @@
 // MCP-layer tests: allowlist enforcement, engine-entry resolution, key pairing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -163,8 +163,12 @@ test('normalizeOutputArgs anchors map storybook output to the client workspace',
     ['map', 'storybook', 'u', `--output=${inWorkspace('m.json')}`]);
 });
 
-test('figma-map: loader tolerates missing/corrupt files, annotates via both keys', async () => {
-  const { loadFigmaMap, annotationFor, storybookTrailer, storybookMappingsForSpecModel } = await import('../src/figma-map.js');
+test('Design Link Registry projection tolerates missing/corrupt files and keeps legacy Storybook mappings', async () => {
+  const {
+    loadFigmaMap, annotationFor, designEntityAnnotationFor,
+    designEntityTrailer,
+    storybookTrailer, storybookMappingsForSpecModel,
+  } = await import('../src/figma-map.js');
   const { writeFileSync } = await import('node:fs');
   const dir = mkdtempSync(join(tmpdir(), 'figma-map-'));
 
@@ -172,6 +176,7 @@ test('figma-map: loader tolerates missing/corrupt files, annotates via both keys
   assert.equal(loadFigmaMap(dir), null);
   assert.equal(annotationFor('anykey', dir), null);
   assert.equal(storybookTrailer('key `anykey`', dir), '');
+  assert.equal(designEntityTrailer('entity `ui.missing`', dir), '');
 
   // Corrupt file → same graceful behavior.
   writeFileSync(join(dir, 'figma-map.json'), '{not json');
@@ -187,6 +192,8 @@ test('figma-map: loader tolerates missing/corrupt files, annotates via both keys
   }));
   assert.match(annotationFor('setkey1', dir), /↔ story components-button--primary \(\.\/src\/Button\.stories\.tsx\)/);
   assert.match(annotationFor('varkey1', dir), /components-button--primary/);
+  assert.match(designEntityAnnotationFor({ componentKey: 'setkey1' }, dir), /entity `legacy\./);
+  assert.match(designEntityAnnotationFor({ componentKey: 'setkey1' }, dir), /code src\/Button\.stories\.tsx/);
   assert.equal(annotationFor('unknown', dir), null);
 
   // Trailer: dedupes multiple hits of the same story, ignores unmapped keys.
@@ -204,6 +211,38 @@ test('figma-map: loader tolerates missing/corrupt files, annotates via both keys
   assert.equal(mappings[0].storyId, 'components-button--primary');
 });
 
+test('explicit figma-bridge.json entity resolves by id, node, and publish key', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const {
+    designEntityAnnotationFor, designEntityFor,
+    designEntityMappingsForSpecModel, designEntityTrailer,
+  } = await import('../src/figma-map.js');
+  const dir = mkdtempSync(join(tmpdir(), 'figma-bridge-registry-'));
+  writeFileSync(join(dir, 'figma-bridge.json'), JSON.stringify({
+    version: 1,
+    project: { name: 'app' },
+    entities: [{
+      id: 'screen.settings', kind: 'screen',
+      code: { path: 'src/routes/settings.tsx', export: 'SettingsScreen' },
+      figma: { fileKey: 'FILE', nodeId: '9:9', componentKey: 'KEY' },
+    }],
+  }));
+  assert.equal(designEntityFor({ id: 'screen.settings' }, dir).figmaNodeId, '9:9');
+  assert.equal(designEntityFor({ fileKey: 'FILE', nodeId: '9:9' }, dir).entityId, 'screen.settings');
+  assert.match(designEntityAnnotationFor({ componentKey: 'KEY' }, dir), /src\/routes\/settings\.tsx#SettingsScreen/);
+  assert.match(designEntityTrailer('- Settings entity `screen.settings` [screen]', dir),
+    /## Design Entity links[\s\S]*src\/routes\/settings\.tsx#SettingsScreen/);
+  assert.deepEqual(designEntityMappingsForSpecModel({
+    frames: [{ t: 'FRAME', n: 'Settings', entityId: 'screen.settings', kids: [] }],
+  }, dir), [{
+    id: 'screen.settings', kind: 'screen',
+    code: { path: 'src/routes/settings.tsx', export: 'SettingsScreen' },
+    figma: { fileKey: 'FILE', nodeId: '9:9', componentKey: 'KEY' },
+  }]);
+});
+
 test('server.js parses — a syntax error here means "cannot attach to figma-safe"', async () => {
   // The suite never imports src/server.js (importing would START the stdio
   // server), so a template-literal typo in TOOLS/INSTRUCTIONS used to reach
@@ -211,6 +250,12 @@ test('server.js parses — a syntax error here means "cannot attach to figma-saf
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   await promisify(execFile)(process.execPath, ['--check', fileURLToPath(new URL('../src/server.js', import.meta.url))]);
+});
+
+test('figma_run keeps Design Link execution in-process', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  assert.match(source, /normalized\[0\] === "link"/);
+  assert.match(source, /executeDesignLink\(designLinkRequestFromArgv\(normalized\)/);
 });
 
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {
@@ -236,7 +281,7 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   // fidelity bugs that shipped). 2,000 leaves margin for future edits; the
   // full guide belongs in WORKFLOW_GUIDE (figma_reference "workflow") or in
   // tool outputs, which are not truncated.
-  const { INSTRUCTIONS, WORKFLOW_GUIDE, TOOLS, workflowGuideFor } = await import('../src/server.js');
+  const { INSTRUCTIONS, VARIABLE_SCOPE_GUIDE, WORKFLOW_GUIDE, TOOLS, workflowGuideFor } = await import('../src/server.js');
   assert.ok(INSTRUCTIONS.length < 2000,
     `INSTRUCTIONS is ${INSTRUCTIONS.length} chars — Claude Code truncates at 2048.`);
   // These steps cannot be hidden behind an optional reference call. an earlier acceptance run
@@ -252,6 +297,19 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   assert.match(WORKFLOW_GUIDE, /verify-build/);
   assert.ok(workflowGuideFor('workflow:design-to-code').length < WORKFLOW_GUIDE.length);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /Code-to-Figma workflow/);
+  assert.match(workflowGuideFor('workflow:code-to-figma'), /SCOPE DECISION REQUIRED/);
+  assert.match(VARIABLE_SCOPE_GUIDE, /COLOR: ALL_SCOPES, ALL_FILLS/);
+  assert.match(VARIABLE_SCOPE_GUIDE, /FLOAT: ALL_SCOPES, CORNER_RADIUS, WIDTH_HEIGHT, GAP/);
+  assert.match(VARIABLE_SCOPE_GUIDE, /Ask whether it should/);
+});
+
+test('variable scope reference is available without an engine round-trip', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_reference', { name: 'variable-scopes' });
+  const text = result.content?.[0]?.text || '';
+  assert.match(text, /TEXT_CONTENT, FONT_FAMILY, FONT_STYLE/);
+  assert.match(text, /BOOLEAN: ALL_SCOPES/);
+  assert.match(text, /var","update/);
 });
 
 test('capability index is generated on demand without an engine round-trip', async () => {

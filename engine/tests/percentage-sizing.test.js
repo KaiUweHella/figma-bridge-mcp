@@ -9,7 +9,10 @@ function blockFor(code, name) {
   const lines = code.split('\n');
   const i = lines.findIndex(l => l.includes(`"${name}"`));
   assert.ok(i >= 0, `no block for "${name}"`);
-  return lines.slice(i, i + 40).join('\n');
+  // Generated blocks intentionally keep optional properties on separate
+  // lines. Inspect enough of the block to include append-time percentage
+  // resolution even as new optional metadata is added.
+  return lines.slice(i, i + 80).join('\n');
 }
 
 // Regression: w="60%" used to leak the raw "60%" string into resize() and

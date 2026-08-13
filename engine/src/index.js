@@ -32,6 +32,7 @@ import './commands/extract.js';
 import './commands/spec.js';
 import './commands/motion.js';
 import './commands/map.js';
+import './commands/link.js';
 import './commands/jam.js';
 import './commands/slides.js';
 import './commands/kit.js';

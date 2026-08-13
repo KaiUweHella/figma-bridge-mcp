@@ -108,6 +108,9 @@ export function identSeg(node) {
     return `${name}${chars}`;
   }
   const parts = [node.n];
+  if (node.entityId) {
+    parts.push(`entity \`${node.entityId}\`${node.entityKind ? ` [${node.entityKind}]` : ''}`);
+  }
   if (node.main || node.mc) {
     const target = node.main || node.mc;
     const set = node.set && node.set !== target ? `${node.set}/` : '';
@@ -1200,6 +1203,8 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
       const o = { t: node.t, n: node.n, vectorArt: `assets/${assetFileName(node.n, 'svg', ancestors)}` };
       if (!isVectorArt(node)) o.shapes = node.vectorCluster?.totalChildren ?? (node.kids || []).length; // cluster: N shapes → one artwork
       if (node.id) o.id = node.id;
+      if (node.entityId) o.entityId = node.entityId;
+      if (node.entityKind) o.entityKind = node.entityKind;
       if (node.hidden) o.hidden = true;
       // Rendered box wins over pre-rotation w/h — same rule as the text
       // renderer: the numbers must match the exported SVG file.
@@ -1216,6 +1221,8 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     if (isInvisibleHelper(node)) return null; // paint-less bounding/mask shape
     const o = { t: node.t, n: node.n };
     if (node.id) o.id = node.id;
+    if (node.entityId) o.entityId = node.entityId;
+    if (node.entityKind) o.entityKind = node.entityKind;
     if (node.hidden) o.hidden = true;
     if (node.lm) o.dir = dirName(node.lm);
     if (node.scroll) o.scroll = node.scroll;

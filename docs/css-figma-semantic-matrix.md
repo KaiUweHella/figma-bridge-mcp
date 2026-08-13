@@ -1,0 +1,251 @@
+# CSS ↔ Figma semantic capability matrix
+
+Status: normative draft for the semantic round-trip compiler
+Scope: HTML/CSS rendering concepts that can reasonably correspond to Figma Design nodes
+Reference date: 2026-08-12
+Executable API source: installed `@figma/plugin-typings`
+
+## Why this exists
+
+Code and Figma can produce the same pixels with different design semantics. A
+CSS inset shadow and a left border are a concrete example: both can draw a
+green edge, but Figma supports both natively, so changing one into the other is
+unnecessary semantic loss.
+
+The compiler therefore preserves the authored primitive whenever Figma has the
+same primitive. Visual similarity is a verification result, not permission to
+rewrite the source intent.
+
+## Mapping classes
+
+Every captured fact must receive exactly one class before a Figma write:
+
+| Class | Meaning | Compiler rule |
+|---|---|---|
+| `EXACT` | Same editable primitive and equivalent parameters exist on both sides. | Emit the native Figma property and preserve provenance. |
+| `CONDITIONAL` | Native mapping is exact only under stated constraints. | Validate the constraints; otherwise continue to `STRUCTURAL` or `STOP`. |
+| `STRUCTURAL` | Equivalent result needs additional frames, masks, vectors, or variants. | Emit a named, provenance-carrying structure and report the transformation. |
+| `VISUAL` | Only a flattened vector/raster can preserve appearance. | Require explicit approval; retain the source asset and mark reverse generation as non-semantic. |
+| `FIGMA_ONLY` | Figma has no CSS/HTML primitive with the same meaning. | Preserve it in Figma and require an explicit web implementation strategy for reverse sync. |
+| `CODE_ONLY` | Browser/runtime behavior has no static Figma equivalent. | Preserve it as metadata/specification; never invent a decorative Figma substitute. |
+| `STOP` | No approved deterministic mapping exists. | Fail the structural gate with the source path and available choices. |
+
+An `EXACT` mapping is bidirectional only if both columns below are exact.
+Figma supporting a property does not automatically make the reverse mapping
+lossless.
+
+## Geometry, hierarchy, and sizing
+
+| HTML/CSS fact | Native Figma fact | Code → Figma | Figma → code | Boundary / required policy | Bridge status |
+|---|---|---:|---:|---|---|
+| Element hierarchy and source order | Frame children and layer order | `EXACT` | `CONDITIONAL` | Figma layer order is also z-order. Persist DOM/content order provenance when visual order differs. | Implemented for mixed text/element children. |
+| Semantic HTML (`button`, `nav`, `input`, headings, ARIA) | No equivalent design-node semantics | `CODE_ONLY` | `STOP` | Keep tag, role, ARIA, states and behavior in Design Entity metadata/annotations. Never infer accessibility semantics from a rectangle name. | Capture is partial; needs full semantic metadata. |
+| Fixed px width/height | Node width/height | `EXACT` | `EXACT` | Font and subpixel rounding can still change measured text. | Implemented. |
+| Intrinsic/content size | `HUG` sizing | `CONDITIONAL` | `CONDITIONAL` | Browser intrinsic algorithms are richer than Figma. Validate with resize probes. | Implemented for key text/frame cases. |
+| Available-space sizing (`flex:1`, stretch) | `FILL` / `layoutGrow` / `layoutAlign` | `CONDITIONAL` | `CONDITIONAL` | Axis and parent layout must agree. | Partially implemented. |
+| Percent width/height | Parent-relative size or FILL | `CONDITIONAL` | `STOP` | Exact only when the percentage is equivalent to full stretch; arbitrary percentages need constraints/wrappers and provenance. | Partial. |
+| `min/max-width/height` | Native min/max properties | `EXACT` | `EXACT` | Percentage/intrinsic/calc values are not numeric native constraints. | Numeric values implemented. |
+| `aspect-ratio` | `targetAspectRatio` / locked proportions | `CONDITIONAL` | `CONDITIONAL` | Browser min/max and replaced-element rules can override the ratio. | Not captured. |
+| `box-sizing:border-box` | `strokesIncludedInLayout` plus sizing | `CONDITIONAL` | `CONDITIONAL` | Applicable to Auto Layout; content-box may require dimension compensation. | Not yet mapped explicitly. |
+| Absolute positioning | Absolute child in Auto Layout or free-positioned child | `EXACT` | `EXACT` | Only for authored `absolute`/`fixed` or approved overlays. | Implemented and gated. |
+| `position:fixed` in a scroll container | Fixed child behavior | `CONDITIONAL` | `CONDITIONAL` | Figma prototype scrolling context is required. | Captured as absolute; fixed-scroll semantics pending. |
+| `position:sticky` | No equivalent responsive design constraint | `CODE_ONLY` | `STOP` | Preserve normal layout and record `sticky.metadata-only`; do not restructure the frame or synthesize prototype behavior. | Implemented as code-only diagnostic. |
+| `transform:translate/rotate/scale/skew` | Relative transform / rotation | `CONDITIONAL` | `CONDITIONAL` | Transform origin, 3D transforms, perspective and Auto Layout interactions differ. | Rotation partial; remaining transforms not compiled. |
+| `z-index` / stacking context | Layer order, isolated frames | `STRUCTURAL` | `CONDITIONAL` | CSS stacking contexts, negative z-index and top-layer behavior have no single Figma property. | Layer order captured; stacking-context audit missing. |
+
+## Layout
+
+| HTML/CSS fact | Native Figma fact | Code → Figma | Figma → code | Boundary / required policy | Bridge status |
+|---|---|---:|---:|---|---|
+| Flex row/column | Horizontal/vertical Auto Layout | `EXACT` | `EXACT` | Preserve source direction. | Implemented. |
+| Flex gap and padding | Item spacing and four paddings | `EXACT` | `EXACT` | Gap variables and padding variables should bind independently. | Implemented; variable coverage incomplete. |
+| Spacing/radius token namespaces | Figma FLOAT variable scopes `GAP` / `CORNER_RADIUS` | `EXACT` | `EXACT` | Infer only explicit `spacing/*`, `space/*`, `radius/*`, or `radii/*` namespaces. Never classify by substring; do not silently rescope pre-existing library variables during render. | Implemented for newly created/imported variables. |
+| Other new variable scopes | Type-compatible Figma VariableScope choices | `CONDITIONAL` | `EXACT` | `COLOR`, `FLOAT`, and `STRING` variables with no explicit project rule emit `scopeQuestions`; the agent must ask whether they stay unrestricted or receive one or more compatible scopes. `BOOLEAN` has only `ALL_SCOPES`. Existing variables are never silently rescoped. | Implemented in token import/sync/add, DESIGN.md import, and renderer-created color fallbacks; full catalog is exposed through `figma_reference {name:"variable-scopes"}`. |
+| `justify-content:start/end/center/space-between` | Primary-axis alignment | `EXACT` | `EXACT` | `space-between` uses automatic spacing and no competing fixed gap. | Implemented. |
+| `space-around` | Equal FLEX Grid slots with centered children | `STRUCTURAL` | `STOP` | `space-around.equal-slots`: one slot per direct item, source order, both Grid child axes centered. Never relabel as `space-between`. | Implemented and regression-tested. |
+| `space-evenly` | No direct primary-axis value | `STRUCTURAL` | `STOP` | Requires its own deterministic structure or must fail; it is not identical to equal centered slots. | Open policy. |
+| `align-items:start/end/center/baseline` | Counter-axis alignment | `EXACT` | `EXACT` | Baseline is limited to supported Auto Layout configurations. | Mostly implemented. |
+| Flex wrap and row gap | `layoutWrap` and `counterAxisSpacing` | `EXACT` | `EXACT` | `align-content` has fewer Figma values. | Implemented for gaps; alignment coverage partial. |
+| Flex order/reverse directions | Child order / `itemReverseZIndex` | `CONDITIONAL` | `STOP` | Visual ordering must not erase DOM order or accessibility order. Preserve source-order metadata. | DOM order preserved; reverse/order policy pending. |
+| Fixed CSS Grid tracks | Native GRID fixed tracks | `EXACT` | `EXACT` | Numeric px tracks only. | Implemented. |
+| `fr` Grid tracks | Native GRID FLEX tracks | `EXACT` | `EXACT` | Fractional weights must survive. | Implemented. |
+| `auto` / content-sized track | Native GRID HUG track | `CONDITIONAL` | `CONDITIONAL` | Figma defines HUG like `fit-content(100%)`, not every CSS intrinsic algorithm. | Implemented for supported tracks. |
+| Grid gaps, cells, spans, row auto-flow | Native GRID equivalents | `EXACT` | `EXACT` | Preserve one-based CSS vs zero-based Plugin API indices. | Implemented. |
+| `minmax()` with `fr` maximum | Native FLEX Grid track, minimum retained as provenance | `STRUCTURAL` | `STOP` | `minmax.native-grid`: preserve fractional track weight and explicitly mark the minimum unenforced. | Accepted default; implemented and gated. |
+| `fit-content(<limit>)` and other `minmax()` forms | No exact Figma track | `STOP` | `STOP` | Dedicated strategy or hard fail. | Not implemented. |
+| `repeat(auto-fit/auto-fill)`, dense flow, named areas, subgrid, masonry | No equivalent native GRID model | `STOP` | `STOP` | A responsive structure/variant strategy must be explicitly selected. | Not implemented. |
+| Ordinary block flow | Usually vertical Auto Layout | `CONDITIONAL` | `CONDITIONAL` | Margin collapse, floats, inline formatting and fragmentation are not Auto Layout. | Simplified flow implemented. |
+| Native single-line text control (`button`) | Centered vertical Auto Layout with `FILL` centered text | `CONDITIONAL` | `CONDITIONAL` | Apply only with exactly one direct text run whose measured center matches the control on both axes; preserve content-box width after horizontal padding. Ordinary centered block copy must remain ordinary flow. | Implemented and regression-tested. |
+| Margins | No child-margin property | `STRUCTURAL` | `STOP` | Convert only non-collapsing positive margins to parent gap/padding when provably equivalent; otherwise wrapper or stop. Negative margins require overlay structure. | Not yet modeled. |
+| Multi-column, floats, tables, ruby, writing modes | No general native equivalent | `STRUCTURAL`/`STOP` | `STOP` | Dedicated semantic compiler per layout model; no pixel replay by default. | Out of current pilot scope. |
+| Figma layout guides | Design-time guides, not child layout | `FIGMA_ONLY` | `FIGMA_ONLY` | Never translate a Figma layout guide into CSS Grid without explicit intent. | Read/write supported outside semantic render. |
+
+## Fills, backgrounds, borders, and shapes
+
+| HTML/CSS fact | Native Figma fact | Code → Figma | Figma → code | Boundary / required policy | Bridge status |
+|---|---|---:|---:|---|---|
+| Solid background/color | Solid fill | `EXACT` | `EXACT` | Preserve alpha separately and bind authored tokens. | Implemented. |
+| Multiple CSS backgrounds | Ordered multiple fills | `CONDITIONAL` | `CONDITIONAL` | Origin, clip, repeat, attachment and blend semantics must match per layer. | Single simple background only. |
+| Linear/radial gradient | Linear/radial gradient fill | `CONDITIONAL` | `CONDITIONAL` | Coordinate systems and interpolation color spaces can differ. Compare stops and render. | Single linear/radial DOM backgrounds and native structured execution are implemented and regression-tested; multiple or repeating gradient layers stop at the Structural Gate. |
+| Conic/angular/diamond gradient | Angular/diamond gradient | `CONDITIONAL` | `CONDITIONAL` | Start angle/direction and browser interpolation require normalization; diamond has no direct CSS primitive. | Hand-authored structured execution is native; browser conic capture and exact CSS round-trip remain pending. |
+| Repeating gradients | No repeat flag for gradient paints | `STRUCTURAL`/`VISUAL` | `STOP` | Pattern/vector/raster fallback requires approval. | Not implemented. |
+| Background image | Image paint | `CONDITIONAL` | `CONDITIONAL` | `cover/contain` map to FILL/FIT; arbitrary position, size, repeat and attachment may not. | Asset capture exists; semantic placement incomplete. |
+| `<img>` plus `object-fit`/`object-position` | Image paint and crop transform | `CONDITIONAL` | `CONDITIONAL` | Exact crop transform must be retained. | Asset capture exists; full crop mapping pending. |
+| Solid uniform border | Stroke | `EXACT` | `EXACT` | CSS border is inside layout according to box sizing; set stroke inclusion accordingly. | Implemented. |
+| Solid per-side widths, same color | Individual stroke weights | `EXACT` | `EXACT` | One stroke paint can serve all sides. | Implemented and regression-tested. |
+| Different solid border colors per side | One native Figma stroke with per-side weights | `STRUCTURAL` | `STOP` | `border.single-paint-native`: choose the first explicitly painted side in CSS order (`top → right → bottom → left`) as the shared stroke paint and preserve every side's native weight. Non-solid mixed styles remain unsupported. | User-selected replacement for absolute border geometry; implemented and regression-tested. The affected node receives a native Figma annotation scoped to `strokes` and `strokeWeight`, plus machine-readable fallback metadata. |
+| Dashed/dotted border | Dash pattern and stroke cap | `CONDITIONAL` | `CONDITIONAL` | CSS dash distribution at rounded corners differs. Pixel verification required. | Native `dashPattern` and stroke caps are implemented for uniform or single-color per-side strokes; rounded-corner distribution still needs visual verification. |
+| Double/groove/ridge/inset/outset border | No equivalent single stroke | `STRUCTURAL` | `STOP` | Multi-stroke/vector structure or hard fail. | Not implemented. |
+| `border-image` | No semantic equivalent | `VISUAL`/`STOP` | `STOP` | Preserve as exported vector/raster; never replace with plain stroke. | Build lint already flags it. |
+| Circular border radius per corner | Four Figma corner radii | `EXACT` | `EXACT` | Numeric circular radii only. | Implemented. |
+| Elliptical corner radii | No independent x/y radius per corner | `STRUCTURAL`/`VISUAL` | `STOP` | Vector outline or approval to approximate. | Not classified. |
+| `outline` and `outline-offset` | Outside stroke, but different box semantics | `CONDITIONAL`/`STRUCTURAL` | `STOP` | Exact only for zero offset and compatible radius; otherwise wrapper/vector. | Not captured. |
+| CSS basic shapes / SVG | Rectangle, ellipse, polygon, vector paths | `EXACT`/`CONDITIONAL` | `CONDITIONAL` | SVG filters, markers, text, external references and CSS cascade may require asset preservation. | Inline SVG presentation attributes, dash arrays, stop opacity, and supported descendant filter chains are preserved; tagged filtered child vectors receive native Figma effects. |
+| Figma pattern/shader/video paint | No general CSS primitive | `FIGMA_ONLY` | `STRUCTURAL`/`VISUAL` | Generate an asset, CSS paint/worklet, canvas/WebGL implementation, or stop. Beta APIs must be version-gated. | Figma commands exist; not in DOM roundtrip. |
+
+## Effects, clipping, and compositing
+
+| HTML/CSS fact | Native Figma fact | Code → Figma | Figma → code | Boundary / required policy | Bridge status |
+|---|---|---:|---:|---|---|
+| `box-shadow` | Drop Shadow effect | `EXACT` | `EXACT` | Preserve each layer's x/y/blur/spread/color/order. Spread has Figma node/fill/clip constraints. | First layer compiled; spread now preserved; multiple-layer emission pending. |
+| `box-shadow: … inset` | Inner Shadow effect | `EXACT` | `EXACT` | A zero-blur shadow remains a shadow; never normalize it to a border. Same spread constraints apply. | Covered by regression tests and live verification. |
+| `text-shadow` | Drop Shadow effect on Text | `CONDITIONAL` | `CONDITIONAL` | Browser glyph rasterization and multiple shadows require visual verification. | Not captured. |
+| `filter:blur()` / `drop-shadow()` chain | Ordered native effects on one node | `CONDITIONAL` | `CONDITIONAL` | `filters.layer-stack`: preserve authored order and combine on one node whenever representable. | Implemented for frames and tagged SVG descendant vectors; regression- and live-verified. |
+| `backdrop-filter:blur()` | Background Blur | `CONDITIONAL` | `CONDITIONAL` | Requires equivalent translucency, clipping and backdrop; browser support/compositing differs. | Implemented for simple blur. |
+| CSS brightness/contrast/saturate/hue/sepia/invert filter chain | No general node effect equivalent | `STOP` | `STOP` | Do not fake these with unrelated Figma effects; stop until a source-specific approved strategy exists. | Structural gate implemented. |
+| `opacity` | Node/paint opacity | `EXACT` | `CONDITIONAL` | Node opacity and per-paint alpha are not interchangeable under compositing. Preserve level. | Node opacity and solid alpha implemented. |
+| `mix-blend-mode` | Node blend mode | `CONDITIONAL` | `CONDITIONAL` | Supported mode sets overlap strongly, but stacking/isolation and linear-light behavior can differ. | Implemented for supported names. |
+| `background-blend-mode` | Per-fill blend modes | `CONDITIONAL` | `CONDITIONAL` | Requires multiple fills in correct order. | Not compiled. |
+| `isolation:isolate` | No direct Figma CSS stacking-context equivalent | `STRUCTURAL`/`STOP` | `STOP` | A wrapper may approximate only after a render check. | Not captured. |
+| `overflow:hidden/clip` | `clipsContent` | `EXACT` | `EXACT` | Scroll behavior is separate. | Implemented. |
+| `overflow:auto/scroll` | Prototype `overflowDirection` plus clipped frame | `CONDITIONAL` | `CONDITIONAL` | Static design and prototype runtime are distinct; scrollbar appearance is not represented. | Figma readback exists; Code→Figma pending. |
+| `clip-path` | Vector mask / clipped vector | `STRUCTURAL` | `CONDITIONAL` | Basic shapes can become vectors; path units, transforms and animated clips need provenance. | Not implemented. |
+| CSS masks | Real Alpha/Vector/Luminance mask node preceding masked siblings | `CONDITIONAL`/`STRUCTURAL` | `CONDITIONAL` | `masks.vector-mask`: preserve and use the actual shape. If geometry cannot be materialized, stop. | JSX real-mask support implemented; non-materializable DOM masks gate. |
+| Figma Noise, Texture, Glass, progressive blur | Editable native effect with full parameters | `FIGMA_ONLY` | `STRUCTURAL`/`VISUAL` | `figma-effects.native`: preserve native effect data. Web approximation remains explicit; never label Glass as merely `backdrop-filter`. | Native write/readback implemented; Figma CSS export omits Glass-specific facts. |
+
+## Typography and content
+
+| HTML/CSS fact | Native Figma fact | Code → Figma | Figma → code | Boundary / required policy | Bridge status |
+|---|---|---:|---:|---|---|
+| Text characters and runs | Text node and styled ranges | `EXACT` | `EXACT` | Preserve whitespace and DOM run boundaries; escaping must be lossless. | Basic/direct runs implemented; rich-run compiler incomplete. |
+| Font family/style/weight/size | Font name/style/weight/size | `CONDITIONAL` | `CONDITIONAL` | The exact font face must exist in both environments. Browser synthetic weights/styles are not equivalent. Try installed family-specific named-face aliases (`SemiBold`, `ExtraBold`, `ExtraLight`) before a fallback family. Bound font identity still stops when unavailable. | Implemented and live font inventory verified for DM Sans, Manrope and Inter. |
+| Semantic/named typography role | Local Text Style | `STRUCTURAL` | `CONDITIONAL` | Explicit names require an exact complete typography match; a same-name mismatch stops. Otherwise reuse exact typography or create a deterministic generated style. Float32 readback is canonicalized before comparison. | `Typography/Eyebrow`, generated style reconciliation, reports and conflict gate implemented. |
+| Line height and letter spacing | Native text properties | `EXACT` | `EXACT` | Unit normalization must retain authored provenance. | Implemented. |
+| Horizontal alignment | Text alignment | `EXACT` | `EXACT` | `start/end` depend on writing direction. | Implemented for common LTR cases. |
+| Vertical alignment in a text box | Text vertical alignment | `EXACT` | `EXACT` | CSS requires an enclosing box/flex context rather than a direct `vertical-align` equivalent in many cases. | Renderer vocabulary incomplete. |
+| `text-transform` | `textCase` | `CONDITIONAL` | `CONDITIONAL` | Locale-sensitive casing can differ. Keep original characters and transform provenance. | Capture currently materializes transformed text in some cases; needs provenance. |
+| Text decoration | Decoration, style, thickness, offset, color | `CONDITIONAL` | `CONDITIONAL` | CSS skip-ink and browser metrics can differ; Figma has rich decoration properties. | Not compiled from DOM. |
+| Paragraph indent/spacing and lists | Native paragraph/list properties | `CONDITIONAL` | `CONDITIONAL` | CSS margins/counters/list marker customization exceed the text model. | Figma extraction partial; DOM compiler missing. |
+| `white-space`, wrapping, truncation, line clamp | Text auto-resize, truncation, max lines | `CONDITIONAL` | `CONDITIONAL` | Browser line breaking/hyphenation and Figma font metrics differ. Intrinsic single-line flow text uses HUG; positioned and multiline text retains measured geometry. Resize and screenshot gates required. | HUG/fixed-width decision, width/truncate support and regression coverage implemented. |
+| Variable-font axes and OpenType feature writes | UI axis controls; limited Plugin API metadata/readback | `STOP` | `CONDITIONAL` | `font.named-faces`: capture axes, then ask before render whether to install the required variable font or use an available named face. | Preflight/gate and intent metadata implemented; exact Plugin API axis write unavailable. |
+| Vertical writing, bidi edge cases, ruby, complex inline layout | No complete equivalent | `VISUAL`/`STOP` | `STOP` | Preserve as source or outlined vector only with approval; do not silently reflow. | Out of current scope. |
+
+## Assets, components, variables, and behavior
+
+| HTML/CSS fact | Native Figma fact | Code → Figma | Figma → code | Boundary / required policy | Bridge status |
+|---|---|---:|---:|---|---|
+| Inline/project SVG icon | Vector node or linked icon instance | `EXACT`/`CONDITIONAL` | `CONDITIONAL` | Stable icon identity wins over geometry matching. Unknown glyphs must fail. | Project/built-in SVG resolver implemented. |
+| Raster image | Image paint | `EXACT`/`CONDITIONAL` | `EXACT` | Keep original bytes/hash and crop facts. | Native local-byte and HTTP(S) image paints with FILL/FIT/CROP/TILE are implemented; arbitrary object-position/crop transforms remain pending. |
+| Canvas/WebGL/video/runtime media | Video/image/shader or asset | `VISUAL`/`CODE_ONLY` | `VISUAL` | Static design cannot retain runtime behavior. | Outside semantic pilot. |
+| `::before` / `::after` decoration | Named child layer | `STRUCTURAL` | `STOP` | Preserve pseudo identity and z-order; never merge into unrelated paint unless provably exact. | Implemented as named frames for captured pseudos. |
+| CSS custom property | Figma variable and binding | `CONDITIONAL` | `CONDITIONAL` | CSS cascade, inheritance, fallback chains and `calc()` exceed Figma variables. Type and collection must be deterministic. | Colors implemented; spacing/radius partial; full types pending. |
+| Media query/theme | Variable mode, variant, or separate frame | `STRUCTURAL` | `STOP` | Only stable named states become modes/variants. Arbitrary viewport queries need breakpoint frames and source metadata. | Active rule captured; multi-state generation pending. |
+| Shared CSS class/style | Figma style | `CONDITIONAL` | `CONDITIONAL` | Only stable authored identity should create/reuse a style; value equality alone is insufficient. | Style commands exist; semantic compiler integration pending. |
+| React/Vue/Web component | Component / Instance | `CONDITIONAL` | `CONDITIONAL` | Requires Design Entity/Registry identity. Name or geometry alone must not cause instance replacement. | Registry foundation exists; automatic resolution pending. |
+| Component props and states | Variant, boolean, text, instance-swap, slot properties | `CONDITIONAL` | `CONDITIONAL` | Only finite design-state axes map. Arbitrary values, render props and runtime logic remain code. | Warnings only in semantic render. |
+| CSS pseudo states (`hover`, `focus`, `disabled`) | Component variants/interactions | `STRUCTURAL` | `CONDITIONAL` | Generate variants only when selectors/state ownership are explicit; preserve focus/accessibility semantics in code. | Not generated. |
+| CSS transitions/keyframes | Prototype transitions or Figma Motion | `CONDITIONAL`/`CODE_ONLY` | `CONDITIONAL` | Timing models and triggers differ; Smart Animate is not a CSS keyframe AST. Require an interaction mapping. | Separate Figma commands exist; not round-tripped. |
+| Click/navigation/overlay behavior | Prototype Reactions | `CONDITIONAL` | `CONDITIONAL` | DOM events, app state, async logic and routing exceed prototype actions. Store code handler identity. | Raw Reaction JSON supported outside semantic render. |
+| Form control/native browser behavior | No equivalent functional node | `CODE_ONLY` | `STOP` | Figma representation is a component/state spec, not a working HTML control. | Not modeled. |
+| Figma annotations, Dev Resources, sections/pages | Design workflow metadata | `FIGMA_ONLY` | `FIGMA_ONLY` | May link to code but must not be emitted as visible HTML. Reviewed lossy Code → Figma policies may opt into deduplicated native annotations on the exact affected semantic node; equivalent native mappings stay unannotated. | Commands and Design Entity links exist; automatic boundary annotations are implemented for `border.single-paint-native`. |
+
+## Normative compiler policy
+
+1. Capture both authored and computed facts. Computed pixels verify the result;
+   authored properties choose the semantic Figma primitive.
+2. Prefer the same native primitive: border → stroke, inset shadow → inner
+   shadow, Flexbox → Auto Layout, Grid → native Grid, SVG → vector.
+3. Never replace one `EXACT` primitive with a visually similar different
+   primitive.
+4. Never flatten an unsupported fact merely because a screenshot looks close.
+5. Every `CONDITIONAL` mapping has a machine-checkable predicate.
+6. Every `STRUCTURAL` mapping emits provenance describing the source fact and
+   generated helper layers. A reviewed lossy policy may additionally opt into
+   a native, property-scoped Figma annotation; equivalent mappings must not
+   create annotation noise.
+7. Every `VISUAL` mapping needs explicit approval and retains the source asset.
+8. Every unsupported authored fact becomes a structural-gate finding. Dropping
+   a captured CSS property is a failure, not a neutral default.
+9. Reverse sync uses the same matrix independently. Code → Figma support does
+   not imply Figma → code support.
+10. Acceptance requires semantic audit, resize/state probes, and pixel
+    comparison; no one gate substitutes for another.
+
+## Implementation sequence
+
+### Phase A — make loss visible
+
+- Add a versioned mapping registry whose entries contain source fact, target
+  primitive, direction, class, predicate, fallback and test fixture.
+- Extend semantic diagnostics to report every captured authored fact that no
+  registry entry consumed.
+- Make the structural gate fail on unconsumed borders, backgrounds, effects,
+  filters, masks, transforms, typography, overflow and interaction facts.
+- Add a machine-readable report beside this document so agents can show the
+  user only unresolved decisions for the current capture.
+
+### Phase B — complete exact mappings
+
+- Multiple drop/inner shadows including spread and order.
+- Multiple fills and linear/radial/angular gradients.
+- Border box/stroke inclusion, dashed strokes, text decoration, aspect ratio,
+  scroll overflow and remaining variable bindings.
+- Full round-trip fixtures for each mapping: CSS capture → semantic model →
+  Figma Plugin code → Figma inspection → generated CSS facts.
+
+### Phase C — controlled structural fallbacks
+
+- Mixed per-side border paints, margins, clip paths/masks and unsupported
+  alignment values.
+- Each helper layer receives a stable source-fact id, descriptive name and
+  reverse-sync prohibition unless the exact structure is recognized.
+- No fallback is enabled by default until its resize/state probes pass.
+
+### Phase D — behavior and identity
+
+- Registry-backed component/instance replacement.
+- Explicit mapping between code states, Figma variants and prototype/Motion
+  behavior.
+- Preserve semantic HTML, accessibility, handlers and routing as code-owned
+  facts linked to the Design Entity.
+
+## Current priority decisions still needed
+
+1. `space-evenly`: deterministic structure or hard fail.
+2. Unsupported CSS filter functions: source-specific vector/raster strategy or hard fail.
+3. Web approximation for native Figma Glass/Noise/Texture/Shader, including how approximation provenance is represented.
+4. Component matching: Registry link only, or allow a strictly compatible
+   unambiguous name/axis match.
+
+## Sources
+
+The installed Plugin API typings are the executable source of truth. Relevant
+official Figma references:
+
+- [Paint](https://developers.figma.com/docs/plugins/api/Paint/)
+- [Effect](https://developers.figma.com/docs/plugins/api/Effect/)
+- [Auto Layout `layoutMode`](https://developers.figma.com/docs/plugins/api/properties/nodes-layoutmode/)
+- [Native Grid tracks](https://developers.figma.com/docs/plugins/api/properties/nodes-gridcolumnsizes/)
+- [Strokes and individual side weights](https://developers.figma.com/docs/plugins/api/properties/nodes-strokes/)
+- [Stroke alignment](https://developers.figma.com/docs/plugins/api/properties/nodes-strokealign/)
+- [Masks](https://developers.figma.com/docs/plugins/api/MaskType/)
+- [Mask node behavior (`isMask`)](https://developers.figma.com/docs/plugins/api/properties/nodes-ismask/)
+- [Text nodes](https://developers.figma.com/docs/plugins/api/TextNode/)
+- [Variable fonts in the Figma UI](https://help.figma.com/hc/en-us/articles/5579502031511-Use-variable-fonts)
+- [Components and component properties](https://developers.figma.com/docs/plugins/api/ComponentNode/)
+- [Prototype reactions](https://developers.figma.com/docs/plugins/api/properties/nodes-reactions/)
+- [Prototype transitions](https://developers.figma.com/docs/plugins/api/Transition/)
+- [Prototype overflow](https://developers.figma.com/docs/plugins/api/properties/nodes-overflowdirection/)
+
+Browser semantics remain defined by CSS/HTML rather than by Figma's generated
+CSS strings.

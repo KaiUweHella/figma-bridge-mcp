@@ -21,6 +21,7 @@
 
 import fs from 'fs';
 import YAML from 'yaml';
+import { variableScopePolicyCode } from './lib/variable-scope-policy.js';
 
 const JSON_BLOCK_RE = /```json\s+design-tokens\s*\n([\s\S]*?)\n```/;
 
@@ -350,12 +351,14 @@ export function toTokensImportJson({ tokens }) {
  *      variable (same-collection match preferred, else first global match).
  *
  * Idempotent: existing collections/variables are reused, not duplicated.
- * Returns a JSON.stringify'd { collections, createdCount, aliasCount, unresolved }.
+ * Returns a JSON.stringify'd
+ * { collections, createdCount, aliasCount, unresolved, scopeQuestions }.
  * Pure string builder (no Figma access here) so it is unit-testable.
  */
 export function variableImportCode(variables) {
   return `(async () => {
   const VARS = ${JSON.stringify(variables)};
+  ${variableScopePolicyCode()}
   const hexToRgba = (hex) => {
     const m = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})?$/i.exec(String(hex).trim());
     if (!m) return null;
@@ -370,6 +373,7 @@ export function variableImportCode(variables) {
 
   const ctx = {};
   let createdCount = 0, aliasCount = 0, unresolved = 0;
+  const scopeQuestions = [];
 
   // PASS 1 — collections, modes, variables, non-alias values
   for (const [collName, coll] of Object.entries(VARS)) {
@@ -390,7 +394,7 @@ export function variableImportCode(variables) {
     for (const [vName, vDef] of Object.entries(coll.variables || {})) {
       const type = TYPES[vDef.type] ? vDef.type : 'STRING';
       let v = allVars.find(x => x.name === vName && x.variableCollectionId === col.id) || vars[vName];
-      if (!v) { try { v = figma.variables.createVariable(vName, col, type); register(v); createdCount++; } catch (e) { continue; } }
+      if (!v) { try { v = figma.variables.createVariable(vName, col, type); __scopeTokenVariable(v, vName, type); const q = __variableScopeQuestion(vName, type, collName); if (q) scopeQuestions.push(q); register(v); createdCount++; } catch (e) { continue; } }
       vars[vName] = v;
       for (const [mn, val] of Object.entries(vDef.values || {})) {
         const modeId = modeIds[mn];
@@ -427,6 +431,6 @@ export function variableImportCode(variables) {
     }
   }
 
-  return JSON.stringify({ collections: Object.keys(VARS).length, createdCount, aliasCount, unresolved });
+  return JSON.stringify({ collections: Object.keys(VARS).length, createdCount, aliasCount, unresolved, scopeQuestions });
 })()`;
 }

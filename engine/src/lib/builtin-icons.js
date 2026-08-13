@@ -14,6 +14,10 @@
 const S = 'stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"';
 
 const ICONS = {
+  'folder': `<path d="M3 5h6l2 2h10v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5z" ${S}/>` ,
+  'users': `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" ${S}/>` ,
+  'zap': `<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" ${S}/>` ,
+  'target': `<circle cx="12" cy="12" r="9" ${S}/><circle cx="12" cy="12" r="4" ${S}/><circle cx="12" cy="12" r="1" fill="#000"/>`,
   'check': `<path d="M20 6L9 17l-5-5" ${S}/>`,
   'x': `<path d="M18 6L6 18M6 6l12 12" ${S}/>`,
   'plus': `<path d="M12 5v14M5 12h14" ${S}/>`,
@@ -27,6 +31,7 @@ const ICONS = {
   'arrow-down': `<path d="M12 5v14M19 12l-7 7-7-7" ${S}/>`,
   'arrow-left': `<path d="M19 12H5M12 19l-7-7 7-7" ${S}/>`,
   'arrow-right': `<path d="M5 12h14M12 5l7 7-7 7" ${S}/>`,
+  'arrow-up-right': `<path d="M7 17L17 7M7 7h10v10" ${S}/>` ,
   'dot': `<circle cx="12" cy="12" r="4" fill="#000"/>`,
   'circle': `<circle cx="12" cy="12" r="9" ${S}/>`,
   'square': `<rect x="4" y="4" width="16" height="16" rx="2" ${S}/>`,

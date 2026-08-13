@@ -12,7 +12,7 @@ const readGroup = (summary, readSubcommands, extra = {}) => ({
 });
 
 const COMMANDS = Object.freeze({
-  render: { summary: 'Render JSX into Figma', mutation: 'write', timeout: 'long', path: 'render-inputs' },
+  render: { summary: 'Render JSX into Figma or print a semantic browser capture expression', mutation: 'render', timeout: 'long', target: 'conditional', path: 'render-inputs' },
   'render-batch': { summary: 'Render several JSX frames into Figma', mutation: 'write', timeout: 'long', path: 'render-inputs' },
   combos: { summary: 'Generate component variant combinations', mutation: 'write' },
   sizes: { summary: 'Generate component size variants', mutation: 'write' },
@@ -49,6 +49,9 @@ const COMMANDS = Object.freeze({
   analyze: { summary: 'Analyze colors, typography and spacing', mutation: 'read' },
   font: readGroup('Inspect typography, bind variables, or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
   map: { summary: 'Map Figma components to code', mutation: 'read', path: 'map-file' },
+  link: readGroup('Link durable Design Entities across code and Figma', ['inspect', 'list', 'configure', 'status', 'accept', 'context'], {
+    target: 'conditional', path: 'design-link-registry',
+  }),
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
@@ -89,6 +92,7 @@ function mutatesDesign(entry, args) {
   if (!args.length || hasHelp(args)) return false;
   const sub = args[1];
   if (entry.mutation === 'write') return true;
+  if (entry.mutation === 'render') return !args.includes('--print-browser-capture') && !args.includes('--structural-gate');
   if (entry.mutation === 'read') return false;
   if (entry.mutation === 'gradient') {
     return sub !== 'extract' || args.includes('--apply-to');
@@ -111,6 +115,8 @@ function targetPolicy(name, entry, args) {
   if (name === 'spec') return args.includes('--check') ? 'figma' : 'none';
   if (name === 'verify-build') return args.includes('--node') ? 'figma' : 'none';
   if (name === 'gradient') return args[1] === 'extract' && !args.includes('--apply-to') ? 'none' : 'figma';
+  if (name === 'link') return ['list', 'configure'].includes(args[1]) ? 'none' : 'figma';
+  if (name === 'render') return args.includes('--print-browser-capture') || args.includes('--structural-gate') ? 'none' : 'figma';
   return 'figma';
 }
 
@@ -176,6 +182,7 @@ function acceptedExitCodes(args) {
   // Exit 1 is a valid verify report containing findings, not a transport
   // failure. MCP callers need the report in order to fix those findings.
   if (args?.[0] === 'verify-build') return [0, 1];
+  if (args?.[0] === 'render' && args.includes('--structural-gate')) return [0, 1];
   return [0];
 }
 
@@ -335,6 +342,16 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       outputPath = outputFlag(args, baseDir, 'figma-map.json');
       markWrite(outputPath);
       break;
+    case 'design-link-registry': {
+      const supplied = pathFlag(args, ['--manifest'], baseDir);
+      const manifest = supplied?.value || absolute(baseDir, 'figma-bridge.json');
+      if (!supplied) args.push('--manifest', manifest);
+      outputPath = manifest;
+      if (['set', 'accept', 'configure'].includes(args[1])) markWrite(manifest);
+      else markRead();
+      if (args[1] === 'accept' && pathFlag(args, ['--compare'], baseDir)) markRead();
+      break;
+    }
     case 'verify-build':
       normalizeVerifyBuild(args, baseDir);
       markRead();
@@ -350,6 +367,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
     }
     case 'render-inputs': {
       if (pathFlag(args, ['--icons'], baseDir)) markRead();
+      if (pathFlag(args, ['--dom-capture'], baseDir)) markRead();
       break;
     }
     case 'node-inputs': {
@@ -449,7 +467,8 @@ function availabilityFor(args, capability) {
     editor: args[0] === 'jam' ? 'figjam' : args[0] === 'slides' ? 'slides' : 'figma',
     feature: args[0] === 'motion' ? 'motion-beta'
       : args[0] === 'slides' ? 'slides-beta'
-        : args[0] === 'map' ? 'storybook' : null,
+        : args[0] === 'map' ? 'storybook'
+          : args[0] === 'link' ? 'design-links' : null,
   };
 }
 

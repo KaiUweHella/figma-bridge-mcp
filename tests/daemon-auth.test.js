@@ -42,6 +42,10 @@ function httpHealth(headers = {}) {
   return fetch(`http://127.0.0.1:${PORT}/health`, { headers });
 }
 
+function httpHealthV6(headers = {}) {
+  return fetch(`http://[::1]:${PORT}/health`, { headers });
+}
+
 function waitForListen(timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -86,6 +90,7 @@ function handshake(ws, { mutate = (h) => h, key = KEY, timeoutMs = 3000 } = {}) 
           type: 'hello',
           proto: HANDSHAKE_PROTO,
           version: PLUGIN_VERSION,
+          capabilities: ['render-plan-v1', 'render-plan-batch-v1'],
           nonce: pluginNonce,
           proof: signHandshake(key, pluginTranscript({
             daemonNonce: m.nonce,
@@ -166,6 +171,14 @@ test('HTTP /health with a valid signature succeeds and reports Safe-Mode shape',
   assert.equal(body.cdp, false);
   assert.equal(body.keyConfigured, true);
   assert.equal(body.plugin, false); // no plugin connected yet
+});
+
+test('IPv6 localhost reaches the same authenticated loopback daemon', async () => {
+  const res = await httpHealthV6(auth('GET', '/health'));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.cdp, false);
+  assert.equal(body.keyConfigured, true);
 });
 
 test('the raw session token no longer authenticates (legacy header dead)', async () => {
@@ -454,6 +467,68 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     const connection = health.connections.find((item) => item.fileKey === 'REV_FILE');
     assert.match(connection.lastResponseAt, /^\d{4}-\d{2}-\d{2}T/,
       'health must distinguish a merely open socket from a plugin that has answered');
+  });
+});
+
+test('/exec routes a validated Semantic Render Plan through the authenticated plugin socket', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'PLAN_FILE' });
+    const plan = {
+      kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx',
+      root: { path: 'root', name: 'Card', source: { kind: 'jsx', type: 'frame', props: { name: 'Card' } }, children: [] },
+      diagnostics: {},
+    };
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route render-plan')), 3000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'render-plan') return;
+        clearTimeout(timer);
+        assert.deepEqual(msg.plan, plan);
+        ws.send(JSON.stringify({ type: 'result', id: msg.id, result: { id: '9:9', executor: 'structured-v1' } }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({ action: 'render-plan', plan, fileKey: 'PLAN_FILE' });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) }, body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).result, { id: '9:9', executor: 'structured-v1' });
+  });
+});
+
+test('/exec routes a validated Semantic Render Plan batch without generated code', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'BATCH_FILE' });
+    const plan = {
+      kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx',
+      root: { path: 'root', name: 'Card', source: { kind: 'jsx', type: 'frame', props: { name: 'Card' } }, children: [] },
+      diagnostics: {},
+    };
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route render-plan-batch')), 3000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'render-plan-batch') return;
+        clearTimeout(timer);
+        assert.deepEqual(msg.plans, [plan, plan]);
+        assert.deepEqual(msg.options, { gap: 24, vertical: true });
+        assert.equal('code' in msg, false);
+        ws.send(JSON.stringify({ type: 'result', id: msg.id, result: { frames: [{ id: '9:10' }], executor: 'structured-batch-v1' } }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({ action: 'render-plan-batch', plans: [plan, plan], options: { gap: 24, vertical: true }, fileKey: 'BATCH_FILE' });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) }, body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).result.executor, 'structured-batch-v1');
   });
 });
 

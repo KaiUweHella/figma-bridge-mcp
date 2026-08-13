@@ -51,6 +51,19 @@ function loadPluginCrypto() {
 
 const plugin = loadPluginCrypto();
 
+function loadPluginReconnect() {
+  const start = UI.indexOf('function scanPorts(');
+  const end = UI.indexOf('function connectParallel()', start);
+  assert.ok(start > 0, 'scanPorts() not found in ui.html');
+  assert.ok(end > start, 'connectParallel() marker not found after scanPorts()');
+  const source = UI.slice(start, end);
+  const factory = new Function(
+    'UNREACHABLE_AFTER_SCANS',
+    `${source}; return { scanPorts, reconnectDelay };`,
+  );
+  return factory(4);
+}
+
 test('plugin HMAC matches Node crypto across sizes and key lengths', () => {
   const cases = [
     ['k', ''],
@@ -130,6 +143,11 @@ test('plugin builds the exact transcripts the daemon verifies', () => {
   assert.ok(plugin.proofEquals(plugin.hmacSha256Hex(KEY, asDaemon), ack));
 });
 
+test('plugin advertises structured rendering only after the authenticated hello', () => {
+  assert.match(UI, /capabilities: \['render-plan-v1', 'render-plan-batch-v1'\]/);
+  assert.ok(UI.indexOf("capabilities: ['render-plan-v1', 'render-plan-batch-v1']") > UI.indexOf("type: 'hello'"));
+});
+
 test('the two transcripts are not interchangeable', () => {
   const daemonNonce = makeNonce();
   const pluginNonce = makeNonce();
@@ -187,4 +205,52 @@ test('verify rejects malformed proofs instead of throwing', () => {
   assert.equal(verify('k', t, 'not-hex'), false);
   assert.equal(verify('k', t, 'ab'), false);
   assert.equal(verify('', t, sign('k', t)), false, 'no key ⇒ no trust');
+});
+
+test('plugin retries as soon as every localhost port refuses the scan', () => {
+  const reconnect = loadPluginReconnect();
+  const sockets = [];
+  let exhausted = 0;
+  let fallback = null;
+
+  class FakeWebSocket {
+    constructor(url) {
+      this.url = url;
+      sockets.push(this);
+    }
+    close() {}
+  }
+
+  reconnect.scanPorts({
+    ports: [3456, 3457, 3458],
+    WebSocketCtor: FakeWebSocket,
+    timeoutMs: 750,
+    isCurrent: () => true,
+    onOpen: () => assert.fail('no fake socket should open'),
+    onExhausted: () => { exhausted++; },
+    setTimer: (fn) => { fallback = fn; return 1; },
+    clearTimer: () => {},
+  });
+
+  assert.equal(exhausted, 0);
+  assert.deepEqual(sockets.map((socket) => socket.url), [
+    'ws://localhost:3456/plugin',
+    'ws://localhost:3457/plugin',
+    'ws://localhost:3458/plugin',
+  ]);
+  for (const socket of sockets) {
+    socket.onerror();
+    // Browsers commonly emit error + close; count once. The final error may
+    // already finish the round and clear its close handler during cleanup.
+    if (socket.onclose) socket.onclose();
+  }
+  assert.equal(exhausted, 1, 'must not wait for the fallback timeout');
+  fallback();
+  assert.equal(exhausted, 1, 'fallback timer must not exhaust twice');
+});
+
+test('plugin reconnect delay stays responsive after daemon-unreachable state', () => {
+  const reconnect = loadPluginReconnect();
+  assert.ok(reconnect.reconnectDelay(1) <= 150, 'initial retries should be near-immediate');
+  assert.ok(reconnect.reconnectDelay(4) <= 500, 'background reconnect should detect a returning daemon within 500ms');
 });

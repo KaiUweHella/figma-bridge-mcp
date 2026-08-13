@@ -127,6 +127,13 @@ describe('font support in JSX', () => {
     assert.ok(code.includes('Extra Bold'));
   });
 
+  it('maps computed CSS numeric weights to Figma font styles', async () => {
+    const code = await client.parseJSX('<Frame name="T"><Text weight="600">a</Text><Text weight="700">b</Text><Text weight="800">c</Text></Frame>');
+    assert.ok(code.includes('Semi Bold'));
+    assert.ok(code.includes('Bold'));
+    assert.ok(code.includes('Extra Bold'));
+  });
+
   it('supports italic', async () => {
     const code = await client.parseJSX('<Frame name="T"><Text italic={true} weight="bold">x</Text></Frame>');
     assert.ok(code.includes('Bold Italic'));

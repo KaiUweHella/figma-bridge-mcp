@@ -264,6 +264,28 @@ describe('vocabulary props are actually applied (audit sweep)', () => {
     assertValidJs(code);
   });
 
+  it('text honors x/y in a free-positioned parent', async () => {
+    const client = new FigmaClient();
+    const code = await client.parseJSX('<Frame flex="none"><Text x={12} y={18}>Placed</Text></Frame>');
+    assert.ok(code.includes('.x = 12'));
+    assert.ok(code.includes('.y = 18'));
+  });
+
+  it('eight-digit hex fills preserve alpha on the Figma paint', async () => {
+    const client = new FigmaClient();
+    const code = await client.parseJSX('<Frame bg="#141519b8"><Rect bg="#ffffff33" /></Frame>');
+    assert.ok(code.includes('opacity:0.7215686274509804'));
+    assert.ok(code.includes('opacity:0.2'));
+  });
+
+  it('custom SVGs can keep their own paint and non-square dimensions', async () => {
+    const local = new FigmaClient();
+    local.setIcons({ chart: '<svg><path fill="#7657e8" /></svg>' });
+    const code = await local.parseJSX('<Frame name="P"><Icon name="chart" preserveColors="true" w={200} h={80} /></Frame>');
+    assert.ok(code.includes('.resize(200, 80)'));
+    assert.ok(!code.includes('function colorize'));
+  });
+
   it('numeric width on <Text> resizes with HEIGHT auto-resize (was ignored)', async () => {
     const client = new FigmaClient();
     const code = await client.parseJSX(

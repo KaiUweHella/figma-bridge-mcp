@@ -61,18 +61,19 @@ describe('matchInventory', () => {
 });
 
 describe('formatReuseWarning', () => {
-  test('set finding carries axes, an <Instance> line and the add-variant recipe', () => {
+  test('set finding carries axes and requires a Design Entity decision instead of name-based reuse', () => {
     const [f] = matchInventory(['Button'], INVENTORY);
     const w = formatReuseWarning(f);
     assert.match(w, /component set "Button" \(10:1\)/);
     assert.match(w, /State: Default \| Hover/);
-    assert.match(w, /<Instance component="Button" \/>/);
-    assert.match(w, /add-variant/);
+    assert.match(w, /decision required/);
+    assert.match(w, /data-figma-component/);
+    assert.match(w, /name equality alone never authorizes/);
   });
 
   test('a slash tail matching an axis value pre-fills the variant attribute', () => {
     const [f] = matchInventory(['Button/Hover'], INVENTORY);
-    assert.match(formatReuseWarning(f), /<Instance component="Button" variant="State=Hover" \/>/);
+    assert.match(formatReuseWarning(f), /with variant="State=Hover"/);
   });
 });
 

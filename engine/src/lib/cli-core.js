@@ -25,6 +25,15 @@ import {
 // without changing the user's real pairing directory.
 const DAEMON_PID_FILE = process.env.DAEMON_PID_FILE || join(STATE_DIR, 'daemon.pid');
 const DAEMON_TOKEN_FILE = process.env.DAEMON_TOKEN_FILE || join(STATE_DIR, '.daemon-token');
+const DEFAULT_PLUGIN_KEY_FILE = join(STATE_DIR, 'plugin-key');
+
+// The MCP wrapper passes PLUGIN_KEY_FILE explicitly, but the vendored engine is
+// also a supported local entry point (`connect`, `daemon restart`). Falling
+// back to the shared state directory keeps those paths paired with the same
+// plugin instead of silently launching an unauthenticated daemon.
+function getPluginKeyFile() {
+  return process.env.PLUGIN_KEY_FILE || DEFAULT_PLUGIN_KEY_FILE;
+}
 
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {
@@ -245,7 +254,8 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
   // Use the same node binary that launched this process (process.execPath),
   // not whatever 'node' resolves to on PATH — the MCP server may spawn the
   // engine with a node that isn't on PATH. PLUGIN_KEY_FILE (if set by the MCP
-  // layer) rides along in ...process.env and is passed explicitly for clarity.
+  // layer) rides along in ...process.env; direct engine invocations fall back
+  // to the same state-dir key used by the MCP layer.
   //
   // DAEMON_PORT is only forwarded when the USER set it. Passing the resolved
   // port would freeze a stale port-file value into the child (a one-time 3457
@@ -254,7 +264,7 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
   const daemonEnv = {
     ...process.env,
     DAEMON_MODE: 'plugin',
-    PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE || ''
+    PLUGIN_KEY_FILE: getPluginKeyFile()
   };
   if (!process.env.DAEMON_PORT) delete daemonEnv.DAEMON_PORT;
   const child = spawn(process.execPath, [daemonScript], {
@@ -548,6 +558,7 @@ export {
   saveConfig,
   smartPosCode,
   startDaemon,
+  getPluginKeyFile,
   stopDaemon,
   unescapeShell,
   varLoadingCode

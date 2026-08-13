@@ -49,6 +49,10 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['canvas', 'next'],
     ['motion', 'styles'],
     ['motion', 'inspect', '1:2'],
+    ['link', 'status', 'ui.button'],
+    ['link', 'accept', 'ui.button'], // repository baseline write; Figma remains read-only
+    ['link', 'context', 'ui.button'],
+    ['link', 'configure', '--tokens', 'tokens.json'], // repository-only write
     // A sync without --apply reads both sides and prints a plan; asking for
     // confirmation to LOOK would be noise.
     ['tokens', 'sync', 'tokens.json'],
@@ -71,6 +75,7 @@ test('write subcommands of gated groups require confirm', () => {
     // future READ_SUBCOMMANDS edit cannot silently ungate it.
     ['component', 'add-variant', 'Button', 'State=Loading'],
     ['dev', 'link', '1:2', 'https://x'],
+    ['link', 'set', '1:2', 'ui.button'],
     ['annotate', 'add', 'hello'],
     ['annotate', 'clear', '1:2'],
     ['section', 'create', 'S'],

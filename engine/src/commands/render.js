@@ -1,12 +1,22 @@
 // Commands: render (extracted from index.js)
 import chalk from 'chalk';
-import { basename, extname, isAbsolute, join, resolve } from 'path';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { FigmaClient } from '../lib/jsx-render.js';
+import { domCaptureToRenderPlan } from '../lib/dom-capture-to-jsx.js';
+import { browserDomCaptureScript } from '../lib/browser-dom-capture.js';
+import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-structural-gate.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
 import { cachedInventoryCode } from '../lib/component-inventory.js';
+import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/design-link-registry.js';
+import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
+import {
+  formatSemanticResizeProbe,
+  parseResizeProbeDelta,
+  semanticRootResizeProbeCode,
+} from '../lib/semantic-resize-probe.js';
 import {
   program,
   checkConnection,
@@ -34,6 +44,42 @@ function warnUnknownProps(jsxStrings) {
       }
     }
   } catch {}
+}
+
+function printSemanticAnalysis(model, label = 'JSX', approvedFallbacks = []) {
+  const diagnostics = model?.diagnostics;
+  if (!diagnostics) return true;
+  const layouts = diagnostics.layouts || {};
+  console.log(chalk.gray(
+    `↳ ${label} structure: ${layouts.grid || 0} Grid, ${layouts.flex || 0} Auto Layout, ` +
+    `${layouts.free || 0} explicit free, ${diagnostics.absoluteNodes || 0} absolute`,
+  ));
+  if (diagnostics.unclassifiedFallbacks?.length) {
+    console.error(chalk.red('✗'), `${label} has ${diagnostics.unclassifiedFallbacks.length} unclassified structural problem(s); refusing before Figma connection.`);
+    for (const finding of diagnostics.unclassifiedFallbacks.slice(0, 10)) {
+      console.error(chalk.red(`  ${finding.path}: ${finding.fact}`));
+    }
+    return false;
+  }
+  if (diagnostics.classifiedFallbacks?.length) {
+    console.log(chalk.yellow(`⚠ ${diagnostics.classifiedFallbacks.length} explicit/classified structural fallback(s).`));
+  }
+  const pendingFontAxes = (diagnostics.classifiedFallbacks || []).filter((finding) =>
+    finding.fallback === 'font.named-faces'
+    && !approvedFallbacks.some((approval) => approval === finding.fallback || approval === finding.path || approval === `${finding.path}:${finding.fallback}`));
+  if (pendingFontAxes.length) {
+    console.error(chalk.red('✗'), `${label} needs a variable-font decision before Figma connection.`);
+    for (const finding of pendingFontAxes.slice(0, 10)) {
+      console.error(chalk.yellow(`  ${finding.path}: ${finding.fact}`));
+    }
+    console.error(chalk.gray('  Install the requested variable font, or choose an available named face. Then rerun with --approve-fallback font.named-faces.'));
+    return false;
+  }
+  if (diagnostics.unresolvedIcons?.length) {
+    const names = [...new Set(diagnostics.unresolvedIcons.map((item) => item.name))];
+    console.log(chalk.yellow(`⚠ ${diagnostics.unresolvedIcons.length} unresolved icon(s): ${names.join(', ')}.`));
+  }
+  return true;
 }
 
 // Parse each JSX into a pseudo-item ({_type:'frame', ...rootProps,
@@ -94,6 +140,53 @@ function printUnresolvedVars(unresolved) {
   console.log(chalk.yellow(`\n\u26a0 ${unresolved.length} variable reference(s) could not be resolved:`));
   console.log(chalk.yellow('  ' + unresolved.join(', ')));
   console.log(chalk.gray('  These bindings rendered as grey placeholders. Check figma_run ["var", "list"] (optionally with --collection).'));
+}
+
+function printCreatedVariables(created) {
+  if (!created || created.length === 0) return;
+  console.log(chalk.green(`↳ ${created.length} variable(s) created and bound: ${created.join(', ')}`));
+}
+
+function printVariableReport(report) {
+  if (!report || !report.references) return;
+  console.log(chalk.gray(
+    `↳ variable report: ${report.references} reference(s), ${report.reused} reused, ` +
+    `${report.created} created, ${report.bound} bound, ${report.ambiguous} ambiguous, ${report.unsupported} unsupported`,
+  ));
+}
+
+function printFallbackAnnotationReport(report) {
+  if (!report || !report.requested) return;
+  const message = `↳ fallback annotations: ${report.applied} added, ${report.deduplicated} already present, ${report.unsupported} unsupported`;
+  if (report.unsupported) console.log(chalk.yellow(message));
+  else console.log(chalk.gray(message));
+}
+
+function printStructuralReport(report) {
+  if (!report) return;
+  const summary = report.summary || {};
+  const detail = `${summary.nodes || 0} nodes, ${summary.grids || 0} Grid, `
+    + `${summary.autoLayouts || 0} Auto Layout, ${summary.freeLayouts || 0} free, `
+    + `${summary.instances || 0} instances, ${summary.absoluteNodes || 0} absolute`;
+  if (report.passed) {
+    console.log(chalk.gray(`↳ live structural audit: PASS — ${detail}`));
+    return;
+  }
+  process.exitCode = 1;
+  console.error(chalk.red(`✗ live structural audit: FAIL — ${report.mismatchCount || 0} mismatch(es); ${detail}`));
+  for (const finding of (report.mismatches || []).slice(0, 5)) {
+    console.error(chalk.red(`  ${finding.path}: ${finding.fact}; expected ${finding.expected}, got ${finding.actual}`));
+  }
+}
+
+function printVariableScopeQuestions(questions) {
+  if (!questions || questions.length === 0) return;
+  console.log(chalk.yellow(`\n⚠ ${questions.length} variable scope decision(s) required:`));
+  for (const question of questions) {
+    console.log(chalk.yellow(`  ${question.collection ? `${question.collection}/` : ''}${question.name} (${question.resolvedType})`));
+    console.log(chalk.gray(`    choices: ${(question.allowedScopes || []).join(', ')}`));
+    console.log(chalk.gray(`    ${question.question}`));
+  }
 }
 
 // Content taller than a fixed-height frame is invisible with clip=true and
@@ -251,8 +344,8 @@ async function verifyRendered(nodeId) {
 
 
 program
-  .command('render <jsx>')
-  .description('Render JSX to Figma (use --as-component to also convert result to a Figma component)')
+  .command('render [jsx]')
+  .description('Render JSX or a measured browser DOM capture to Figma')
   .option('-x <n>', 'X position')
   .option('-y <n>', 'Y position')
   .option('--no-smart-position', 'Disable auto-positioning')
@@ -262,10 +355,77 @@ program
   .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `verify` roundtrip')
   .option('--preset <device>', `Root frame size preset when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
+  .option('--dom-capture <file>', 'Render a browser DOM/computed-style capture JSON instead of hand-authored JSX')
+  .option('--manifest <file>', 'Design Link Registry used to resolve data-figma-component identities', 'figma-bridge.json')
+  .option('--print-browser-capture [selector]', 'Print the semantic browser capture expression (default selector: body); no Figma connection required')
+  .option('--structural-gate', 'Audit semantic layout/tokens/icons without connecting to or writing Figma')
+  .option('--resize-probe [delta]', 'Temporarily widen the rendered root (default 120 px), audit responsive descendants, then restore it')
+  .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this render/audit')
+  .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
   .action(async (rawJsx, options) => {
-    let jsx = unescapeShell(rawJsx);
-    await checkConnection();
-
+    if (options.printBrowserCapture !== undefined) {
+      const selector = typeof options.printBrowserCapture === 'string' ? options.printBrowserCapture : 'body';
+      console.log(browserDomCaptureScript(selector, { serialized: true }));
+      return;
+    }
+    let jsx;
+    let adaptedRenderPlan = null;
+    let captureIcons = null;
+    const projectIcons = options.icons ? loadIconDir(options.icons) : {};
+    let componentLinks = {};
+    try {
+      const manifestPath = resolve(options.manifest);
+      componentLinks = componentLinksFromRegistry(
+        readDesignLinkRegistry(dirname(manifestPath), { manifestPath }).registry,
+      );
+    } catch (error) {
+      console.error(chalk.red('✗'), `Could not read component Design Links: ${error.message}`);
+      return;
+    }
+    if (options.domCapture) {
+      let capture;
+      try {
+        capture = JSON.parse(readFileSync(options.domCapture, 'utf8'));
+      } catch (error) {
+        console.error(chalk.red('✗'), `Could not read DOM capture ${options.domCapture}: ${error.message}`);
+        return;
+      }
+      try {
+        const converted = domCaptureToRenderPlan(capture, {
+          projectIcons,
+          componentLinks,
+          variableCollection: options.collection || null,
+        });
+        adaptedRenderPlan = converted.renderPlan;
+        captureIcons = converted.icons;
+        const d = converted.diagnostics;
+        console.log(chalk.gray(`↳ DOM capture: ${d.width}×${d.height}, ${d.elements} elements, ${d.texts} text runs, ${d.pseudos} pseudos, ${d.svgs} SVGs`));
+        if (d.semantic) {
+          const layouts = d.semantic.layouts;
+          console.log(chalk.gray(`↳ semantic layout: ${layouts.grid} Grid, ${layouts.flex} Flex, ${layouts.flow} flow, ${d.semantic.absoluteNodes} true absolute`));
+          if (d.semantic.unclassifiedFallbacks.length) {
+            console.error(chalk.red('✗'), `Semantic capture has ${d.semantic.unclassifiedFallbacks.length} unclassified layout fallback(s); refusing a silently flattened render.`);
+            for (const finding of d.semantic.unclassifiedFallbacks.slice(0, 10)) console.error(chalk.red(`  ${finding.path}: ${finding.fact}`));
+            return;
+          }
+          if (d.semantic.classifiedFallbacks.length) {
+            console.log(chalk.yellow(`⚠ ${d.semantic.classifiedFallbacks.length} classified layout fallback(s); inspect structural diagnostics before acceptance.`));
+          }
+          if (d.semantic.unresolvedIcons.length) {
+            const names = [...new Set(d.semantic.unresolvedIcons.map((item) => item.name))];
+            console.log(chalk.yellow(`⚠ ${d.semantic.unresolvedIcons.length} unresolved icon role(s): ${names.join(', ')} — provide SVGs or Design Entity mappings before acceptance.`));
+          }
+        }
+      } catch (error) {
+        console.error(chalk.red('✗'), `Invalid DOM capture: ${error.message}`);
+        return;
+      }
+    } else if (rawJsx) {
+      jsx = unescapeShell(rawJsx);
+    } else {
+      console.error(chalk.red('✗'), 'Pass JSX or --dom-capture <file>.');
+      return;
+    }
     // Auto-split: if the caller passed a layout-only outer Frame with N child
     // Frames, treat it as render-batch. This is the canonical "N buttons / N
     // cards" intent — independent items, not a single bagged Frame. Opt out
@@ -273,7 +433,7 @@ program
     // belong to the path that actually renders, and render-batch re-does
     // them per child (an imgref: rewritten here would arrive in the batch
     // without its bytes).
-    if (!options.keepWrapper) {
+    if (!options.keepWrapper && !options.domCapture) {
       const split = detectWrapperSplit(jsx);
       if (split) {
         console.log(chalk.gray(`↳ outer flex wrapper detected — splitting to ${split.children.length} standalone items (--keep-wrapper to opt out)`));
@@ -291,21 +451,29 @@ program
       }
     }
 
-    if (options.preset) jsx = applyDevicePreset(jsx, options.preset);
+    if (options.preset && jsx) jsx = applyDevicePreset(jsx, options.preset);
+    if (options.preset && adaptedRenderPlan) {
+      console.log(chalk.gray(`↳ preset ${options.preset} ignored — DOM capture sets explicit measured w/h`));
+    }
     // Local images: read files CLI-side, embed as imgref markers (the plugin
     // has no filesystem access — bytes must travel with the eval).
     const imageCtx = newImageContext();
-    jsx = resolveLocalImages(jsx, imageCtx);
+    if (jsx) jsx = resolveLocalImages(jsx, imageCtx);
     const images = imageCtx.images;
-    const customIcons = options.icons ? loadIconDir(options.icons) : null;
-    warnUnknownProps([jsx]);
-    printRepeatLint([jsx]);
-    if (options.asComponent) warnUnnamedComponentTexts(jsx);
+    const customIcons = {
+      ...projectIcons,
+      ...(captureIcons || {}),
+    };
+    if (jsx) {
+      warnUnknownProps([jsx]);
+      printRepeatLint([jsx]);
+      if (options.asComponent) warnUnnamedComponentTexts(jsx);
+    }
 
     try {
       // Helper: convert a rendered frame to a Figma component if --as-component was passed
       const maybeAsComponent = async (id) => {
-        if (!options.asComponent) return;
+        if (!options.asComponent) return id;
         try {
           const r = await daemonExec('eval', { code:
             `(async () => {
@@ -317,10 +485,12 @@ program
           });
           if (r && r.id) {
             console.log(chalk.green('✓ Converted to component: ' + r.id + (r.name ? ' (' + r.name + ')' : '')));
+            return r.id;
           }
         } catch (e) {
           console.error(chalk.yellow('⚠ rendered, but to-component failed:'), e.message);
         }
+        return id;
       };
 
       // Position: -x/-y arrive as raw user strings and are later interpolated
@@ -352,9 +522,44 @@ program
       const client = new FigmaClient();
       if (options.collection) client.setCollection(options.collection);
       client.setImageData(images);
-      if (customIcons) client.setIcons(customIcons);
-      const code = await client.parseJSX(jsx);
-      const result = await daemonExec('eval', { code, timeoutMs: 90000 });
+      client.setComponentLinks(componentLinks);
+      if (Object.keys(customIcons).length > 0) client.setIcons(customIcons);
+      // Every adapter stops here. JSX is parsed once; DOM capture supplies an
+      // executable plan directly without serializing/reparsing JSX. Analysis,
+      // Structural Gate and execution therefore see the same ordered plan.
+      const renderPlan = adaptedRenderPlan || client.planJSX(jsx);
+      const semanticModel = renderPlan;
+      if (options.structuralGate) {
+        const csv = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+        const report = auditSemanticStructure(semanticModel, {
+          approvedFallbacks: csv(options.approveFallback),
+          allowedFreePaths: csv(options.allowFreeLayout),
+        });
+        console.log(formatStructuralGate(report));
+        if (!report.passed) process.exitCode = 1;
+        return;
+      }
+      const semanticApprovals = String(options.approveFallback || '').split(',').map((item) => item.trim()).filter(Boolean);
+      if (!printSemanticAnalysis(semanticModel, options.domCapture ? 'DOM capture' : 'JSX', semanticApprovals)) return;
+      await checkConnection();
+      const structuredSupport = inspectStructuredRenderPlan(renderPlan);
+      let result;
+      if (structuredSupport.supported) {
+        try {
+          result = await daemonExec('render-plan', { plan: renderPlan, timeoutMs: 90000 });
+        } catch (error) {
+          // Compatibility is allowed only after the daemon proves that the
+          // structured action was rejected before reaching a capable plugin.
+          // Other failures are uncertain writes and must never be retried.
+          const knownPreflightRejection = /Plugin capability missing: render-plan-v1|action must be ["“]eval/i.test(error.message || '');
+          if (!knownPreflightRejection) throw error;
+          const code = await client.compileRenderPlan(renderPlan);
+          result = await daemonExec('eval', { code, timeoutMs: 90000 });
+        }
+      } else {
+        const code = await client.compileRenderPlan(renderPlan);
+        result = await daemonExec('eval', { code, timeoutMs: 90000 });
+      }
       if (!result || !result.id) {
         console.log(chalk.red('✗ Render returned no node — daemon/plugin answered without a result.'));
         return;
@@ -374,11 +579,30 @@ program
 
       console.log(chalk.green('✓ Rendered: ' + result.id));
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
+      if (result.executor === 'structured-v1') console.log(chalk.gray('  executor: Semantic Render Plan v1'));
+      printStructuralReport(result.structuralReport);
       printUnresolvedVars(result.unresolved);
+      printVariableReport(result.variableReport);
+      printFallbackAnnotationReport(result.fallbackAnnotationReport);
+      printCreatedVariables(result.createdVariables);
+      printVariableScopeQuestions(result.scopeQuestions);
       printOverflow(result);
-      await printReuseLint([jsx]);
-      await maybeAsComponent(result.id);
-      if (options.verify) await verifyRendered(result.id);
+      if (options.resizeProbe !== undefined) {
+        const delta = parseResizeProbeDelta(options.resizeProbe);
+        const resizeReport = await fastEval(semanticRootResizeProbeCode(result.id, delta));
+        const formatted = formatSemanticResizeProbe(resizeReport);
+        if (resizeReport?.passed) console.log(chalk.gray(`↳ live resize probe: ${formatted}`));
+        else {
+          process.exitCode = 1;
+          console.error(chalk.red(`✗ live resize probe: ${formatted}`));
+          for (const finding of [...(resizeReport?.stuck || []), ...(resizeReport?.suspiciousFixed || [])].slice(0, 5)) {
+            console.error(chalk.red(`  ${finding.path}: ${finding.beforeWidth} → ${finding.probeWidth}`));
+          }
+        }
+      }
+      if (jsx) await printReuseLint([jsx]);
+      const finalNodeId = await maybeAsComponent(result.id);
+      if (options.verify) await verifyRendered(finalNodeId);
     } catch (e) {
       const msg = e.stderr || e.message || String(e);
       // Extract node context from error if available
@@ -414,7 +638,6 @@ program
   .option('--preset <device>', `Root frame size preset per frame when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .action(async (jsxArrayStr, options) => {
-    await checkConnection();
     try {
       let jsxArray = JSON.parse(jsxArrayStr);
       if (!Array.isArray(jsxArray)) {
@@ -440,18 +663,46 @@ program
       if (options.collection) client.setCollection(options.collection);
       client.setImageData(images);
       if (customIcons) client.setIcons(customIcons);
-      const code = await client.parseJSXBatch(jsxArray, { gap, vertical });
-      let results = await daemonExec('eval', { code, timeoutMs: 90000 });
+      const renderPlans = jsxArray.map((jsx) => client.planJSX(jsx));
+      for (let index = 0; index < renderPlans.length; index++) {
+        if (!printSemanticAnalysis(renderPlans[index], `JSX ${index + 1}`)) return;
+      }
+      await checkConnection();
+      const structuredSupport = renderPlans.map((plan) => inspectStructuredRenderPlan(plan));
+      let batchResult;
+      if (structuredSupport.every((support) => support.supported)) {
+        try {
+          batchResult = await daemonExec('render-plan-batch', { plans: renderPlans, options: { gap, vertical }, timeoutMs: 90000 });
+        } catch (error) {
+          const knownPreflightRejection = /Plugin capability missing: render-plan-batch-v1|action must be ["“]eval/i.test(error.message || '');
+          if (!knownPreflightRejection) throw error;
+          const code = await client.compileRenderPlans(renderPlans, { gap, vertical });
+          batchResult = await daemonExec('eval', { code, timeoutMs: 90000 });
+        }
+      } else {
+        const code = await client.compileRenderPlans(renderPlans, { gap, vertical });
+        batchResult = await daemonExec('eval', { code, timeoutMs: 90000 });
+      }
+      let results = batchResult;
       // Unwrap the wrapped form returned when there are unresolved vars.
       let unresolvedVars = null;
+      let createdVariables = null;
+      let scopeQuestions = null;
+      let variableReport = null;
+      let fallbackAnnotationReport = null;
       if (results && !Array.isArray(results) && Array.isArray(results.frames)) {
         unresolvedVars = results.unresolved;
+        createdVariables = results.createdVariables;
+        scopeQuestions = results.scopeQuestions;
+        variableReport = results.variableReport;
+        fallbackAnnotationReport = results.fallbackAnnotationReport;
         results = results.frames;
       }
 
       if (Array.isArray(results)) {
         results.forEach(r => {
           console.log(chalk.green('✓ Rendered: ' + r.id + (r.name ? ' (' + r.name + ')' : '')));
+          printStructuralReport(r.structuralReport);
         });
         console.log(chalk.cyan(`\n${results.length} frames created`));
         if (unresolvedVars && unresolvedVars.length > 0) {
@@ -459,6 +710,10 @@ program
           console.log(chalk.yellow('  ' + unresolvedVars.join(', ')));
           console.log(chalk.gray('  These bindings rendered as grey placeholders. Check figma_run ["var", "list"] (optionally with --collection).'));
         }
+        printCreatedVariables(createdVariables);
+        printVariableScopeQuestions(scopeQuestions);
+        printVariableReport(variableReport);
+        printFallbackAnnotationReport(fallbackAnnotationReport);
         await printReuseLint(jsxArray);
 
         if (options.asComponent) {
@@ -510,4 +765,3 @@ program
 // (The `diagnose` command was removed: it probed the CDP port, checked for a
 // `figma-use` binary this build never installs, and opened a FigmaClient
 // connection that always fails in Safe Mode. Use `daemon diagnose` / `status`.)
-

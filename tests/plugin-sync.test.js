@@ -15,10 +15,12 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORT_RANGE, DEFAULT_PORT } from '../engine/src/lib/daemon-port.js';
+import { DESIGN_ENTITY_PLUGIN_DATA_KEY } from '../engine/src/lib/design-link-registry.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
 const UI = readFileSync(join(ROOT, 'plugin', 'ui.html'), 'utf8');
+const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 
 function uiPorts() {
   const m = UI.match(/const PORTS = \[([^\]]+)\]/);
@@ -64,4 +66,19 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.enableProposedApi, false);
   assert.equal(manifest.main, 'code.js');
   assert.equal(manifest.ui, 'ui.html');
+});
+
+test('selection snapshots expose the shared Design Entity identity', () => {
+  assert.match(PLUGIN_CODE, new RegExp(`DESIGN_ENTITY_STORAGE = '${DESIGN_ENTITY_PLUGIN_DATA_KEY}'`));
+  assert.match(PLUGIN_CODE, /getPluginData\(DESIGN_ENTITY_STORAGE\)/);
+  assert.match(PLUGIN_CODE, /entry\.entityId = link\.id/);
+  assert.match(PLUGIN_CODE, /entry\.entityKind = link\.kind/);
+});
+
+test('Semantic Render Plans cross UI and main plugin threads without becoming code', () => {
+  assert.match(UI, /msg\.action === 'render-plan'/);
+  assert.match(UI, /type: 'render-plan', id: msg\.id, plan: msg\.plan/);
+  assert.match(PLUGIN_CODE, /msg\.type === 'render-plan'/);
+  assert.match(PLUGIN_CODE, /executeStructuredRenderPlan\(figma, plan\)/);
+  assert.doesNotMatch(UI, /type: 'render-plan'[^\n]+code:/);
 });

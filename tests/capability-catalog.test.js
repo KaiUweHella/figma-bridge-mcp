@@ -34,6 +34,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['library', 'import-variable', 'KEY'], ['library', 'import-style', 'KEY'],
     ['library', 'import-component', 'KEY'], ['library', 'import-component-set', 'KEY'],
     ['prototype', 'add', '1:2', '--navigate-to', '3:4'], ['measure', 'add', '1:2:right', '3:4:left'],
+    ['link', 'set', '1:2', 'ui.button'],
     ['annotate', 'category-add', 'Review', '--color', 'blue'],
     ['shader', 'import', 'shader-1'], ['shader', 'apply', '1:2', 'shader-1', '--field', 'fill'],
     ['layout', 'grid', 'set', '1:2', '--rows', '2'], ['slot', 'create', '1:2', 'Content'],
@@ -45,6 +46,8 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['export', 'code-spec', '1:2'], ['node', 'tree', '1:2'], ['tokens'],
     ['tokens', 'sync', 'tokens.json'], ['motion', 'inspect', '1:2'],
     ['map', 'storybook', 'http://localhost:6006'], ['render', '--help'],
+    ['render', '--print-browser-capture', '.screen'],
+    ['render', '<Frame name="Audit" />', '--structural-gate'],
     ['gradient', 'extract', 'hero.png'], ['font', 'inspect', '1:2'], ['font', 'axes', '1:2'],
     ['node', 'css', '1:2'], ['export', 'node-json', '1:2'],
     ['style', 'list'], ['style', 'show', 'Brand'], ['style', 'consumers', 'Brand'],
@@ -53,6 +56,9 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['prototype', 'inspect', '1:2'], ['measure', 'list'], ['annotate', 'categories'],
     ['shader', 'list'], ['layout', 'grid', 'inspect', '1:2'], ['slot', 'validate'], ['draw', 'inspect', '1:2'],
     ['export', 'video', '1:2'],
+    ['link', 'inspect', '1:2'], ['link', 'list'], ['link', 'status', 'ui.button'],
+    ['link', 'accept', 'ui.button'], ['link', 'context', 'ui.button'],
+    ['link', 'configure', '--design-doc', 'design/DESIGN.md'],
     ['slides', 'inspect'],
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
@@ -69,6 +75,9 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['inspect', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['verify', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['render', '<Frame/>']).execution.retry, 'never');
+  assert.equal(planFigmaCommand(['render', '--print-browser-capture', '.screen']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['render', '<Frame name="Audit" />', '--structural-gate']).target.kind, 'none');
+  assert.deepEqual(planFigmaCommand(['render', '<Frame name="Audit" />', '--structural-gate']).execution.okExitCodes, [0, 1]);
   assert.equal(planFigmaCommand(['render', '<Frame/>']).execution.timeout, 'long');
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.timeout, 'background');
@@ -76,6 +85,11 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.deepEqual(planFigmaCommand(['verify-build', '.']).execution.okExitCodes, [0, 1]);
   assert.equal(planFigmaCommand(['slides', 'inspect']).availability.editor, 'slides');
   assert.equal(planFigmaCommand(['slides', 'inspect']).availability.feature, 'slides-beta');
+  assert.equal(planFigmaCommand(['link', 'list']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['link', 'configure', '--tokens', 'tokens.json']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['link', 'inspect', '1:2']).target.kind, 'plugin-file');
+  assert.equal(planFigmaCommand(['link', 'context', 'ui.button']).target.kind, 'plugin-file');
+  assert.equal(planFigmaCommand(['link', 'set', '1:2', 'ui.button']).availability.feature, 'design-links');
 });
 
 test('catalog prepares every known project-relative path policy', () => {
@@ -90,6 +104,14 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);
   assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', inWorkspace('video.gif')]);
   assert.deepEqual(argv(['map', 'storybook', 'url']).slice(-2), ['-o', inWorkspace('figma-map.json')]);
+  assert.deepEqual(argv(['link', 'list']).slice(-2), ['--manifest', inWorkspace('figma-bridge.json')]);
+  assert.deepEqual(argv(['link', 'set', '1:2', 'ui.button', '--manifest=design/links.json']).slice(-1), [
+    `--manifest=${inWorkspace('design', 'links.json')}`,
+  ]);
+  assert.deepEqual(
+    argv(['link', 'accept', 'screen.home', '--compare', 'shots/home.jpg']),
+    ['link', 'accept', 'screen.home', '--compare', inWorkspace('shots', 'home.jpg'), '--manifest', inWorkspace('figma-bridge.json')],
+  );
   assert.deepEqual(
     argv(['verify-build', '.', '--compare', 'shot.png']),
     ['verify-build', base, '--compare', inWorkspace('shot.png')],
@@ -97,6 +119,10 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(
     argv(['verify', '1:2', '--save', 'shot.png']),
     ['verify', '1:2', '--save', inWorkspace('shot.png')],
+  );
+  assert.deepEqual(
+    argv(['render', '--dom-capture', 'captures/screen.json']),
+    ['render', '--dom-capture', inWorkspace('captures', 'screen.json')],
   );
   assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), ['node', 'set-image', '1:2', inWorkspace('photo.png')]);
   assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
@@ -118,6 +144,21 @@ test('catalog reports workspace and shared-state effects independently from Figm
   assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], { workspaceDir: '/work' }).effects.workspace, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot']).effects.shared, 'write');
   assert.equal(planFigmaCommand(['history', 'list']).effects.shared, 'read');
+  assert.deepEqual(planFigmaCommand(['link', 'set', '1:2', 'ui.button'], { workspaceDir: '/work' }).effects, {
+    figma: 'write', workspace: 'write', shared: 'none',
+  });
+  assert.deepEqual(planFigmaCommand(['link', 'list'], { workspaceDir: '/work' }).effects, {
+    figma: 'none', workspace: 'read', shared: 'none',
+  });
+  assert.deepEqual(planFigmaCommand(['link', 'accept', 'ui.button'], { workspaceDir: '/work' }).effects, {
+    figma: 'read', workspace: 'write', shared: 'none',
+  });
+  assert.deepEqual(planFigmaCommand(['link', 'context', 'ui.button'], { workspaceDir: '/work' }).effects, {
+    figma: 'read', workspace: 'read', shared: 'none',
+  });
+  assert.deepEqual(planFigmaCommand(['link', 'configure', '--tokens', 'tokens.json'], { workspaceDir: '/work' }).effects, {
+    figma: 'none', workspace: 'write', shared: 'none',
+  });
   assert.deepEqual(planFigmaCommand(['export', 'node-json', '1:2', '-o', 'facts.json'], { workspaceDir: '/work' }).effects, {
     figma: 'read', workspace: 'write', shared: 'none',
   });

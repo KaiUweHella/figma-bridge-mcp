@@ -279,12 +279,12 @@ describe('spacing + radius tokens (reuse-or-create)', () => {
     assert.ok(!code.includes('__spaceCache'), 'helper preamble omitted entirely');
   });
 
-  it('namespace matching keeps padding away from size/* variables', () => {
+  it('namespace matching uses only the explicitly approved spacing/radius families', () => {
     const client = makeClient();
     const code = client.generateSpacingHelperCode();
-    assert.ok(code.includes("head.includes('space')"), 'space namespace checked on the name head');
-    assert.ok(code.includes("head.includes('radius')"), 'radius namespace checked on the name head');
-    assert.ok(!code.includes("head.includes('size')"), 'size/* must never be a spacing match');
+    assert.ok(code.includes("head === 'space' || head === 'spacing'"), 'only exact spacing namespace heads match');
+    assert.ok(code.includes("head === 'radius' || head === 'radii'"), 'only exact radius namespace heads match');
+    assert.ok(!code.includes('head.includes'), 'substring guesses must never select or scope a variable');
   });
 
   it('creates a namespaced variable when no token matches', () => {
@@ -292,7 +292,16 @@ describe('spacing + radius tokens (reuse-or-create)', () => {
     const code = client.generateSpacingHelperCode();
     assert.ok(code.includes("'radius/' : 'space/'"), 'new variables are namespaced');
     assert.ok(code.includes("createVariable(name, col, 'FLOAT')"), 'creates a FLOAT variable');
+    assert.ok(code.includes("['CORNER_RADIUS'] : ['GAP']"), 'created variables receive a narrow Figma scope');
     assert.ok(code.includes('setValueForMode'), 'sets the value for every mode');
+  });
+
+  it('keeps reused variable scopes and narrows only newly created variables', () => {
+    const client = makeClient();
+    const code = client.generateSpacingHelperCode();
+    assert.ok(code.includes('if (!isNew) return variable'), 'existing user/library variables keep their scopes');
+    assert.ok(code.includes('if (hit) return hit'), 'value-matched variables are reused unchanged');
+    assert.ok(code.includes('__scopeSpaceVar(v, kind, true)'), 'only variables created by the render are narrowed');
   });
 
   it('batch path includes the spacing helper', async () => {

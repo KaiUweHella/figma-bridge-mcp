@@ -1,12 +1,51 @@
-// figma-map.json reader — the Figma↔Storybook mapping written by
-// the engine's `map storybook`. Server-side only (never spawns the engine):
-// annotates figma_selection and figma_spec output with the mirroring story.
-// Missing/corrupt file → null, silently: the annotation is a bonus, never
-// a failure mode.
+// Server-side Design Link Registry projection (never spawns the engine).
+// figma-bridge.json is the explicit source; figma-map.json remains a legacy
+// read adapter. Missing/corrupt files → null silently: annotations are a
+// bonus and must never make figma_selection or figma_spec fail.
 import fs from "node:fs";
 import path from "node:path";
+import {
+  DESIGN_LINK_REGISTRY_FILE,
+  LEGACY_FIGMA_MAP_FILE,
+  readDesignLinkRegistry,
+  resolveDesignEntity,
+} from "../engine/src/lib/design-link-registry.js";
 
-let cache = { path: null, mtimeMs: 0, index: null };
+let cache = { signature: null, index: null };
+
+function fileStamp(file) {
+  try {
+    const stat = fs.statSync(file);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return "missing";
+  }
+}
+
+function mappingFromEntity(entity) {
+  const figma = entity.figma || {};
+  const storybook = entity.storybook || {};
+  const code = entity.code || {};
+  return {
+    entityId: entity.id,
+    entityKind: entity.kind,
+    figmaName: figma.name || entity.id,
+    figmaPage: figma.page,
+    figmaKey: figma.componentKey,
+    figmaVariantKey: figma.variantKey,
+    figmaNodeId: figma.nodeId,
+    figmaFileKey: figma.fileKey,
+    storyId: storybook.storyId,
+    storyTitle: storybook.storyTitle,
+    importPath: storybook.importPath || code.path,
+    stories: storybook.stories,
+    codePath: code.path,
+    codeExport: code.export,
+    description: storybook.description,
+    documentationLinks: storybook.documentationLinks,
+    legacy: entity.legacy === true,
+  };
+}
 
 /**
  * Load and index the map. Lookup works over BOTH figmaKey (identity) and
@@ -16,23 +55,112 @@ let cache = { path: null, mtimeMs: 0, index: null };
  * @returns {{byKey: Map<string, object>} | null}
  */
 export function loadFigmaMap(cwd = process.cwd()) {
-  const file = path.join(cwd, "figma-map.json");
+  const registryFile = path.join(cwd, DESIGN_LINK_REGISTRY_FILE);
+  const legacyFile = path.join(cwd, LEGACY_FIGMA_MAP_FILE);
+  const signature = `${registryFile}:${fileStamp(registryFile)}|${legacyFile}:${fileStamp(legacyFile)}`;
   try {
-    const stat = fs.statSync(file);
-    if (cache.path === file && cache.mtimeMs === stat.mtimeMs) return cache.index;
-    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
-    const byKey = new Map();
-    for (const m of doc.mappings || []) {
-      if (!m || typeof m !== "object") continue;
-      if (m.figmaKey) byKey.set(m.figmaKey, m);
-      if (m.figmaVariantKey) byKey.set(m.figmaVariantKey, m);
+    if (cache.signature === signature) return cache.index;
+    const loaded = readDesignLinkRegistry(cwd);
+    if (!loaded.explicit && !loaded.legacyPath) {
+      cache = { signature, index: null };
+      return null;
     }
-    cache = { path: file, mtimeMs: stat.mtimeMs, index: { byKey } };
+    const byKey = new Map();
+    const byId = new Map();
+    const byNode = new Map();
+    for (const entity of loaded.registry.entities || []) {
+      const mapping = mappingFromEntity(entity);
+      byId.set(entity.id, mapping);
+      if (mapping.figmaKey) byKey.set(mapping.figmaKey, mapping);
+      if (mapping.figmaVariantKey) byKey.set(mapping.figmaVariantKey, mapping);
+      if (mapping.figmaNodeId) {
+        byNode.set(`${mapping.figmaFileKey || ""}\0${mapping.figmaNodeId}`, mapping);
+        byNode.set(`\0${mapping.figmaNodeId}`, mapping);
+      }
+    }
+    const index = { byKey, byId, byNode, registry: loaded.registry };
+    cache = { signature, index };
     return cache.index;
   } catch {
-    cache = { path: file, mtimeMs: 0, index: null };
+    cache = { signature, index: null };
     return null;
   }
+}
+
+/** Resolve by the strongest available link: entity id, publish key, then node. */
+export function designEntityFor(query = {}, cwd = process.cwd()) {
+  const index = loadFigmaMap(cwd);
+  if (!index) return null;
+  if (query.id && index.byId.has(query.id)) return index.byId.get(query.id);
+  if (query.componentKey && index.byKey.has(query.componentKey)) return index.byKey.get(query.componentKey);
+  if (query.nodeId) {
+    return index.byNode.get(`${query.fileKey || ""}\0${query.nodeId}`)
+      || index.byNode.get(`\0${query.nodeId}`)
+      || null;
+  }
+  try {
+    const entity = resolveDesignEntity(index.registry, query);
+    return entity ? mappingFromEntity(entity) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatDesignEntityAnnotation(mapping) {
+  if (!mapping?.entityId) return null;
+  const code = mapping.codePath
+    ? ` ↔ code ${mapping.codePath}${mapping.codeExport ? `#${mapping.codeExport}` : ""}`
+    : "";
+  const story = mapping.storyId ? ` ↔ story ${mapping.storyId}` : "";
+  return `entity \`${mapping.entityId}\`${code}${story}`;
+}
+
+export function designEntityAnnotationFor(query, cwd = process.cwd()) {
+  return formatDesignEntityAnnotation(designEntityFor(query, cwd));
+}
+
+/** Add repository links for every explicit entity rendered in tree specs. */
+export function designEntityTrailer(text, cwd = process.cwd()) {
+  const seen = new Set();
+  const lines = [];
+  for (const match of String(text).matchAll(/entity `([^`]+)`/g)) {
+    const mapping = designEntityFor({ id: match[1] }, cwd);
+    if (!mapping || seen.has(mapping.entityId)) continue;
+    seen.add(mapping.entityId);
+    const annotation = formatDesignEntityAnnotation(mapping);
+    if (annotation) lines.push(`- ${annotation}`);
+  }
+  return lines.length ? `\n\n## Design Entity links\n${lines.join("\n")}` : "";
+}
+
+/** Resolve canonical structured-spec entity fields to portable repo links. */
+export function designEntityMappingsForSpecModel(model, cwd = process.cwd()) {
+  if (!model || typeof model !== "object") return [];
+  const ids = new Set();
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (typeof node.entityId === "string" && node.entityId) ids.add(node.entityId);
+    for (const child of node.kids || []) visit(child);
+  };
+  for (const frame of model.frames || []) visit(frame);
+  for (const set of model.sets || []) visit(set);
+  return [...ids].map((id) => designEntityFor({ id }, cwd)).filter(Boolean).map((mapping) => ({
+    id: mapping.entityId,
+    kind: mapping.entityKind,
+    ...(mapping.codePath ? { code: {
+      path: mapping.codePath,
+      ...(mapping.codeExport ? { export: mapping.codeExport } : {}),
+    } } : {}),
+    ...(mapping.storyId ? { storybook: {
+      storyId: mapping.storyId,
+      ...(mapping.storyTitle ? { storyTitle: mapping.storyTitle } : {}),
+    } } : {}),
+    ...(mapping.figmaNodeId || mapping.figmaKey ? { figma: {
+      ...(mapping.figmaFileKey ? { fileKey: mapping.figmaFileKey } : {}),
+      ...(mapping.figmaNodeId ? { nodeId: mapping.figmaNodeId } : {}),
+      ...(mapping.figmaKey ? { componentKey: mapping.figmaKey } : {}),
+    } } : {}),
+  }));
 }
 
 /**
@@ -43,8 +171,7 @@ export function loadFigmaMap(cwd = process.cwd()) {
  */
 export function annotationFor(key, cwd = process.cwd()) {
   if (!key) return null;
-  const index = loadFigmaMap(cwd);
-  const m = index?.byKey.get(key);
+  const m = designEntityFor({ componentKey: key }, cwd);
   if (!m || !m.storyId) return null;
   // description comes from the REST library-metadata enrichment (optional) —
   // in maintained design systems it often names the code path or usage rule.

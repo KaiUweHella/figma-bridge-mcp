@@ -172,6 +172,10 @@ test('--apply creates the variables and records them in the lockfile', async (t)
   assert.equal(colour.resolvedType, 'COLOR');
   // Written as Figma's float triple, not as the hex string from the file.
   assert.ok(Math.abs(colour.valuesByMode.M1.r - 13 / 255) < 1e-6);
+  assert.equal(colour.scopes, undefined, 'unrelated tokens keep Figma defaults');
+
+  const spacing = state.variables.find((v) => v.name === 'space/md');
+  assert.deepEqual(spacing.scopes, ['GAP']);
 
   const lock = JSON.parse(readFileSync(join(dir, 'figma-tokens.lock.json'), 'utf8'));
   assert.equal(lock.version, 1);

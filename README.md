@@ -130,6 +130,15 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   plugin connection and Figma document revision are unchanged. Missing or
   unstable revision metadata disables reuse; selection and named-section calls
   remain uncached in this first Slice.
+- The **Design Link Registry** gives a component, screen or frame one durable,
+  repository-owned **Design Entity** id. `figma-bridge.json` holds portable
+  code/Storybook/Figma links; Figma plugin data holds only the same id and kind.
+  This dual anchor lets future agents resolve the exact existing component from
+  either side without putting repository paths into a Figma document.
+- The report-only **Round-trip Planner** compares current code and the current
+  normalized Figma subtree with an explicitly **Accepted Design Baseline**.
+  The **Project Design Context** projects that status, the entity links and the
+  exact next reads through one in-process Command Application.
 - One **Capability Catalog** resolves every Figma Command entering through MCP
   into an immutable plan before either execution adapter runs it. That plan is
   the single source for exposure, Figma/workspace/shared-state effects, target
@@ -170,7 +179,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 | `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
 | `figma_reference` | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists the generated command index without starting the engine. |
 | `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural diff of the document itself (added/removed/replaced/moved/changed). `figma_run`/`figma_render` accept a `label` to annotate entries. |
-| `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their main component with the stable publish `key`, and mapped components show their Storybook story. |
+| `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their stable publish `key`; linked nodes show their Design Entity, code file and Storybook story. |
 | `figma_comments` | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`). |
 
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
@@ -181,6 +190,42 @@ Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
 subcommand level: reads like `node tree` or `component list` pass freely,
 mutations like `node delete`, `combos`, or `tokens spacing` require confirm.
+
+Native JSX instances require durable Registry identity (`entity` plus a
+published `key` or local `id`). Their editable overrides use the component's
+real Figma structure:
+
+```jsx
+<Instance entity="ui.card" key="..."
+  prop:Selected="true"
+  text:Title="New title"
+  fill:StatusDot="var:status/healthy|#22c55e"
+  swap:LeadingIcon="ui.icon.leaf" />
+```
+
+`prop:` resolves a component-property definition; `text:` and `fill:` resolve
+one named descendant. `swap:` values and INSTANCE_SWAP property values are
+Design Entity ids, resolved from `figma-bridge.json`; component display names
+are intentionally not accepted as swap identity. Missing, ambiguous or
+unlinked targets stop preflight before the first canvas node is created.
+
+Dimensions and typography accept the same `var:name|fallback` form. The native
+executor binds width, height and min/max constraints plus font family/style,
+weight, size, line height, letter spacing, paragraph spacing and paragraph
+indent. Family/style use STRING variables; the other typography and dimension
+fields use FLOAT variables. A missing bound font stops preflight with an
+install-or-choose-another-face message instead of silently substituting it.
+Named Text Styles are reconciled before canvas creation as well: an explicit
+`style="Typography/Eyebrow"` is reused only when its complete typography
+matches; a conflicting same-name style stops, and otherwise exact typography
+is reused or created under a deterministic `Typography/Generated/...` name.
+Figma float32 metric readback is normalized for stable comparison, and
+family-specific faces such as DM Sans/Manrope `SemiBold` and `ExtraBold` are
+tried before any fallback family. Successful native renders return
+`textStyleReport` and `variableReport` counts for references,
+unique reused variables, created variables and bound properties. Ambiguous or
+unsupported preflight errors include the corresponding zero/nonzero counts and
+do not leave newly created variables or canvas nodes behind.
 
 ## Plugin window
 
@@ -317,6 +362,110 @@ to 8 entries / 8 MiB by default (`DESIGN_CAPTURE_CACHE_ENTRIES` and
 `DESIGN_CAPTURE_CACHE_BYTES`). Every hit still probes the live document
 revision; there is no TTL and no stale-while-revalidate path.
 
+## Code ↔ Figma design memory
+
+Give each important component, screen or frame a durable **Design Entity** id.
+The id describes the concept, not its current location: use names such as
+`ui.button`, `ui.account-card` or `screen.settings`.
+
+After selecting or identifying a Figma node, an agent can create the link with:
+
+```text
+figma_run {args:["link","set","9:9","screen.settings","--kind","screen","--source","src/routes/settings.tsx","--export","SettingsScreen","--story","screens-settings--default"], confirm:true}
+```
+
+This converges two small adapters:
+
+- `figma-bridge.json` is the committed, reviewable Registry with repo-relative
+  code paths plus optional Storybook and Figma handles.
+- Figma stores only `{version,id,kind}` as plugin data on the node. It contains
+  no local path, credential or machine-specific state.
+
+Use `figma_run ["link","inspect","9:9"]` to resolve a node and
+`figma_run ["link","list"]` to inspect the repository memory without reading
+Figma. Once linked, `figma_selection` and `figma_spec` automatically expose the
+same id and the Registry's code/Storybook targets. Agents should reuse or edit
+that code component instead of creating a look-alike. Repeating the same `set`
+command is safe and repairs either side after an interrupted write.
+
+After visually verifying that code and Figma correspond, explicitly record
+their current fingerprints. Screen entities require a real browser screenshot
+and a passing pixel threshold:
+
+```text
+figma_run ["link","accept","screen.settings","--compare","/abs/build.png","--max-diff","5"]
+```
+
+Source code is never stored in the Registry. The initial code Adapter hashes
+the complete linked file plus its export identity; therefore an unrelated edit
+in a shared file may conservatively report a code change, but a real change is
+never hidden. The Figma Adapter hashes the normalized linked subtree.
+
+```text
+figma_run ["link","status","screen.settings"]
+figma_run ["link","context","screen.settings"]
+```
+
+| Status | Meaning |
+|--------|---------|
+| `unchanged` | Neither side moved from the accepted baseline. |
+| `code-only` | Only the linked code file moved. |
+| `figma-only` | Only the linked Figma subtree moved. |
+| `conflict` | Both moved; neither side is overwritten. |
+| `untracked` | No baseline has been explicitly accepted yet. |
+
+`link context` is the preferred agent entry point after a link exists. It
+returns the smallest relevant projection: entity, code/export, Figma root,
+Storybook story, current Round-trip Plan, discovered `DESIGN.md`/token files
+and exact next reads. It is generated on demand, not persisted as another
+memory file. `link accept` writes only `figma-bridge.json`; it never changes
+Figma or code. For screens it also stores the measured diff and SHA-256 hashes
+of both comparison images, so a structural fingerprint cannot certify a
+visibly wrong baseline.
+
+Conventional `DESIGN.md`, `design/DESIGN.md`, `tokens.json` and
+`design/tokens.json` locations are discovered automatically. Configure custom
+repo-relative locations once when needed:
+
+```text
+figma_run ["link","configure","--design-doc","docs/product-design.md","--tokens","src/theme/tokens.json"]
+```
+
+Commit `figma-bridge.json`. Do not put secrets, absolute paths or generated
+credentials in it. The schema and conflict rules are documented in
+`docs/adr/0007-dual-anchor-design-entities.md`, with baseline and context
+decisions in ADR-0008 and ADR-0009.
+
+### Reviewed CSS ↔ Figma boundary strategies
+
+Semantic Code-to-Figma uses stable policy ids rather than silent visual
+substitutions: `minmax.native-grid`, `space-around.equal-slots`,
+`border.single-paint-native`, `sticky.metadata-only`, `filters.layer-stack`,
+`masks.vector-mask`, `font.named-faces`, and `figma-effects.native`. The full
+matrix and its remaining hard stops live in
+[`docs/css-figma-semantic-matrix.md`](docs/css-figma-semantic-matrix.md).
+
+Reviewed lossy policies can opt into an automatic native Figma annotation on
+the exact affected semantic node. The annotation explains the unsupported CSS
+fact, links the relevant Figma properties and is mirrored as versioned
+`figmaBridge.fallbackAnnotations` plugin data for future agents. Equivalent
+native conversions remain unannotated to avoid review noise. The first active
+policy is `border.single-paint-native`: Figma receives the first explicitly
+painted CSS side as the shared native stroke, retains all four side weights,
+and marks `strokes` plus `strokeWeight`. Native renders report how many
+fallback annotations were added, deduplicated or unsupported.
+
+Intrinsic single-line DOM text maps to Figma HUG sizing. Positioned and
+multiline text keeps measured box geometry; the bridge does not add arbitrary
+percentage width headroom to prevent wrapping.
+
+Variable-font axes are captured, but the structural gate asks whether the
+required font should be installed or an available named face should be used
+before rendering. Native Figma Glass remains an editable native effect with
+all effect parameters retained; it is not silently treated as CSS
+`backdrop-filter`, because Figma's CSS export does not expose those Glass
+parameters.
+
 ## Storybook mirroring
 
 Figma components carry a **stable publish key** (survives library publishing;
@@ -336,6 +485,12 @@ import path, with a `confidence` per match plus both unmatched lists. Edit
 entries by hand and set `"matchedBy": "manual"` to pin them — pinned entries
 survive re-runs. When the file exists, `figma_selection` and `figma_spec`
 annotate components with `↔ story <id> (<importPath>)` automatically.
+
+`figma-map.json` remains a legacy read adapter, so existing mappings continue
+to work. New durable links belong in `figma-bridge.json`; `link set` never
+copies legacy rows into it. Migrate a component when you next touch it by
+assigning its real Design Entity id and passing its story via `--story`. Remove
+the legacy file only after `link list` shows every mapping you still need.
 
 ## Bring your own design system
 
@@ -470,6 +625,17 @@ DTCG-compatible token shapes exported by Style Dictionary and Tokens Studio.
 That compatibility does not include Tokens Studio theme semantics or arbitrary
 preprocessors; metadata such as `$themes` is ignored while token sets and
 aliases are read.
+
+New FLOAT variables in explicit `spacing/*` or `space/*` namespaces are scoped
+to Figma's `GAP` consumers only. `radius/*` and `radii/*` variables are scoped
+to `CORNER_RADIUS` only. The inference is deliberately namespace-exact:
+names such as `spacingFactor` are left at Figma's default scope, and rendering
+does not silently change the scopes of existing user or library variables.
+Other new COLOR, FLOAT, or STRING variables surface `SCOPE DECISION REQUIRED`
+with only the compatible Figma choices. The agent should ask before narrowing
+them; inspect the catalog with `figma_reference {name:"variable-scopes"}` and
+apply the answer with `figma_run ["var","update","<name>","--collection",
+"<collection>","--scopes","TEXT_FILL,STROKE_COLOR"]`.
 
 Safe three-way sync accepts only **DTCG / W3C design tokens** (`.json`, what
 `export dtcg` emits) and **CSS custom properties** (`.css`, what `export css`
@@ -668,7 +834,10 @@ figma_run ["annotate", "edit", "12:34", "0", "--text", "Resolved"]
 `setReactionsAsync()` so dynamic-page manifests are supported. Measurement
 writes are guarded to Figma Dev Mode and use `PageNode`'s native measurement
 methods. Annotation indexes are zero-based; custom category create/edit/remove
-commands are available alongside `categories`.
+commands are available alongside `categories`. These manual review notes are
+independent from the semantic renderer's automatic Boundary Fallback
+Annotations, which are emitted only by explicitly opted-in lossy mapping
+policies and remain machine-readable through plugin data.
 
 ### 2026 Plugin APIs: video, shaders, grid, slots, and Draw
 

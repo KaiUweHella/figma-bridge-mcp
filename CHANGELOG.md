@@ -5,6 +5,30 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Added
+
+- Added a versioned **Semantic Render Plan** shared by JSX and measured browser
+  DOM capture, with a native Figma executor, pre-write Structural Gate, live
+  subtree audit and reversible resize probe. Flexbox and Grid stay editable as
+  Auto Layout and native Grid rather than being replayed as measured pixels.
+- Added the repository-owned **Design Link Registry**, Accepted Design
+  Baselines, report-only Round-trip Plans and projected Project Design Context
+  so agents can resolve and continue editing the same code/Figma component
+  without guessing from display names or geometry.
+- Added reviewed CSS ↔ Figma boundary policies for `minmax()`, `space-around`,
+  mixed per-side border paints, sticky positioning, filter chains, masks,
+  variable fonts and native Figma effects. Unsupported or undecided facts stop
+  before canvas mutation.
+- Added automatic, property-scoped native Figma annotations for opted-in lossy
+  boundary policies. `border.single-paint-native` now explains the lost
+  per-side paint distinction directly on the affected node, preserves all
+  native side weights, and stores versioned machine-readable fallback metadata
+  for future agents.
+- Added deterministic variable scope handling and Named Text Style
+  reconciliation. Newly created `space|spacing/*` and `radius|radii/*` FLOAT
+  variables receive narrow compatible scopes; other scopes remain an explicit
+  user decision, and conflicting same-name Text Styles stop preflight.
+
 ### Fixed
 
 - Restored the readable `tree` design-spec default after a Sonnet 5 regression

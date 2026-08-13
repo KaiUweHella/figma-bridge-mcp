@@ -16,6 +16,14 @@ test('walkerCode embeds page id and options', () => {
   assert.match(code, /TEXT_LIMIT = 40/);
 });
 
+test('walkerCode preserves editable native Glass effect parameters', () => {
+  const code = walkerCode('123:45');
+  for (const field of ['refraction', 'depth', 'dispersion', 'lightIntensity', 'lightAngle']) {
+    assert.match(code, new RegExp(`e\\.${field}`), field);
+  }
+  assert.match(code, /e\.type === 'GLASS'/);
+});
+
 test('walkerCode defaults: depth 8, text 80', () => {
   const code = walkerCode('1:1');
   assert.match(code, /MAX_DEPTH = 8/);
@@ -462,6 +470,9 @@ test('variableImportCode is a two-pass build (aliases resolved after creation)',
   assert.match(code, /'alias' in val\) continue; \/\/ pass 2/);
   // colors parse 8-digit hex (alpha) too
   assert.match(code, /\(\[a-f.*\]\{2\}\)\?/);
+  assert.match(code, /__scopeTokenVariable\(v, vName, type\)/);
+  assert.match(code, /__variableScopeQuestion\(vName, type, collName\)/);
+  assert.match(code, /scopeQuestions/);
 });
 
 test('variableImportCode handles a full extract→import roundtrip shape', () => {

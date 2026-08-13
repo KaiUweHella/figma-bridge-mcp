@@ -40,7 +40,6 @@ import {
   spinnerSucceed,
   pkg,
   startDaemon,
-  stopDaemon
 } from '../lib/cli-core.js';
 
 program
@@ -287,14 +286,21 @@ program
 
     console.log(chalk.hex('#4ECDC4')('  🔒 Safe Mode ') + chalk.gray('(plugin bridge, no patching, no Figma API token)\n'));
 
-    // Stop any existing daemon, then start it in plugin mode.
-    stopDaemon();
-
     const daemonSpinner = progress('Starting daemon in Safe Mode...').start();
     try {
-      startDaemon(true, 'plugin');  // Force restart in plugin mode
-      await new Promise(r => setTimeout(r, 1000));
-      if (isDaemonRunning()) {
+      // startDaemon(true) already owns the guarded stop. Calling stopDaemon()
+      // immediately before it used to perform the shutdown path twice.
+      startDaemon(true, 'plugin');
+      const daemonDeadline = Date.now() + 2000;
+      let daemonReady = false;
+      while (Date.now() < daemonDeadline) {
+        await new Promise(r => setTimeout(r, 50));
+        if (isDaemonRunning(false, true)) {
+          daemonReady = true;
+          break;
+        }
+      }
+      if (daemonReady) {
         spinnerSucceed(daemonSpinner, 'Daemon running in Safe Mode');
       } else {
         daemonSpinner.fail('Daemon failed to start');
@@ -324,8 +330,15 @@ program
     const pluginSpinner = progress('Waiting for plugin connection...').start();
     let pluginConnected = false;
     const PLUGIN_CONNECT_MAX_WAIT_S = 90;
-    for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
-      await new Promise(r => setTimeout(r, 1000));
+    const pluginStartedAt = Date.now();
+    const pluginDeadline = pluginStartedAt + PLUGIN_CONNECT_MAX_WAIT_S * 1000;
+    let showedHalfway = false;
+    while (Date.now() < pluginDeadline) {
+      // Reconnects after figma_connect normally happen in the first few
+      // seconds. Probe those at UI speed; fall back to a quiet 1 Hz wait when
+      // the plugin has not been opened yet.
+      const elapsed = Date.now() - pluginStartedAt;
+      await new Promise(r => setTimeout(r, elapsed < 3000 ? 100 : 1000));
       try {
         const healthRes = daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]);
         const health = JSON.parse(healthRes);
@@ -336,16 +349,17 @@ program
           break;
         }
       } catch {}
-      if (i === Math.floor(PLUGIN_CONNECT_MAX_WAIT_S / 2)) {
-        pluginSpinner.text = `Waiting for plugin connection (${PLUGIN_CONNECT_MAX_WAIT_S - i}s left)…`;
+      if (!showedHalfway && Date.now() - pluginStartedAt >= PLUGIN_CONNECT_MAX_WAIT_S * 500) {
+        showedHalfway = true;
+        pluginSpinner.text = `Waiting for plugin connection (${Math.ceil((pluginDeadline - Date.now()) / 1000)}s left)…`;
       }
     }
 
     if (!pluginConnected) {
-      pluginSpinner.warn('Plugin not detected yet — daemon is still listening.');
+      pluginSpinner.stop();
+      console.log(chalk.yellow('⚠ Plugin not detected yet — daemon is still listening.'));
       console.log(chalk.gray('\n  The daemon stays running in the background.'));
       console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → Figma Bridge') + chalk.gray(' in Figma and paste your access key —'));
       console.log(chalk.gray('  the next command will connect automatically.\n'));
     }
   });
-

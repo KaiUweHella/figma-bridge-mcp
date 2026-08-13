@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validateExecPayload, validatePluginMessage } from '../src/lib/protocol-contract.js';
+import { FigmaClient } from '../src/lib/jsx-render.js';
 
-test('execution protocol accepts only one bounded eval shape', () => {
+test('execution protocol accepts bounded eval and Semantic Render Plan shapes', () => {
+  const plan = new FigmaClient().planJSX('<Frame name="Card"><Text>Hello</Text></Frame>');
   assert.equal(validateExecPayload({ action: 'eval', code: '1+1', timeoutMs: 1000, fileKey: 'FILE' }), null);
-  assert.match(validateExecPayload({ action: 'render', code: 'x' }), /action/);
+  assert.equal(validateExecPayload({ action: 'render-plan', plan, timeoutMs: 1000, fileKey: 'FILE' }), null);
+  assert.equal(validateExecPayload({ action: 'render-plan-batch', plans: [plan, plan], options: { gap: 24, vertical: true } }), null);
+  assert.match(validateExecPayload({ action: 'render', code: 'x' }), /eval.*render-plan.*render-plan-batch/);
   assert.match(validateExecPayload({ action: 'eval', code: '' }), /non-empty/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan: { version: 999 } }), /invalid/);
+  assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', fileKey: 'x'.repeat(65) }), /64/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', timeoutMs: Infinity }), /finite/);
 });

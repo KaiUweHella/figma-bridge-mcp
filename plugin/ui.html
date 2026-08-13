@@ -369,6 +369,7 @@
     const PORTS = [3456, 3457, 3458, 3459, 3460];
     let ws = null;
     let reconnectTimer = null;
+    let activeScan = null;
     let keepaliveTimer = null;
     let lastPong = Date.now();
     let lastPingSent = 0;
@@ -407,7 +408,8 @@
     // nothing. After a few failed scan rounds we name the problem, say what
     // to do, and keep retrying quietly at a slower pace.
     const DEFAULT_HINT = 'Keep this window open while working.';
-    const UNREACHABLE_AFTER_SCANS = 4;   // ≈7 s of failed scanning
+    const UNREACHABLE_AFTER_SCANS = 4;
+    const PORT_SCAN_TIMEOUT_MS = 750;    // fallback for sockets that stay pending
     let failedScans = 0;
     let unreachableNotified = false;
 
@@ -679,6 +681,7 @@
       scanGen++; // invalidate any in-flight port scan
       stopKeepalive();
       clearTimeout(reconnectTimer);
+      if (activeScan) { activeScan.cancel(); activeScan = null; }
       if (ws) {
         try { ws.onclose = null; ws.onerror = null; ws.close(); } catch (e) {}
         ws = null;
@@ -689,6 +692,97 @@
       connectedPort = null;
       latencyMs = null;
       setConnMeta();
+    }
+
+    // One scan round. A refused localhost connection reports error/close almost
+    // immediately; waiting for the fallback timeout after ALL ports have
+    // already refused made reconnects feel several seconds slower than they
+    // were. Keep the timeout only for the rare socket that stays pending.
+    // This function is deliberately dependency-injected so the shipped plugin
+    // algorithm itself can be regression-tested outside Figma.
+    function scanPorts({
+      ports,
+      WebSocketCtor,
+      timeoutMs,
+      isCurrent,
+      onOpen,
+      onExhausted,
+      setTimer = setTimeout,
+      clearTimer = clearTimeout,
+    }) {
+      let done = false;
+      let constructionDone = false;
+      let fallbackTimer = null;
+      const sockets = [];
+      const settled = new Set();
+
+      function closeSocket(socket) {
+        socket.onopen = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        try { socket.close(); } catch (e) {}
+      }
+
+      function finishExhausted(force) {
+        if (done || !constructionDone || !isCurrent()) return;
+        if (!force && settled.size < sockets.length) return;
+        done = true;
+        if (fallbackTimer !== null) clearTimer(fallbackTimer);
+        sockets.forEach(closeSocket);
+        onExhausted();
+      }
+
+      function markSettled(socket) {
+        settled.add(socket); // error + close is one failed attempt, not two
+        finishExhausted(false);
+      }
+
+      for (const port of ports) {
+        const url = `ws://localhost:${port}/plugin`;
+        try {
+          const socket = new WebSocketCtor(url);
+          sockets.push(socket);
+          socket.onopen = () => {
+            if (done || !isCurrent()) { closeSocket(socket); return; }
+            done = true;
+            if (fallbackTimer !== null) clearTimer(fallbackTimer);
+            for (const other of sockets) {
+              if (other !== socket) closeSocket(other);
+            }
+            socket.onopen = null;
+            socket.onclose = null;
+            socket.onerror = null;
+            onOpen(socket, port);
+          };
+          socket.onerror = () => markSettled(socket);
+          socket.onclose = () => markSettled(socket);
+        } catch (e) {
+          // A constructor rejection is already a settled port. No socket needs
+          // cleanup, and the completed loop below can exhaust immediately.
+        }
+      }
+
+      constructionDone = true;
+      if (sockets.length === 0 || settled.size === sockets.length) {
+        finishExhausted(false);
+      } else if (!done) {
+        fallbackTimer = setTimer(() => finishExhausted(true), timeoutMs);
+      }
+
+      return {
+        cancel() {
+          if (done) return;
+          done = true;
+          if (fallbackTimer !== null) clearTimer(fallbackTimer);
+          sockets.forEach(closeSocket);
+        },
+      };
+    }
+
+    function reconnectDelay(scanFailures) {
+      // Fast while a daemon restart is in flight; still light enough in the
+      // long-running unreachable state (5 loopback ports every 500ms).
+      return scanFailures >= UNREACHABLE_AFTER_SCANS ? 500 : 120;
     }
 
     // Try all ports in parallel, use first socket that opens.
@@ -703,59 +797,37 @@
       // Once we've declared the daemon unreachable, keep that message on
       // screen instead of flickering back to "Scanning…" on every retry.
       if (failedScans < UNREACHABLE_AFTER_SCANS) setStatus('Scanning…', 'connecting');
-      let opened = false;
-      const attempts = [];
+      activeScan = scanPorts({
+        ports: PORTS,
+        WebSocketCtor: WebSocket,
+        timeoutMs: PORT_SCAN_TIMEOUT_MS,
+        isCurrent: () => gen === scanGen,
+        onOpen(socket, port) {
+          activeScan = null;
+          ws = socket;
+          authed = false;
+          superseded = false;
+          reconnectBtn.hidden = true;
+          failedScans = 0;
+          unreachableNotified = false;
+          connectedPort = port;
+          setConnMeta();
+          hintEl.textContent = DEFAULT_HINT;
+          hintEl.classList.remove('warn');
 
-      PORTS.forEach(port => {
-        const url = `ws://localhost:${port}/plugin`;
-        try {
-          const socket = new WebSocket(url);
-          attempts.push(socket);
+          ws.onmessage = handleMessage;
+          ws.onclose = handleClose;
+          ws.onerror = handleClose;
 
-          socket.onopen = () => {
-            if (opened || gen !== scanGen) { try { socket.close(); } catch (e) {} return; }
-            opened = true;
-            ws = socket;
-            authed = false;
-            superseded = false;
-            reconnectBtn.hidden = true;
-            failedScans = 0;
-            unreachableNotified = false;
-            connectedPort = port;
-            setConnMeta();
-            hintEl.textContent = DEFAULT_HINT;
-            hintEl.classList.remove('warn');
-
-            attempts.forEach(s => {
-              if (s !== socket) { s.onclose = null; s.onerror = null; try { s.close(); } catch (e) {} }
-            });
-
-            ws.onmessage = handleMessage;
-            ws.onclose = handleClose;
-            ws.onerror = handleClose;
-
-            setStatus('Authenticating…', 'connecting');
-            // The DAEMON speaks first now: it sends {type:'challenge'} and we
-            // answer with a proof. Nothing is sent until then — the access key
-            // must never appear on a socket we have not authenticated.
-            pendingNonce = null;
-            pendingChallenge = null;
-          };
-
-          // During scan: ignore close/error (don't trigger reconnect)
-          socket.onclose = () => {};
-          socket.onerror = () => {};
-        } catch (e) {}
-      });
-
-      setTimeout(() => {
-        if (gen !== scanGen) {
-          // A newer scan (or teardown) superseded this one — just clean up.
-          attempts.forEach(s => { s.onclose = null; try { s.close(); } catch (e) {} });
-          return;
-        }
-        if (!opened) {
-          attempts.forEach(s => { s.onclose = null; try { s.close(); } catch (e) {} });
+          setStatus('Authenticating…', 'connecting');
+          // The DAEMON speaks first now: it sends {type:'challenge'} and we
+          // answer with a proof. Nothing is sent until then — the access key
+          // must never appear on a socket we have not authenticated.
+          pendingNonce = null;
+          pendingChallenge = null;
+        },
+        onExhausted() {
+          activeScan = null;
           clearTimeout(reconnectTimer);
           failedScans++;
           if (failedScans >= UNREACHABLE_AFTER_SCANS) {
@@ -765,12 +837,10 @@
               unreachableNotified = true;
               parent.postMessage({ pluginMessage: { type: 'daemon-unreachable' } }, '*');
             }
-            reconnectTimer = setTimeout(connectParallel, 2000);
-          } else {
-            reconnectTimer = setTimeout(connectParallel, 300);
           }
-        }
-      }, 1500);
+          reconnectTimer = setTimeout(connectParallel, reconnectDelay(failedScans));
+        },
+      });
     }
 
     function authFailureText(reason) {
@@ -849,7 +919,7 @@
         try {
           ws.send(JSON.stringify({
             type: 'hello', proto: HANDSHAKE_PROTO, mode: 'plugin',
-            version: PLUGIN_VERSION, nonce, proof,
+            version: PLUGIN_VERSION, capabilities: ['render-plan-v1', 'render-plan-batch-v1'], nonce, proof,
           }));
         } catch (e) {}
         return;
@@ -906,6 +976,18 @@
         if (paused) { rejectPaused(msg); return; }
         addLog({ id: msg.id, t0: Date.now(), label: evalLabel(msg.code || ''), kind: WRITE_RE.test(msg.code || '') ? 'write' : 'read' });
         parent.postMessage({ pluginMessage: { type: 'eval', id: msg.id, code: msg.code } }, '*');
+      }
+      if (msg.action === 'render-plan') {
+        if (paused) { rejectPaused(msg); return; }
+        const name = msg.plan && msg.plan.root && msg.plan.root.name ? msg.plan.root.name : 'Frame';
+        addLog({ id: msg.id, t0: Date.now(), label: 'render plan · ' + name, kind: 'write' });
+        parent.postMessage({ pluginMessage: { type: 'render-plan', id: msg.id, plan: msg.plan } }, '*');
+      }
+      if (msg.action === 'render-plan-batch') {
+        if (paused) { rejectPaused(msg); return; }
+        const n = (msg.plans || []).length;
+        addLog({ id: msg.id, t0: Date.now(), label: 'render plan batch · ' + n + ' frame' + (n !== 1 ? 's' : ''), kind: 'write' });
+        parent.postMessage({ pluginMessage: { type: 'render-plan-batch', id: msg.id, plans: msg.plans, options: msg.options || {} } }, '*');
       }
       if (msg.action === 'eval-batch') {
         if (paused) { rejectPaused(msg); return; }
