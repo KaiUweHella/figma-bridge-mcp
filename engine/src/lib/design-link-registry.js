@@ -90,11 +90,30 @@ function normalizeBaseline(value) {
   if (typeof raw.acceptedAt !== 'string' || Number.isNaN(Date.parse(raw.acceptedAt))) {
     throw new Error('Invalid Design Entity baseline: acceptedAt must be an ISO timestamp.');
   }
+  const semanticPaths = {};
+  for (const [path, fingerprint] of Object.entries(object(raw.figma?.semanticPaths))) {
+    const item = object(fingerprint);
+    if (!path || path.length > 512 || !FINGERPRINT.test(String(item.hash || ''))) {
+      throw new Error(`Invalid semantic Figma subtree fingerprint: ${path || '(empty path)'}.`);
+    }
+    Object.defineProperty(semanticPaths, path, {
+      value: {
+        hash: item.hash,
+        ...(typeof item.nodeId === 'string' && item.nodeId ? { nodeId: item.nodeId } : {}),
+      },
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
   return {
     version: 1,
     acceptedAt: raw.acceptedAt,
     code: { hash: codeHash },
-    figma: { hash: figmaHash },
+    figma: {
+      hash: figmaHash,
+      ...(Object.keys(semanticPaths).length ? { semanticPaths } : {}),
+    },
     ...(raw.visual && Number.isFinite(Number(raw.visual.diffPct)) ? {
       visual: {
         diffPct: Number(raw.visual.diffPct),

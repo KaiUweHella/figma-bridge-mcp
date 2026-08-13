@@ -168,6 +168,8 @@ export function walkerCode(pageId, {
     ${paintsSnippetJs}
     ${assetPolicyPluginSource()}
     const varNameCache = new Map();
+    const varInfoCache = new Map();
+    const varCollectionCache = new Map();
     const imageMetaCache = new Map();
     const imageMeta = async (hash) => {
       if (imageMetaCache.has(hash)) return imageMetaCache.get(hash);
@@ -210,12 +212,127 @@ export function walkerCode(pageId, {
       }
       return false;
     };
+    const variableCollection = async (id) => {
+      if (!id) return null;
+      if (varCollectionCache.has(id)) return varCollectionCache.get(id);
+      let value = null;
+      try {
+        const collection = await figma.variables.getVariableCollectionByIdAsync(id);
+        if (collection) value = {
+          id: collection.id,
+          name: collection.name,
+          defaultModeId: collection.defaultModeId,
+          modes: Array.from(collection.modes || [], (mode) => ({ id: mode.modeId, name: mode.name })),
+        };
+      } catch (e) {}
+      varCollectionCache.set(id, value);
+      return value;
+    };
+    const varInfo = async (id) => {
+      if (varInfoCache.has(id)) return varInfoCache.get(id);
+      let info = null;
+      try {
+        const variable = await figma.variables.getVariableByIdAsync(id);
+        if (variable) {
+          const collection = await variableCollection(variable.variableCollectionId);
+          info = {
+            id: variable.id,
+            name: variable.name,
+            type: variable.resolvedType,
+            collection: collection ? {
+              id: collection.id,
+              name: collection.name,
+              defaultModeId: collection.defaultModeId,
+            } : { id: variable.variableCollectionId },
+          };
+          if (Array.isArray(variable.scopes) && variable.scopes.length) info.scopes = Array.from(variable.scopes);
+          if (variable.codeSyntax && variable.codeSyntax.WEB) info.codeSyntax = { WEB: variable.codeSyntax.WEB };
+        }
+      } catch (e) {}
+      varInfoCache.set(id, info);
+      varNameCache.set(id, info ? info.name : null);
+      return info;
+    };
     const varName = async (id) => {
       if (varNameCache.has(id)) return varNameCache.get(id);
-      let name = null;
-      try { const v = await figma.variables.getVariableByIdAsync(id); if (v) name = v.name; } catch (e) {}
-      varNameCache.set(id, name);
-      return name;
+      const info = await varInfo(id);
+      return info ? info.name : null;
+    };
+    const resolvedVariableValue = (resolved) => {
+      if (!resolved || resolved.value == null) return undefined;
+      const value = resolved.value;
+      if (resolved.resolvedType === 'COLOR' && value && typeof value === 'object' && 'r' in value) return hex(value);
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+      return undefined;
+    };
+    const bindingInfo = async (alias, consumer) => {
+      if (!alias || !alias.id) return null;
+      const base = await varInfo(alias.id);
+      if (!base) return null;
+      const out = { ...base };
+      const collectionId = base.collection && base.collection.id;
+      const collection = await variableCollection(collectionId);
+      const resolvedModeId = collectionId && consumer && consumer.resolvedVariableModes
+        ? consumer.resolvedVariableModes[collectionId] : null;
+      const explicitModeId = collectionId && consumer && consumer.explicitVariableModes
+        ? consumer.explicitVariableModes[collectionId] : null;
+      if (resolvedModeId) {
+        const mode = collection && collection.modes.find((candidate) => candidate.id === resolvedModeId);
+        out.resolvedMode = { id: resolvedModeId, ...(mode ? { name: mode.name } : {}) };
+      }
+      if (explicitModeId) {
+        const mode = collection && collection.modes.find((candidate) => candidate.id === explicitModeId);
+        out.explicitMode = { id: explicitModeId, ...(mode ? { name: mode.name } : {}) };
+      }
+      try {
+        const variable = await figma.variables.getVariableByIdAsync(alias.id);
+        const resolved = variable && typeof variable.resolveForConsumer === 'function'
+          ? variable.resolveForConsumer(consumer) : null;
+        const value = resolvedVariableValue(resolved);
+        if (value !== undefined) out.resolvedValue = value;
+      } catch (e) {}
+      return out;
+    };
+    const flattenAliases = (value, prefix = '') => {
+      const out = [];
+      if (Array.isArray(value)) {
+        value.forEach((entry, index) => out.push(...flattenAliases(entry, prefix ? prefix + '.' + index : String(index))));
+      } else if (value && typeof value === 'object' && value.id) {
+        out.push([prefix, value]);
+      } else if (value && typeof value === 'object') {
+        for (const [key, entry] of Object.entries(value)) {
+          out.push(...flattenAliases(entry, prefix ? prefix + '.' + key : key));
+        }
+      }
+      return out;
+    };
+    const captureBindings = async (bindings, consumer) => {
+      const names = {};
+      const details = {};
+      for (const [field, value] of Object.entries(bindings || {})) {
+        for (const [suffix, alias] of flattenAliases(value)) {
+          const key = suffix ? field + '.' + suffix : field;
+          const info = await bindingInfo(alias, consumer);
+          if (!info) continue;
+          names[key] = info.name;
+          if (/^\d+(?:\.|$)/.test(suffix) && names[field] === undefined) names[field] = info.name;
+          details[key] = info;
+        }
+      }
+      return { names, details };
+    };
+    const captureInferredVariables = async (node) => {
+      const details = {};
+      let inferred = null;
+      try { inferred = node.inferredVariables; } catch (e) {}
+      for (const [field, value] of Object.entries(inferred || {})) {
+        for (const [suffix, alias] of flattenAliases(value)) {
+          const key = suffix ? field + '.' + suffix : field;
+          const info = await bindingInfo(alias, node);
+          if (info) details[key] = info;
+        }
+      }
+      return details;
     };
     // Shared styles (text styles, color styles): resolve id → { name, bv }.
     // bv holds the STYLE's own variable bindings (fontSize/fontStyle/… →
@@ -246,25 +363,161 @@ export function walkerCode(pageId, {
       return list;
     };
     const styleCache = new Map();
-    const styleInfo = async (id) => {
-      if (styleCache.has(id)) return styleCache.get(id);
-      let info = null;
-      try {
-        const st = await figma.getStyleByIdAsync(id);
-        if (st) {
-          info = { name: st.name };
-          if (WITH_VARS && st.boundVariables) {
-            const bv = {};
-            for (const entry of Object.entries(st.boundVariables)) {
-              const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
-              if (first && first.id) { const nm = await varName(first.id); if (nm) bv[entry[0]] = nm; }
-            }
-            if (Object.keys(bv).length) info.bv = bv;
-          }
-        }
-      } catch (e) {}
-      styleCache.set(id, info);
+    const styleInfo = async (id, consumer = null) => {
+      if (!styleCache.has(id)) {
+        let base = null;
+        try {
+          const st = await figma.getStyleByIdAsync(id);
+          if (st) base = { name: st.name, bindings: st.boundVariables || null };
+        } catch (e) {}
+        styleCache.set(id, base);
+      }
+      const base = styleCache.get(id);
+      if (!base) return null;
+      const info = { name: base.name };
+      // Resolve style-owned aliases against the concrete consuming node. A
+      // global style cache must never freeze the first node's resolved mode
+      // and incorrectly reuse it for a sibling in another theme mode.
+      if (WITH_VARS && base.bindings) {
+        const bindings = await captureBindings(base.bindings, consumer);
+        if (Object.keys(bindings.names).length) info.bv = bindings.names;
+        if (Object.keys(bindings.details).length) info.vb = bindings.details;
+      }
       return info;
+    };
+    const pluginJson = (node, key) => {
+      try {
+        if (typeof node.getPluginData !== 'function') return null;
+        const raw = node.getPluginData(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) { return null; }
+    };
+    const bridgeFacts = (node) => {
+      const semanticPath = typeof node.getPluginData === 'function'
+        ? node.getPluginData('figmaBridge.semanticPath') : '';
+      const semanticIndex = typeof node.getPluginData === 'function'
+        ? node.getPluginData('figmaBridge.semanticIndex') : '';
+      const renderPlanVersion = typeof node.getPluginData === 'function'
+        ? node.getPluginData('figmaBridge.renderPlanVersion') : '';
+      const fallbackAnnotations = pluginJson(node, 'figmaBridge.fallbackAnnotations');
+      const variableFontAxes = pluginJson(node, 'figmaBridge.variableFontAxes');
+      const out = {};
+      if (semanticPath) out.semanticPath = semanticPath;
+      if (/^\d+$/.test(semanticIndex)) out.semanticIndex = Number(semanticIndex);
+      if (/^\d+$/.test(renderPlanVersion)) out.renderPlanVersion = Number(renderPlanVersion);
+      if (fallbackAnnotations && fallbackAnnotations.schemaVersion === 1
+        && Array.isArray(fallbackAnnotations.annotations)) {
+        out.fallbackAnnotations = fallbackAnnotations.annotations;
+      }
+      if (variableFontAxes && variableFontAxes.schemaVersion === 1
+        && Array.isArray(variableFontAxes.ranges)) {
+        out.variableFontAxes = variableFontAxes;
+      }
+      return out;
+    };
+    const nativeAnnotations = (node) => {
+      if (!('annotations' in node) || !Array.isArray(node.annotations) || !node.annotations.length) return [];
+      return Array.from(node.annotations, (annotation) => ({
+        ...(annotation.labelMarkdown ? { labelMarkdown: annotation.labelMarkdown }
+          : annotation.label ? { label: annotation.label } : {}),
+        ...(annotation.categoryId ? { categoryId: annotation.categoryId } : {}),
+        ...(annotation.properties ? {
+          properties: Array.from(annotation.properties, (property) => property.type).filter(Boolean),
+        } : {}),
+      }));
+    };
+    const inferredLayoutFacts = (node) => {
+      let inferred = null;
+      try { inferred = node.inferredAutoLayout; } catch (e) {}
+      if (!inferred || !['HORIZONTAL', 'VERTICAL', 'GRID'].includes(inferred.layoutMode)) return null;
+      const out = { lm: inferred.layoutMode, source: 'figma-inferred' };
+      if (typeof inferred.itemSpacing === 'number' && inferred.itemSpacing > 0) {
+        out.gap = cleanNumber(inferred.itemSpacing, true);
+      }
+      const pad = [inferred.paddingTop, inferred.paddingRight, inferred.paddingBottom, inferred.paddingLeft]
+        .map((value) => cleanNumber(value, true));
+      if (pad.some((value) => value > 0)) out.pad = pad;
+      if (inferred.primaryAxisAlignItems && inferred.primaryAxisAlignItems !== 'MIN') out.ap = inferred.primaryAxisAlignItems;
+      if (inferred.counterAxisAlignItems && inferred.counterAxisAlignItems !== 'MIN') out.ac = inferred.counterAxisAlignItems;
+      if (inferred.layoutWrap && inferred.layoutWrap !== 'NO_WRAP') out.wrap = inferred.layoutWrap;
+      if (typeof inferred.counterAxisSpacing === 'number' && inferred.counterAxisSpacing > 0) {
+        out.counterGap = cleanNumber(inferred.counterAxisSpacing, true);
+      }
+      const primary = inferred.primaryAxisSizingMode === 'AUTO' ? 'HUG' : null;
+      const counter = inferred.counterAxisSizingMode === 'AUTO' ? 'HUG' : null;
+      if (inferred.layoutMode === 'HORIZONTAL') {
+        if (primary) out.sh = primary;
+        if (counter) out.sv = counter;
+      } else if (inferred.layoutMode === 'VERTICAL') {
+        if (counter) out.sh = counter;
+        if (primary) out.sv = primary;
+      }
+      return out;
+    };
+    const effectiveLayoutMode = (node) => {
+      try { if (node && node.layoutMode && node.layoutMode !== 'NONE') return node.layoutMode; } catch (e) {}
+      const inferred = node ? inferredLayoutFacts(node) : null;
+      return inferred ? inferred.lm : 'NONE';
+    };
+    const preferredValues = (values) => Array.from(values || [], (value) => ({
+      type: value.type,
+      key: value.key,
+    }));
+    const componentDefinitions = async (node) => {
+      let definitions = null;
+      try { definitions = node.componentPropertyDefinitions; } catch (e) {}
+      const out = {};
+      for (const [name, definition] of Object.entries(definitions || {})) {
+        if (!definition || !definition.type) continue;
+        const item = {
+          type: definition.type,
+          defaultValue: definition.defaultValue,
+        };
+        if (definition.variantOptions) item.variantOptions = Array.from(definition.variantOptions);
+        if (definition.preferredValues) item.preferredValues = preferredValues(definition.preferredValues);
+        if (definition.description) item.description = definition.description;
+        if (definition.slotSettings) item.slotSettings = { ...definition.slotSettings };
+        if (WITH_VARS && definition.boundVariables) {
+          const bindings = await captureBindings(definition.boundVariables, node);
+          if (Object.keys(bindings.details).length) item.variableBindings = bindings.details;
+        }
+        out[name] = item;
+      }
+      return out;
+    };
+    const instanceProperties = async (node) => {
+      let properties = null;
+      try { properties = node.componentProperties; } catch (e) {}
+      const out = {};
+      for (const [name, property] of Object.entries(properties || {})) {
+        if (!property || !property.type) continue;
+        const item = { type: property.type, value: property.value };
+        if (property.preferredValues) item.preferredValues = preferredValues(property.preferredValues);
+        if (WITH_VARS && property.boundVariables) {
+          const bindings = await captureBindings(property.boundVariables, node);
+          if (Object.keys(bindings.details).length) item.variableBindings = bindings.details;
+        }
+        out[name] = item;
+      }
+      return out;
+    };
+    const exposedInstanceFacts = async (node) => {
+      let exposed = [];
+      try { exposed = Array.from(node.exposedInstances || []); } catch (e) {}
+      const out = [];
+      for (const instance of exposed) {
+        const item = { id: instance.id, name: instance.name };
+        try {
+          const main = await instance.getMainComponentAsync();
+          if (main) {
+            item.main = main.name;
+            if (main.key) item.key = main.key;
+          }
+        } catch (e) {}
+        out.push(item);
+      }
+      return out;
     };
     const walk = async (n, depth) => {
       // Invisible nodes do not render — putting them in the spec makes the
@@ -287,6 +540,21 @@ export function walkerCode(pageId, {
           }
         }
       } catch (e) {}
+      try {
+        const bridge = bridgeFacts(n);
+        if (Object.keys(bridge).length) o.bridge = bridge;
+      } catch (e) {}
+      try {
+        const annotations = nativeAnnotations(n);
+        if (annotations.length) o.annotations = annotations;
+      } catch (e) {}
+      try {
+        const references = n.componentPropertyReferences;
+        if (references && typeof references === 'object') o.componentPropertyReferences = { ...references };
+      } catch (e) {}
+      try {
+        if (n.detachedInfo) o.detachedInfo = { ...n.detachedInfo };
+      } catch (e) {}
       if (n.visible === false) o.hidden = true;
       if (WITH_IDS) o.id = n.id;
       if ('width' in n) { o.w = Math.round(n.width); o.h = Math.round(n.height); }
@@ -304,6 +572,7 @@ export function walkerCode(pageId, {
         }
       } catch (e) {}
       if ('layoutMode' in n && n.layoutMode !== 'NONE') {
+        o.layoutSource = 'figma-native';
         o.lm = n.layoutMode;
         if (n.itemSpacing) {
           const gap = cleanNumber(n.itemSpacing, true);
@@ -329,6 +598,17 @@ export function walkerCode(pageId, {
             if (typeof n.gridColumnGap === 'number') g.colGap = cleanNumber(n.gridColumnGap, true);
           } catch (e) {}
           if (Object.keys(g).length) o.grid = g;
+        }
+      } else {
+        const inferredLayout = inferredLayoutFacts(n);
+        if (inferredLayout) {
+          o.layoutSource = inferredLayout.source;
+          o.lm = inferredLayout.lm;
+          for (const key of ['gap', 'pad', 'ap', 'ac', 'wrap', 'counterGap', 'sh', 'sv']) {
+            if (inferredLayout[key] !== undefined) o[key] = inferredLayout[key];
+          }
+        } else if ('children' in n && n.children.length) {
+          o.layoutSource = 'geometry';
         }
       }
       // Grid CELL of this node (parent is a GRID): anchor indices are
@@ -389,7 +669,7 @@ export function walkerCode(pageId, {
       // their x/y — the offsets double as a cross-check and as the fallback
       // when the grid template could not be read. A spec without positions
       // (the Background Pattern / collapsed-shell case) is unbuildable.
-      const parentLm = n.parent && 'layoutMode' in n.parent ? n.parent.layoutMode : null;
+      const parentLm = effectiveLayoutMode(n.parent);
       const freeParent = n.parent && typeof n.parent.width === 'number'
         && parentLm !== 'HORIZONTAL' && parentLm !== 'VERTICAL';
       let absBox = null, absPw = 0, absPh = 0;
@@ -420,6 +700,7 @@ export function walkerCode(pageId, {
           x: Math.round(ah === 'right' ? pw - box.x - box.w : box.x),
           y: Math.round(av === 'bottom' ? ph - box.y - box.h : box.y),
         };
+        o.positionSource = n.layoutPositioning === 'ABSOLUTE' ? 'figma-native' : 'geometry';
         // STRETCH pins BOTH edges — emit the far edge too (left+right / top+bottom).
         if (ah === 'stretch') o.abs.r = Math.round(pw - box.x - box.w);
         if (av === 'stretch') o.abs.b = Math.round(ph - box.y - box.h);
@@ -466,7 +747,7 @@ export function walkerCode(pageId, {
       // Shared COLOR style applied to the fill (fillStyleId): its name is the
       // semantic handle ("Color/Primary") — capture alongside the raw value.
       if (WITH_VARS && typeof n.fillStyleId === 'string' && n.fillStyleId) {
-        const st = await styleInfo(n.fillStyleId);
+        const st = await styleInfo(n.fillStyleId, n);
         if (st) o.fs = st.name;
       }
       try {
@@ -528,11 +809,9 @@ export function walkerCode(pageId, {
         if (fx.length) o.fx = fx;
       }
       if (WITH_VARS && n.boundVariables) {
-        const bv = {};
-        for (const entry of Object.entries(n.boundVariables)) {
-          const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
-          if (first && first.id) { const nm = await varName(first.id); if (nm) bv[entry[0]] = nm; }
-        }
+        const capturedBindings = await captureBindings(n.boundVariables, n);
+        const bv = capturedBindings.names;
+        const vb = capturedBindings.details;
         /* A scaled instance may report one spacing token on several padding
            sides even though the resolved raw values differ. That binding is
            not a truthful implementation contract: keep the four raw sides
@@ -550,7 +829,10 @@ export function walkerCode(pageId, {
           const values = new Set(uses.map((use) => use.value));
           if (uses.length > 1 && values.size > 1) {
             inconsistentPadding = true;
-            for (const use of uses) delete bv[use.key];
+            for (const use of uses) {
+              delete bv[use.key];
+              delete vb[use.key];
+            }
           }
         }
         if (inconsistentPadding && o.css) {
@@ -559,6 +841,11 @@ export function walkerCode(pageId, {
           }
         }
         if (Object.keys(bv).length) o.bv = bv;
+        if (Object.keys(vb).length) o.vb = vb;
+      }
+      if (WITH_VARS) {
+        const inferred = await captureInferredVariables(n);
+        if (Object.keys(inferred).length) o.iv = inferred;
       }
       if (n.type === 'TEXT') {
         const chars = n.characters || '';
@@ -617,25 +904,26 @@ export function walkerCode(pageId, {
                 if (segment.listOptions && segment.listOptions.type !== 'NONE') run.list = segment.listOptions;
                 if (segment.hyperlink) run.hyperlink = segment.hyperlink;
                 if (WITH_VARS && segment.boundVariables) {
-                  const runBv = {};
-                  for (const entry of Object.entries(segment.boundVariables)) {
-                    const first = Array.isArray(entry[1]) ? entry[1][0] : entry[1];
-                    if (first && first.id) { const nm = await varName(first.id); if (nm) runBv[entry[0]] = nm; }
-                  }
-                  if (Object.keys(runBv).length) run.bv = runBv;
+                  const runBindings = await captureBindings(segment.boundVariables, n);
+                  if (Object.keys(runBindings.names).length) run.bv = runBindings.names;
+                  if (Object.keys(runBindings.details).length) run.vb = runBindings.details;
                 }
                 if (WITH_VARS && typeof segment.textStyleId === 'string' && segment.textStyleId) {
-                  const st = await styleInfo(segment.textStyleId);
+                  const st = await styleInfo(segment.textStyleId, n);
                   if (st) {
                     run.ts = st.name;
                     if (st.bv) {
                       run.bv = run.bv || {};
                       for (const k of Object.keys(st.bv)) if (!(k in run.bv)) run.bv[k] = st.bv[k];
                     }
+                    if (st.vb) {
+                      run.vb = run.vb || {};
+                      for (const k of Object.keys(st.vb)) if (!(k in run.vb)) run.vb[k] = st.vb[k];
+                    }
                   }
                 }
                 if (WITH_VARS && typeof segment.fillStyleId === 'string' && segment.fillStyleId) {
-                  const st = await styleInfo(segment.fillStyleId);
+                  const st = await styleInfo(segment.fillStyleId, n);
                   if (st) run.fs = st.name;
                 }
                 o.txt.runs.push(run);
@@ -659,18 +947,24 @@ export function walkerCode(pageId, {
         // bindings are where typography tokens usually live. Merge the
         // style's bindings under the node's (node-level overrides win).
         if (WITH_VARS && typeof n.textStyleId === 'string' && n.textStyleId) {
-          const st = await styleInfo(n.textStyleId);
+          const st = await styleInfo(n.textStyleId, n);
           if (st) {
             o.txt.ts = st.name;
             if (st.bv) {
               o.bv = o.bv || {};
               for (const k of Object.keys(st.bv)) if (!(k in o.bv)) o.bv[k] = st.bv[k];
             }
+            if (st.vb) {
+              o.vb = o.vb || {};
+              for (const k of Object.keys(st.vb)) if (!(k in o.vb)) o.vb[k] = st.vb[k];
+            }
           }
         }
       }
       if (n.type === 'COMPONENT_SET') {
         try { o.vp = n.variantGroupProperties; } catch (e) {}
+        const definitions = await componentDefinitions(n);
+        if (Object.keys(definitions).length) o.componentPropertyDefinitions = definitions;
         o.kidCount = n.children.length;
         // Identity handle: the SET's own id/key — the stable identity of the
         // whole component (what a Storybook story mirrors).
@@ -734,15 +1028,26 @@ export function walkerCode(pageId, {
           }
         } catch (e) {}
         try {
-          const cp = n.componentProperties;
-          if (cp) {
+          const cp = await instanceProperties(n);
+          if (Object.keys(cp).length) {
+            o.componentProperties = cp;
             const props = {};
-            for (const entry of Object.entries(cp)) {
-              const d = entry[1];
-              if (d && (d.type === 'VARIANT' || d.type === 'TEXT' || d.type === 'BOOLEAN')) props[entry[0].split('#')[0]] = d.value;
+            for (const [name, property] of Object.entries(cp)) {
+              if (['VARIANT', 'TEXT', 'BOOLEAN'].includes(property.type)) props[name.split('#')[0]] = property.value;
             }
             if (Object.keys(props).length) o.props = props;
           }
+        } catch (e) {}
+        try {
+          const overrides = Array.from(n.overrides || [], (override) => ({
+            id: override.id,
+            overriddenFields: Array.from(override.overriddenFields || []),
+          }));
+          if (overrides.length) o.overrides = overrides;
+        } catch (e) {}
+        try {
+          const exposed = await exposedInstanceFacts(n);
+          if (exposed.length) o.exposedInstances = exposed;
         } catch (e) {}
         if ('children' in n && n.children.length) {
           if (depth >= MAX_DEPTH) {
@@ -765,6 +1070,13 @@ export function walkerCode(pageId, {
       if (n.type === 'COMPONENT') {
         o.id = n.id;
         try { if (n.key) o.key = n.key; } catch (e) {}
+        const definitions = await componentDefinitions(n);
+        if (Object.keys(definitions).length) o.componentPropertyDefinitions = definitions;
+      }
+      if (n.type === 'SLOT') {
+        try {
+          o.slot = { limitViolations: Array.from(n.limitViolations || []) };
+        } catch (e) { o.slot = { limitViolations: [] }; }
       }
       if ('children' in n && n.children.length) {
         if (depth >= MAX_DEPTH) {

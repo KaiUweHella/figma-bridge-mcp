@@ -18,7 +18,7 @@ The resolved policy for one concrete **Figma Command** before execution: Adapter
 _Avoid_: allowlist entry, command metadata
 
 **Design Capture**:
-The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
+The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
 _Avoid_: walker output, cache entry
 
 **Bridge Daemon**:
@@ -50,7 +50,7 @@ The reviewed pair of code and Figma fingerprints for one **Design Entity**. It r
 _Avoid_: last sync, golden version
 
 **Round-trip Plan**:
-The report-only classification of current code and Figma against an **Accepted Design Baseline**: unchanged, code-only, figma-only, conflict or untracked. A Round-trip Plan recommends reads but never authorizes a write.
+The report-only classification of current code and Figma against an **Accepted Design Baseline**: unchanged, code-only, figma-only, conflict or untracked. When Code-to-Figma semantic paths are present, it also names changed semantic subtrees and their current node ids without treating plugin data as visual content. A Round-trip Plan recommends reads but never authorizes a write.
 _Avoid_: sync direction, auto-merge
 
 **Project Design Context**:
@@ -74,6 +74,10 @@ _Avoid_: warning label, generated comment, fallback badge
 > **Developer:** Does `figma_spec` behave differently through MCP and the CLI?
 >
 > **Domain expert:** No. Both adapters invoke the same Command Application. It evaluates through the Daemon Client, and the Figma Command keeps one audit lifecycle.
+
+> **Developer:** Does inferred Auto Layout mean the frame really uses Auto Layout?
+>
+> **Domain expert:** No. Design Capture records native Auto Layout or Grid as authored Figma fact, `inferredAutoLayout` as a Figma heuristic requiring verification, and free geometry as the final fallback. Projections never erase that distinction.
 
 > **Developer:** Where do I add a new command's write gate and timeout?
 >

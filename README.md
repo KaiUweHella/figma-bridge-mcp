@@ -78,6 +78,14 @@ npm install
    with that Figma file. The pairing is remembered; on later sessions, only
    reopen the plugin in the file you want to use.
 
+Optional for Figma Dev Mode: import the second path printed by
+`figma_connect`, `~/.figma-bridge-mcp/plugin/manifest.codegen.json`. **Figma
+Bridge Codegen** is a separate, offline, read-only plugin. Its Inspect sections
+show the selected node's Bridge semantic path and fallback provenance, native
+Figma CSS, designer annotations and component contract. Repository paths and
+accepted baselines intentionally stay out of the Figma document; use the
+displayed `link context <entityId>` read to resolve them through MCP.
+
 ### 3. Use it with Figma
 
 Select a frame or layer in Figma and describe the outcome you want. For example:
@@ -130,6 +138,10 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   plugin connection and Figma document revision are unchanged. Missing or
   unstable revision metadata disables reuse; selection and named-section calls
   remain uncached in this first Slice.
+  Captures distinguish authored Figma Auto Layout/Grid, Figma's marked
+  `inferredAutoLayout` heuristic and geometry fallback. They also preserve
+  Code-to-Figma semantic/fallback metadata separately from later native Figma
+  annotations, plus full component and variable-mode contracts.
 - The **Design Link Registry** gives a component, screen or frame one durable,
   repository-owned **Design Entity** id. `figma-bridge.json` holds portable
   code/Storybook/Figma links; Figma plugin data holds only the same id and kind.
@@ -138,7 +150,9 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 - The report-only **Round-trip Planner** compares current code and the current
   normalized Figma subtree with an explicitly **Accepted Design Baseline**.
   The **Project Design Context** projects that status, the entity links and the
-  exact next reads through one in-process Command Application.
+  exact next reads through one in-process Command Application. When semantic
+  paths exist, changed subtrees are reported with their current node ids;
+  plugin markers themselves never count as visual changes.
 - One **Capability Catalog** resolves every Figma Command entering through MCP
   into an immutable plan before either execution adapter runs it. That plan is
   the single source for exposure, Figma/workspace/shared-state effects, target
@@ -251,14 +265,16 @@ The Figma Bridge plugin window is more than the connection status:
 ## Design-to-code workflow
 
 The design is the complete specification — the tooling makes copying it easier
-than interpreting it. Build a screen from Figma in five steps:
+than interpreting it. Build a screen from Figma in six steps:
 
 1. **`figma_screenshot`** on the target frame, then read the saved PNG — the
    visual ground truth. Never build from a node tree alone.
 2. **`figma_spec` with `phase: "structure"`** — build the markup skeleton:
    real text characters, resolved icon/component names (instances are
    descended into, so overrides and true main-component names appear),
-   hierarchy and flex direction. Copy texts and icons verbatim.
+   hierarchy and flex direction. Copy texts and icons verbatim. A
+   `layout:inferred (Figma heuristic — verify)` marker is not authored Auto
+   Layout; check the hierarchy before treating it as the component contract.
 3. **Export tokens** (`figma_run` with `["export","css"]` or
    `["export","dtcg"]`) and wire them up as CSS variables / theme. The output
    names its source Figma file — check it is the file you are building.
@@ -282,6 +298,13 @@ than interpreting it. Build a screen from Figma in five steps:
    (overflow hidden) and `abs` positioning. Decorative vectors appear as
    `vector art → assets/…` lines with placement — place the exported SVGs,
    never approximate them in CSS.
+
+   Structured YAML/JSON additionally retains exact component property
+   definitions and values (including INSTANCE_SWAP and SLOT), property
+   references, preferred values, direct overrides, exposed instances and slot
+   violations. Variable bindings include collection identity, authored scopes,
+   explicit/resolved modes, `codeSyntax.WEB` and the resolved value;
+   `inferredVariables` is emitted separately as suggestion-only evidence.
 
    For a large section, request `depth:0` first. This is a complete contract
    for the section container itself (including background, border, radius and
@@ -329,7 +352,8 @@ line-oriented agent view whose footers carry the required asset and fidelity
 actions. Use `yaml` or formatted `json` explicitly when a consumer needs the
 versioned canonical model. Both structured formats serialize the **same model**;
 only syntax differs. Roundtrip tests require every field — text,
-ids, layout, paint, typography, variables, assets, component keys, capture
+ids, layout provenance, paint, typography, mode-aware variables, assets,
+component contracts, Bridge intent, native annotations, capture
 completeness, and fidelity checks — to survive exactly. Minified JSON is not
 offered: real agent tests showed that a single huge line was materially harder
 to act on despite carrying the same raw fields.
@@ -399,7 +423,12 @@ figma_run ["link","accept","screen.settings","--compare","/abs/build.png","--max
 Source code is never stored in the Registry. The initial code Adapter hashes
 the complete linked file plus its export identity; therefore an unrelated edit
 in a shared file may conservatively report a code change, but a real change is
-never hidden. The Figma Adapter hashes the normalized linked subtree.
+never hidden. The Figma Adapter hashes the normalized linked subtree. For
+Code-to-Figma nodes it also stores each unique `figmaBridge.semanticPath` with
+that node's subtree hash. A later `link status` can therefore list the exact
+added, removed or changed semantic paths and recommend node-scoped specs.
+Changing a semantic marker alone does not change the visual fingerprint;
+duplicate paths are reported as ambiguous instead of guessed.
 
 ```text
 figma_run ["link","status","screen.settings"]

@@ -315,6 +315,62 @@ export function cssSeg(node) {
   return `css{${entries.map(([property, value]) => `${property}:${value}`).join('; ')}}`;
 }
 
+/** Provenance and semantic facts that must not be mistaken for visual style. */
+export function factSegs(node) {
+  const parts = [];
+  if (node.layoutSource === 'figma-inferred') parts.push('layout:inferred (Figma heuristic — verify)');
+  else if (node.layoutSource === 'geometry') parts.push('layout:geometry-fallback');
+  if (node.positionSource === 'geometry') parts.push('position:geometry-fallback');
+  if (node.bridge?.semanticPath) parts.push(`semantic-path:${node.bridge.semanticPath}`);
+  if (node.bridge?.renderPlanVersion != null) parts.push(`render-plan:v${node.bridge.renderPlanVersion}`);
+  if (node.bridge?.fallbackAnnotations?.length) {
+    const policies = [...new Set(node.bridge.fallbackAnnotations
+      .map((annotation) => annotation?.policy || annotation?.strategy || annotation?.kind)
+      .filter(Boolean))];
+    parts.push(`code-fallback:${policies.length ? policies.join(',') : node.bridge.fallbackAnnotations.length}`);
+  }
+  if (node.componentProperties) parts.push(`component-properties:${Object.keys(node.componentProperties).length}`);
+  if (node.componentPropertyDefinitions) parts.push(`component-definitions:${Object.keys(node.componentPropertyDefinitions).length}`);
+  if (node.overrides?.length) parts.push(`direct-overrides:${node.overrides.length}`);
+  if (node.exposedInstances?.length) parts.push(`exposed-instances:${node.exposedInstances.length}`);
+  if (node.slot) {
+    parts.push(node.slot.limitViolations?.length
+      ? `slot-limit-violations:${node.slot.limitViolations.join(',')}`
+      : 'slot:valid');
+  }
+  if (node.annotations?.length) parts.push(`figma-annotations:${node.annotations.length}`);
+  if (node.vb && Object.keys(node.vb).length) parts.push(`variable-context:${Object.keys(node.vb).length}`);
+  if (node.iv && Object.keys(node.iv).length) parts.push(`variable-suggestions:${Object.keys(node.iv).length} (inferred only)`);
+  return parts;
+}
+
+const annotationText = (annotation) => String(
+  annotation?.labelMarkdown || annotation?.label || '(annotation without label)',
+).replace(/\s+/g, ' ').trim();
+
+const annotationSpecLines = (node, depth) => (node.annotations || []).map((annotation) => {
+  const properties = annotation.properties?.length ? ` · properties:${annotation.properties.join(',')}` : '';
+  const category = annotation.categoryId ? ` · category:${annotation.categoryId}` : '';
+  return `${'  '.repeat(depth)}- Figma annotation: ${annotationText(annotation)}${category}${properties}`;
+});
+
+/** Copy exact non-style facts into the canonical JSON/YAML node. */
+function copyNodeFacts(node, target, { detail }) {
+  if (node.bridge) target.bridge = node.bridge;
+  if (node.annotations?.length) target.annotations = node.annotations;
+  if (node.layoutSource) target.layoutSource = node.layoutSource;
+  if (node.positionSource) target.positionSource = node.positionSource;
+  if (node.componentPropertyReferences) target.componentPropertyReferences = node.componentPropertyReferences;
+  if (node.componentProperties) target.componentProperties = node.componentProperties;
+  if (node.componentPropertyDefinitions) target.componentPropertyDefinitions = node.componentPropertyDefinitions;
+  if (node.overrides?.length) target.overrides = node.overrides;
+  if (node.exposedInstances?.length) target.exposedInstances = node.exposedInstances;
+  if (node.slot) target.slot = node.slot;
+  if (node.detachedInfo) target.detachedInfo = node.detachedInfo;
+  if (detail && node.vb && Object.keys(node.vb).length) target.variableBindings = node.vb;
+  if (detail && node.iv && Object.keys(node.iv).length) target.inferredVariables = node.iv;
+}
+
 // ============ style dedup (content-addressed, Framelink-style) ============
 //
 // The same visual style repeats across a screen far more often than whole
@@ -561,19 +617,24 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
     const op = detail && n.op != null ? ` · opacity ${Math.round(n.op * 100)}%` : '';
     const id = detail && n.id ? ` · [${n.id}]` : '';
     const hid = n.hidden ? ' · (hidden — not rendered)' : '';
-    return `${'  '.repeat(depth)}- ${n.n}${size} · vector art${extra} → assets/${assetFileName(n.n, 'svg', ancestors)} (export assets)${pos}${ov}${op}${hid}${id}`;
+    const facts = factSegs(n);
+    const factText = facts.length ? ` · ${facts.join(' · ')}` : '';
+    return `${'  '.repeat(depth)}- ${n.n}${size} · vector art${extra} → assets/${assetFileName(n.n, 'svg', ancestors)} (export assets)${pos}${ov}${op}${hid}${id}${factText}`;
   };
   if (isVectorArt(node)) {
     // Vector ART (hand-drawn paths) — even small glyphs: a 26×34 flame on a
     // nav item or a 22×30 speech-bubble shape IS the design. One pointer
     // line; internals stay hidden — the artwork is fetched as a file, not
     // rebuilt from paths.
-    return [vectorArtLine(node)];
+    return [vectorArtLine(node), ...annotationSpecLines(node, depth + 1)];
   }
   if (isVectorCluster(node)) {
     // Mostly-vector container (pattern of hundreds of shapes): ONE line,
     // exactly like `export assets` writes ONE file for it.
-    return [vectorArtLine(node, ` ×${node.vectorCluster?.totalChildren ?? (node.kids || []).length}`)];
+    return [
+      vectorArtLine(node, ` ×${node.vectorCluster?.totalChildren ?? (node.kids || []).length}`),
+      ...annotationSpecLines(node, depth + 1),
+    ];
   }
   if (isInvisibleHelper(node)) return []; // paint-less bounding/mask shape — renders nothing
   // Soft primitives (RECTANGLE/ELLIPSE/LINE, incl. gradient overlays) fall
@@ -645,7 +706,9 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
   // Figma, and an exact follow-up style call must never target by guesswork.
   if (node.id) segs.push(`[${node.id}]`);
   if (node.repeat) segs.push(`×${node.repeat}`);
+  segs.push(...factSegs(node));
   const lines = [`${'  '.repeat(depth)}- ${segs.filter(Boolean).join(' · ')}`];
+  lines.push(...annotationSpecLines(node, depth + 1));
   // Icon instances collapse: their identity is the main-component name, the
   // paths inside are noise. All other containers DO list their vector kids.
   const rawKids = isIconInstance(node) ? [] : node.kids || [];
@@ -1205,6 +1268,7 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
       if (node.id) o.id = node.id;
       if (node.entityId) o.entityId = node.entityId;
       if (node.entityKind) o.entityKind = node.entityKind;
+      copyNodeFacts(node, o, { detail });
       if (node.hidden) o.hidden = true;
       // Rendered box wins over pre-rotation w/h — same rule as the text
       // renderer: the numbers must match the exported SVG file.
@@ -1223,6 +1287,7 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
     if (node.id) o.id = node.id;
     if (node.entityId) o.entityId = node.entityId;
     if (node.entityKind) o.entityKind = node.entityKind;
+    copyNodeFacts(node, o, { detail });
     if (node.hidden) o.hidden = true;
     if (node.lm) o.dir = dirName(node.lm);
     if (node.scroll) o.scroll = node.scroll;

@@ -6,9 +6,10 @@
 // proved that the same connection is still on the same document revision.
 import { nodeWalkerCode } from '../design-extract.js';
 
-// Bump whenever the canonical walker payload changes. Version 4 adds stable
-// IMAGE metadata, scroll intent and concrete depth-frontier node ids.
-export const DESIGN_CAPTURE_SCHEMA_VERSION = 4;
+// Bump whenever the canonical walker payload changes. Version 5 adds Bridge
+// semantic provenance, native annotations, inferred-layout provenance,
+// complete component contracts and mode-aware variable binding facts.
+export const DESIGN_CAPTURE_SCHEMA_VERSION = 5;
 
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;

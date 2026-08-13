@@ -73,6 +73,132 @@ test('Design Entity identity survives Figma capture into tree and structured spe
   assert.equal(modelNode.entityKind, 'screen');
 });
 
+test('Bridge intent, native annotations and inferred layout retain distinct provenance', async () => {
+  const child = {
+    id: 'semantic:2', name: 'Label', type: 'FRAME', visible: true,
+    width: 80, height: 24, children: [],
+  };
+  const root = {
+    id: 'semantic:1', name: 'Toolbar', type: 'FRAME', visible: true,
+    width: 320, height: 48, layoutMode: 'NONE', children: [child],
+    inferredAutoLayout: {
+      layoutMode: 'HORIZONTAL', itemSpacing: 12,
+      paddingTop: 8, paddingRight: 16, paddingBottom: 8, paddingLeft: 16,
+      primaryAxisAlignItems: 'SPACE_BETWEEN', counterAxisAlignItems: 'CENTER',
+      primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'AUTO',
+      layoutWrap: 'NO_WRAP', counterAxisSpacing: 0,
+    },
+    annotations: [{ labelMarkdown: '**Designer:** keep both actions visible', categoryId: 'CAT', properties: [{ type: 'WIDTH' }] }],
+    getPluginData(key) {
+      return {
+        'figmaBridge.semanticPath': 'screen.toolbar',
+        'figmaBridge.semanticIndex': '3',
+        'figmaBridge.renderPlanVersion': '1',
+        'figmaBridge.fallbackAnnotations': JSON.stringify({ schemaVersion: 1, annotations: [{ policy: 'border-solid-color' }] }),
+      }[key] || '';
+    },
+  };
+  child.parent = root;
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, { withIds: true }), root));
+  const captured = result.frames[0];
+  assert.equal(captured.layoutSource, 'figma-inferred');
+  assert.equal(captured.lm, 'HORIZONTAL');
+  assert.equal(captured.kids[0].abs, undefined, 'inferred flow children must not become geometry overlays');
+  assert.equal(captured.bridge.semanticPath, 'screen.toolbar');
+  assert.equal(captured.annotations[0].labelMarkdown, '**Designer:** keep both actions visible');
+
+  const model = specModel(result, { phase: 'all', dedup: false }).frames[0];
+  assert.equal(model.layoutSource, 'figma-inferred');
+  assert.equal(model.bridge.fallbackAnnotations[0].policy, 'border-solid-color');
+  assert.equal(model.annotations[0].categoryId, 'CAT');
+  const text = formatCodeSpec(result, { phase: 'all', dedup: false });
+  assert.match(text, /layout:inferred \(Figma heuristic — verify\)/);
+  assert.match(text, /semantic-path:screen\.toolbar/);
+  assert.match(text, /Figma annotation: \*\*Designer:\*\* keep both actions visible/);
+});
+
+test('variable bindings carry collection, scope, modes, web syntax and resolved value', async () => {
+  const root = {
+    id: 'vars:1', name: 'Stack', type: 'FRAME', visible: true,
+    width: 200, height: 100, layoutMode: 'VERTICAL', itemSpacing: 8, children: [],
+    boundVariables: { itemSpacing: { id: 'V:space' } },
+    inferredVariables: { cornerRadius: [{ id: 'V:radius' }] },
+    resolvedVariableModes: { 'C:tokens': 'M:dark' },
+    explicitVariableModes: { 'C:tokens': 'M:dark' },
+  };
+  const variables = {
+    'V:space': {
+      id: 'V:space', name: 'spacing/md', resolvedType: 'FLOAT', variableCollectionId: 'C:tokens',
+      scopes: ['GAP'], codeSyntax: { WEB: 'var(--spacing-md)' },
+      resolveForConsumer: () => ({ resolvedType: 'FLOAT', value: 8 }),
+    },
+    'V:radius': {
+      id: 'V:radius', name: 'radius/md', resolvedType: 'FLOAT', variableCollectionId: 'C:tokens',
+      scopes: ['CORNER_RADIUS'], codeSyntax: { WEB: 'var(--radius-md)' },
+      resolveForConsumer: () => ({ resolvedType: 'FLOAT', value: 12 }),
+    },
+  };
+  const figma = stubFigma(root);
+  figma.variables = {
+    getVariableByIdAsync: async (id) => variables[id] || null,
+    getVariableCollectionByIdAsync: async () => ({
+      id: 'C:tokens', name: 'Tokens', defaultModeId: 'M:light',
+      modes: [{ modeId: 'M:light', name: 'Light' }, { modeId: 'M:dark', name: 'Dark' }],
+    }),
+  };
+  const result = JSON.parse(await runWalkerWithFigma(nodeWalkerCode(root.id, { withVars: true }), figma));
+  const captured = result.frames[0];
+  assert.equal(captured.vb.itemSpacing.collection.name, 'Tokens');
+  assert.deepEqual(captured.vb.itemSpacing.scopes, ['GAP']);
+  assert.equal(captured.vb.itemSpacing.resolvedMode.name, 'Dark');
+  assert.equal(captured.vb.itemSpacing.explicitMode.name, 'Dark');
+  assert.equal(captured.vb.itemSpacing.codeSyntax.WEB, 'var(--spacing-md)');
+  assert.equal(captured.vb.itemSpacing.resolvedValue, 8);
+  assert.equal(captured.iv['cornerRadius.0'].scopes[0], 'CORNER_RADIUS');
+  const model = specModel(result, { phase: 'style', dedup: false }).frames[0];
+  assert.equal(model.variableBindings.itemSpacing.resolvedValue, 8);
+  assert.equal(model.inferredVariables['cornerRadius.0'].name, 'radius/md');
+});
+
+test('instance swap, slot, overrides and exposed instances survive as a component contract', async () => {
+  const exposed = {
+    id: 'instance:2', name: 'Leading icon',
+    getMainComponentAsync: async () => ({ name: 'Icon/Calendar', key: 'ICON_KEY' }),
+  };
+  const root = {
+    id: 'instance:1', name: 'Button', type: 'INSTANCE', visible: true,
+    width: 120, height: 40, children: [],
+    componentPropertyReferences: { visible: 'Show icon#123' },
+    componentProperties: {
+      'State#1': { type: 'VARIANT', value: 'Default' },
+      'Icon#2': { type: 'INSTANCE_SWAP', value: 'COMPONENT_ID', preferredValues: [{ type: 'COMPONENT', key: 'ICON_KEY' }] },
+      'Content#3': { type: 'SLOT', value: 'slot:1' },
+    },
+    overrides: [{ id: 'instance:2', overriddenFields: ['componentProperties'] }],
+    exposedInstances: [exposed],
+    getMainComponentAsync: async () => ({ id: 'component:1', name: 'State=Default', key: 'BUTTON_KEY', parent: null }),
+  };
+  const slot = {
+    id: 'slot:1', name: 'Content', type: 'SLOT', visible: true,
+    width: 80, height: 24, limitViolations: ['MAX_CHILDREN'], children: [], parent: root,
+  };
+  root.children.push(slot);
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, {
+    resolveInstances: true, withIds: true,
+  }), root));
+  const captured = result.frames[0];
+  assert.equal(captured.componentProperties['Icon#2'].type, 'INSTANCE_SWAP');
+  assert.equal(captured.componentProperties['Content#3'].type, 'SLOT');
+  assert.equal(captured.overrides[0].overriddenFields[0], 'componentProperties');
+  assert.equal(captured.exposedInstances[0].key, 'ICON_KEY');
+  assert.deepEqual(captured.kids[0].slot.limitViolations, ['MAX_CHILDREN']);
+  const model = specModel(result, { phase: 'structure', dedup: false }).frames[0];
+  assert.equal(model.componentPropertyReferences.visible, 'Show icon#123');
+  assert.equal(model.componentProperties['Icon#2'].preferredValues[0].key, 'ICON_KEY');
+  assert.equal(model.exposedInstances[0].main, 'Icon/Calendar');
+  assert.deepEqual(model.kids[0].slot.limitViolations, ['MAX_CHILDREN']);
+});
+
 // ============ hidden-node filtering (IMPROVEMENTS #1) ============
 // The walker snippets run inside Figma, but they are plain JS — so we can
 // execute them against a stub `figma` global and assert real behavior
@@ -84,6 +210,7 @@ const stubFigma = (root) => ({
   variables: { getVariableByIdAsync: async () => null },
 });
 const runWalker = (code, root) => new Function('figma', `return ${code}`)(stubFigma(root));
+const runWalkerWithFigma = (code, figma) => new Function('figma', `return ${code}`)(figma);
 const frameFixture = () => ({
   id: '9:1', name: 'Card', type: 'FRAME', width: 100, height: 50, visible: true,
   children: [

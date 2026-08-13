@@ -81,6 +81,18 @@ test('geometry is rounded, so sub-pixel relayout noise is not a change', () => {
   );
 });
 
+test('semantic paths navigate snapshots but never alter visual subtree hashes', () => {
+  const marked = rawDoc();
+  marked.nodes[1].semanticPath = 'screen.hero';
+  const captured = normalizeSnapshot(marked);
+  assert.equal(captured.nodes[1].semanticPath, 'screen.hero');
+  const renamed = rawDoc();
+  renamed.nodes[1].semanticPath = 'screen.hero-renamed';
+  const recaptured = normalizeSnapshot(renamed);
+  assert.equal(captured.nodes[1].hash, recaptured.nodes[1].hash);
+  assert.equal(captured.nodes[1].subtreeHash, recaptured.nodes[1].subtreeHash);
+});
+
 test('identical snapshots produce an empty diff', () => {
   const d = diffSnapshots(snap(), snap());
   assert.ok(isEmptyDiff(d));
@@ -226,6 +238,7 @@ test('buildSnapshotEval targets the page by default and a node when asked', () =
   assert.match(buildSnapshotEval(), /MAX_DEPTH = -1/);
   // figma.mixed is a symbol and would break JSON round-tripping.
   assert.match(buildSnapshotEval(), /__mixed__/);
+  assert.match(buildSnapshotEval(), /figmaBridge\.semanticPath/);
 });
 
 test('the store saves, lists, reads back and resolves refs', () => {

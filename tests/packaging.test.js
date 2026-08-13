@@ -81,8 +81,8 @@ test("test script uses Node discovery instead of shell-expanded globs", () => {
   );
 });
 
-test("plugin dir ships exactly the three files connect installs", () => {
-  for (const f of ["manifest.json", "code.js", "ui.html"]) {
+test("plugin dir ships both adapters connect installs", () => {
+  for (const f of ["manifest.json", "code.js", "ui.html", "manifest.codegen.json", "codegen.js"]) {
     assert.ok(existsSync(join(ROOT, "plugin", f)), `plugin/${f} exists`);
   }
 });

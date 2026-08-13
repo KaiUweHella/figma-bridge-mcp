@@ -21,6 +21,7 @@
     "engine/src/application/code-spec-command.js",
     "engine/src/application/inspect-command.js",
     "engine/src/application/screenshot-command.js",
-    "plugin/code.js"
+    "plugin/code.js",
+    "plugin/codegen.js"
   ]
 }

@@ -96,6 +96,15 @@ export function buildSnapshotEval({ nodeId = null, depth = null } = {}) {
       x: node.x, y: node.y, w: node.width, h: node.height,
       props: {},
     };
+    // Semantic identity is intentionally OUTSIDE props/hash: moving a Bridge
+    // marker must not masquerade as a visual Figma edit. It only lets the
+    // round-trip planner name which stable code-to-Figma subtree changed.
+    try {
+      if (typeof node.getPluginData === 'function') {
+        const semanticPath = node.getPluginData('figmaBridge.semanticPath');
+        if (semanticPath) rec.semanticPath = semanticPath;
+      }
+    } catch (e) {}
     for (const key of ${JSON.stringify(COMPARED)}) {
       if (!(key in node)) continue;
       let v;
@@ -174,6 +183,7 @@ export function normalizeSnapshot(raw, { label = null, takenAt = null } = {}) {
       name: String(n.name ?? ''),
       type: String(n.type ?? ''),
       path: String(n.path ?? ''),
+      ...(typeof n.semanticPath === 'string' && n.semanticPath ? { semanticPath: n.semanticPath } : {}),
       parentId: n.parentId ?? null,
       index: Number.isInteger(n.index) ? n.index : 0,
       ...geom,

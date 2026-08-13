@@ -14,14 +14,14 @@ const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
 
 // The path the user imports in Figma. Under an npx install the package lives
 // in an EPHEMERAL cache that npx may garbage-collect — importing the manifest
-// from there breaks the plugin on cache eviction. So connect copies the three
-// plugin files to the stable state dir and prints THAT path; only if the copy
+// from there breaks the plugin on cache eviction. So connect copies both
+// plugin adapters to the stable state dir and prints THAT path; only if the copy
 // fails does it fall back to the in-package path.
 function installPluginFiles() {
   const dest = join(STATE_DIR, 'plugin');
   try {
     mkdirSync(dest, { recursive: true });
-    for (const f of ['manifest.json', 'code.js', 'ui.html']) {
+    for (const f of ['manifest.json', 'code.js', 'ui.html', 'manifest.codegen.json', 'codegen.js']) {
       copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
     }
     return join(dest, 'manifest.json');
@@ -316,11 +316,16 @@ program
     console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the Figma Bridge plugin                      ') + chalk.hex('#FF6B35')('│'));
     console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
 
+    const pluginManifestPath = installPluginFiles();
     console.log(chalk.white.bold('  ONE-TIME SETUP:\n'));
     console.log(chalk.cyan('  1. ') + chalk.white('Open Figma Desktop and any design file'));
     console.log(chalk.cyan('  2. ') + chalk.white('Go to ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
-    console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(installPluginFiles()));
+    console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(pluginManifestPath));
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
+
+    console.log(chalk.white.bold('  OPTIONAL DEV MODE CODEGEN:\n'));
+    console.log(chalk.cyan('  → ') + chalk.white('Import this second manifest: ')
+      + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.codegen.json')) + '\n');
 
     console.log(chalk.white.bold('  EACH SESSION:\n'));
     console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → Figma Bridge'));

@@ -104,7 +104,10 @@ test('accepted baselines require both fingerprints and an ISO timestamp', () => 
   const valid = upsertDesignEntity(emptyDesignLinkRegistry(), {
     id: 'ui.button', kind: 'component', baseline: {
       version: 1, acceptedAt: '2026-08-11T10:00:00.000Z',
-      code: { hash: 'a'.repeat(64) }, figma: { hash: 'b'.repeat(12) },
+      code: { hash: 'a'.repeat(64) }, figma: {
+        hash: 'b'.repeat(12),
+        semanticPaths: { 'screen.header': { hash: 'e'.repeat(12), nodeId: '1:4' } },
+      },
       visual: {
         diffPct: 2.4, maxDiff: 5, comparedAt: '2026-08-11T09:59:00.000Z',
         buildHash: 'c'.repeat(64), figmaPngHash: 'd'.repeat(64),
@@ -112,6 +115,7 @@ test('accepted baselines require both fingerprints and an ISO timestamp', () => 
     },
   });
   assert.equal(valid.entities[0].baseline.version, 1);
+  assert.equal(valid.entities[0].baseline.figma.semanticPaths['screen.header'].nodeId, '1:4');
   assert.equal(valid.entities[0].baseline.visual.diffPct, 2.4);
   assert.throws(() => upsertDesignEntity(emptyDesignLinkRegistry(), {
     id: 'ui.button', kind: 'component', baseline: { version: 1, acceptedAt: 'today' },

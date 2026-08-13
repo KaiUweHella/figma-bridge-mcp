@@ -26,7 +26,29 @@ export function fingerprintFigmaSnapshot(snapshot) {
   const root = snapshot?.nodes?.find((node) => node.id === snapshot.rootId)
     || snapshot?.nodes?.[0];
   if (!root?.subtreeHash) throw new Error('Figma fingerprint requires a complete normalized subtree.');
-  return { hash: root.subtreeHash, nodeCount: snapshot.nodeCount };
+  const candidates = new Map();
+  for (const node of snapshot.nodes || []) {
+    if (!node.semanticPath || !node.subtreeHash) continue;
+    if (!candidates.has(node.semanticPath)) candidates.set(node.semanticPath, []);
+    candidates.get(node.semanticPath).push({ hash: node.subtreeHash, nodeId: node.id });
+  }
+  const semanticPaths = {};
+  const semanticPathConflicts = [];
+  for (const path of [...candidates.keys()].sort()) {
+    const matches = candidates.get(path);
+    if (matches.length === 1) {
+      Object.defineProperty(semanticPaths, path, {
+        value: matches[0], enumerable: true, configurable: true, writable: true,
+      });
+    }
+    else semanticPathConflicts.push({ path, nodeIds: matches.map((match) => match.nodeId) });
+  }
+  return {
+    hash: root.subtreeHash,
+    nodeCount: snapshot.nodeCount,
+    ...(Object.keys(semanticPaths).length ? { semanticPaths } : {}),
+    ...(semanticPathConflicts.length ? { semanticPathConflicts } : {}),
+  };
 }
 
 export function acceptedRoundTripBaseline(code, figma, acceptedAt = new Date().toISOString()) {
@@ -34,7 +56,34 @@ export function acceptedRoundTripBaseline(code, figma, acceptedAt = new Date().t
     version: ROUND_TRIP_BASELINE_VERSION,
     acceptedAt,
     code: { hash: code.hash },
-    figma: { hash: figma.hash },
+    figma: {
+      hash: figma.hash,
+      ...(figma.semanticPaths ? { semanticPaths: figma.semanticPaths } : {}),
+    },
+  };
+}
+
+/** Changed semantic subtrees since the accepted baseline; report-only. */
+export function semanticFigmaDelta(figma, baselineFigma) {
+  const current = figma?.semanticPaths || {};
+  const baseline = baselineFigma?.semanticPaths || {};
+  const conflicts = figma?.semanticPathConflicts || [];
+  if (!Object.keys(current).length && !Object.keys(baseline).length && !conflicts.length) return null;
+  const ambiguous = new Set(conflicts.map((conflict) => conflict.path));
+  const changed = [];
+  for (const path of [...new Set([...Object.keys(current), ...Object.keys(baseline)])].sort()) {
+    if (ambiguous.has(path)) continue;
+    const before = baseline[path];
+    const after = current[path];
+    if (!before) changed.push({ path, change: 'added', nodeId: after.nodeId });
+    else if (!after) changed.push({ path, change: 'removed', previousNodeId: before.nodeId });
+    else if (before.hash !== after.hash) changed.push({
+      path, change: 'changed', nodeId: after.nodeId, previousNodeId: before.nodeId,
+    });
+  }
+  return {
+    paths: changed,
+    conflicts,
   };
 }
 
@@ -51,6 +100,7 @@ export function planRoundTrip({ code, figma, baseline }) {
   }
   const codeChanged = code.hash !== baseline.code.hash;
   const figmaChanged = figma.hash !== baseline.figma.hash;
+  const figmaDelta = figmaChanged ? semanticFigmaDelta(figma, baseline.figma) : null;
   if (!codeChanged && !figmaChanged) {
     return { status: 'unchanged', codeChanged, figmaChanged, summary: 'Code and Figma still match the accepted baseline.' };
   }
@@ -58,10 +108,13 @@ export function planRoundTrip({ code, figma, baseline }) {
     return { status: 'code-only', codeChanged, figmaChanged, summary: 'Only code changed since the accepted baseline.' };
   }
   if (!codeChanged && figmaChanged) {
-    return { status: 'figma-only', codeChanged, figmaChanged, summary: 'Only Figma changed since the accepted baseline.' };
+    return {
+      status: 'figma-only', codeChanged, figmaChanged, figmaDelta,
+      summary: 'Only Figma changed since the accepted baseline.',
+    };
   }
   return {
-    status: 'conflict', codeChanged, figmaChanged,
+    status: 'conflict', codeChanged, figmaChanged, figmaDelta,
     summary: 'Code and Figma both changed since the accepted baseline. Do not overwrite either side.',
   };
 }
@@ -69,13 +122,25 @@ export function planRoundTrip({ code, figma, baseline }) {
 export function nextReadsForRoundTrip(plan, entity) {
   const nodeId = entity?.figma?.nodeId || '<nodeId>';
   const source = entity?.code?.path || '<source>';
+  const deltaReads = (plan.figmaDelta?.paths || [])
+    .filter((item) => item.change !== 'removed' && item.nodeId)
+    .slice(0, 12)
+    .map((item) => `figma_spec ${item.nodeId} (${item.path}; structure, then style)`);
   switch (plan.status) {
     case 'figma-only':
-      return [`figma_spec ${nodeId} (structure, then style)`, source, 'Implement the reviewed Figma delta in the existing code export.'];
+      return [
+        ...(deltaReads.length ? deltaReads : [`figma_spec ${nodeId} (structure, then style)`]),
+        source,
+        'Implement the reviewed Figma delta in the existing code export.',
+      ];
     case 'code-only':
       return [source, `figma_screenshot ${nodeId}`, `figma_spec ${nodeId} only if Figma should receive the code delta.`];
     case 'conflict':
-      return [source, `figma_spec ${nodeId} (structure and style)`, 'Resolve explicitly; do not push either side automatically.'];
+      return [
+        source,
+        ...(deltaReads.length ? deltaReads : [`figma_spec ${nodeId} (structure and style)`]),
+        'Resolve explicitly; do not push either side automatically.',
+      ];
     case 'untracked':
       return [
         source,
@@ -100,6 +165,17 @@ export function formatRoundTripPlan(entity, plan, { baseline = null } = {}) {
   if (baseline?.acceptedAt) lines.push(`baseline accepted: ${baseline.acceptedAt}`);
   if (baseline?.visual && Number.isFinite(Number(baseline.visual.diffPct))) {
     lines.push(`visual proof: ${baseline.visual.diffPct}% diff (maximum ${baseline.visual.maxDiff}%)`);
+  }
+  if (plan.figmaDelta) {
+    lines.push('', 'Changed semantic Figma subtrees:');
+    if (!plan.figmaDelta.paths.length) lines.push('  - none resolved (root changed outside marked semantic subtrees)');
+    for (const item of plan.figmaDelta.paths) {
+      const node = item.nodeId ? ` [${item.nodeId}]` : item.previousNodeId ? ` [was ${item.previousNodeId}]` : '';
+      lines.push(`  - ${item.change}: ${item.path}${node}`);
+    }
+    for (const conflict of plan.figmaDelta.conflicts || []) {
+      lines.push(`  - ambiguous semantic path: ${conflict.path} [${conflict.nodeIds.join(', ')}]`);
+    }
   }
   lines.push('', 'Next reads:');
   for (const read of nextReadsForRoundTrip(plan, entity)) lines.push(`  - ${read}`);

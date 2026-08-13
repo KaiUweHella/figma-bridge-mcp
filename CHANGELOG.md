@@ -5,6 +5,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.5.0] — 2026-08-13
+
 ### Added
 
 - Added a versioned **Semantic Render Plan** shared by JSX and measured browser
@@ -28,6 +30,16 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   reconciliation. Newly created `space|spacing/*` and `radius|radii/*` FLOAT
   variables receive narrow compatible scopes; other scopes remain an explicit
   user decision, and conflicting same-name Text Styles stop preflight.
+- Closed the semantic feedback loop from Code-to-Figma back into Design
+  Capture and Code-Spec. Bridge semantic paths, render/fallback provenance,
+  native annotations, complete component contracts and mode/scope-aware
+  variable bindings now survive as structured facts. Authored Auto Layout/Grid
+  wins over marked Figma `inferredAutoLayout`; geometry remains the last,
+  explicit fallback.
+- Added semantic-subtree delta navigation to report-only Round-trip Plans and
+  an optional offline Dev Mode Codegen adapter. Dev Mode shows document-local
+  Bridge context, native CSS and component contracts; repository links and
+  baselines continue to resolve through `link context`.
 
 ### Fixed
 
