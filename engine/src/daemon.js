@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Figma Safe MCP Daemon (Safe-Mode / plugin bridge only)
+ * Figma Bridge MCP Daemon (Safe-Mode / plugin bridge only)
  *
  * The upstream figma-ds-cli daemon supported two transports: Yolo Mode (Chrome
  * DevTools Protocol, requires patching Figma) and Safe Mode (the Figma plugin

@@ -775,7 +775,7 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(result.scopeQuestions, undefined);
   });
 
-  it('uses Figma-safe names for exact fractional radius primitives', async () => {
+  it('uses Figma-compatible names for exact fractional radius primitives', async () => {
     const figma = fakeFigma({
       createVariableHook: (name) => {
         if (name.includes('.')) throw new Error('invalid variable name');

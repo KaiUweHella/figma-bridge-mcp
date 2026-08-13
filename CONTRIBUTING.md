@@ -14,7 +14,7 @@ Point your MCP client at the checkout:
 ```json
 {
   "mcpServers": {
-    "figma-safe": {
+    "figma-bridge": {
       "command": "node",
       "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
     }

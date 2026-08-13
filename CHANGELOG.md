@@ -7,6 +7,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## [0.5.0] — 2026-08-13
 
+Pairing note: development-plugin ids now use the `figma-bridge-mcp` product
+name. Re-import the chosen manifest and paste the existing access key once;
+the daemon/state directory and key themselves remain unchanged.
+
 ### Added
 
 - Added a versioned **Semantic Render Plan** shared by JSX and measured browser

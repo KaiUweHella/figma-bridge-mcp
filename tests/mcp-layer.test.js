@@ -243,7 +243,7 @@ test('explicit figma-bridge.json entity resolves by id, node, and publish key', 
   }]);
 });
 
-test('server.js parses — a syntax error here means "cannot attach to figma-safe"', async () => {
+test('server.js parses — a syntax error here means "cannot attach to figma-bridge"', async () => {
   // The suite never imports src/server.js (importing would START the stdio
   // server), so a template-literal typo in TOOLS/INSTRUCTIONS used to reach
   // users as an MCP attach failure. node --check catches it without running.

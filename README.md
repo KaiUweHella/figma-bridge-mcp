@@ -1244,7 +1244,8 @@ binary. Nothing here is derived from its source; the tool surfaces, the
 transport and the plugin are unrelated. Where this project differs is that the
 socket also proves who is on the other end of it.
 
-**Why the plugin id says `figma-safe-mcp-bridge`.** Figma keys a plugin's
-`clientStorage` — where the paired access key lives — on the plugin id.
-Renaming it to match the project would sign every existing user out and force
-them to pair again, so it stays as it is.
+**Plugin identity.** The development manifests use the product-aligned ids
+`figma-bridge-mcp`, `figma-bridge-mcp-dev` and
+`figma-bridge-mcp-codegen`. Figma keys `clientStorage` — where the paired
+access key lives — on the plugin id. Installations from before 0.5.0 therefore
+need to re-import the manifest and paste their existing Bridge access key once.

@@ -12,6 +12,7 @@ test('Dev Mode adapter is a separate offline codegen manifest', () => {
   assert.deepEqual(manifest.editorType, ['dev']);
   assert.deepEqual(manifest.capabilities, ['codegen']);
   assert.equal(manifest.main, 'codegen.js');
+  assert.equal(manifest.id, 'figma-bridge-mcp-codegen');
   assert.deepEqual(manifest.networkAccess.allowedDomains, ['none']);
   assert.doesNotThrow(() => new Function('figma', source));
 });

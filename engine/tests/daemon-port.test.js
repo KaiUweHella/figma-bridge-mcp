@@ -15,9 +15,9 @@ import {
 } from '../src/lib/daemon-port.js';
 
 // Every function takes an env object, so tests never touch process.env or the
-// user's real ~/.figma-safe-mcp/daemon-port.
+// user's real ~/.figma-bridge-mcp/daemon-port.
 function scratchEnv(extra = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'figma-safe-port-'));
+  const dir = mkdtempSync(join(tmpdir(), 'figma-bridge-port-'));
   return { env: { DAEMON_PORT_FILE: join(dir, 'daemon-port'), ...extra }, dir };
 }
 

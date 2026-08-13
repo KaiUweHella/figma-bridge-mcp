@@ -66,6 +66,7 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.enableProposedApi, false);
   assert.equal(manifest.main, 'code.js');
   assert.equal(manifest.ui, 'ui.html');
+  assert.equal(manifest.id, 'figma-bridge-mcp');
 });
 
 test('Dev Mode exposes a connectable read-only Inspect adapter', () => {
@@ -76,6 +77,7 @@ test('Dev Mode exposes a connectable read-only Inspect adapter', () => {
   assert.deepEqual(devManifest.capabilities, ['inspect']);
   assert.equal(devManifest.main, 'code.js');
   assert.equal(devManifest.ui, 'ui.html');
+  assert.equal(devManifest.id, 'figma-bridge-mcp-dev');
   assert.deepEqual(devManifest.networkAccess.allowedDomains, manifest.networkAccess.allowedDomains);
   assert.deepEqual(devManifest.networkAccess.devAllowedDomains, manifest.networkAccess.devAllowedDomains);
   assert.match(PLUGIN_CODE, /Figma Dev Mode is read-only\. Switch this file to Design mode/);

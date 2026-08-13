@@ -225,7 +225,7 @@ describe('semantic browser capture contract', () => {
     assert.equal(plannedOrb.source.props.clip, 'true');
   });
 
-  it('expresses fractional measured radii as exact Figma-safe scoped variable intent', () => {
+  it('expresses fractional measured radii as exact Figma-compatible scoped variable intent', () => {
     const capture = structuredClone(semanticCapture);
     const orb = capture.root.children[1].children[1];
     orb.rect = { ...orb.rect, w: 7, h: 7 };

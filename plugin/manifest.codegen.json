@@ -1,6 +1,6 @@
 {
   "name": "Figma Bridge Codegen",
-  "id": "figma-safe-mcp-bridge-codegen",
+  "id": "figma-bridge-mcp-codegen",
   "api": "1.0.0",
   "main": "codegen.js",
   "editorType": ["dev"],
