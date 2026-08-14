@@ -6,6 +6,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -348,6 +350,119 @@ export const TOOLS = [
   },
 ];
 
+// MCP-native, user-invoked fallback for clients that do not load bundled
+// Codex skills. The plugin skill can trigger automatically; MCP prompts are
+// intentionally discoverable/user-controlled per the protocol.
+export const PROMPTS = [
+  {
+    name: "design-to-code",
+    description: "Implement a Figma node faithfully in the current project with scoped reads, source assets and pixel verification.",
+    arguments: [
+      { name: "nodeId", description: "Figma node id or node-specific Figma URL; omit to use the current selection.", required: false },
+      { name: "projectPath", description: "Absolute path to the target code project; omit to use the current workspace.", required: false },
+    ],
+  },
+  {
+    name: "code-to-figma",
+    description: "Create or update a componentized Figma view from code with semantic capture, token bindings and visual verification.",
+    arguments: [
+      { name: "sourcePath", description: "Route, component, or project path to translate; omit to use the current workspace.", required: false },
+      { name: "target", description: "Existing Figma node, Design Entity, or target view name; omit to create beside the current selection.", required: false },
+    ],
+  },
+  {
+    name: "create-figma-component",
+    description: "Create or update a reusable Figma component set from code with variants, properties, tokens and durable identity.",
+    arguments: [
+      { name: "componentName", description: "Code/Figma component name.", required: true },
+      { name: "sourcePath", description: "Source component or Storybook path; omit to discover it in the current workspace.", required: false },
+    ],
+  },
+];
+
+export function designToCodePrompt(args = {}) {
+  const node = typeof args.nodeId === "string" && args.nodeId.trim()
+    ? args.nodeId.trim()
+    : "the current Figma selection";
+  const project = typeof args.projectPath === "string" && args.projectPath.trim()
+    ? args.projectPath.trim()
+    : "the current workspace";
+  return {
+    description: "Source-faithful Figma Bridge design-to-code workflow",
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text:
+          `Implement ${node} in ${project}. Use Figma Bridge and follow ` +
+          `figma_reference {name:"workflow:design-to-code"}. Preserve the project's ` +
+          `existing stack; use exported source assets instead of UI/icon-library ` +
+          `approximations. Prefer exact Design Entity and Storybook links over name-only ` +
+          `matches. Read global structure, tokens and assets once, scope style ` +
+          `reads per section, and parallelize only substantial sections with disjoint ` +
+          `files. Run the project checks and verify-build pixel comparison before ` +
+          `declaring parity. Do not install Playwright solely for capture without approval.`,
+      },
+    }],
+  };
+}
+
+export function codeToFigmaPrompt(args = {}) {
+  const source = typeof args.sourcePath === "string" && args.sourcePath.trim()
+    ? args.sourcePath.trim()
+    : "the current workspace";
+  const target = typeof args.target === "string" && args.target.trim()
+    ? args.target.trim()
+    : "a new view beside the current Figma selection";
+  return {
+    description: "Semantic Figma Bridge code-to-Figma workflow",
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text:
+          `Build or update ${target} from ${source}. Use Figma Bridge and follow ` +
+          `figma_reference {name:"workflow:code-to-figma"}. For an existing rendered ` +
+          `UI, use the semantic DOM-capture path rather than rewriting it as simplified ` +
+          `JSX. Inspect Design Entity links, existing Figma components, variables and ` +
+          `styles before writing. Sync tokens first, reuse exact linked components, ` +
+          `componentize repeated structures, preserve source SVGs/images and execute ` +
+          `Figma mutations sequentially. Verify screenshots at the reference viewport ` +
+          `and record a link accept pixel baseline before declaring parity. Do not ` +
+          `install Playwright solely for capture without approval.`,
+      },
+    }],
+  };
+}
+
+export function createFigmaComponentPrompt(args = {}) {
+  const component = typeof args.componentName === "string" && args.componentName.trim()
+    ? args.componentName.trim()
+    : "the requested component";
+  const source = typeof args.sourcePath === "string" && args.sourcePath.trim()
+    ? args.sourcePath.trim()
+    : "the matching source and Storybook files in the current workspace";
+  return {
+    description: "Identity-safe Figma Bridge component-library workflow",
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text:
+          `Create or update the reusable Figma component ${component} from ${source}. ` +
+          `Use Figma Bridge and follow figma_reference ` +
+          `{name:"workflow:code-to-figma"}. Inspect code props/defaults, Storybook, ` +
+          `the Design Link Registry, existing Figma components, variables and styles ` +
+          `before writing. Resolve code/Figma conflicts explicitly. Establish token ` +
+          `foundations first, build and validate one variant at a time, use TEXT, ` +
+          `BOOLEAN and INSTANCE_SWAP properties, never create an icon-name variant ` +
+          `axis, keep writes sequential, then inspect the component contract and ` +
+          `screenshots before linking the final component to its code identity.`,
+      },
+    }],
+  };
+}
+
 // Design-to-code workflow, surfaced to MCP clients via server instructions.
 //
 // HARD BUDGET: MCP clients (Claude Code among them) truncate server
@@ -358,26 +473,27 @@ export const TOOLS = [
 // tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
 // figma_reference name "workflow") or into tool OUTPUTS, which are never
 // truncated this way.
-export const INSTRUCTIONS = `Design-to-code: the design is the complete spec. Copy it; never interpret,
-invent or silently drop text, assets, tokens, layout or states. Follow this
-mandatory order:
+export const INSTRUCTIONS = `Design-to-code: Figma is the spec. Never invent or drop text, assets,
+tokens, layout or states. Follow this order:
 1. figma_screenshot, then read the PNG as visual ground truth.
-2. figma_spec phase "structure", format "tree", depth 3-4, dedup true for a
-   large frame. Copy hierarchy, texts, ids and icon/component names verbatim.
+2. figma_spec phase "structure", format "tree", depth 3-4. Copy hierarchy,
+   text, ids and icon/component names verbatim; use dedup for a large frame.
 3. figma_run ["export","css","<nodeId>"] and wire up the scoped tokens/fonts.
 4. figma_run ["export","assets","<nodeId>","-o","/abs/project/src/assets"]
-   for real images/SVGs plus assets.json. Never substitute CSS placeholders or
-   hand-drawn inline SVGs. If still RUNNING, poll the identical call.
+   for images/SVGs plus assets.json. Never substitute CSS placeholders or
+   inline SVGs. If still RUNNING, poll the same call.
 5. figma_spec phase "style", format "tree" per section/node id. Use depth 0
-   for the container itself; use dedup true for repeated cards/lists. Copy each
-   layer's native css{} and exact layout/paint/type/clip/asset facts.
+   for its container and dedup for repeats. Copy native css{} and exact facts.
 6. Implement every interactive state flagged by component sets.
 7. Before declaring done, run figma_run ["verify-build","/abs/project"] and
    fix every missing asset/lint. Screenshot the build at the design width and
-   compare it to the Figma PNG (verify-build --compare/--design).
+   compare it to Figma (verify-build --compare/--design).
 
-Do not finish without assets.json, all exported files referenced, and the
-visual comparison inspected. Never estimate values from the screenshot.
+Preserve the target project's stack. Never add Tailwind, a UI kit or an icon
+library solely for this build, and never replace exported artwork with an
+approximation.
+Do not finish until assets.json is covered and the visual diff is inspected.
+Never estimate values from the screenshot.
 Full guide: figma_reference {name:"workflow"}. Use fileKey with multiple open
 Figma windows. figma_run accepts --help.`;
 
@@ -402,6 +518,11 @@ specification — copy it, never interpret it. Follow these steps in order:
    Google/Vercel/...). Load those exact families (download if freely
    available, otherwise ask the user for the files) — a system-font fallback
    distorts metrics and does not count as done.
+   Project contract: inspect the target repository first and keep its framework,
+   styling system and conventions. Reuse an existing component only when its
+   rendered design and states match. Never add Tailwind, a UI kit or an icon
+   library solely for this screen, and never substitute a library glyph for
+   exported source artwork.
 4. Export the real assets (figma_run: ["export","assets","<nodeId>","-o","/abs/path/to/project/src/assets"])
    — every "-> assets/..." reference in the spec points at a file this writes.
    Pass an ABSOLUTE output path (relative paths resolve against the MCP
@@ -433,13 +554,17 @@ specification — copy it, never interpret it. Follow these steps in order:
      project against assets.json and lists every unreferenced asset (the
      absolutely-positioned/overhanging SVGs are the ones that get lost) and
      flags border-image use near border-radius;
-   - then the VISUAL pass: screenshot your running build (your own browser
-     tools, full page, at the design's width) and re-run verify-build with
+   - then the VISUAL pass: screenshot your running build (an already available
+     browser tool or project harness, full page, at the design's width; wait
+     for fonts and images) and re-run verify-build with
      ["verify-build","/abs/project","--compare","/abs/build.png"] — it diffs
      build vs design (reference fetched live from Figma, or pass
      "--design","/abs/figma.png" to reuse the step-1 PNG offline), reports
      the worst differing regions in node pixels and writes a diff PNG —
      Read it. "--max-diff","<pct>" turns it into a hard gate;
+   - do not install Playwright or another browser dependency solely for this
+     capture. Use it when already available; otherwise ask the user before
+     adding or downloading a standalone browser tool;
    - every "abs"/"place"/"inset" overlay line from the spec exists in the
      build (as file OR styled div) — decorative gradient rectangles and
      background shapes included; the spec footer tells you how many;
@@ -463,6 +588,18 @@ every section. Then pull phase "style" PER SECTION: depth 0 gives the section
 container itself as a complete contract; request its child ids separately and
 use dedup true for repeated rows/cards. Either pass the section's node id, or
 keep the ROOT nodeId and pass section: "<layer name from the structure map>".
+
+Parallel implementation is an OPTIONAL wall-clock optimization, not a default
+and not a token optimization. The coordinator owns the screenshot, structure
+map, scoped tokens, assets.json, shared shell/layout and final verification.
+Use the smallest useful group (normally 2-4 workers) only when there are at
+least three substantial independent sections and each worker can own disjoint
+component/style files. Give each worker one section node id, its bounded style
+facts, shared token/asset paths and explicit file ownership.
+Workers must not repeat global Figma reads or edit the same route shell, global
+stylesheet, token file or asset manifest. If ownership overlaps or the screen is small,
+build sequentially. Integrate once, then run one build and one visual parity
+pass; an independent reviewer may inspect the final diff after integration.
 
 Only hand-drawn vector shapes export as SVG files. Rectangles/ellipses with
 solid or gradient fills are CSS elements — build them as styled divs exactly
@@ -1520,10 +1657,23 @@ async function main() {
     // Single source of truth: package.json (SERVER_VERSION also carries the
     // git SHA for figma_status; the MCP handshake wants the bare semver).
     { name: "figma-bridge-mcp", version: SERVER_VERSION.split(" ")[0] },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {}, prompts: {} }, instructions: INSTRUCTIONS },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: PROMPTS }));
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    switch (request.params.name) {
+      case "design-to-code":
+        return designToCodePrompt(request.params.arguments || {});
+      case "code-to-figma":
+        return codeToFigmaPrompt(request.params.arguments || {});
+      case "create-figma-component":
+        return createFigmaComponentPrompt(request.params.arguments || {});
+      default:
+        throw new Error(`Unknown prompt: ${request.params.name}`);
+    }
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "figma-bridge-mcp",
+  "version": "0.5.0",
+  "description": "Local, authenticated Figma bridge with exact design-to-code and code-to-Figma workflows.",
+  "author": {
+    "name": "Kai-Uwe Hella",
+    "url": "https://github.com/KaiUweHella"
+  },
+  "homepage": "https://github.com/KaiUweHella/figma-bridge-mcp",
+  "repository": "https://github.com/KaiUweHella/figma-bridge-mcp",
+  "license": "MIT",
+  "keywords": [
+    "figma",
+    "design-to-code",
+    "code-to-figma",
+    "mcp"
+  ]
+}

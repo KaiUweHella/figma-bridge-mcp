@@ -292,15 +292,56 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   assert.match(INSTRUCTIONS, /Never substitute CSS|never substitute CSS/i);
   assert.match(INSTRUCTIONS, /verify-build/);
   assert.match(INSTRUCTIONS, /Do not finish|before declaring done/i);
+  assert.match(INSTRUCTIONS, /Never add Tailwind/);
   assert.match(INSTRUCTIONS, /figma_reference \{name:"workflow"\}/);
   assert.match(WORKFLOW_GUIDE, /never border-image/);
   assert.match(WORKFLOW_GUIDE, /verify-build/);
+  assert.match(WORKFLOW_GUIDE, /do not install Playwright/i);
+  assert.match(WORKFLOW_GUIDE, /Parallel implementation is an OPTIONAL/);
+  assert.match(WORKFLOW_GUIDE, /Workers must not repeat global Figma reads/);
   assert.ok(workflowGuideFor('workflow:design-to-code').length < WORKFLOW_GUIDE.length);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /Code-to-Figma workflow/);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /SCOPE DECISION REQUIRED/);
   assert.match(VARIABLE_SCOPE_GUIDE, /COLOR: ALL_SCOPES, ALL_FILLS/);
   assert.match(VARIABLE_SCOPE_GUIDE, /FLOAT: ALL_SCOPES, CORNER_RADIUS, WIDTH_HEIGHT, GAP/);
   assert.match(VARIABLE_SCOPE_GUIDE, /Ask whether it should/);
+});
+
+test('MCP prompts bundle both directions and component creation for non-plugin clients', async () => {
+  const {
+    PROMPTS,
+    designToCodePrompt,
+    codeToFigmaPrompt,
+    createFigmaComponentPrompt,
+  } = await import('../src/server.js');
+  assert.deepEqual(PROMPTS.map(prompt => prompt.name), [
+    'design-to-code',
+    'code-to-figma',
+    'create-figma-component',
+  ]);
+  const prompt = designToCodePrompt({ nodeId: '12:34', projectPath: '/work/app' });
+  const text = prompt.messages[0].content.text;
+  assert.match(text, /12:34/);
+  assert.match(text, /\/work\/app/);
+  assert.match(text, /workflow:design-to-code/);
+  assert.match(text, /Design Entity and Storybook links/);
+  assert.match(text, /parallelize only substantial sections/);
+  assert.match(text, /Do not install Playwright/);
+
+  const reverse = codeToFigmaPrompt({ sourcePath: '/work/app/src/Page.tsx', target: 'screen.settings' })
+    .messages[0].content.text;
+  assert.match(reverse, /\/work\/app\/src\/Page\.tsx/);
+  assert.match(reverse, /screen\.settings/);
+  assert.match(reverse, /semantic DOM-capture/);
+  assert.match(reverse, /mutations sequentially/);
+  assert.match(reverse, /link accept pixel baseline/);
+
+  const component = createFigmaComponentPrompt({ componentName: 'Button', sourcePath: 'src/Button.tsx' })
+    .messages[0].content.text;
+  assert.match(component, /Button/);
+  assert.match(component, /src\/Button\.tsx/);
+  assert.match(component, /INSTANCE_SWAP/);
+  assert.match(component, /one variant at a time/);
 });
 
 test('variable scope reference is available without an engine round-trip', async () => {

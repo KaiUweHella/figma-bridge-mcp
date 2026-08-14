@@ -15,11 +15,63 @@ never placed in your MCP client configuration or chat.
 Requirements: Node.js 18 or newer, Figma Desktop, and an MCP client that can
 start local stdio servers.
 
+### Codex, Claude Code, and Cursor: MCP and skills in one bundle
+
+Figma Bridge ships three focused shared skills plus thin plugin adapters for
+all three clients:
+
+- `figma-bridge-design-to-code` — exact Figma implementation in the target stack;
+- `figma-bridge-code-to-figma` — semantic, componentized screens from code;
+- `figma-bridge-component-library` — tokens, styles, components, variants and properties.
+
+| Client | Plugin format | Full install path |
+| --- | --- | --- |
+| Codex / ChatGPT | `.codex-plugin/plugin.json` | Plugins Directory or a Codex marketplace |
+| Claude Code | `.claude-plugin/plugin.json` | This repository's Claude marketplace |
+| Cursor | Agent Plugins 1.0 (`plugin.json`) | Cursor Marketplace or a team marketplace |
+
+The adapters all discover the same `skills/` directory and start the same local
+MCP package. Users do **not** download or maintain the skills separately.
+
+For Codex, add this repository as a marketplace and install the bundle:
+
+```bash
+codex plugin marketplace add KaiUweHella/figma-bridge-mcp
+codex plugin add figma-bridge-mcp@figma-bridge
+```
+
+For Claude Code, add this repository as a marketplace and install the bundle:
+
+```bash
+claude plugin marketplace add KaiUweHella/figma-bridge-mcp
+claude plugin install figma-bridge-mcp@figma-bridge
+```
+
+For Cursor, install **Figma Bridge** from Customize after its marketplace
+listing is available. During local plugin development, link the checkout into
+Cursor and reload the window:
+
+```bash
+mkdir -p ~/.cursor/plugins/local
+ln -s /absolute/path/to/figma-bridge-mcp ~/.cursor/plugins/local/figma-bridge-mcp
+```
+
+Cursor detects the root Agent Plugin manifest and loads both the skill and MCP
+server.
+
+Clients without plugin or Agent Skill support keep using the normal server
+configuration below. They still receive the compact mandatory workflow through
+MCP instructions, the user-invoked `design-to-code`, `code-to-figma`, and
+`create-figma-component` MCP prompts, and
+`figma_reference {name:"workflow"}`.
+
 ## Quick start
 
-### 1. Add the MCP server
+### 1. Add the MCP server (MCP-only fallback)
 
-The recommended setup uses `npx`: no clone and no build step. For Claude Code:
+Use this when the full plugin install is unavailable or you only want the MCP
+tools without the bundled skill. The `npx` setup needs no clone or build step.
+For Claude Code:
 
 ```bash
 claude mcp add figma-bridge -- npx -y figma-bridge-mcp@latest
@@ -269,6 +321,11 @@ The Figma Bridge plugin window is more than the connection status:
 The design is the complete specification — the tooling makes copying it easier
 than interpreting it. Build a screen from Figma in six steps:
 
+Keep the target project's framework and styling system. Do not add Tailwind, a
+UI kit or an icon library solely for the screen, and never replace exported
+Figma artwork with a convenient approximation. Reuse a project component only
+when its rendered design and states actually match.
+
 1. **`figma_screenshot`** on the target frame, then read the saved PNG — the
    visual ground truth. Never build from a node tree alone.
 2. **`figma_spec` with `phase: "structure"`** — build the markup skeleton:
@@ -342,6 +399,19 @@ than interpreting it. Build a screen from Figma in six steps:
    space the spec and `assets.json` use — and writes a diff PNG (red =
    differing, on the dimmed design). Informational by default;
    `--max-diff <pct>` gates the exit code.
+
+For large screens, section-level agents are an optional elapsed-time
+optimization after the screenshot, structure map, tokens and assets are fixed.
+Use them only for substantial sections with disjoint component/style files;
+the coordinator keeps ownership of the shared shell, tokens, `assets.json`,
+integration and final pixel diff. Parallel agents usually consume more total
+tokens because each needs project context, so use sequential work when token
+cost matters more than wall-clock time.
+
+Use an existing browser tool or project harness for the build screenshot. Do
+not install Playwright (or another browser dependency) solely for capture
+without the user's approval; if it is already present, it is a valid capture
+mechanism rather than a Figma Bridge dependency.
 
 The same spec is available as
 `figma_run ["export", "code-spec", "<nodeId>"]`. Its default is the readable

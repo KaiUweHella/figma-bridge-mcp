@@ -7,6 +7,12 @@
     "figma-bridge-mcp": "src/server.js"
   },
   "files": [
+    ".claude-plugin",
+    ".codex-plugin",
+    ".mcp.json",
+    "plugin.json",
+    "mcp.json",
+    "skills",
     "src",
     "engine/src",
     "engine/package.json",
@@ -33,7 +39,14 @@
     "mcp-server",
     "model-context-protocol",
     "design-to-code",
+    "code-to-figma",
+    "figma-components",
+    "design-system",
     "figma-plugin",
+    "agent-plugin",
+    "claude-code",
+    "codex",
+    "cursor",
     "ai",
     "claude"
   ],

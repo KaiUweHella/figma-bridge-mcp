@@ -1,0 +1,4 @@
+interface:
+  display_name: "Figma Bridge Component Library"
+  short_description: "Token-bound Figma components and variants"
+  default_prompt: "Use $figma-bridge-component-library to create this reusable Figma component from the current code."

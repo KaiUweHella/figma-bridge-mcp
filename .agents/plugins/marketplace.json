@@ -1,0 +1,21 @@
+{
+  "name": "figma-bridge",
+  "interface": {
+    "displayName": "Figma Bridge"
+  },
+  "plugins": [
+    {
+      "name": "figma-bridge-mcp",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/KaiUweHella/figma-bridge-mcp.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creativity"
+    }
+  ]
+}

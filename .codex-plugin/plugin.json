@@ -1,0 +1,40 @@
+{
+  "name": "figma-bridge-mcp",
+  "version": "0.5.0",
+  "description": "Local, authenticated Figma bridge with exact design-to-code and code-to-Figma workflows.",
+  "author": {
+    "name": "Kai-Uwe Hella",
+    "url": "https://github.com/KaiUweHella"
+  },
+  "homepage": "https://github.com/KaiUweHella/figma-bridge-mcp",
+  "repository": "https://github.com/KaiUweHella/figma-bridge-mcp",
+  "license": "MIT",
+  "keywords": [
+    "figma",
+    "design-to-code",
+    "code-to-figma",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Figma Bridge",
+    "shortDescription": "Faithful local Figma-to-code and code-to-Figma workflows",
+    "longDescription": "Inspect and edit Figma Desktop through an authenticated localhost bridge. Includes focused skills for source-faithful design-to-code, semantic code-to-Figma screens, and token-bound component libraries with pixel verification.",
+    "developerName": "Kai-Uwe Hella",
+    "category": "Creativity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/KaiUweHella/figma-bridge-mcp",
+    "defaultPrompt": [
+      "Implement the selected Figma screen faithfully in this project.",
+      "Compare this implementation with the selected Figma frame.",
+      "Create or update this design in Figma from the current code."
+    ],
+    "brandColor": "#6C5CE7",
+    "screenshots": []
+  }
+}

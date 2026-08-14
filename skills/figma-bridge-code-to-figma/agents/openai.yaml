@@ -1,0 +1,4 @@
+interface:
+  display_name: "Figma Bridge Code to Figma"
+  short_description: "Semantic, componentized code-to-Figma views"
+  default_prompt: "Use $figma-bridge-code-to-figma to build this screen in Figma from the current code."

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "figma-bridge",
+  "owner": {
+    "name": "Kai-Uwe Hella",
+    "url": "https://github.com/KaiUweHella"
+  },
+  "metadata": {
+    "description": "Figma Bridge plugins"
+  },
+  "plugins": [
+    {
+      "name": "figma-bridge-mcp",
+      "source": ".",
+      "description": "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills"
+    }
+  ]
+}

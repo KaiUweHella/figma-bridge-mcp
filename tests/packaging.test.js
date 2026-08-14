@@ -15,6 +15,7 @@ const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
 test("package.json files covers every runtime directory", () => {
   for (const required of [
+    ".claude-plugin", ".codex-plugin", ".mcp.json", "plugin.json", "mcp.json", "skills",
     "src", "engine/src", "engine/package.json", "plugin", "NOTICE", "engine/LICENSE",
     // Shipped deliberately: the npm page is where most people decide whether to
     // trust an MCP server with write access to their design file.
@@ -25,6 +26,92 @@ test("package.json files covers every runtime directory", () => {
       `"${required}" missing from package.json files — the npm tarball would be broken`,
     );
   }
+});
+
+test("Codex plugin bundles the MCP server and focused bidirectional skills", () => {
+  const manifest = JSON.parse(readFileSync(join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
+  const marketplace = JSON.parse(
+    readFileSync(join(ROOT, ".agents", "plugins", "marketplace.json"), "utf8"),
+  );
+  const mcp = JSON.parse(readFileSync(join(ROOT, ".mcp.json"), "utf8"));
+  const skills = Object.fromEntries([
+    "figma-bridge-design-to-code",
+    "figma-bridge-code-to-figma",
+    "figma-bridge-component-library",
+  ].map(name => [name, readFileSync(join(ROOT, "skills", name, "SKILL.md"), "utf8")]));
+
+  assert.equal(manifest.name, pkg.name);
+  assert.equal(manifest.version, pkg.version);
+  assert.equal(manifest.skills, "./skills/");
+  assert.equal(manifest.mcpServers, "./.mcp.json");
+  assert.deepEqual(marketplace.plugins, [{
+    name: pkg.name,
+    source: {
+      source: "url",
+      url: "https://github.com/KaiUweHella/figma-bridge-mcp.git",
+      ref: "main",
+    },
+    policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
+    category: "Creativity",
+  }]);
+  assert.deepEqual(mcp.mcpServers["figma-bridge"], {
+    command: "npx",
+    args: ["-y", "figma-bridge-mcp@latest"],
+  });
+  for (const [name, skill] of Object.entries(skills)) {
+    assert.match(skill, new RegExp(`^---\\nname: ${name}\\n`));
+    assert.doesNotMatch(skill, /\[TODO:/);
+  }
+  assert.match(skills["figma-bridge-design-to-code"], /Do not install Playwright/);
+  assert.match(skills["figma-bridge-design-to-code"], /Parallelize only independent sections/);
+  assert.match(skills["figma-bridge-code-to-figma"], /Bridge DOM-capture workflow/);
+  assert.match(skills["figma-bridge-code-to-figma"], /Componentize repeated source structures/);
+  assert.match(skills["figma-bridge-component-library"], /INSTANCE_SWAP/);
+  assert.match(skills["figma-bridge-component-library"], /Cartesian variant matrix at 30/);
+});
+
+test("Claude Code plugin reuses the same MCP server and skill", () => {
+  const manifest = JSON.parse(
+    readFileSync(join(ROOT, ".claude-plugin", "plugin.json"), "utf8"),
+  );
+  const marketplace = JSON.parse(
+    readFileSync(join(ROOT, ".claude-plugin", "marketplace.json"), "utf8"),
+  );
+
+  assert.equal(manifest.name, pkg.name);
+  assert.equal(manifest.version, pkg.version);
+  assert.equal(manifest.skills, undefined, "Claude discovers the default skills/ directory once");
+  assert.equal(
+    manifest.mcpServers,
+    undefined,
+    "Claude discovers the default .mcp.json once instead of registering it twice",
+  );
+  assert.equal(marketplace.name, "figma-bridge");
+  assert.deepEqual(marketplace.plugins, [
+    {
+      name: pkg.name,
+      source: ".",
+      description: "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills",
+    },
+  ]);
+  assert.ok(existsSync(join(ROOT, ".mcp.json")));
+  assert.ok(existsSync(join(ROOT, "skills", "figma-bridge-design-to-code", "SKILL.md")));
+  assert.ok(existsSync(join(ROOT, "skills", "figma-bridge-code-to-figma", "SKILL.md")));
+  assert.ok(existsSync(join(ROOT, "skills", "figma-bridge-component-library", "SKILL.md")));
+});
+
+test("portable Agent Plugin makes the bundle installable in Cursor", () => {
+  const manifest = JSON.parse(readFileSync(join(ROOT, "plugin.json"), "utf8"));
+  const mcp = JSON.parse(readFileSync(join(ROOT, "mcp.json"), "utf8"));
+
+  assert.equal(manifest.$schema, "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json");
+  assert.equal(manifest.name, pkg.name);
+  assert.equal(manifest.version, pkg.version);
+  assert.deepEqual(mcp.mcpServers["figma-bridge"], {
+    type: "stdio",
+    command: "npx",
+    args: ["-y", "figma-bridge-mcp@latest"],
+  });
 });
 
 test("package.json keeps maintainer-only documentation out of the tarball", () => {

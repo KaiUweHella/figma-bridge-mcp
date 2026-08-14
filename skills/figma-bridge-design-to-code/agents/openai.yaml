@@ -1,0 +1,4 @@
+interface:
+  display_name: "Figma Bridge Design to Code"
+  short_description: "Faithful, verified Figma-to-code implementation"
+  default_prompt: "Use $figma-bridge-design-to-code to implement this Figma design faithfully in the current project."
