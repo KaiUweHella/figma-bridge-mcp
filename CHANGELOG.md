@@ -5,6 +5,13 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Fixed
+
+- Made the shipped-runtime synchronization test independent of Windows CRLF
+  checkouts, and split the architecture latency gate into strict median and
+  tail ceilings so isolated shared-runner pauses no longer fail an otherwise
+  healthy release.
+
 ## [0.5.0] — 2026-08-13
 
 Pairing note: development-plugin ids now use the `figma-bridge-mcp` product

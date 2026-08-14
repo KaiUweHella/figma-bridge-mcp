@@ -19,14 +19,32 @@ test('latency sampling warms operations before recording batches', () => {
 
 test('architecture latency limits are checked without running a benchmark', () => {
   const passing = {
-    commandPlan: { p95Ms: ARCHITECTURE_LATENCY_LIMITS_MS.commandPlan - 1 },
-    yamlProjection: { p95Ms: ARCHITECTURE_LATENCY_LIMITS_MS.yamlProjection - 1 },
+    commandPlan: {
+      p50Ms: ARCHITECTURE_LATENCY_LIMITS_MS.commandPlan.p50Ms - 1,
+      p95Ms: ARCHITECTURE_LATENCY_LIMITS_MS.commandPlan.p95Ms - 1,
+    },
+    yamlProjection: {
+      p50Ms: ARCHITECTURE_LATENCY_LIMITS_MS.yamlProjection.p50Ms - 1,
+      p95Ms: ARCHITECTURE_LATENCY_LIMITS_MS.yamlProjection.p95Ms - 1,
+    },
   };
   assert.doesNotThrow(() => assertArchitectureLatency(passing));
 
-  const failing = {
+  const sustainedRegression = {
     ...passing,
-    yamlProjection: { p95Ms: ARCHITECTURE_LATENCY_LIMITS_MS.yamlProjection },
+    yamlProjection: {
+      ...passing.yamlProjection,
+      p50Ms: ARCHITECTURE_LATENCY_LIMITS_MS.yamlProjection.p50Ms,
+    },
   };
-  assert.throws(() => assertArchitectureLatency(failing), /yamlProjection/);
+  assert.throws(() => assertArchitectureLatency(sustainedRegression), /yamlProjection\.p50Ms/);
+
+  const tailRegression = {
+    ...passing,
+    yamlProjection: {
+      ...passing.yamlProjection,
+      p95Ms: ARCHITECTURE_LATENCY_LIMITS_MS.yamlProjection.p95Ms,
+    },
+  };
+  assert.throws(() => assertArchitectureLatency(tailRegression), /yamlProjection\.p95Ms/);
 });

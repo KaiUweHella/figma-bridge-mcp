@@ -167,7 +167,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 - Runtime protocol validators reject malformed HTTP execution payloads and
   plugin frames at the transport boundary. TypeScript checks the JavaScript
   seams (including the Figma plugin), while deterministic context, payload and
-  latency budgets catch architectural regressions in CI.
+  median and tail latency budgets catch architectural regressions in CI without
+  treating brief shared-runner scheduling pauses as a sustained regression.
 - The **daemon** brokers commands to the Figma plugin over a localhost
   WebSocket. Two gates protect it:
   - **HTTP routes** (`/health`, `/exec`) require a per-request HMAC signature

@@ -5,6 +5,12 @@ import { FigmaClient } from '../src/lib/jsx-render.js';
 import { executeStructuredRenderPlan, executeStructuredRenderPlanBatch, inspectStructuredRenderPlan } from '../src/lib/structured-render-executor.js';
 import { VARIABLE_SCOPES_BY_TYPE } from '../src/lib/variable-scope-policy.js';
 
+function extractStructuredRenderRuntime(source) {
+  return source
+    .replace(/\r\n?/g, '\n')
+    .match(/\/\/ BEGIN STRUCTURED RENDER RUNTIME\n([\s\S]+?)\/\/ END STRUCTURED RENDER RUNTIME/)?.[1];
+}
+
 describe('structured Semantic Render Plan executor', () => {
   it('preflights the whole plan and rejects unsupported facts without writes', async () => {
     const client = new FigmaClient();
@@ -957,12 +963,16 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(missingFigma.created.length, 0);
   });
 
-  it('keeps the shipped plugin runtime byte-identical to the canonical module', () => {
+  it('extracts the structured runtime independently of checkout line endings', () => {
+    const fixture = '// BEGIN STRUCTURED RENDER RUNTIME\r\nexport function example() {}\r\n// END STRUCTURED RENDER RUNTIME\r\n';
+    assert.equal(extractStructuredRenderRuntime(fixture), 'export function example() {}\n');
+  });
+
+  it('keeps the shipped plugin runtime content-identical to the canonical module', () => {
     const source = readFileSync(new URL('../src/lib/structured-render-executor.js', import.meta.url), 'utf8');
     const plugin = readFileSync(new URL('../../plugin/code.js', import.meta.url), 'utf8');
-    const canonical = source.match(/\/\/ BEGIN STRUCTURED RENDER RUNTIME\n([\s\S]+?)\/\/ END STRUCTURED RENDER RUNTIME/)?.[1]
-      .replace(/^export /gm, '');
-    const shipped = plugin.match(/\/\/ BEGIN STRUCTURED RENDER RUNTIME\n([\s\S]+?)\/\/ END STRUCTURED RENDER RUNTIME/)?.[1];
+    const canonical = extractStructuredRenderRuntime(source)?.replace(/^export /gm, '');
+    const shipped = extractStructuredRenderRuntime(plugin);
     assert.ok(canonical && shipped, 'both runtime markers must exist');
     assert.equal(shipped, canonical);
   });

@@ -57,11 +57,11 @@ change that crosses one will not be merged without a very good argument:
 plugin without turning the project into a TypeScript build. `npm run
 measure:architecture` prints the current MCP-context, compact-spec, injected
 payload and local latency measurements. `npm run check:architecture-latency`
-checks the warmed latency budget in an otherwise idle process; CI deliberately
-runs it separately from the parallel test runner. `npm test` runs both the
-static contract and the vendored engine, MCP, daemon-auth, REST, gate, protocol
-and deterministic architecture budget suites. Anything security-relevant needs
-a test that fails without the fix — the existing negative cases in
+checks warmed median and tail latency ceilings in an otherwise idle process;
+CI deliberately runs it separately from the parallel test runner. `npm test`
+runs both the static contract and the vendored engine, MCP, daemon-auth, REST,
+gate, protocol and deterministic architecture budget suites. Anything
+security-relevant needs a test that fails without the fix — the existing negative cases in
 `tests/daemon-auth.test.js` (forged proof,
 replayed nonce, wrong port, proto downgrade) are the pattern to follow.
 
