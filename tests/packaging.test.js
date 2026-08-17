@@ -49,14 +49,14 @@ test("Codex plugin bundles the MCP server and focused bidirectional skills", () 
     source: {
       source: "url",
       url: "https://github.com/KaiUweHella/figma-bridge-mcp.git",
-      ref: "main",
+      ref: `v${pkg.version}`,
     },
     policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
     category: "Creativity",
   }]);
   assert.deepEqual(mcp.mcpServers["figma-bridge"], {
     command: "npx",
-    args: ["-y", "figma-bridge-mcp@latest"],
+    args: ["-y", `${pkg.name}@${pkg.version}`],
   });
   for (const [name, skill] of Object.entries(skills)) {
     assert.match(skill, new RegExp(`^---\\nname: ${name}\\n`));
@@ -90,7 +90,11 @@ test("Claude Code plugin reuses the same MCP server and skill", () => {
   assert.deepEqual(marketplace.plugins, [
     {
       name: pkg.name,
-      source: ".",
+      source: {
+        source: "github",
+        repo: "KaiUweHella/figma-bridge-mcp",
+        ref: `v${pkg.version}`,
+      },
       description: "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills",
     },
   ]);
@@ -110,16 +114,18 @@ test("portable Agent Plugin makes the bundle installable in Cursor", () => {
   assert.deepEqual(mcp.mcpServers["figma-bridge"], {
     type: "stdio",
     command: "npx",
-    args: ["-y", "figma-bridge-mcp@latest"],
+    args: ["-y", `${pkg.name}@${pkg.version}`],
   });
 });
 
-test("package.json keeps maintainer-only documentation out of the tarball", () => {
-  for (const repositoryOnly of ["docs", "CONTEXT.md", "CONTRIBUTING.md", "SUPPORT.md"]) {
+test("package.json keeps maintainer-only material out of the tarball", () => {
+  for (const repositoryOnly of [
+    "docs", "evals", "scripts", "tests", "CONTEXT.md", "CONTRIBUTING.md", "SUPPORT.md",
+  ]) {
     assert.equal(
       pkg.files.includes(repositoryOnly),
       false,
-      `"${repositoryOnly}" is repository documentation and should not ship to npm`,
+      `"${repositoryOnly}" is repository-only material and should not ship to npm`,
     );
   }
 });

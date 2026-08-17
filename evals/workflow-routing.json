@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "suite": "figma-bridge-workflow-routing",
+  "positive": [
+    {
+      "id": "design-to-code-screen-url",
+      "prompt": "Implementiere diesen Figma-Screen pixelgenau in der bestehenden React-App: https://www.figma.com/design/PLACEHOLDERFILEKEY/FILE_NAME?node-id=12-34",
+      "expectedSkill": "figma-bridge-design-to-code",
+      "forbiddenSkills": [
+        "figma-bridge-code-to-figma",
+        "figma-bridge-component-library"
+      ],
+      "expectations": [
+        "bounded-figma-reads",
+        "source-assets",
+        "project-stack",
+        "pixel-verify",
+        "no-browser-install"
+      ]
+    },
+    {
+      "id": "design-to-code-selected-component",
+      "prompt": "Build the selected Figma card as a reusable component in this codebase and compare the rendered result with Figma.",
+      "expectedSkill": "figma-bridge-design-to-code",
+      "forbiddenSkills": [
+        "figma-bridge-code-to-figma",
+        "figma-bridge-component-library"
+      ],
+      "expectations": [
+        "bounded-figma-reads",
+        "source-assets",
+        "project-stack",
+        "pixel-verify"
+      ]
+    },
+    {
+      "id": "code-to-figma-running-route",
+      "prompt": "Übertrage die laufende Settings-Seite aus der App nach Figma und erhalte Flexbox, Grid, Tokens und echte Assets.",
+      "expectedSkill": "figma-bridge-code-to-figma",
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-component-library"
+      ],
+      "expectations": [
+        "dom-capture",
+        "design-entity-reconcile",
+        "token-bindings",
+        "component-reuse",
+        "sequential-figma-writes",
+        "pixel-verify",
+        "no-browser-install"
+      ]
+    },
+    {
+      "id": "code-to-figma-compose-existing-library",
+      "prompt": "Create this dashboard screen in Figma from the current route. Reuse the existing Figma library components instead of rebuilding them.",
+      "expectedSkill": "figma-bridge-code-to-figma",
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-component-library"
+      ],
+      "expectations": [
+        "design-entity-reconcile",
+        "component-reuse",
+        "sequential-figma-writes",
+        "pixel-verify"
+      ]
+    },
+    {
+      "id": "component-button-contract",
+      "prompt": "Erstelle aus unserer Button.tsx eine native Figma-Komponente mit Size- und State-Varianten, Text Property und austauschbarem Icon.",
+      "expectedSkill": "figma-bridge-component-library",
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-code-to-figma"
+      ],
+      "expectations": [
+        "design-entity-reconcile",
+        "token-bindings",
+        "component-properties",
+        "variant-cap",
+        "sequential-figma-writes",
+        "pixel-verify"
+      ]
+    },
+    {
+      "id": "component-library-sync",
+      "prompt": "Turn the coded design system and Storybook stories into a Figma component library with variables, styles, variants, properties, and durable links.",
+      "expectedSkill": "figma-bridge-component-library",
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-code-to-figma"
+      ],
+      "expectations": [
+        "design-entity-reconcile",
+        "token-bindings",
+        "component-properties",
+        "variant-cap",
+        "sequential-figma-writes"
+      ]
+    }
+  ],
+  "negative": [
+    {
+      "id": "inspect-only",
+      "prompt": "Erkläre mir nur den Aufbau der aktuellen Figma-Auswahl. Bitte nichts implementieren oder verändern.",
+      "expectedSkill": null,
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-code-to-figma",
+        "figma-bridge-component-library"
+      ],
+      "reason": "Inspection uses the normal MCP read tools, not a build workflow."
+    },
+    {
+      "id": "unrelated-code-refactor",
+      "prompt": "Refactor the React data-fetching hook to avoid duplicate requests. Figma is not involved.",
+      "expectedSkill": null,
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-code-to-figma",
+        "figma-bridge-component-library"
+      ],
+      "reason": "A normal code task must not trigger any Figma workflow."
+    },
+    {
+      "id": "comment-only",
+      "prompt": "Post the approved review reply to the existing Figma comment thread; do not edit the design or code.",
+      "expectedSkill": null,
+      "forbiddenSkills": [
+        "figma-bridge-design-to-code",
+        "figma-bridge-code-to-figma",
+        "figma-bridge-component-library"
+      ],
+      "reason": "Comment handling is an MCP operation, not design generation."
+    }
+  ]
+}

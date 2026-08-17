@@ -6,26 +6,51 @@ token, and no custom REST client publishes packages.
 ## Before every release
 
 1. Finish code and live Figma checks before committing release metadata.
-2. Set the same version in `package.json` and `engine/package.json`, update
-   `package-lock.json`, and replace `unreleased` in `CHANGELOG.md` with the
-   release date.
-3. Run `npm test` and `npm pack --dry-run --json`. Inspect the tarball list for
+2. Synchronize the release version everywhere with
+   `npm run sync:release-version -- <version>`. This updates the root package,
+   engine, lockfile, Codex/Claude/Cursor manifests, GitHub marketplace tag
+   pins, and both MCP runtime pins. Update `CHANGELOG.md` with the release date
+   and contents; `npm run check:release` must pass without rewriting anything.
+3. Run `npm test` and `npm pack --dry-run --json`. The test command also
+   validates the cross-client install contract and workflow-routing evals.
+   Inspect the tarball list for
    `src/`, `engine/src/`, all three plugin files, `README.md`, `SECURITY.md`,
    `CHANGELOG.md`, `NOTICE`, and both licenses. Confirm that repository-only
-   material (`docs/`, `CONTEXT.md`, `CONTRIBUTING.md`, `SUPPORT.md`) is absent.
+   material (`docs/`, `evals/`, `scripts/`, `tests/`, `CONTEXT.md`,
+   `CONTRIBUTING.md`, `SUPPORT.md`) is absent.
 4. Install the packed artifact in a temporary directory and run
    `node_modules/.bin/figma-bridge-mcp < /dev/null` followed by
    `node node_modules/figma-bridge-mcp/engine/src/index.js --help` there. This
    proves both the public executable and packaged command graph start without
    resolving files from the checkout; the CI `pack` job performs the same smoke
    test.
-5. Commit, create an exact `v<version>` tag, and push the commit and tag.
+5. Commit, create the exact `v<version>` tag referenced by both GitHub
+   marketplaces, and push the commit and tag. Never move an existing release
+   tag: publish a new version instead.
 
 The repository must be public before a provenance-bearing release, and
 `package.json#repository.url` must exactly match its canonical GitHub URL.
 
 An npm package name/version pair cannot be reused after publication. Check the
 tag, package version, and packed file list before continuing.
+
+## GitHub marketplace release contract
+
+The public distribution path is the GitHub repository marketplace, not the
+universal OpenAI or Claude plugin directories:
+
+- `.agents/plugins/marketplace.json` installs the Codex plugin from the exact
+  `v<version>` Git tag.
+- `.claude-plugin/marketplace.json` installs the same exact GitHub tag.
+- Cursor consumes the portable Agent Plugin from that tagged repository.
+- `.mcp.json` and `mcp.json` start `figma-bridge-mcp@<version>` exactly. Only
+  the standalone MCP fallback documented in `README.md` follows `@latest`.
+
+Publish the matching npm version before announcing the GitHub marketplace
+release. Then smoke-test the documented install path in fresh Codex, Claude
+Code, and Cursor sessions and confirm that all three skills and the local MCP
+server load. Validators prove manifest shape; this client smoke test proves
+cache copying, discovery, and process startup.
 
 ## First publication (maintainer runs locally)
 

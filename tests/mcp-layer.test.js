@@ -252,6 +252,22 @@ test('server.js parses — a syntax error here means "cannot attach to figma-bri
   await promisify(execFile)(process.execPath, ['--check', fileURLToPath(new URL('../src/server.js', import.meta.url))]);
 });
 
+test('server entry-point detection resolves the symlink npm uses for installed bins', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const { rmSync, symlinkSync } = await import('node:fs');
+  const { isServerEntryPoint } = await import('../src/server.js');
+  const dir = mkdtempSync(join(tmpdir(), 'figma-bridge-bin-'));
+  const serverUrl = new URL('../src/server.js', import.meta.url);
+  const bin = join(dir, 'figma-bridge-mcp');
+  try {
+    symlinkSync(fileURLToPath(serverUrl), bin);
+    assert.equal(isServerEntryPoint(serverUrl.href, bin), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('figma_run keeps Design Link execution in-process', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   assert.match(source, /normalized\[0\] === "link"/);
@@ -383,6 +399,34 @@ test('specialized Figma tools expose consistent explicit file targeting', async 
   assert.match(spec.description, /never invent/i);
   const screenshot = TOOLS.find((candidate) => candidate.name === 'figma_screenshot');
   assert.match(screenshot.description, /mandatory/i);
+});
+
+test('every MCP tool declares conservative safety annotations', async () => {
+  const { TOOLS } = await import('../src/server.js');
+  for (const tool of TOOLS) {
+    for (const hint of ['readOnlyHint', 'destructiveHint', 'openWorldHint']) {
+      assert.equal(typeof tool.annotations?.[hint], 'boolean', `${tool.name} needs ${hint}`);
+    }
+  }
+
+  const byName = Object.fromEntries(TOOLS.map((tool) => [tool.name, tool.annotations]));
+  assert.equal(byName.figma_pairing.destructiveHint, true,
+    'credential rotation invalidates the previous pairing');
+  assert.equal(byName.figma_run.destructiveHint, true,
+    'the generic capability surface must advertise its most dangerous allowed behavior');
+  assert.equal(byName.figma_comments.openWorldHint, true,
+    'comments can become visible to Figma collaborators');
+  for (const name of ['figma_connect', 'figma_status', 'figma_run', 'figma_render', 'figma_selection',
+    'figma_history', 'figma_comments', 'figma_inspect', 'figma_screenshot', 'figma_spec']) {
+    assert.equal(byName[name].openWorldHint, true, `${name} crosses the Figma trust boundary`);
+  }
+  for (const name of ['figma_pairing', 'figma_reference']) {
+    assert.equal(byName[name].openWorldHint, false, `${name} stays in a closed local domain`);
+  }
+  for (const name of ['figma_selection', 'figma_inspect', 'figma_reference', 'figma_screenshot', 'figma_spec']) {
+    assert.equal(byName[name].readOnlyHint, true, `${name} stays read-only`);
+    assert.equal(byName[name].destructiveHint, false, `${name} stays non-destructive`);
+  }
 });
 
 test('oversized specs are refused as incomplete, never partially or silently truncated', async () => {

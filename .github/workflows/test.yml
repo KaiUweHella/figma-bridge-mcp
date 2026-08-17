@@ -80,12 +80,18 @@ jobs:
                    package/src/server.js package/engine/src/daemon.js \
                    package/engine/src/lib/plugin-handshake.js \
                    package/engine/src/commands/slides.js package/README.md \
+                   package/.codex-plugin/plugin.json package/.claude-plugin/plugin.json \
+                   package/.claude-plugin/marketplace.json \
+                   package/.mcp.json package/plugin.json package/mcp.json \
+                   package/skills/figma-bridge-design-to-code/SKILL.md \
+                   package/skills/figma-bridge-code-to-figma/SKILL.md \
+                   package/skills/figma-bridge-component-library/SKILL.md \
                    package/SECURITY.md package/CHANGELOG.md package/NOTICE \
                    package/LICENSE package/engine/LICENSE; do
             grep -qx "$f" files.txt || { echo "MISSING from tarball: $f"; exit 1; }
           done
-          if grep -Eq '^package/(docs/|CONTEXT\.md$|CONTRIBUTING\.md$|SUPPORT\.md$)' files.txt; then
-            echo "Repository-only documentation leaked into the npm tarball"
+          if grep -Eq '^package/(docs/|evals/|scripts/|tests/|CONTEXT\.md$|CONTRIBUTING\.md$|SUPPORT\.md$)' files.txt; then
+            echo "Repository-only material leaked into the npm tarball"
             exit 1
           fi
           echo "tarball contents verified"
@@ -93,5 +99,5 @@ jobs:
         run: |
           mkdir package-smoke
           npm install --prefix package-smoke ./figma-bridge-mcp-*.tgz
-          package-smoke/node_modules/.bin/figma-bridge-mcp < /dev/null
+          node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp
           node package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js --help

@@ -11,9 +11,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, getSelection, resolveFileTarget } from "./engine.js";
 import {
   listFigmaCapabilities,
@@ -66,6 +66,14 @@ const SERVER_VERSION = (() => {
   return sha ? `${version} (${sha})` : version;
 })();
 
+function toolAnnotations({
+  readOnlyHint,
+  destructiveHint = false,
+  openWorldHint = true,
+}) {
+  return { readOnlyHint, destructiveHint, openWorldHint };
+}
+
 // Exported so tests can assert on the surface itself: "12 tools" is a claim the
 // project makes, and a schema regression should fail the build, not the README.
 export const TOOLS = [
@@ -73,12 +81,18 @@ export const TOOLS = [
     name: "figma_connect",
     description:
       "Connect to Figma in Safe Mode (never Yolo). Generates the plugin access key if needed and returns it with plugin import instructions.",
+    annotations: toolAnnotations({
+      readOnlyHint: false,
+    }),
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "figma_status",
     description:
       "Show bridge/plugin/file/key state. Performs a real plugin round-trip by default; REST validation is opt-in.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -93,6 +107,11 @@ export const TOOLS = [
     name: "figma_pairing",
     description:
       "Show the Figma plugin access key (paste it into the Figma Bridge plugin). Pass rotate:true to generate a fresh key (requires reconnect).",
+    annotations: toolAnnotations({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -112,6 +131,10 @@ export const TOOLS = [
       'figma_reference {name:"capabilities"}. ' +
       "Append --help to any command for its syntax. " +
       "Note: node tree defaults to depth 3 — pass -d <n> for deeper trees.",
+    annotations: toolAnnotations({
+      readOnlyHint: false,
+      destructiveHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -140,6 +163,9 @@ export const TOOLS = [
   {
     name: "figma_render",
     description: "Render JSX into the open Figma design.",
+    annotations: toolAnnotations({
+      readOnlyHint: false,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -162,6 +188,9 @@ export const TOOLS = [
     name: "figma_selection",
     description:
       "Read the current Figma selection and reuse its id.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -174,6 +203,9 @@ export const TOOLS = [
     name: "figma_history",
     description:
       "Local change history of this machine's Figma sessions, from the audit log every figma_run/figma_render is recorded in. Filter by nodeId to see everything that touched a node. Optionally merges git history of generated code files for a combined design+code changelog. Note: node-id matching is text-based, so numbers like \"12:30\" in free text can match too.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -229,6 +261,9 @@ export const TOOLS = [
     name: "figma_comments",
     description:
       "Read or post Figma comments via the optional REST layer (design review feedback lives here — read it, act on it, reply with what you changed). action:'list' returns all comments with ids, authors, node anchors and resolved state. action:'post' needs message (+ optional nodeId anchor or replyTo thread id) and ALWAYS requires confirm:true after a preview — comments are visible to other people. Without a configured REST token this tool only explains the setup.",
+    annotations: toolAnnotations({
+      readOnlyHint: false,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -257,6 +292,9 @@ export const TOOLS = [
     name: "figma_inspect",
     description:
       "Inspect one node's geometry, paint, effects, component context and text style as YAML.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -271,6 +309,10 @@ export const TOOLS = [
     name: "figma_reference",
     description:
       "Offline Plugin API reference. Special topics: capabilities, variable-scopes, workflow, workflow:design-to-code, workflow:code-to-figma.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+      openWorldHint: false,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -283,6 +325,9 @@ export const TOOLS = [
     name: "figma_screenshot",
     description:
       "MANDATORY first step: save/read the node PNG, then compare the finished build to it.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -303,6 +348,9 @@ export const TOOLS = [
     name: "figma_spec",
     description:
       "Exact per-layer text, identity, layout, native CSS, paint, token and asset facts. Copy; never invent. Map structure, then pull style by node id.",
+    annotations: toolAnnotations({
+      readOnlyHint: true,
+    }),
     inputSchema: {
       type: "object",
       properties: {
@@ -1690,8 +1738,18 @@ async function main() {
 
 // Start only when run as the entry point — tests import this module for the
 // pure helpers (unknownParamError) without booting a stdio server.
-const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isEntryPoint) {
+export function isServerEntryPoint(moduleUrl, argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  try {
+    // npm exposes executables through a symlink on POSIX. Resolve both sides so
+    // the packaged .bin launcher starts the server instead of exiting silently.
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath);
+  } catch {
+    return false;
+  }
+}
+
+if (isServerEntryPoint(import.meta.url)) {
   main().catch((err) => {
     process.stderr.write(`figma-bridge-mcp failed to start: ${err.message}\n`);
     process.exit(1);

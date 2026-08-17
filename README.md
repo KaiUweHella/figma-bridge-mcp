@@ -26,9 +26,9 @@ all three clients:
 
 | Client | Plugin format | Full install path |
 | --- | --- | --- |
-| Codex / ChatGPT | `.codex-plugin/plugin.json` | Plugins Directory or a Codex marketplace |
+| Codex / ChatGPT | `.codex-plugin/plugin.json` | This repository's Codex marketplace |
 | Claude Code | `.claude-plugin/plugin.json` | This repository's Claude marketplace |
-| Cursor | Agent Plugins 1.0 (`plugin.json`) | Cursor Marketplace or a team marketplace |
+| Cursor | Agent Plugins 1.0 (`plugin.json`) | GitHub-backed team marketplace or local checkout |
 
 The adapters all discover the same `skills/` directory and start the same local
 MCP package. Users do **not** download or maintain the skills separately.
@@ -40,6 +40,12 @@ codex plugin marketplace add KaiUweHella/figma-bridge-mcp
 codex plugin add figma-bridge-mcp@figma-bridge
 ```
 
+This is a GitHub-hosted repository marketplace, not a submission to the
+universal OpenAI plugin directory. The catalog follows the repository, while
+each released plugin entry pins an exact `v<version>` Git tag and starts the
+matching npm runtime version. `main` and `@latest` therefore cannot silently
+move an installed skill bundle onto a different server contract.
+
 For Claude Code, add this repository as a marketplace and install the bundle:
 
 ```bash
@@ -47,9 +53,15 @@ claude plugin marketplace add KaiUweHella/figma-bridge-mcp
 claude plugin install figma-bridge-mcp@figma-bridge
 ```
 
-For Cursor, install **Figma Bridge** from Customize after its marketplace
-listing is available. During local plugin development, link the checkout into
-Cursor and reload the window:
+The Claude marketplace uses the same pinned GitHub release and shared skill
+tree. The matching npm package must be published before users install that
+release because the plugin launches its local stdio server through `npx`.
+
+For Cursor Teams or Enterprise, import this GitHub repository into a team
+marketplace and install **Figma Bridge** from Customize. Individual users and
+contributors can use the same GitHub source without a central Cursor listing:
+clone the tagged release, link that checkout into Cursor, and reload the
+window:
 
 ```bash
 mkdir -p ~/.cursor/plugins/local

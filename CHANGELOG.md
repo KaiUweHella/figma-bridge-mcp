@@ -3,16 +3,7 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
-## Unreleased
-
-### Fixed
-
-- Made the shipped-runtime synchronization test independent of Windows CRLF
-  checkouts, and split the architecture latency gate into strict median and
-  tail ceilings so isolated shared-runner pauses no longer fail an otherwise
-  healthy release.
-
-## [0.5.0] — 2026-08-13
+## [0.5.0] — Unreleased
 
 Pairing note: development-plugin ids now use the `figma-bridge-mcp` product
 name. Re-import the chosen manifest and paste the existing access key once;
@@ -20,6 +11,15 @@ the daemon/state directory and key themselves remain unchanged.
 
 ### Added
 
+- Added one cross-client plugin bundle for Codex, Claude Code, and Cursor with
+  focused Design-to-Code, Code-to-Figma, and Component-Library skills plus
+  equivalent MCP prompts for clients that do not load Agent Skills.
+- Added GitHub-hosted Codex and Claude marketplace manifests. Release entries
+  pin the exact `v<version>` Git tag and matching npm runtime instead of
+  following `main` or `@latest`; a release-sync command and CI check keep every
+  package, engine, plugin, marketplace, lockfile, and MCP version aligned.
+- Added conservative MCP safety annotations for every tool and a bilingual
+  workflow-routing eval suite with six positive and three negative cases.
 - Added a versioned **Semantic Render Plan** shared by JSX and measured browser
   DOM capture, with a native Figma executor, pre-write Structural Gate, live
   subtree audit and reversible resize probe. Flexbox and Grid stay editable as
@@ -53,6 +53,13 @@ the daemon/state directory and key themselves remain unchanged.
 
 ### Fixed
 
+- Fixed the npm-installed executable silently exiting when launched through a
+  POSIX `.bin` symlink. The tarball CI now proves `initialize` and `tools/list`
+  against the installed executable instead of only checking its exit code.
+- Made the shipped-runtime synchronization test independent of Windows CRLF
+  checkouts, and split the architecture latency gate into strict median and
+  tail ceilings so isolated shared-runner pauses no longer fail an otherwise
+  healthy release.
 - Add a separate connected Dev Mode Inspect manifest, keep the normal Bridge
   available for read-only MCP inspection in Dev Mode, and report the Design
   mode boundary explicitly for canvas writes.

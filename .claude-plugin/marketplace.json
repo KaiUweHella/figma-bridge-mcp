@@ -11,7 +11,11 @@
   "plugins": [
     {
       "name": "figma-bridge-mcp",
-      "source": ".",
+      "source": {
+        "source": "github",
+        "repo": "KaiUweHella/figma-bridge-mcp",
+        "ref": "v0.5.0"
+      },
       "description": "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills"
     }
   ]
