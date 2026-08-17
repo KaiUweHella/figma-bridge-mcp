@@ -59,7 +59,13 @@ test("Codex plugin bundles the MCP server and focused bidirectional skills", () 
     args: ["-y", `${pkg.name}@${pkg.version}`],
   });
   for (const [name, skill] of Object.entries(skills)) {
-    assert.match(skill, new RegExp(`^---\\nname: ${name}\\n`));
+    const frontmatter = new RegExp(`^---\\r?\\nname: ${name}\\r?\\n`);
+    assert.match(skill, frontmatter);
+    assert.match(
+      skill.replace(/\r?\n/g, "\r\n"),
+      frontmatter,
+      `${name} frontmatter must also validate after a Windows CRLF checkout`,
+    );
     assert.doesNotMatch(skill, /\[TODO:/);
   }
   assert.match(skills["figma-bridge-design-to-code"], /Do not install Playwright/);
