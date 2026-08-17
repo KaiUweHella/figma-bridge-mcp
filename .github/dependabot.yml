@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Runtime and toolchain majors can raise our supported Node baseline or
+      # require code migrations. Review those intentionally instead of opening
+      # unattended PRs that merely happen to install on an older Node version.
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
     groups:
       runtime-patches:
         dependency-type: production
