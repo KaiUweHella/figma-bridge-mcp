@@ -71,7 +71,32 @@ const isFontFamilyName = (name, value) => {
  * (the target is part of the same list, so `{a.b.c}` references resolve).
  * Pure, unit-testable.
  */
-export function buildDtcgTree(vars) {
+export const DTCG_DIALECTS = new Set(['legacy', '2025']);
+export const DTCG_BRIDGE_EXTENSION = 'figma-bridge-mcp';
+
+function color2025(value) {
+  const hex = String(value || '').toLowerCase();
+  const match = hex.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+  if (!match) return value;
+  const part = (index) => Math.round((parseInt(match[1].slice(index, index + 2), 16) / 255) * 100000) / 100000;
+  const alpha = match[2] ? Math.round((parseInt(match[2], 16) / 255) * 100000) / 100000 : 1;
+  return { colorSpace: 'srgb', components: [part(0), part(2), part(4)], alpha, hex };
+}
+
+function bridgeExtension(variable) {
+  const metadata = {
+    ...(variable.id ? { variableId: variable.id } : {}),
+    ...(variable.collection ? { collection: variable.collection } : {}),
+    ...(Array.isArray(variable.scopes) ? { scopes: [...new Set(variable.scopes.map(String))].sort() } : {}),
+    ...(variable.codeSyntax && typeof variable.codeSyntax === 'object'
+      ? { codeSyntax: Object.fromEntries(Object.entries(variable.codeSyntax).sort(([a], [b]) => a.localeCompare(b))) }
+      : {}),
+  };
+  return Object.keys(metadata).length ? { [DTCG_BRIDGE_EXTENSION]: metadata } : null;
+}
+
+export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
+  if (!DTCG_DIALECTS.has(dialect)) throw new Error(`Unsupported DTCG dialect "${dialect}". Use legacy or 2025.`);
   const tree = {};
   const dot = (n) => String(n).replace(/\//g, '.');
   const setPath = (path, token) => {
@@ -88,10 +113,13 @@ export function buildDtcgTree(vars) {
     let token;
     if (v.ref) token = { $type: dtype, $value: '{' + dot(v.ref) + '}' };
     else if (v.value === null || v.value === undefined) token = { $type: dtype, $value: null };
-    else if (v.type === 'COLOR') token = { $type: 'color', $value: v.value };
-    else if (v.type === 'FLOAT') token = { $type: 'dimension', $value: v.value + 'px' };
+    else if (v.type === 'COLOR') token = { $type: 'color', $value: dialect === '2025' ? color2025(v.value) : v.value };
+    else if (v.type === 'FLOAT') token = { $type: 'dimension', $value: dialect === '2025' ? { value: Number(v.value), unit: 'px' } : v.value + 'px' };
     else if (v.type === 'BOOLEAN') token = { $type: 'boolean', $value: v.value };
     else token = { $type: 'string', $value: String(v.value) };
+    if (v.description) token.$description = v.description;
+    const extension = bridgeExtension(v);
+    if (extension) token.$extensions = extension;
     setPath(v.name, token);
   }
   return tree;

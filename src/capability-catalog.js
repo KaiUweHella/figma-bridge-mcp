@@ -52,6 +52,7 @@ const COMMANDS = Object.freeze({
   link: readGroup('Link durable Design Entities across code and Figma', ['inspect', 'list', 'configure', 'status', 'accept', 'context'], {
     target: 'conditional', path: 'design-link-registry',
   }),
+  contract: { summary: 'Capture or check canonical Design Contracts for linked entities', mutation: 'read', path: 'design-contract' },
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
@@ -179,6 +180,7 @@ function isBackgroundCommand(args) {
 
 function acceptedExitCodes(args) {
   if (args?.[0] === 'history' && args?.[1] === 'diff') return [0, 1];
+  if (args?.[0] === 'contract' && args?.[1] === 'check') return [0, 1];
   // Exit 1 is a valid verify report containing findings, not a transport
   // failure. MCP callers need the report in order to fix those findings.
   if (args?.[0] === 'verify-build') return [0, 1];
@@ -352,6 +354,19 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       if (args[1] === 'accept' && pathFlag(args, ['--compare'], baseDir)) markRead();
       break;
     }
+    case 'design-contract': {
+      const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
+      if (!suppliedManifest) args.push('--manifest', absolute(baseDir, 'figma-bridge.json'));
+      let file = pathFlag(args, ['--file'], baseDir)?.value;
+      if (!file) {
+        const slug = String(args[2] || 'entity').replace(/[^a-zA-Z0-9._-]+/g, '_');
+        file = absolute(baseDir, path.join('design-contracts', `${slug}.json`));
+        args.push('--file', file);
+      }
+      if (args[1] === 'capture') markWrite(file);
+      else markRead();
+      break;
+    }
     case 'verify-build':
       normalizeVerifyBuild(args, baseDir);
       markRead();
@@ -468,7 +483,8 @@ function availabilityFor(args, capability) {
     feature: args[0] === 'motion' ? 'motion-beta'
       : args[0] === 'slides' ? 'slides-beta'
         : args[0] === 'map' ? 'storybook'
-          : args[0] === 'link' ? 'design-links' : null,
+          : args[0] === 'link' ? 'design-links'
+            : args[0] === 'contract' ? 'design-contracts' : null,
   };
 }
 

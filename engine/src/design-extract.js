@@ -1361,7 +1361,17 @@ export function usedVariablesCode(nodeId) {
       }
       if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
       if (val && typeof val === 'object') val = null; /* unresolvable */
-      out.push({ name: v.name, type: v.resolvedType, value: val === undefined ? null : val, ref, collection: await collectionName(v.variableCollectionId) });
+      out.push({
+        id: v.id,
+        name: v.name,
+        type: v.resolvedType,
+        value: val === undefined ? null : val,
+        ref,
+        collection: await collectionName(v.variableCollectionId),
+        description: v.description || undefined,
+        scopes: Array.isArray(v.scopes) ? Array.from(v.scopes) : undefined,
+        codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : undefined,
+      });
     }
     return JSON.stringify({ file: figma.root.name, node: root.name, id: root.id, vars: out });
   })()`;

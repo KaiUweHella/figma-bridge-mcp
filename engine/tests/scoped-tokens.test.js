@@ -10,7 +10,7 @@ import { buildDtcgTree, formatCssTokens } from '../src/lib/css-tokens.js';
 // Variable registry stub: DLS tokens (as if from a library) + an unrelated
 // local plant-care collection that must NOT leak into the scoped export.
 const VARS = {
-  'v:surface': { id: 'v:surface', name: 'color/surface', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { type: 'VARIABLE_ALIAS', id: 'v:navy' } } },
+  'v:surface': { id: 'v:surface', name: 'color/surface', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { type: 'VARIABLE_ALIAS', id: 'v:navy' } }, scopes: ['ALL_FILLS'], codeSyntax: { WEB: '--color-surface' } },
   'v:navy': { id: 'v:navy', name: 'palette/navy/900', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { r: 0x06 / 255, g: 0x09 / 255, b: 0x14 / 255 } } },
   'v:spacing-s': { id: 'v:spacing-s', name: 'spacing/s', resolvedType: 'FLOAT', variableCollectionId: 'c:dls', valuesByMode: { m1: 16 } },
   'v:fontsize': { id: 'v:fontsize', name: 'fonts/fontsize/2xs', resolvedType: 'FLOAT', variableCollectionId: 'c:dls', valuesByMode: { m1: 14 } },
@@ -59,6 +59,9 @@ test('scoped collector: bound variables + style bindings + alias targets; hidden
   assert.equal(surface.value, '#060914', 'alias chain resolved to the concrete hex');
   assert.equal(surface.ref, 'palette/navy/900', 'alias target recorded for DTCG refs');
   assert.equal(surface.collection, 'DLS Tokens');
+  assert.equal(surface.id, 'v:surface');
+  assert.deepEqual(surface.scopes, ['ALL_FILLS']);
+  assert.deepEqual(surface.codeSyntax, { WEB: '--color-surface' });
   assert.ok(!names.includes('color/bg'), 'the plant-care local collection does not leak in');
 });
 
@@ -78,6 +81,30 @@ test('buildDtcgTree: aliases become {dot.path} refs, floats px, colors hex', () 
   assert.equal(tree.palette.navy['900'].$value, '#060914');
   assert.equal(tree.spacing.s.$value, '16px');
   assert.equal(tree.spacing.s.$type, 'dimension');
+});
+
+test('buildDtcgTree: 2025 values and Figma metadata round-trip through extensions', () => {
+  const tree = buildDtcgTree([
+    {
+      id: 'v:surface', name: 'color/surface', type: 'COLOR', value: '#0d7c7480',
+      collection: 'DLS Tokens', scopes: ['FRAME_FILL', 'ALL_FILLS'],
+      codeSyntax: { WEB: '--color-surface' }, description: 'Default surface',
+    },
+    { id: 'v:s', name: 'spacing/s', type: 'FLOAT', value: 16 },
+  ], { dialect: '2025' });
+  assert.deepEqual(tree.color.surface.$value, {
+    colorSpace: 'srgb', components: [0.05098, 0.48627, 0.4549], alpha: 0.50196, hex: '#0d7c7480',
+  });
+  assert.deepEqual(tree.spacing.s.$value, { value: 16, unit: 'px' });
+  assert.equal(tree.color.surface.$description, 'Default surface');
+  assert.deepEqual(tree.color.surface.$extensions['figma-bridge-mcp'], {
+    variableId: 'v:surface', collection: 'DLS Tokens',
+    scopes: ['ALL_FILLS', 'FRAME_FILL'], codeSyntax: { WEB: '--color-surface' },
+  });
+});
+
+test('buildDtcgTree rejects unknown dialects', () => {
+  assert.throws(() => buildDtcgTree([], { dialect: 'future' }), /legacy or 2025/);
 });
 
 test('formatCssTokens consumes the scoped list unchanged', () => {

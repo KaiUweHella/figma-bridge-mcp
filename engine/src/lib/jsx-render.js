@@ -14,6 +14,7 @@ import {
   createSemanticRenderPlan,
   semanticRenderPlanToJsxTree,
 } from './semantic-render-plan.js';
+import { parseRichTextContent } from './rich-text.js';
 
 // NOTE: there is deliberately no built-in semantic color table here. An
 // unresolved `var:` reference falls back to neutral grey and is reported via
@@ -637,7 +638,7 @@ export class FigmaClient {
 
     // Parse Text elements, but skip those inside nested Frames/Slots
     // Use (?:\s+([^>]*?))? to allow Text with or without attributes
-    const textRegex = /<Text(?:\s+([^>]*?))?>([^<]*)<\/Text>/g;
+    const textRegex = /<Text(?:\s+([^>]*?))?>([\s\S]*?)<\/Text>/g;
     while ((match = textRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       // Check if this text is inside a nested frame
@@ -645,7 +646,9 @@ export class FigmaClient {
       if (!insideFrame) {
         const textProps = this.parseProps(match[1] || '');
         textProps._type = 'text';
-        textProps.content = match[2];
+        const richText = parseRichTextContent(match[2], (value) => this.parseProps(value));
+        textProps.content = richText.text;
+        if (richText.runs.some((run) => Object.keys(run.style).length)) textProps.runs = richText.runs;
         textProps._index = idx;
         children.push(textProps);
       }
@@ -787,6 +790,13 @@ export class FigmaClient {
           const family = item.font || 'Inter';
           const style = this.weightToStyle(item.weight, item.italic);
           fontMap.set(family + '/' + style, { family, style });
+          for (const run of item.runs || []) {
+            const runStyle = run.style || {};
+            if (runStyle.font == null && runStyle.fontStyle == null && runStyle.weight == null && runStyle.italic == null) continue;
+            const runFamily = runStyle.font || family;
+            const runFace = runStyle.fontStyle || this.weightToStyle(runStyle.weight ?? item.weight, runStyle.italic ?? item.italic);
+            fontMap.set(runFamily + '/' + runFace, { family: runFamily, style: runFace });
+          }
           check(item.color || '#000000');
           check(item.size); // size="var:text/md" binds fontSize to a FLOAT variable
           if (item.style) usesTextStyles = true;
@@ -1395,6 +1405,22 @@ export class FigmaClient {
           const tLetterSpacing = item.letterSpacing !== undefined ? dimUnit(item.letterSpacing) : null;
           const tTruncate = item.truncate === true || item.truncate === 'true';
           const tMaxLines = item.maxLines !== undefined ? parseInt(item.maxLines) : null;
+          const runStyleCode = (item.runs || []).filter((run) => Object.keys(run.style || {}).length).map((run) => {
+            const runStyle = run.style || {};
+            const parts = [];
+            if (runStyle.font != null || runStyle.fontStyle != null || runStyle.weight != null || runStyle.italic != null) {
+              const runFamily = runStyle.font || family;
+              const runFace = runStyle.fontStyle || this.weightToStyle(runStyle.weight ?? item.weight, runStyle.italic ?? item.italic);
+              parts.push(`try { el${idx}.setRangeFontName(${run.start}, ${run.end}, __font(${JSON.stringify(runFamily)}, ${JSON.stringify(runFace)})); } catch(e) {}`);
+            }
+            if (runStyle.size != null && Number.isFinite(Number(runStyle.size))) parts.push(`try { el${idx}.setRangeFontSize(${run.start}, ${run.end}, ${Number(runStyle.size)}); } catch(e) {}`);
+            if (runStyle.color && this.hexToRgb(runStyle.color)) parts.push(`try { el${idx}.setRangeFills(${run.start}, ${run.end}, [{ type: 'SOLID', color: ${this.hexToRgbCode(runStyle.color)} }]); } catch(e) {}`);
+            if (runStyle.letterSpacing != null && Number.isFinite(Number(runStyle.letterSpacing))) parts.push(`try { el${idx}.setRangeLetterSpacing(${run.start}, ${run.end}, ${dimUnit(runStyle.letterSpacing)}); } catch(e) {}`);
+            const decoration = runStyle.decoration != null ? String(runStyle.decoration).toUpperCase() : (runStyle.underline === true || runStyle.underline === 'true') ? 'UNDERLINE' : null;
+            if (decoration) parts.push(`try { el${idx}.setRangeTextDecoration(${run.start}, ${run.end}, ${JSON.stringify(decoration)}); } catch(e) {}`);
+            if (runStyle.href) parts.push(`try { el${idx}.setRangeHyperlink(${run.start}, ${run.end}, { type: 'URL', value: ${JSON.stringify(String(runStyle.href))} }); } catch(e) {}`);
+            return parts.join('\n        ');
+          }).filter(Boolean).join('\n        ');
 
           // Auto-FILL text in column layouts so Safe Mode wraps text correctly.
           const isCol = parentFlex === 'col' || parentFlex === 'column';
@@ -1422,6 +1448,7 @@ export class FigmaClient {
         ${sizeVarName ? `{ const __v = lookupVar(${JSON.stringify(sizeVarName)}); if (__v) { try { el${idx}.setBoundVariable('fontSize', __v); } catch (e) {} } else { globalThis.__unresolvedVars.add(${JSON.stringify(sizeVarName)}); } }` : ''}
         ${textStyleName ? `await __applyTextStyle(el${idx}, ${JSON.stringify(textStyleName)});` : ''}
         ${autoStyle ? `await __ensureTextStyle(el${idx}, ${JSON.stringify(family)}, ${JSON.stringify(style)}, ${size});` : ''}
+        ${runStyleCode}
         ${parentVar}.appendChild(el${idx});
         ${this.gridChildCode(item, `el${idx}`, parentFlex)}
         ${this.minMaxCode(item, `el${idx}`)}

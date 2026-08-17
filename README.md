@@ -218,6 +218,13 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   exact next reads through one in-process Command Application. When semantic
   paths exist, changed subtrees are reported with their current node ids;
   plugin markers themselves never count as visual changes.
+- A **Design Contract** turns one linked Design Entity's complete Design
+  Capture into a deterministic repository gate. Run `figma_run ["contract",
+  "capture","ui.button"]` once and review the JSON; later `figma_run
+  ["contract","check","ui.button"]` reports canonical drift and separately
+  enforces variant matrices, token-binding floors, geometry tolerances and
+  prototype transitions. Volatile Figma handles are ignored and depth-limited
+  captures are refused.
 - One **Capability Catalog** resolves every Figma Command entering through MCP
   into an immutable plan before either execution adapter runs it. That plan is
   the single source for exposure, Figma/workspace/shared-state effects, target
@@ -306,6 +313,20 @@ tried before any fallback family. Successful native renders return
 unique reused variables, created variables and bound properties. Ambiguous or
 unsupported preflight errors include the corresponding zero/nonzero counts and
 do not leave newly created variables or canvas nodes behind.
+
+`<Text>` also preserves editable inline Rich Text. Nested `<strong>/<b>`,
+`<em>/<i>`, `<u>`, `<Span ...>` and `<a href="...">` markup becomes native
+Figma ranges; HTML entities are decoded before UTF-16 range offsets are
+calculated. Span runs support `font`, `fontStyle`, `weight`, `italic`, `size`,
+`color`, `letterSpacing`, `underline`/`decoration` and safe links:
+
+```jsx
+<Text font="Inter" size="14">
+  Hello <strong>bold <em>and italic</em></strong>
+  <Span color="#ef4444" size="18">red</Span>
+  <a href="https://example.com">link</a>
+</Text>
+```
 
 ## Plugin window
 

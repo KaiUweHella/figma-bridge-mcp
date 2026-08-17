@@ -122,6 +122,33 @@ function validateComponentLinks(componentLinks) {
   }
 }
 
+const RICH_TEXT_STYLE_KEYS = new Set([
+  'font', 'fontStyle', 'weight', 'italic', 'color', 'size', 'letterSpacing',
+  'underline', 'decoration', 'href',
+]);
+
+function validateRichTextRuns(runs, props, location) {
+  if (!Array.isArray(runs)) throw new Error(`Semantic Render Plan ${location}.runs must be an array`);
+  if (runs.length > 5000) throw new Error(`Semantic Render Plan ${location}.runs exceeds 5,000 ranges`);
+  const length = String(props.content || '').length;
+  let previousEnd = 0;
+  for (let index = 0; index < runs.length; index++) {
+    const run = runs[index];
+    const runLocation = `${location}.runs[${index}]`;
+    if (!isRecord(run) || !Number.isInteger(run.start) || !Number.isInteger(run.end)) {
+      throw new Error(`Semantic Render Plan ${runLocation} needs integer start/end offsets`);
+    }
+    if (run.start < previousEnd || run.start < 0 || run.end <= run.start || run.end > length) {
+      throw new Error(`Semantic Render Plan ${runLocation} has an invalid or overlapping range`);
+    }
+    if (!isRecord(run.style)) throw new Error(`Semantic Render Plan ${runLocation}.style must be an object`);
+    for (const key of Object.keys(run.style)) {
+      if (!RICH_TEXT_STYLE_KEYS.has(key)) throw new Error(`Semantic Render Plan ${runLocation}.style.${key} is unsupported`);
+    }
+    previousEnd = run.end;
+  }
+}
+
 function validateNode(node, location, executable, depth, state) {
   if (depth > 200) throw new Error('Semantic Render Plan nesting exceeds 200 levels');
   state.nodes++;
@@ -167,6 +194,10 @@ function validateNode(node, location, executable, depth, state) {
     }
     if (!isRecord(node.source.props)) {
       throw new Error(`Semantic Render Plan ${location}.source.props must be an object`);
+    }
+    if (node.source.props.runs !== undefined) {
+      if (node.source.type !== 'text') throw new Error(`Semantic Render Plan ${location}.source.props.runs is only valid on text`);
+      validateRichTextRuns(node.source.props.runs, node.source.props, `${location}.source.props`);
     }
   }
   node.children.forEach((child, index) => validateNode(child, `${location}.children[${index}]`, executable, depth + 1, state));

@@ -70,6 +70,8 @@ async function runFakeFigma(code, state) {
           id: `V${++state.seq}`, name, variableCollectionId: col.id,
           resolvedType: type, valuesByMode: {},
           setValueForMode(modeId, value) { this.valuesByMode[modeId] = value; },
+          setVariableCodeSyntax(platform, syntax) { this.codeSyntax = { ...(this.codeSyntax || {}), [platform]: syntax }; },
+          removeVariableCodeSyntax(platform) { if (this.codeSyntax) delete this.codeSyntax[platform]; },
           remove() { state.variables = state.variables.filter((x) => x.id !== v.id); },
         };
         state.variables.push(v);
@@ -87,6 +89,8 @@ function makeVar(state, name, type, value) {
     id: `V${++state.seq}`, name, variableCollectionId: 'C1',
     resolvedType: type, valuesByMode: { M1: value },
     setValueForMode(modeId, val) { this.valuesByMode[modeId] = val; },
+    setVariableCodeSyntax(platform, syntax) { this.codeSyntax = { ...(this.codeSyntax || {}), [platform]: syntax }; },
+    removeVariableCodeSyntax(platform) { if (this.codeSyntax) delete this.codeSyntax[platform]; },
     remove() { state.variables = state.variables.filter((x) => x.id !== v.id); },
   };
   state.variables.push(v);
@@ -181,6 +185,63 @@ test('--apply creates the variables and records them in the lockfile', async (t)
   assert.equal(lock.version, 1);
   assert.equal(lock.tokens['brand/primary'].value, '#0d7c74');
   assert.equal(lock.tokens['space/md'].value, 16);
+});
+
+test('DTCG 2025 values and explicit Figma metadata are applied and locked', async (t) => {
+  const state = freshState();
+  const { server, port } = await startFakeDaemon(state);
+  const dir = mkdtempSync(join(tmpdir(), 'tokensync-'));
+  t.after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  writeFileSync(join(dir, 'tokens.json'), JSON.stringify({
+    brand: { primary: {
+      $type: 'color',
+      $value: { colorSpace: 'srgb', components: [13 / 255, 124 / 255, 116 / 255], alpha: 1, hex: '#0d7c74' },
+      $extensions: { 'figma-bridge-mcp': {
+        scopes: ['ALL_FILLS'], codeSyntax: { WEB: '--brand-primary' },
+      } },
+    } },
+    space: { md: { $type: 'dimension', $value: { value: 16, unit: 'px' } } },
+  }));
+  const res = await runSync(['tokens.json', '--apply'], { port, cwd: dir });
+  assert.equal(res.code, 0, res.out);
+  const colour = state.variables.find((v) => v.name === 'brand/primary');
+  assert.deepEqual(colour.scopes, ['ALL_FILLS']);
+  assert.deepEqual(colour.codeSyntax, { WEB: '--brand-primary' });
+  const lock = JSON.parse(readFileSync(join(dir, 'figma-tokens.lock.json'), 'utf8'));
+  assert.deepEqual(lock.tokens['brand/primary'].scopes, ['ALL_FILLS']);
+  assert.deepEqual(lock.tokens['brand/primary'].codeSyntax, { WEB: '--brand-primary' });
+
+  writeFileSync(join(dir, 'tokens.json'), JSON.stringify({
+    brand: { primary: {
+      $type: 'color', $value: '#0d7c74',
+      $extensions: { 'figma-bridge-mcp': { scopes: ['ALL_FILLS'], codeSyntax: {} } },
+    } },
+    space: { md: { $type: 'dimension', $value: { value: 16, unit: 'px' } } },
+  }));
+  const cleared = await runSync(['tokens.json', '--apply'], { port, cwd: dir });
+  assert.equal(cleared.code, 0, cleared.out);
+  assert.deepEqual(colour.codeSyntax, {});
+});
+
+test('exported collection metadata scopes a multi-collection file to the sync target', async (t) => {
+  const state = freshState();
+  const { server, port } = await startFakeDaemon(state);
+  const dir = mkdtempSync(join(tmpdir(), 'tokensync-'));
+  t.after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  const token = (value, collection) => ({
+    $type: 'color', $value: value,
+    $extensions: { 'figma-bridge-mcp': { collection } },
+  });
+  writeFileSync(join(dir, 'tokens.json'), JSON.stringify({
+    brand: { primary: token('#0d7c74', 'Design Tokens') },
+    other: { primary: token('#ff0000', 'Primitives') },
+  }));
+  const res = await runSync(['tokens.json', '--apply'], { port, cwd: dir });
+  assert.equal(res.code, 0, res.out);
+  assert.match(res.out, /Ignoring 1 token/);
+  assert.deepEqual(state.variables.map((variable) => variable.name), ['brand/primary']);
 });
 
 test('a second run with no edits reports "already in sync" and exits 0', async (t) => {

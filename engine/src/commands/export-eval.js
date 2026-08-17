@@ -492,8 +492,14 @@ exp
 exp
   .command('dtcg [output] [nodeId]')
   .description('Export design tokens as W3C Design Tokens (DTCG) JSON. With a node id/URL (either argument position): only the variables actually BOUND in that subtree, library tokens included. Without: all LOCAL variables of the open file. Import side: figma_run ["import", "tokens.json"]')
-  .action(async (output, nodeId) => {
+  .option('--dialect <dialect>', 'DTCG value dialect: legacy strings or 2025 structured values', 'legacy')
+  .action(async (output, nodeId, options) => {
     await checkConnection();
+    const dialect = String(options.dialect || 'legacy').toLowerCase();
+    if (!['legacy', '2025'].includes(dialect)) {
+      console.error(chalk.red('✗ --dialect must be legacy or 2025.'));
+      process.exit(1);
+    }
     // Node id in the first slot ("dtcg 34-6455") — output is optional, the
     // id is recognizable, don't force the user to pass an empty output.
     if (!nodeId && output && /^(\d+[:-]\d+$|I\d|https?:\/\/)/.test(output)) {
@@ -519,7 +525,7 @@ exp
         console.error('  Run `export dtcg` without a node id only if you really want the whole file\'s local variables.');
         process.exit(1);
       }
-      const tokenJson = JSON.stringify(buildDtcgTree(scoped.vars), null, 2);
+      const tokenJson = JSON.stringify(buildDtcgTree(scoped.vars, { dialect }), null, 2);
       console.error(chalk.gray(`source: Figma file "${scoped.file}" — ${scoped.vars.length} token(s) actually bound under "${scoped.node}" (${scoped.id})`));
       if (output) {
         writeFileSync(output, tokenJson + '\n');
@@ -534,31 +540,30 @@ exp
 const vars = await figma.variables.getLocalVariablesAsync();
 const byId = {};
 for (const v of vars) byId[v.id] = v.name;
-const dot = n => n.replace(/\\//g, '.');
 const h2 = n => Math.round(n*255).toString(16).padStart(2,'0');
 const toColor = c => { const b = '#'+h2(c.r)+h2(c.g)+h2(c.b); return (c.a != null && c.a < 1) ? b+h2(c.a) : b; };
-const tree = {};
-const setPath = (path, token) => { const p = path.split('/'); let cur = tree; for (let i=0;i<p.length-1;i++){ if (!cur[p[i]] || cur[p[i]].$value !== undefined) cur[p[i]] = {}; cur = cur[p[i]]; } cur[p[p.length-1]] = token; };
+const out = [];
 for (const v of vars) {
   const val = Object.values(v.valuesByMode)[0];
-  const dtype = v.resolvedType === 'COLOR' ? 'color' : v.resolvedType === 'FLOAT' ? 'dimension' : v.resolvedType === 'BOOLEAN' ? 'boolean' : 'string';
-  let token;
+  let value = val;
+  let ref = null;
   if (val && val.type === 'VARIABLE_ALIAS') {
-    const ref = byId[val.id];
-    token = { $type: dtype, $value: ref ? '{'+dot(ref)+'}' : null };
+    ref = byId[val.id] || null;
+    value = null;
   } else if (v.resolvedType === 'COLOR') {
-    token = { $type: 'color', $value: toColor(val) };
-  } else if (v.resolvedType === 'FLOAT') {
-    token = { $type: 'dimension', $value: val + 'px' };
-  } else if (v.resolvedType === 'BOOLEAN') {
-    token = { $type: 'boolean', $value: val };
-  } else {
-    token = { $type: 'string', $value: String(val) };
+    value = toColor(val);
   }
-  if (v.description) token.$description = v.description;
-  setPath(v.name, token);
+  const collection = await figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
+  out.push({
+    id: v.id, name: v.name, type: v.resolvedType,
+    value: value === undefined ? null : value, ref,
+    description: v.description || undefined,
+    collection: collection ? collection.name : undefined,
+    scopes: Array.isArray(v.scopes) ? Array.from(v.scopes) : undefined,
+    codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : undefined,
+  });
 }
-return JSON.stringify({ __file: figma.root.name, tree });
+return JSON.stringify({ __file: figma.root.name, vars: out });
 })()`;
     const result = evalPrint(code, { silent: true });
     // Unwrap the { __file, tree } envelope; on parse failure (plugin error
@@ -567,7 +572,11 @@ return JSON.stringify({ __file: figma.root.name, tree });
     let sourceFile = null;
     try {
       const parsed = JSON.parse(result);
-      if (parsed && parsed.tree) { tokenJson = JSON.stringify(parsed.tree, null, 2); sourceFile = parsed.__file; }
+      if (parsed && Array.isArray(parsed.vars)) {
+        tokenJson = JSON.stringify(buildDtcgTree(parsed.vars, { dialect }), null, 2);
+        sourceFile = parsed.__file;
+      }
+      else if (parsed && parsed.tree) { tokenJson = JSON.stringify(parsed.tree, null, 2); sourceFile = parsed.__file; }
       else tokenJson = JSON.stringify(parsed, null, 2);
     } catch {}
     // The source file goes to stderr (JSON stdout must stay parseable): token

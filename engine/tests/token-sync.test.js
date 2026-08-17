@@ -63,6 +63,37 @@ test('DTCG parsing keeps every token and its full path', () => {
   assert.equal(tokens.get('space/md').type, 'FLOAT');
 });
 
+test('DTCG 2025 structured colors and dimensions import without being mistaken for composites', () => {
+  const tokens = parseDtcgFlat(JSON.stringify({
+    brand: {
+      $type: 'color',
+      primary: { $value: { colorSpace: 'srgb', components: [13 / 255, 124 / 255, 116 / 255], alpha: 1, hex: '#0d7c74' } },
+    },
+    space: { $type: 'dimension', md: { $value: { value: 1, unit: 'rem' } } },
+  }));
+  assert.equal(tokens.get('brand/primary').value, '#0d7c74');
+  assert.deepEqual(tokens.get('space/md'), { type: 'FLOAT', value: 16 });
+});
+
+test('DTCG bridge metadata imports as an explicit sync contract', () => {
+  const tokens = parseDtcgFlat(JSON.stringify({
+    brand: { primary: {
+      $type: 'color',
+      $value: '#0d7c74',
+      $extensions: { 'figma-bridge-mcp': {
+        variableId: 'VariableID:1:2', collection: 'Primitives',
+        scopes: ['FRAME_FILL', 'ALL_FILLS'],
+        codeSyntax: { WEB: '--brand-primary', ANDROID: 'brand_primary' },
+      } },
+    } },
+  }));
+  assert.deepEqual(tokens.get('brand/primary'), {
+    type: 'COLOR', value: '#0d7c74', variableId: 'VariableID:1:2', collection: 'Primitives',
+    scopes: ['ALL_FILLS', 'FRAME_FILL'],
+    codeSyntax: { ANDROID: 'brand_primary', WEB: '--brand-primary' },
+  });
+});
+
 test('DTCG parsing refuses circular and unresolved aliases loudly', () => {
   assert.throws(
     () => parseDtcgFlat('{"a":{"$value":"{b}"},"b":{"$value":"{a}"}}'),
@@ -128,6 +159,31 @@ test('the code changed and Figma did not → update Figma', () => {
     [plan.update[0].from, plan.update[0].value],
     ['#000000', '#111111'],
   );
+});
+
+test('an explicit scope/code-syntax edit is planned as an in-place update', () => {
+  const plan = planSync(
+    code({ a: { type: 'COLOR', value: '#111111', scopes: ['ALL_FILLS'], codeSyntax: { WEB: '--a' } } }),
+    figma({ a: { type: 'COLOR', value: '#111111', id: 'V1', scopes: ['FRAME_FILL'], codeSyntax: { WEB: '--old-a' } } }),
+    lock({ a: { type: 'COLOR', value: '#111111', id: 'V1', scopes: ['FRAME_FILL'], codeSyntax: { WEB: '--old-a' } } }),
+  );
+  assert.equal(plan.update.length, 1);
+  assert.deepEqual(plan.update[0].scopes, ['ALL_FILLS']);
+  assert.deepEqual(plan.update[0].codeSyntax, { WEB: '--a' });
+  assert.equal(plan.update[0].metadataChange, true);
+  assert.match(formatPlan(plan, { collection: 'C', file: 'tokens.json' }), /\(metadata\)/);
+});
+
+test('stable variable ids disambiguate a rename even when the value changes too', () => {
+  const plan = planSync(
+    code({ 'brand/new': { type: 'COLOR', value: '#222222', variableId: 'V1' } }),
+    figma({ 'brand/old': { type: 'COLOR', value: '#111111', id: 'V1' } }),
+    lock({ 'brand/old': { type: 'COLOR', value: '#111111', id: 'V1' } }),
+  );
+  assert.equal(plan.rename.length, 1);
+  assert.equal(plan.update.length, 1);
+  assert.equal(plan.create.length, 0);
+  assert.equal(plan.delete.length, 0);
 });
 
 test('Figma changed and the code did not → reported, NEVER overwritten', () => {
@@ -296,6 +352,17 @@ test('--ours applies the code file to every conflict', () => {
   assert.equal(resolved.update[0].value, '#111111');
 });
 
+test('--ours preserves explicit metadata while resolving a conflict', () => {
+  const plan = planSync(
+    code({ a: { type: 'COLOR', value: '#111111', scopes: ['ALL_FILLS'], codeSyntax: {} } }),
+    figma({ a: { type: 'COLOR', value: '#222222', id: 'V1', scopes: ['FRAME_FILL'], codeSyntax: { WEB: '--old' } } }),
+    lock({ a: { type: 'COLOR', value: '#000000', id: 'V1', scopes: ['FRAME_FILL'], codeSyntax: { WEB: '--old' } } }),
+  );
+  const resolved = resolveConflicts(plan, 'ours');
+  assert.deepEqual(resolved.update[0].scopes, ['ALL_FILLS']);
+  assert.deepEqual(resolved.update[0].codeSyntax, {});
+});
+
 test('--theirs keeps Figma and never writes to it', () => {
   const plan = planSync(
     code({ a: { type: 'COLOR', value: '#111111' } }),
@@ -321,10 +388,12 @@ test('the lockfile stores canonical values and variable ids', () => {
     collection: 'Design Tokens',
     fileKey: 'K',
     syncedAt: '2026-08-04T10:00:00.000Z',
-    tokens: new Map([['a', { type: 'COLOR', value: '#0D7C74', id: 'V1' }]]),
+    tokens: new Map([['a', { type: 'COLOR', value: '#0D7C74', id: 'V1', scopes: ['FRAME_FILL'], codeSyntax: { WEB: '--a' } }]]),
   });
   assert.equal(built.tokens.a.value, '#0d7c74');
   assert.equal(built.tokens.a.id, 'V1');
+  assert.deepEqual(built.tokens.a.scopes, ['FRAME_FILL']);
+  assert.deepEqual(built.tokens.a.codeSyntax, { WEB: '--a' });
   assert.equal(built.version, 1);
 });
 

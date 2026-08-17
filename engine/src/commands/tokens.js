@@ -358,7 +358,14 @@ async function readFigmaTokens(collectionName) {
       out.push({ name: v.name, id: v.id, type: v.resolvedType, alias: true });
       continue;
     }
-    out.push({ name: v.name, id: v.id, type: v.resolvedType, value });
+    out.push({
+      name: v.name,
+      id: v.id,
+      type: v.resolvedType,
+      value,
+      scopes: Array.isArray(v.scopes) ? Array.from(v.scopes) : [],
+      codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : {},
+    });
   }
   return { collectionId: col.id, modeId, modes: col.modes.length, variables: out, elsewhere };
 })()`;
@@ -368,14 +375,20 @@ async function readFigmaTokens(collectionName) {
 /** Apply a plan. Returns the per-operation counts Figma actually performed. */
 async function applyPlan(plan, collectionName) {
   const ops = {
-    create: plan.create.map((t) => ({ name: t.name, type: t.type, value: encodeForFigma(t) })),
+    create: plan.create.map((t) => ({ name: t.name, type: t.type, value: encodeForFigma(t),
+      ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
+      ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}) })),
     // Figma variables cannot change resolvedType in place, so a type change is
     // a delete-and-recreate. It is listed separately because it DOES drop the
     // bindings pointing at that variable — the report warns about it.
     update: plan.update.filter((t) => !t.typeChange)
-      .map((t) => ({ id: t.id, name: t.name, type: t.type, value: encodeForFigma(t) })),
+      .map((t) => ({ id: t.id, name: t.name, type: t.type, value: encodeForFigma(t),
+        ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
+        ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}) })),
     retype: plan.update.filter((t) => t.typeChange)
-      .map((t) => ({ id: t.id, name: t.name, type: t.type, value: encodeForFigma(t) })),
+      .map((t) => ({ id: t.id, name: t.name, type: t.type, value: encodeForFigma(t),
+        ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
+        ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}) })),
     rename: plan.rename.map((t) => ({ id: t.id, name: t.name })),
     remove: plan.delete.filter((d) => d.willDelete).map((d) => ({ id: d.id, name: d.name })),
   };
@@ -392,13 +405,25 @@ async function applyPlan(plan, collectionName) {
 
   const byId = new Map();
   for (const v of await figma.variables.getLocalVariablesAsync()) byId.set(v.id, v);
+  const applyMetadata = (v, op) => {
+    if ('scopes' in op) v.scopes = op.scopes;
+    if ('codeSyntax' in op && typeof v.setVariableCodeSyntax === 'function') {
+      const current = v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : {};
+      if (typeof v.removeVariableCodeSyntax === 'function') {
+        for (const platform of Object.keys(current)) {
+          if (!(platform in op.codeSyntax)) v.removeVariableCodeSyntax(platform);
+        }
+      }
+      for (const platform of Object.keys(op.codeSyntax)) v.setVariableCodeSyntax(platform, op.codeSyntax[platform]);
+    }
+  };
 
   for (const op of ops.rename) {
     try { const v = byId.get(op.id); if (v) { v.name = op.name; done.renamed++; } }
     catch (e) { failed.push(op.name + ': rename failed — ' + e.message); }
   }
   for (const op of ops.update) {
-    try { const v = byId.get(op.id); if (v) { v.setValueForMode(modeId, op.value); done.updated++; } }
+    try { const v = byId.get(op.id); if (v) { v.setValueForMode(modeId, op.value); applyMetadata(v, op); done.updated++; } }
     catch (e) { failed.push(op.name + ': update failed — ' + e.message); }
   }
   for (const op of ops.retype) {
@@ -406,16 +431,18 @@ async function applyPlan(plan, collectionName) {
       const old = byId.get(op.id);
       if (old) old.remove();
       const v = figma.variables.createVariable(op.name, col, op.type);
-      __scopeTokenVariable(v, op.name, op.type);
+      if (!('scopes' in op)) __scopeTokenVariable(v, op.name, op.type);
       v.setValueForMode(modeId, op.value);
+      applyMetadata(v, op);
       done.retyped++;
     } catch (e) { failed.push(op.name + ': retype failed — ' + e.message); }
   }
   for (const op of ops.create) {
     try {
       const v = figma.variables.createVariable(op.name, col, op.type);
-      __scopeTokenVariable(v, op.name, op.type);
+      if (!('scopes' in op)) __scopeTokenVariable(v, op.name, op.type);
       v.setValueForMode(modeId, op.value);
+      applyMetadata(v, op);
       done.created++;
     } catch (e) { failed.push(op.name + ': create failed — ' + e.message); }
   }
@@ -469,6 +496,17 @@ tokens
       console.error(chalk.red(`✗ ${e.message}`));
       process.exit(1);
     }
+    const declaredElsewhere = [];
+    for (const [name, token] of codeTokens) {
+      if (token.collection
+        && token.collection.localeCompare(options.collection, undefined, { sensitivity: 'accent' }) !== 0) {
+        declaredElsewhere.push({ name, collection: token.collection });
+        codeTokens.delete(name);
+      }
+    }
+    if (declaredElsewhere.length) {
+      console.log(chalk.gray(`  Ignoring ${declaredElsewhere.length} token(s) whose exported collection metadata targets another collection.`));
+    }
     if (!codeTokens.size) {
       console.error(chalk.yellow(`⚠ No tokens found in ${filePath}.`));
       console.error(chalk.gray('  Syncing an empty file would look like "delete everything" — stopping instead.'));
@@ -492,7 +530,10 @@ tokens
     if (!figmaSide.missing) {
       for (const v of figmaSide.variables) {
         if (v.alias) { aliases.push(v.name); continue; }
-        figmaTokens.set(v.name, { type: v.type, value: v.value, id: v.id });
+        figmaTokens.set(v.name, {
+          type: v.type, value: v.value, id: v.id,
+          scopes: v.scopes || [], codeSyntax: v.codeSyntax || {},
+        });
       }
     }
 
@@ -585,7 +626,13 @@ tokens
     const synced = new Map();
     for (const [name, t] of codeTokens) {
       const existing = figmaTokens.get(name);
-      synced.set(name, { type: t.type, value: t.value, id: existing?.id });
+      synced.set(name, {
+        type: t.type,
+        value: t.value,
+        id: existing?.id || t.variableId,
+        ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
+        ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}),
+      });
     }
     // A token dropped from the code file but NOT pruned is still in Figma and
     // still sync's responsibility. Letting it fall out of the lock here would

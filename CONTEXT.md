@@ -21,6 +21,10 @@ _Avoid_: allowlist entry, command metadata
 The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
 _Avoid_: walker output, cache entry
 
+**Design Contract**:
+A reviewed, repository-owned projection of one Design Entity's complete Design Capture. Its canonical layer removes volatile Figma handles for exact drift detection; its semantic rules enforce component existence, variant axes and exhaustiveness, token-binding floors, geometry tolerances and prototype transitions. Incomplete captures cannot become contracts.
+_Avoid_: screenshot snapshot, prose guideline, node-id fixture
+
 **Bridge Daemon**:
 The authenticated localhost process that routes a **Figma Command** to exactly one connected Figma plugin window.
 _Avoid_: backend, proxy
@@ -86,6 +90,10 @@ _Avoid_: warning label, generated comment, fallback badge
 > **Developer:** Can structure and style share work without returning stale design data?
 >
 > **Domain expert:** Yes. They project the same Design Capture only while the Bridge Daemon connection and Figma document revision remain unchanged. Without revision evidence, capture runs again.
+
+> **Developer:** How do we deterministically catch design-system drift without asking a model to interpret DESIGN.md?
+>
+> **Domain expert:** Capture a Design Contract for the linked Design Entity and commit it. Contract checks compare the canonical Design Capture and independently enforce its semantic component rules; any drift is a reviewable CI result.
 
 > **Developer:** Where should I change what counts as one exported SVG?
 >

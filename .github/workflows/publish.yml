@@ -34,6 +34,7 @@ jobs:
         run: node -e "const expected='v'+require('./package.json').version;if(process.env.RELEASE_TAG!==expected){throw new Error('tag '+process.env.RELEASE_TAG+' does not match '+expected)}"
       - run: npm ci
       - run: npm test
+      - run: npm run check:audit
       # Trusted Publishing creates provenance automatically. No long-lived
       # NPM_TOKEN is stored in GitHub; configure publish.yml once on npmjs.com
       # after the first manual package publication.

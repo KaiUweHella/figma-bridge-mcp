@@ -59,6 +59,22 @@ jobs:
       # inside `node --test` lets parallel test files create false regressions.
       - run: npm run check:architecture-latency
 
+  runtime-audit:
+    name: published runtime has no known vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Keep this network-backed check separate from `npm test`: contributors
+      # can run the deterministic suite offline, while CI and releases still
+      # fail on any advisory in the package users actually install.
+      - run: npm run check:audit
+
   pack:
     name: tarball contains the runtime
     runs-on: ubuntu-latest

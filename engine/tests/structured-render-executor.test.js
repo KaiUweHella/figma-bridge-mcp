@@ -54,6 +54,33 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(text.getPluginData('figmaBridge.semanticPath'), plan.root.children[0].path);
   });
 
+  it('writes nested Rich Text ranges after preloading every requested font', async () => {
+    const loaded = [];
+    const plan = new FigmaClient().planJSX(
+      '<Frame><Text font="Inter" size="14">Hello <strong>bold <em>italic</em></strong> '
+      + '<Span color="#ff0000" size="18" letterSpacing="1.5">red</Span> '
+      + '<u>under</u> <a href="https://example.com">link</a></Text></Frame>',
+    );
+    const figma = fakeFigma({ loadFont: async (font) => { loaded.push(`${font.family}/${font.style}`); } });
+
+    assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
+    await executeStructuredRenderPlan(figma, plan);
+    const text = figma.created.find((node) => node.type === 'TEXT');
+    assert.equal(text.characters, 'Hello bold italic red under link');
+    assert.ok(loaded.includes('Inter/Bold'));
+    assert.ok(loaded.includes('Inter/Bold Italic'));
+    assert.ok(text.rangeStyles.some((entry) => entry.method === 'fontName'
+      && text.characters.slice(entry.start, entry.end) === 'italic'
+      && entry.value.style === 'Bold Italic'));
+    assert.ok(text.rangeStyles.some((entry) => entry.method === 'fills'
+      && text.characters.slice(entry.start, entry.end) === 'red'));
+    assert.ok(text.rangeStyles.some((entry) => entry.method === 'fontSize' && entry.value === 18));
+    assert.ok(text.rangeStyles.some((entry) => entry.method === 'letterSpacing' && entry.value.value === 1.5));
+    assert.ok(text.rangeStyles.some((entry) => entry.method === 'decoration' && entry.value === 'UNDERLINE'));
+    assert.ok(text.rangeStyles.some((entry) => entry.method === 'hyperlink'
+      && entry.value.value === 'https://example.com'));
+  });
+
   it('adds deduplicated native Figma annotations and machine-readable metadata for lossy fallbacks', async () => {
     const plan = new FigmaClient().planJSX('<Frame name="Fallback" stroke="#ff0000" strokeWidth="2" />');
     plan.root.fallbackAnnotations = [{
@@ -1025,6 +1052,13 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
     getPluginData(key) { return this.pluginData[key] || ''; },
     setBoundVariable(field, variable) { this.boundVariables[field] = variable.id || variable; },
     async setTextStyleIdAsync(styleId) { this.textStyleId = styleId; },
+    rangeStyles: [],
+    setRangeFontName(start, end, value) { this.rangeStyles.push({ method: 'fontName', start, end, value }); },
+    setRangeFontSize(start, end, value) { this.rangeStyles.push({ method: 'fontSize', start, end, value }); },
+    setRangeFills(start, end, value) { this.rangeStyles.push({ method: 'fills', start, end, value }); },
+    setRangeLetterSpacing(start, end, value) { this.rangeStyles.push({ method: 'letterSpacing', start, end, value }); },
+    setRangeTextDecoration(start, end, value) { this.rangeStyles.push({ method: 'decoration', start, end, value }); },
+    setRangeHyperlink(start, end, value) { this.rangeStyles.push({ method: 'hyperlink', start, end, value }); },
   });
   const enforceLayoutSizingParent = (node) => {
     let horizontal;

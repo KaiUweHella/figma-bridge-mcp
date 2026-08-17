@@ -24,6 +24,7 @@
 
 export const LOCKFILE_VERSION = 1;
 export const LOCKFILE_NAME = 'figma-tokens.lock.json';
+export const DTCG_BRIDGE_EXTENSION = 'figma-bridge-mcp';
 
 /** Figma's variable types we round-trip. */
 const TYPES = new Set(['COLOR', 'FLOAT', 'STRING', 'BOOLEAN']);
@@ -45,6 +46,20 @@ export function canonicalValue(type, value) {
 
 /** Accepts #rgb, #rrggbb, #rrggbbaa and Figma's {r,g,b,a} floats. */
 export function canonicalColor(value) {
+  // DTCG 2025.10 colors are structured values. Figma currently stores sRGB,
+  // so prefer the normative components for sRGB and use the optional hex
+  // fallback for other color spaces rather than silently inventing a gamut
+  // conversion.
+  if (value && typeof value === 'object' && Array.isArray(value.components)) {
+    if (String(value.colorSpace || '').toLowerCase() !== 'srgb') {
+      return typeof value.hex === 'string' ? canonicalColor(value.hex) : null;
+    }
+    const [r, g, b] = value.components;
+    if (![r, g, b].every((component) => Number.isFinite(Number(component)))) {
+      return typeof value.hex === 'string' ? canonicalColor(value.hex) : null;
+    }
+    return canonicalColor({ r: Number(r), g: Number(g), b: Number(b), a: value.alpha ?? 1 });
+  }
   if (value && typeof value === 'object' && 'r' in value) {
     const to255 = (c) => Math.round(Math.max(0, Math.min(1, Number(c) || 0)) * 255);
     const hex = [to255(value.r), to255(value.g), to255(value.b)]
@@ -100,6 +115,13 @@ function inferType(value, declared) {
 
 function toNumber(value) {
   if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && Number.isFinite(Number(value.value))) {
+    const n = Number(value.value);
+    const unit = String(value.unit || '').toLowerCase();
+    if (unit === 'rem' || unit === 'em') return n * 16;
+    if (unit === '' || unit === 'px') return n;
+    return null;
+  }
   const m = String(value).trim().match(/^(-?[\d.]+)(px|rem|em)?$/);
   if (!m) return null;
   const n = parseFloat(m[1]);
@@ -129,6 +151,7 @@ export function parseDtcgFlat(jsonText) {
       raw.set(path.join('.'), {
         value: node.$value ?? node.value,
         type: node.$type ?? node.type ?? groupType,
+        extension: node.$extensions?.[DTCG_BRIDGE_EXTENSION],
       });
       return;
     }
@@ -159,12 +182,29 @@ export function parseDtcgFlat(jsonText) {
     // Composite tokens (typography, shadow) have no single Figma variable to
     // map onto; skipping them silently would risk pruning, so they are
     // reported by the caller instead.
-    if (value && typeof value === 'object') continue;
+    const declared = String(tok.type || '').toLowerCase();
+    const isStructuredColor = declared === 'color' && value && typeof value === 'object' && Array.isArray(value.components);
+    const isStructuredNumber = declared === 'dimension'
+      && value && typeof value === 'object' && 'value' in value;
+    if (value && typeof value === 'object' && !isStructuredColor && !isStructuredNumber) continue;
     const type = inferType(value, tok.type);
     const name = path.split('.').join('/');
+    const extension = tok.extension && typeof tok.extension === 'object' ? tok.extension : {};
+    const scopes = Array.isArray(extension.scopes)
+      ? [...new Set(extension.scopes.map(String))].sort()
+      : undefined;
+    const codeSyntax = extension.codeSyntax && typeof extension.codeSyntax === 'object'
+      ? Object.fromEntries(Object.entries(extension.codeSyntax)
+        .filter(([, syntax]) => typeof syntax === 'string')
+        .sort(([a], [b]) => a.localeCompare(b)))
+      : undefined;
     out.set(name, {
       type,
-      value: type === 'FLOAT' ? toNumber(value) : value,
+      value: type === 'FLOAT' ? toNumber(value) : isStructuredColor ? canonicalColor(value) : value,
+      ...(typeof extension.variableId === 'string' ? { variableId: extension.variableId } : {}),
+      ...(scopes ? { scopes } : {}),
+      ...(codeSyntax ? { codeSyntax } : {}),
+      ...(typeof extension.collection === 'string' ? { collection: extension.collection } : {}),
     });
   }
   return out;
@@ -239,6 +279,8 @@ export function buildLock({ collection, fileKey, tokens, syncedAt }) {
       type: t.type,
       value: canonicalValue(t.type, t.value),
       ...(t.id ? { id: t.id } : {}),
+      ...(Object.hasOwn(t, 'scopes') ? { scopes: normalizeScopes(t.scopes) } : {}),
+      ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: normalizeCodeSyntax(t.codeSyntax) } : {}),
     };
   }
   return out;
@@ -295,6 +337,25 @@ export function planSync(code, figma, lock, { prune = false } = {}) {
       newInCode.push({ name, code: c });
     }
 
+    // A DTCG export can carry Figma's stable variable id. That removes the
+    // ambiguity of same-valued tokens and also lets a rename and value edit be
+    // applied together without replacing the variable (and losing bindings).
+    const oldById = new Map(goneFromCode
+      .filter((item) => item.figma.id)
+      .map((item) => [item.figma.id, item]));
+    const claimedOld = new Set();
+    const claimedNew = new Set();
+    for (const item of newInCode) {
+      if (!item.code.variableId) continue;
+      const old = oldById.get(item.code.variableId);
+      const lockedOld = old && locked.get(old.name);
+      if (!old || !lockedOld || lockedOld.id !== item.code.variableId) continue;
+      renamedFrom.set(item.name, old.name);
+      claimedOld.add(old.name);
+      claimedNew.add(item.name);
+      rename.push({ name: item.name, from: old.name, id: old.figma.id, type: old.figma.type });
+    }
+
     const signature = (type, value) => `${type} ${canonicalValue(type, value)}`;
     const bucket = (list, sig) => {
       const m = new Map();
@@ -305,8 +366,8 @@ export function planSync(code, figma, lock, { prune = false } = {}) {
       }
       return m;
     };
-    const oldBySig = bucket(goneFromCode, (i) => signature(i.figma.type, i.figma.value));
-    const newBySig = bucket(newInCode, (i) => signature(i.code.type, i.code.value));
+    const oldBySig = bucket(goneFromCode.filter((i) => !claimedOld.has(i.name)), (i) => signature(i.figma.type, i.figma.value));
+    const newBySig = bucket(newInCode.filter((i) => !claimedNew.has(i.name)), (i) => signature(i.code.type, i.code.value));
 
     for (const [sig, olds] of oldBySig) {
       const news = newBySig.get(sig);
@@ -338,9 +399,10 @@ export function planSync(code, figma, lock, { prune = false } = {}) {
         conflict.push({
           name, reason: 'deleted-in-figma',
           code: c.value, figma: null, lock: l.value, type: c.type,
+          ...syncMetadataFields(c),
         });
       } else {
-        create.push({ name, type: c.type, value: c.value });
+        create.push({ name, ...syncWriteFields(c) });
       }
       continue;
     }
@@ -350,9 +412,12 @@ export function planSync(code, figma, lock, { prune = false } = {}) {
     // side — including the type. Comparing the two live sides to each other
     // reads a type change as a mutual disagreement and reports a conflict
     // where only one side actually moved.
-    const codeMovedOn = !l || l.type !== c.type || !sameValue(c.type, c.value, l.value);
-    const figmaMovedOn = !l || l.type !== f.type || !sameValue(f.type, f.value, l.value);
-    const sidesAgree = !typeChanged && sameValue(c.type, c.value, f.value);
+    const codeMovedOn = !l || l.type !== c.type || !sameValue(c.type, c.value, l.value)
+      || !managedMetadataEqual(c, l, c);
+    const figmaMovedOn = !l || l.type !== f.type || !sameValue(f.type, f.value, l.value)
+      || !managedMetadataEqual(f, l, l);
+    const sidesAgree = !typeChanged && sameValue(c.type, c.value, f.value)
+      && managedMetadataEqual(c, f, c);
 
     if (sidesAgree) {
       // A pure rename is already reported as a rename; counting it as
@@ -367,19 +432,23 @@ export function planSync(code, figma, lock, { prune = false } = {}) {
       conflict.push({
         name, reason: 'untracked-divergence',
         code: c.value, figma: f.value, lock: null, type: c.type, id: f.id,
+        ...syncMetadataFields(c),
         ...(typeChanged ? { typeChange: `${f.type} → ${c.type}` } : {}),
       });
       continue;
     }
     if (codeMovedOn && !figmaMovedOn) {
-      update.push({ name, type: c.type, value: c.value, from: f.value, id: f.id,
-        ...(typeChanged ? { typeChange: `${f.type} → ${c.type}` } : {}) });
+      const metadataChange = !managedMetadataEqual(c, f, c);
+      update.push({ name, ...syncWriteFields(c), from: f.value, id: f.id,
+        ...(typeChanged ? { typeChange: `${f.type} → ${c.type}` } : {}),
+        ...(metadataChange ? { metadataChange: true } : {}) });
     } else if (!codeMovedOn && figmaMovedOn) {
       pull.push({ name, type: f.type, value: f.value, codeValue: c.value, id: f.id });
     } else {
       conflict.push({
         name, reason: 'both-changed',
         code: c.value, figma: f.value, lock: l.value, type: c.type, id: f.id,
+        ...syncMetadataFields(c),
       });
     }
   }
@@ -445,7 +514,8 @@ export function formatPlan(plan, { collection, file, apply = false, prune = fals
   section(`${verb}rename`.trim(), plan.rename, (t) => `~ ${t.from} → ${t.name}`);
   section(`${verb}update`.trim(), plan.update, (t) =>
     `* ${t.name}  ${show(t.type, t.from)} → ${show(t.type, t.value)}`
-    + (t.typeChange ? `  (type ${t.typeChange})` : ''));
+    + (t.typeChange ? `  (type ${t.typeChange})` : '')
+    + (t.metadataChange ? '  (metadata)' : ''));
 
   if (plan.delete.length) {
     const title = prune ? `${verb}delete`.trim() : 'in Figma but not in code';
@@ -505,8 +575,13 @@ export function resolveConflicts(plan, strategy) {
     if (strategy === 'ours') {
       // The code file wins.
       if (c.code === null) next.delete.push({ name: c.name, type: c.type, value: c.figma, id: c.id, willDelete: true });
-      else if (c.figma === null) next.create.push({ name: c.name, type: c.type, value: c.code });
-      else next.update.push({ name: c.name, type: c.type, value: c.code, from: c.figma, id: c.id });
+      else if (c.figma === null) next.create.push({
+        name: c.name, type: c.type, value: c.code, ...syncMetadataFields(c),
+      });
+      else next.update.push({
+        name: c.name, type: c.type, value: c.code, from: c.figma, id: c.id,
+        ...syncMetadataFields(c),
+      });
     } else {
       // Figma wins: nothing is written to Figma, the divergence is reported
       // back so the user updates the code file.
@@ -514,4 +589,40 @@ export function resolveConflicts(plan, strategy) {
     }
   }
   return next;
+}
+
+function normalizeScopes(scopes) {
+  return Array.isArray(scopes) ? [...new Set(scopes.map(String))].sort() : [];
+}
+
+function normalizeCodeSyntax(codeSyntax) {
+  if (!codeSyntax || typeof codeSyntax !== 'object') return {};
+  return Object.fromEntries(Object.entries(codeSyntax)
+    .filter(([, value]) => typeof value === 'string')
+    .sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function managedMetadataEqual(a, b, fields) {
+  if (Object.hasOwn(fields || {}, 'scopes')) {
+    if (JSON.stringify(normalizeScopes(a?.scopes)) !== JSON.stringify(normalizeScopes(b?.scopes))) return false;
+  }
+  if (Object.hasOwn(fields || {}, 'codeSyntax')) {
+    if (JSON.stringify(normalizeCodeSyntax(a?.codeSyntax)) !== JSON.stringify(normalizeCodeSyntax(b?.codeSyntax))) return false;
+  }
+  return true;
+}
+
+function syncMetadataFields(token) {
+  return {
+    ...(Object.hasOwn(token, 'scopes') ? { scopes: normalizeScopes(token.scopes) } : {}),
+    ...(Object.hasOwn(token, 'codeSyntax') ? { codeSyntax: normalizeCodeSyntax(token.codeSyntax) } : {}),
+  };
+}
+
+function syncWriteFields(token) {
+  return {
+    type: token.type,
+    value: token.value,
+    ...syncMetadataFields(token),
+  };
 }

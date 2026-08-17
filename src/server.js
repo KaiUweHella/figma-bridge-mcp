@@ -42,6 +42,7 @@ import {
   executeDesignLink,
   formatDesignLinkResult,
 } from "../engine/src/application/design-link-command.js";
+import { designContractFileKeyFromArgv } from "../engine/src/application/design-contract-command.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 export function isWrite(args) {
@@ -1231,7 +1232,9 @@ export async function handleTool(name, rawArgs) {
       const prepared = planFigmaCommand(args);
       const inferredLinkFile = prepared.argv[0] === "link"
         ? designLinkFileKeyFromArgv([...prepared.argv])
-        : null;
+        : prepared.argv[0] === "contract"
+          ? designContractFileKeyFromArgv([...prepared.argv])
+          : null;
       const target = resolveFileTarget(input.fileKey || inferredLinkFile, args);
       const plan = planFigmaCommand(args, { fileKey: target });
       if (WRITE_CONFIRM && plan.effects.figma === "write" && input.confirm !== true) {

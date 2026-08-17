@@ -760,7 +760,7 @@ function inspectStructuredRenderPlan(plan) {
     'paragraphSpacing', 'paragraphIndent', 'position', 'x', 'y', 'grow',
     'opacity', 'minW', 'maxW', 'minH', 'maxH', 'gridRow', 'gridColumn',
     'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'truncate',
-    'maxLines', 'fontAxes', 'mask', 'maskType',
+    'maxLines', 'fontAxes', 'mask', 'maskType', 'runs',
   ]);
   const rectProps = new Set([
     'name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
@@ -932,6 +932,34 @@ function inspectStructuredRenderPlan(plan) {
         if (props.fontAxes != null) {
           try { structuredFontAxes(props.fontAxes); }
           catch (error) { problems.push(`${path}: ${error.message}`); }
+        }
+        if (props.runs != null) {
+          if (!Array.isArray(props.runs)) problems.push(`${path}: rich-text runs must be an array`);
+          else {
+            const contentLength = String(props.content || '').length;
+            let previousEnd = 0;
+            for (let index = 0; index < props.runs.length; index++) {
+              const run = props.runs[index];
+              const label = `${path}.runs[${index}]`;
+              if (!isRecord(run) || !Number.isInteger(run.start) || !Number.isInteger(run.end)
+                || run.start < previousEnd || run.start < 0 || run.end <= run.start || run.end > contentLength) {
+                problems.push(`${label}: range is invalid or overlapping`);
+                continue;
+              }
+              previousEnd = run.end;
+              if (!isRecord(run.style)) { problems.push(`${label}: style must be an object`); continue; }
+              const allowedRunStyles = new Set(['font', 'fontStyle', 'weight', 'italic', 'color', 'size', 'letterSpacing', 'underline', 'decoration', 'href']);
+              for (const key of Object.keys(run.style)) if (!allowedRunStyles.has(key)) problems.push(`${label}: style.${key} is unsupported`);
+              for (const key of ['font', 'fontStyle']) if (run.style[key] != null && typeof run.style[key] !== 'string') problems.push(`${label}: ${key} must be a string`);
+              for (const key of ['size', 'letterSpacing']) if (run.style[key] != null && !Number.isFinite(Number(run.style[key]))) problems.push(`${label}: ${key} must be numeric`);
+              if (run.style.weight != null && typeof run.style.weight !== 'string' && !Number.isFinite(Number(run.style.weight))) problems.push(`${label}: weight must be a name or number`);
+              if (run.style.color != null && (!structuredColorSupported(run.style.color) || structuredVariableSpec(run.style.color))) problems.push(`${label}: color must be a literal solid color`);
+              if (run.style.italic != null && ![true, false, 'true', 'false'].includes(run.style.italic)) problems.push(`${label}: italic must be true or false`);
+              if (run.style.underline != null && ![true, false, 'true', 'false'].includes(run.style.underline)) problems.push(`${label}: underline must be true or false`);
+              if (run.style.decoration != null && !['none', 'underline', 'strikethrough'].includes(String(run.style.decoration).toLowerCase())) problems.push(`${label}: decoration is unsupported`);
+              if (run.style.href != null && (typeof run.style.href !== 'string' || run.style.href.length > 2048 || !/^(https?:|mailto:|tel:)/i.test(run.style.href))) problems.push(`${label}: href must be an HTTP(S), mailto or tel URL`);
+            }
+          }
         }
       }
       for (const key of ['gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan']) {
@@ -1238,6 +1266,7 @@ async function prepareStructuredVariables(figmaApi, plan) {
     return final?.value ?? intent.spec.fallback ?? raw ?? fallback;
   };
   const fontNames = new WeakMap();
+  const runFontNames = new WeakMap();
   const fontRequests = [];
   const collectTextFonts = (node) => {
     if (node.source.type === 'text') {
@@ -1247,6 +1276,15 @@ async function prepareStructuredVariables(figmaApi, plan) {
       const explicitStyle = resolvedIntentValue(node, 'fontStyle', props.fontStyle, null);
       const fontName = { family, style: explicitStyle ? String(explicitStyle) : structuredFontStyle(weight, props.italic) };
       fontRequests.push({ node, fontName, exact: Boolean(structuredVariableSpec(props.font) || structuredVariableSpec(props.fontStyle)) });
+      for (let index = 0; index < (props.runs || []).length; index++) {
+        const style = props.runs[index].style || {};
+        if (style.font == null && style.fontStyle == null && style.weight == null && style.italic == null) continue;
+        const runFamily = String(style.font ?? family);
+        const runStyle = style.fontStyle != null
+          ? String(style.fontStyle)
+          : structuredFontStyle(style.weight ?? weight, style.italic ?? props.italic);
+        fontRequests.push({ node, runIndex: index, fontName: { family: runFamily, style: runStyle }, exact: false });
+      }
     }
     for (const child of node.children || []) collectTextFonts(child);
   };
@@ -1283,7 +1321,11 @@ async function prepareStructuredVariables(figmaApi, plan) {
       }
       loadedFontCache.set(key, loaded);
     }
-    fontNames.set(request.node, loaded);
+    if (request.runIndex === undefined) fontNames.set(request.node, loaded);
+    else {
+      if (!runFontNames.has(request.node)) runFontNames.set(request.node, new Map());
+      runFontNames.get(request.node).set(request.runIndex, loaded);
+    }
   }
 
   const createdVariables = [];
@@ -1354,7 +1396,7 @@ async function prepareStructuredVariables(figmaApi, plan) {
     created: createdVariables.length,
     bound: intents.length,
   });
-  return { bindings, createdVariables: createdVariables.sort(), scopeQuestions, fontNames, variableReport: report };
+  return { bindings, createdVariables: createdVariables.sort(), scopeQuestions, fontNames, runFontNames, variableReport: report };
 }
 
 function structuredTextStyleValue(value, fallback) {
@@ -1595,6 +1637,24 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
     return layers.map((layer) => structuredGradientPaint(layer, target) || hex(layer));
   };
   const textStyleContext = await prepareStructuredTextStyles(figmaApi, plan, variableContext);
+  const applyRichTextRuns = (created, semanticNode, props) => {
+    for (let index = 0; index < (props.runs || []).length; index++) {
+      const run = props.runs[index];
+      const style = run.style || {};
+      const fontName = variableContext.runFontNames.get(semanticNode)?.get(index);
+      if (fontName) created.setRangeFontName(run.start, run.end, fontName);
+      if (style.size != null) created.setRangeFontSize(run.start, run.end, structuredNumber(style.size));
+      if (style.color != null) created.setRangeFills(run.start, run.end, [hex(style.color)]);
+      if (style.letterSpacing != null) {
+        created.setRangeLetterSpacing(run.start, run.end, { unit: 'PIXELS', value: structuredNumber(style.letterSpacing) });
+      }
+      const decoration = style.decoration != null
+        ? String(style.decoration).toUpperCase()
+        : (style.underline === true || style.underline === 'true') ? 'UNDERLINE' : null;
+      if (decoration) created.setRangeTextDecoration(run.start, run.end, decoration);
+      if (style.href) created.setRangeHyperlink(run.start, run.end, { type: 'URL', value: String(style.href) });
+    }
+  };
 
   const applyInstanceOverrides = (created, semanticNode) => {
     const prepared = componentContext.overrides.get(semanticNode);
@@ -1770,6 +1830,7 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
         }
         if (props.color) created.fills = [boundPaint(semanticNode, 'fill', props.color, '#808080', created)];
       }
+      applyRichTextRuns(created, semanticNode, props);
     } else if (semanticNode.source.type === 'rect') {
       created = figmaApi.createRectangle();
       created.name = props.name || 'Rectangle';
