@@ -56,13 +56,12 @@ export const BACKGROUND_EXEC_TIMEOUT_MS =
   Number(process.env.ASSET_EXPORT_TIMEOUT_MS) ||
   10 * 60 * 1000;
 
-// Timeout for `connect --safe` (ms). The engine prints its daemon-started +
-// plugin-import instructions within ~1-2s, then blocks up to 90s waiting for
-// the plugin to connect. Because the daemon is spawned detached (unref'd), we
-// kill the connect process after capturing the instructions without stopping
-// the daemon. Keep this well under the engine's 90s wait.
+// Hard cap for `connect --safe --no-wait` (ms). The command only starts the
+// detached daemon and refreshes the plugin files; it never waits for Figma.
+// Its own readiness loop is capped at 2s, so 5s leaves startup headroom while
+// keeping a broken setup responsive.
 export const CONNECT_TIMEOUT_MS =
-  Number(process.env.CONNECT_TIMEOUT_MS) || 12000;
+  Number(process.env.CONNECT_TIMEOUT_MS) || 5000;
 
 // Daemon endpoint (Safe Mode). The port is resolved fresh per call by the
 // engine's shared resolver (env DAEMON_PORT > port file published by the

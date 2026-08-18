@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "figma-bridge-mcp",
   "displayName": "Figma Bridge",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local, authenticated Figma bridge with exact design-to-code and code-to-Figma workflows.",
   "author": {
     "name": "Kai-Uwe Hella",

@@ -1,6 +1,6 @@
 {
   "name": "figma-bridge-engine",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "The Figma-facing half of figma-bridge-mcp: one transport (daemon → plugin eval), no CDP, no patching. Originally forked from figma-ds-cli v2.1.0 (MIT, © Sil Bormüller) — see ../NOTICE. Dependencies resolve from the root node_modules.",
   "type": "module",
   "private": true

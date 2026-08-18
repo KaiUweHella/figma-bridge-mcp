@@ -6,7 +6,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "figma-bridge-mcp@0.5.0"
+        "figma-bridge-mcp@0.5.1"
       ]
     }
   }
