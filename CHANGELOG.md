@@ -3,7 +3,7 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
-## [0.5.0] — Unreleased
+## [0.5.0] — 2026-08-18
 
 Pairing note: development-plugin ids now use the `figma-bridge-mcp` product
 name. Re-import the chosen manifest and paste the existing access key once;
@@ -11,6 +11,23 @@ the daemon/state directory and key themselves remain unchanged.
 
 ### Added
 
+- Added DTCG 2025 token import/export with structured sRGB colors and
+  dimensions. Figma variable ids, collections, scopes, and platform code
+  syntax now round-trip through a namespaced extension; stable ids preserve
+  bindings across otherwise ambiguous renames, and collection metadata keeps
+  multi-collection exports scoped to the intended sync target.
+- Added persistent **Design Contracts** with `contract capture` and
+  `contract check`. Contracts canonicalize complete Design Captures, reject
+  depth-limited evidence, and gate exact or semantic drift in root geometry,
+  component-set variants, token bindings, and prototype transitions.
+- Added editable native Rich Text rendering for nested inline emphasis,
+  decoration, spans, and links. Semantic Render Plans carry validated UTF-16
+  ranges, preload every requested font before mutation, and apply native Figma
+  range styles instead of flattening formatted copy into separate layers.
+- Added production dependency auditing to CI and the npm release workflow,
+  plus grouped Dependabot maintenance for compatible minor and patch updates.
+  Automated npm major updates are excluded so supported Node versions and
+  toolchain migrations remain explicit maintainer decisions.
 - Added one cross-client plugin bundle for Codex, Claude Code, and Cursor with
   focused Design-to-Code, Code-to-Figma, and Component-Library skills plus
   equivalent MCP prompts for clients that do not load Agent Skills.
@@ -53,6 +70,13 @@ the daemon/state directory and key themselves remain unchanged.
 
 ### Fixed
 
+- Updated the MCP SDK and safe runtime transitive dependencies while pinning
+  `@hono/node-server` to the maintained Node 18-compatible line. This prevents
+  a transitive major from silently raising the package's declared runtime
+  baseline.
+- Made token metadata conflict resolution lossless: explicit scopes and code
+  syntax now survive `--ours`, removed platform syntax is actually cleared in
+  Figma, and metadata-only changes are visible in sync plans.
 - Fixed the npm-installed executable silently exiting when launched through a
   POSIX `.bin` symlink. The tarball CI now proves `initialize` and `tools/list`
   against the installed executable instead of only checking its exit code.
