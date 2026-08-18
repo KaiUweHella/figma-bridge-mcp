@@ -3,6 +3,15 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
+## [0.5.1] — 2026-08-18
+
+### Fixed
+
+- Return `figma_connect` setup instructions and the access key as soon as the
+  daemon is ready instead of waiting 12 seconds for a plugin that cannot pair
+  until the MCP client displays that key. The detached daemon continues
+  listening and the plugin reconnects automatically after **Save & connect**.
+
 ## [0.5.0] — 2026-08-18
 
 Pairing note: development-plugin ids now use the `figma-bridge-mcp` product

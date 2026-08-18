@@ -18,7 +18,9 @@ const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
 // connected plugin adapters to the stable state dir and prints THAT path; only
 // if the copy fails does it fall back to the in-package path.
 function installPluginFiles() {
-  const dest = join(STATE_DIR, 'plugin');
+  // Test/packaging hook: keep integration tests out of the user's real state
+  // directory while exercising the exact connect command end to end.
+  const dest = process.env.PLUGIN_INSTALL_DIR || join(STATE_DIR, 'plugin');
   try {
     mkdirSync(dest, { recursive: true });
     for (const f of ['manifest.json', 'manifest.dev.json', 'code.js', 'ui.html']) {
@@ -284,7 +286,8 @@ program
   .command('connect')
   .description('Connect to Figma Desktop (Safe Mode — plugin bridge only)')
   .option('--safe', 'Accepted for compatibility; Safe Mode is the only mode')
-  .action(async (_options) => {
+  .option('--no-wait', 'Start the daemon and return without waiting for the Figma plugin')
+  .action(async (options) => {
     // Fun welcome message
     console.log(chalk.hex('#FF6B35')('\n  ✨ Hey designer! ') + chalk.white("Don't be afraid of the terminal!"));
     console.log(chalk.hex('#4ECDC4')('  🎨 Happy vibe coding!\n'));
@@ -336,6 +339,16 @@ program
     console.log(chalk.cyan('  → ') + chalk.white('Design mode: ') + chalk.yellow('Plugins → Development → Figma Bridge'));
     console.log(chalk.cyan('  → ') + chalk.white('Dev Mode: ') + chalk.yellow('Plugins → Development → Figma Bridge Dev Mode'));
     console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
+
+    // MCP clients cannot show the access key appended by the wrapper until
+    // this process exits. Waiting here creates a deadlock-shaped delay: the
+    // plugin is waiting for a key the user cannot see yet. The MCP path uses
+    // --no-wait, returns the key immediately, and leaves the detached daemon
+    // ready for the plugin's automatic reconnect loop.
+    if (options.wait === false) {
+      console.log(chalk.green('  ✓ Daemon ready — launch the plugin and paste the access key.\n'));
+      return;
+    }
 
     // Wait for the plugin to connect AND authenticate.
     const pluginSpinner = progress('Waiting for plugin connection...').start();

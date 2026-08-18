@@ -293,14 +293,14 @@ export async function runInProcessCommand(args, opts = {}, operation) {
  * Establish a connection in Safe Mode. Runs OUTSIDE the allowlist and always
  * forces --safe, so binary patching / Yolo mode cannot be triggered here.
  *
- * `connect --safe` prints its daemon-started + plugin-import instructions within
- * ~1-2s, then blocks up to 90s waiting for the plugin. Since the daemon is
- * spawned detached, we cap the wait at CONNECT_TIMEOUT_MS and return the
- * captured instructions — the daemon keeps running in the background.
+ * The MCP client cannot display the access key until this call returns, so it
+ * must never wait for the plugin that needs that key. `--no-wait` starts the
+ * detached daemon, refreshes the stable plugin files and returns immediately.
+ * CONNECT_TIMEOUT_MS remains a hard failure cap for daemon startup itself.
  * @returns {Promise<{stdout: string, stderr: string, code: number}>}
  */
 export async function ensureSafeConnect() {
-  const args = ["connect", "--safe"];
+  const args = ["connect", "--safe", "--no-wait"];
   const { cmd, argv } = buildArgv(args);
   const auditId = randomUUID();
   appendAudit({ id: auditId, ts: isoNow(), args });
@@ -318,12 +318,6 @@ export async function ensureSafeConnect() {
   } catch (err) {
     const stdout = err.stdout ?? "";
     const stderr = err.stderr ?? "";
-    // A timeout kill is the expected path: instructions were already printed
-    // and the detached daemon lives on. Surface stdout as success.
-    if (err.killed || err.signal === "SIGTERM") {
-      appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true });
-      return { stdout, stderr, code: 0 };
-    }
     const code = typeof err.code === "number" ? err.code : 1;
     appendAudit({
       id: auditId,
