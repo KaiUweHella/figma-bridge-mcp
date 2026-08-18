@@ -2,7 +2,7 @@
  * Node-id normalization — the tools accept exactly what a user has at hand:
  *  - canonical ids            "12:34", instance paths "I12:34;56:78"
  *  - URL-style dash ids       "12-34"           (what figma.com puts in ?node-id=)
- *  - full Figma URLs          "https://www.figma.com/design/<fileKey>/Name?node-id=12-34"
+ *  - full Figma URLs          "https://www.figma.com/design/PLACEHOLDERFILEKEY/FILE_NAME?node-id=12-34"
  *
  * Pure: returns { id, fileKey?, warning? } and never throws on odd input —
  * unparseable strings pass through unchanged so the plugin's own not-found

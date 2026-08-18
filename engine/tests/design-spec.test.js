@@ -271,7 +271,7 @@ describe('formatReuseDigest', () => {
     const lines = formatReuseDigest({ name: 'Button', reuse: { key: 'PLACEHOLDERCOMPONENTKEY', id: '10:5' } });
     const joined = lines.join('\n');
     assert.match(joined, /render <Instance key="PLACEHOLDERCOMPONENTKEY" id="10:5"\/>/);
-    assert.match(joined, /key 0a1b2c3d…/);
+    assert.match(joined, /key PLACEHOL…/);
     assert.match(joined, /node 10:5 \(this file\)/);
   });
   it('falls back to id alone, then to name, when no key was captured', () => {
