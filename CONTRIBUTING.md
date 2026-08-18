@@ -9,6 +9,19 @@ npm install
 npm test
 ```
 
+`npm install` also enables the repository's Git hooks. Before a commit, staged
+files are formatted, scanned for credentials/private identifiers, and tested.
+Before a push, every outgoing commit is scanned (including content added and
+removed again in a later commit) and the test suite runs once more. GitHub CI
+repeats the complete-history scan, so `--no-verify` is not a release bypass.
+
+Copy `.public-safety-denylist.example` to `.public-safety-denylist` and add one
+private client name, project codename, Figma file name or internal identifier
+per line. The real file is gitignored; matching is literal and
+case-insensitive. `npm run check:public-safety:history` performs the same full
+audit manually. Findings show only category and location, never the matched
+value.
+
 Point your MCP client at the checkout:
 
 ```json
@@ -44,10 +57,10 @@ change that crosses one will not be merged without a very good argument:
 - **The manifest stays loopback-only.** `networkAccess.allowedDomains` must
   never gain a non-localhost entry. `tests/plugin-sync.test.js` enforces this.
 - **New command groups default to gated.** `src/server.js` treats an unlisted
-  group as a *write*. If you add one, enumerate its read subcommands explicitly
+  group as a _write_. If you add one, enumerate its read subcommands explicitly
   rather than widening the read side.
 - **No bundled design systems.** No shadcn, Tailwind, Radix or icon-pack
-  generators. Importing from the *user's* own files is the supported path.
+  generators. Importing from the _user's_ own files is the supported path.
 - **Nothing new talks to the network.** The permitted exceptions are listed in
   the README and in `SECURITY.md`.
 

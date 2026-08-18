@@ -57,10 +57,15 @@
     "check:release": "node scripts/sync-release-version.js --check",
     "check:workflow-evals": "node scripts/validate-workflow-evals.js",
     "check:architecture-latency": "node scripts/check-architecture-latency.js",
+    "check:public-safety": "node scripts/check-public-safety.js",
+    "check:public-safety:staged": "node scripts/check-public-safety.js --staged",
+    "check:public-safety:history": "node scripts/check-public-safety.js --history",
+    "check:public-safety:push": "node scripts/check-public-safety.js --pre-push",
     "measure:architecture": "node scripts/measure-architecture-budgets.js",
     "sync:release-version": "node scripts/sync-release-version.js",
     "test": "npm run check:contracts && npm run check:release && npm run check:workflow-evals && node --test",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm run check:public-safety && npm test",
+    "prepare": "husky"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -86,6 +91,9 @@
   "devDependencies": {
     "@figma/plugin-typings": "^1.133.0",
     "@types/node": "^22.20.1",
+    "husky": "9.1.7",
+    "lint-staged": "15.5.2",
+    "prettier": "3.9.6",
     "typescript": "^5.9.3"
   }
 }

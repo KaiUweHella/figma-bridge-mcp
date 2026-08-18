@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -33,6 +34,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: node -e "const expected='v'+require('./package.json').version;if(process.env.RELEASE_TAG!==expected){throw new Error('tag '+process.env.RELEASE_TAG+' does not match '+expected)}"
       - run: npm ci
+      - run: npm run check:public-safety:history
       - run: npm test
       - run: npm run check:audit
       # Trusted Publishing creates provenance automatically. No long-lived
