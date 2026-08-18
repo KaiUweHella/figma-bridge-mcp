@@ -84,7 +84,7 @@
   "author": "Kai-Uwe Hella",
   "license": "MIT",
   "devDependencies": {
-    "@figma/plugin-typings": "^1.133.0",
+    "@figma/plugin-typings": "^1.134.0",
     "@types/node": "^22.20.1",
     "typescript": "^5.9.3"
   }
