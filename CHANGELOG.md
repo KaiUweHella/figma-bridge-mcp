@@ -5,6 +5,14 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## [0.5.1] — 2026-08-18
 
+### Added
+
+- Added layered public-release guards: staged-file scanning before commits,
+  outgoing-commit scanning before pushes, complete-history checks in CI and
+  releases, and a gitignored local denylist for private client/project names.
+  Findings redact the matched value and real Figma file URLs are rejected in
+  favor of explicit placeholders.
+
 ### Fixed
 
 - Return `figma_connect` setup instructions and the access key as soon as the
@@ -310,8 +318,8 @@ the plugin window. The panel will tell you if you forget.
   repoint every variable binding at the same-named variable in a target
   collection. Plans by default, writes under `--apply`; tokens with no
   counterpart in the target are listed and left alone. Where `tokens sync`
-  changes what a token *is worth*, this changes *which collection a design
-  follows*.
+  changes what a token _is worth_, this changes _which collection a design
+  follows_.
 - **`kit init`** — one command that makes an existing design system
   agent-ready: DESIGN.md, DTCG tokens, a component inventory with stable
   publish keys, and the Figma↔Storybook mapping. It orchestrates commands that
@@ -319,14 +327,14 @@ the plugin window. The panel will tell you if you forget.
   result means. The report ends with what is still missing, because a setup
   that quietly lacks the Storybook mapping looks finished until an agent needs
   it. This is the project's answer to bundled design systems — it stays neutral
-  and makes *your* system legible instead.
+  and makes _your_ system legible instead.
 - **Several Figma windows at once.** The daemon now keeps one connection per
   window in which the plugin was started, instead of letting the newest
   displace all others. With one window nothing changes; with several, a command
   must name its file (`--file <key>`, or `fileKey` on `figma_run`) and gets the
   list of connected files if it does not. There is no "all files" option —
   every write names one file, so a mistaken command cannot fan out across a
-  library. Two windows on the *same* file still supersede each other. Audit
+  library. Two windows on the _same_ file still supersede each other. Audit
   entries carry the file key.
 - **FigJam is back**, as the `jam` command group — stickies (single and
   batched), shapes, connectors, tables, sections, code blocks, a board readout
@@ -386,7 +394,7 @@ the plugin window. The panel will tell you if you forget.
   over the same plugin bridge as everything else. `styles` and `inspect` are
   reads; the rest is gated by `FIGMA_WRITE_CONFIRM`.
 - `SECURITY.md` — threat model, guarantees, and an explicit list of what the
-  design does *not* protect against.
+  design does _not_ protect against.
 - CI across macOS, Linux and Windows on Node 18/20/22, plus a job that verifies
   the published tarball actually contains the plugin and engine.
 - `tests/plugin-handshake.test.js` runs the panel's own SHA-256/HMAC against

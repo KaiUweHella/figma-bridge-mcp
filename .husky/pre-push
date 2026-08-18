@@ -1,0 +1,2 @@
+npm run check:public-safety:push -- "$1"
+npm test

@@ -19,3 +19,6 @@
 ## Security and compatibility
 
 <!-- Note write effects, migration/breaking behavior, credentials, and API limits. -->
+
+- [ ] `npm run check:public-safety:history` passes and private names in my local
+      `.public-safety-denylist` are absent.

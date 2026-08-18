@@ -1,0 +1,8 @@
+# Copy this file to .public-safety-denylist. The real file is gitignored.
+# Add one private client name, project codename, file name or identifier per
+# line. Matching is literal and case-insensitive. Keep the real terms out of
+# this example because this file is public. Replace the commented examples
+# below with your actual private terms after copying the file.
+
+# your-private-project-name
+# your-private-client-identifier

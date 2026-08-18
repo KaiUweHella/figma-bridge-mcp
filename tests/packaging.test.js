@@ -149,7 +149,11 @@ test("package identity: name, bin, repository, prepublish test gate", () => {
     "git+https://github.com/KaiUweHella/figma-bridge-mcp.git",
     "npm provenance requires the canonical repository URL",
   );
-  assert.equal(pkg.scripts.prepublishOnly, "npm test", "publishing must run the suite");
+  assert.equal(
+    pkg.scripts.prepublishOnly,
+    "npm run check:public-safety && npm test",
+    "publishing must scan public material before running the suite",
+  );
   assert.equal(pkg.publishConfig.access, "public");
   assert.equal(pkg.publishConfig.registry, "https://registry.npmjs.org/");
   assert.equal(pkg.main, undefined, "the executable package must not claim a library entry point");
