@@ -747,7 +747,7 @@ test('specLines notes depth-truncated children explicitly', () => {
   assert.match(lines.join('\n'), /…5 more \(depth limit/);
 });
 
-// ============ acceptance: the test missing-decor bug class ============
+// ============ acceptance: the missing-decor bug class ============
 // End-to-end walker → formatter over a fixture modeled on the reported
 // nodes: gradient overlay rectangle, deco wave vector, nav glyph, bubble
 // shape, clipped card frame. NONE of these may vanish from the spec.

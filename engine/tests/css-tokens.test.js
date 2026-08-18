@@ -1,5 +1,5 @@
 // `export css` output hygiene (IMPROVEMENTS #7). Fixtures are the literal
-// broken outputs from the test run — each one must now come out valid.
+// broken outputs found during acceptance testing — each one must now come out valid.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cssName, mapFontWeight, fontSource, formatCssTokens } from '../src/lib/css-tokens.js';
@@ -18,14 +18,14 @@ test('mapFontWeight maps the word scale to numbers, passes unknowns through', ()
   assert.equal(mapFontWeight('condensed'), 'condensed');
 });
 
-test('fontSource knows the test fonts', () => {
+test('fontSource knows the acceptance-fixture fonts', () => {
   assert.equal(fontSource('Clash Grotesk'), 'Fontshare');
   assert.match(fontSource('Geist'), /Vercel/);
   assert.equal(fontSource('Inter'), 'Google Fonts');
   assert.equal(fontSource('Obscure Corp Font'), null);
 });
 
-test('formatCssTokens: every test failure case produces valid CSS', () => {
+test('formatCssTokens: every acceptance failure case produces valid CSS', () => {
   const out = formatCssTokens([
     { name: 'color/on primary', type: 'COLOR', value: '#080713' },
     { name: 'fonts/fontweight/default', type: 'STRING', value: 'regular' },

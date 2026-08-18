@@ -852,8 +852,9 @@ the active font.
 
 `tokens rebind` is the theme switch: it walks a subtree and repoints every
 binding at the same-named variable in a target collection. Design a card
-against `SOURCE_COLLECTION`, run rebind with `TARGET_COLLECTION`, and the same card follows
-TARGET_COLLECTION values — no redesign. It plans by default; `--apply` writes. Tokens
+against `SOURCE_COLLECTION`, run rebind with `TARGET_COLLECTION`, and the same card
+follows the demo collection's values — no redesign. It plans by default;
+`--apply` writes. Tokens
 with no counterpart in the target are listed and left pointing where they were,
 so a partial theme is a report rather than a half-broken design.
 

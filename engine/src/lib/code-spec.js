@@ -221,7 +221,7 @@ export function layoutSeg(node, { detail }) {
 export function paintSeg(node, opts = {}) {
   const parts = [];
   if (node.fills) {
-    // A bare "IMAGE" was a dead end (the test run fell back to screenshot
+    // A bare "IMAGE" was a dead end (the acceptance run fell back to screenshot
     // cropping). Point at the file `export assets` will write. Fresh captures
     // carry the hash-derived canonical filename; the ancestor-name path stays
     // only as backwards-compatible fallback for older/raw capture objects.
@@ -1235,7 +1235,7 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
     out.push('', '_`↻ ×N more` siblings match the prior structure; `{…}` contains only differing props/text/variants. Build them as a loop._');
   }
   if (phase === 'structure') {
-    // The test run showed what happens without this nudge: the agent built
+      // The acceptance run showed what happens without this nudge: the agent built
     // from structure alone and guessed every color, font and radius.
     out.push('', '_This output has NO styles: pull `--phase style` (or `all`) for exact colors/fonts/radii; never estimate._');
   }

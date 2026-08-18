@@ -16,11 +16,12 @@ The `engine/` directory began in July 2026 as a vendored copy of:
     License:  MIT — retained in full at engine/LICENSE
 
 It has since diverged, and is maintained as part of this project under its
-own name (`figma-bridge-engine`) and its own version. Of the files vendored
-at 2.1.0, four are still byte-identical: `code-import/css.js`,
-`code-import/w3c-tokens.js`, `lib/design-md-locate.js`, `lib/motion-core.js`.
-Everything else was rewritten, replaced, or removed. No byte-level parity
-with upstream is maintained, and no upstream re-sync is planned.
+own name (`figma-bridge-engine`) and its own version. Against the upstream
+v2.1.0 tag, two files are still byte-identical: `code-import/css.js` and
+`code-import/w3c-tokens.js`. `lib/design-md-locate.js` has diverged, and
+`lib/motion-core.js` is not present in that upstream tag. Everything else was
+rewritten, replaced, added, or removed. No byte-level parity with upstream is
+maintained, and no upstream re-sync is planned.
 
 Substantive changes relative to 2.1.0:
 

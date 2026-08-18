@@ -4,7 +4,7 @@
  * (hex string for COLOR, number for FLOAT, raw for STRING/BOOLEAN,
  * null when the alias points outside the file).
  *
- * Fixes the three output bugs from the test run (IMPROVEMENTS #7):
+ * Fixes three output bugs found during acceptance testing (IMPROVEMENTS #7):
  * names with spaces ("--color-on primary"), word font-weights ("regular"),
  * and float noise ("1.1699999570846558px").
  */
