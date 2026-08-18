@@ -79,9 +79,9 @@ CDP, binary patching, or undocumented/private calls.
 
 Slides can lose the beta label only when all of the following are true:
 
-1. Every public command has deterministic unit/contract coverage and a live
-   Figma Desktop acceptance record in `live-acceptance.md`. This is satisfied
-   for the current beta surface as of 2026-08-10 and must stay current.
+1. Every public command has deterministic unit/contract coverage and a
+   maintainer-only Figma Desktop acceptance record. This is satisfied for the
+   current beta surface as of 2026-08-10 and must stay current.
 2. The surface has been exercised on a fresh deck and a populated deck without
    moving or deleting unrelated slides.
 3. Readback proves every mutation, including coordinates, transition timing and

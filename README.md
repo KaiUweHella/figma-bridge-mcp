@@ -711,9 +711,8 @@ figma file, not a FigJam board" rather than failing on an undefined API.
 `jam arrange` is deliberately selection-scoped. Agents can pass exact node ids
 without changing the user's selection; rearranging the whole page requires the
 visible `--all` flag. Sections and connectors are never moved by this command.
-The public surface was exercised in Figma Desktop on 2026-08-10; the commands,
-readback evidence and runtime font fix are recorded in
-[`docs/live-acceptance.md`](docs/live-acceptance.md).
+The public surface was exercised in Figma Desktop on 2026-08-10. Maintainers
+keep the detailed command and readback evidence outside the public repository.
 
 ## Figma Slides beta
 
@@ -739,8 +738,8 @@ reference, and duplicate/move refuse a nonexistent target row rather than
 accepting Figma's fallback placement. Every operation checks
 `figma.editorType === "slides"` before touching a Slides-only API. The open
 candidates and the criteria for leaving beta live in
-[`docs/slides-roadmap.md`](docs/slides-roadmap.md); editor acceptance is tracked
-in [`docs/live-acceptance.md`](docs/live-acceptance.md).
+[`docs/slides-roadmap.md`](docs/slides-roadmap.md); editor acceptance is
+maintainer-verified separately from the public repository.
 
 ## Token sync (two-way)
 
@@ -1306,9 +1305,8 @@ npm test                      # all contracts and regression suites
 The current domain language lives in [`CONTEXT.md`](CONTEXT.md), accepted
 architectural decisions in [`docs/adr/`](docs/adr/), API coverage in
 [`docs/figma-plugin-api-coverage.md`](docs/figma-plugin-api-coverage.md), and
-release instructions in [`docs/releasing.md`](docs/releasing.md). The maintained
-cross-area backlog and official-API watchlist live in
-[`docs/future-work.md`](docs/future-work.md).
+release instructions in [`docs/releasing.md`](docs/releasing.md). The public
+documentation index is [`docs/README.md`](docs/README.md).
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
 back within 3456–3460 when 3456 is taken, so both *can* coexist, but the plugin

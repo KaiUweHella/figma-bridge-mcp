@@ -9,4 +9,4 @@ node_modules/
 # downloaded by figma_run ["api","setup"] (offline API docs; machine-local)
 engine/docs/
 # local working docs (plans, reports, scratch)
-docu/
+docs-local/
