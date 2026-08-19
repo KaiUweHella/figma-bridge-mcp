@@ -1,6 +1,6 @@
 {
   "name": "figma-bridge-mcp",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local MCP server for inspecting and editing Figma Desktop through an authenticated localhost plugin bridge.",
   "type": "module",
   "bin": {

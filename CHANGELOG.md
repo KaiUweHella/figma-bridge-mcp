@@ -3,7 +3,7 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
-## [Unreleased]
+## [0.5.2] — 2026-08-19
 
 ### Added
 

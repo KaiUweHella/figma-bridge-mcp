@@ -2,10 +2,7 @@
   "mcpServers": {
     "figma-bridge": {
       "command": "npx",
-      "args": [
-        "-y",
-        "figma-bridge-mcp@0.5.1"
-      ]
+      "args": ["-y", "figma-bridge-mcp@0.5.2"]
     }
   }
 }
