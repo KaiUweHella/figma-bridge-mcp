@@ -42,6 +42,7 @@ import {
 import { STATE_DIR } from './lib/state-dir.js';
 import { getPortPid } from './platform.js';
 import { validateExecPayload, validatePluginMessage } from './lib/protocol-contract.js';
+import { PLUGIN_BUILD_VERSION, pluginUpdateAvailable } from './lib/plugin-version.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -228,7 +229,7 @@ resetIdleTimer();
 // File identity arrives with the first selection push (the plugin sends one
 // immediately on connect) — the handshake itself carries no file information,
 // and adding it there would mean signing data the transcript does not cover.
-const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, capabilities, selection, connectedAt, lastResponseAt }
+const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, capabilities, pluginVersion, pluginUpdateAvailable, selection, connectedAt, lastResponseAt }
 let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
 
@@ -248,6 +249,8 @@ function connectionList() {
     fileName: c.fileName ?? null,
     editorType: c.editorType ?? null,
     capabilities: c.capabilities || [],
+    pluginVersion: c.pluginVersion ?? null,
+    pluginUpdateAvailable: c.pluginUpdateAvailable === true,
     connectedAt: c.connectedAt,
     lastResponseAt: c.lastResponseAt ?? null,
   }));
@@ -671,6 +674,7 @@ function handlePluginSocket(ws) {
         return reject('invalid-key', 'Bad or reused handshake nonce');
       }
       const version = String(msg.version || 'unknown');
+      const updateAvailable = pluginUpdateAvailable(version);
       const expected = pluginTranscript({
         daemonNonce,
         pluginNonce: msg.nonce,
@@ -691,6 +695,8 @@ function handlePluginSocket(ws) {
         fileKey: null, fileName: null, editorType: null,
         capabilities: Array.isArray(msg.capabilities)
           ? msg.capabilities.filter((item) => ['render-plan-v1', 'render-plan-batch-v1'].includes(item)) : [],
+        pluginVersion: version,
+        pluginUpdateAvailable: updateAvailable,
         selection: null, connectedAt: new Date().toISOString(), lastResponseAt: null,
       });
       console.log(`[daemon] Plugin authenticated (version: ${version}) — ${openConns().length} window(s) connected`);
@@ -705,6 +711,9 @@ function handlePluginSocket(ws) {
             port: boundPort,
           })),
           restTokenConfigured: restTokenConfigured(),
+          pluginVersion: version,
+          bundledPluginVersion: PLUGIN_BUILD_VERSION,
+          pluginUpdateAvailable: updateAvailable,
         }));
       } catch {}
       return;

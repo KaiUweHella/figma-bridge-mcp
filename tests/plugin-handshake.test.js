@@ -254,3 +254,24 @@ test('plugin reconnect delay stays responsive after daemon-unreachable state', (
   assert.ok(reconnect.reconnectDelay(1) <= 150, 'initial retries should be near-immediate');
   assert.ok(reconnect.reconnectDelay(4) <= 500, 'background reconnect should detect a returning daemon within 500ms');
 });
+
+test('manual reconnect stays visible and restarts the whole connection state', () => {
+  assert.match(
+    UI,
+    /<button id="reconnectBtn" class="icon" type="button" aria-label="Reconnect now" title="Reconnect now">/,
+    'the user must always have an immediate reconnect action',
+  );
+  const statusCard = UI.slice(UI.indexOf('<div class="card">'), UI.indexOf('<div id="selInfo">'));
+  assert.match(statusCard, /id="reconnectBtn"/, 'manual reconnect belongs in the connection status card');
+  assert.match(statusCard, /<svg[\s\S]*?<path d="M481\.54-180/, 'the supplied reload icon must remain embedded');
+
+  const start = UI.indexOf('function forceReconnect()');
+  const end = UI.indexOf('// ============ Selection display', start);
+  assert.ok(start > 0, 'forceReconnect() not found in ui.html');
+  assert.ok(end > start, 'selection marker not found after forceReconnect()');
+  const source = UI.slice(start, end);
+  assert.match(source, /teardown\(\)/, 'manual reconnect must cancel an open socket and in-flight scan');
+  assert.match(source, /failedScans\s*=\s*0/, 'manual reconnect must restore the fast retry state');
+  assert.match(source, /connectParallel\(\)/, 'manual reconnect must scan immediately');
+  assert.match(source, /reconnectBtn\.onclick\s*=\s*forceReconnect/);
+});

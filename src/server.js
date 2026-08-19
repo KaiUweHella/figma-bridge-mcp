@@ -1120,6 +1120,13 @@ export async function handleTool(name, rawArgs) {
       // target different editors, and "it just failed" is much easier to act
       // on when the agent can see which kind of file it is talking to.
       const conns = Array.isArray(raw.connections) ? raw.connections : [];
+      const stalePlugins = conns.filter((connection) => connection.pluginUpdateAvailable === true);
+      for (const connection of stalePlugins) {
+        lines.push(
+          `plugin update required: Figma is running cached build ${connection.pluginVersion || "unknown"}. `
+          + "Re-import ~/.figma-bridge-mcp/plugin/manifest.json in Figma Desktop, then reopen Figma Bridge.",
+        );
+      }
       if (conns.length > 1) {
         lines.push(`${conns.length} Figma windows connected — pass fileKey to figma_run to pick one:`);
         for (const c of conns) {

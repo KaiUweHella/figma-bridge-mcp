@@ -75,6 +75,7 @@
       border-radius: var(--r-card);
       padding: 10px;
     }
+    .status-copy { flex: 1; min-width: 0; }
     .dot {
       width: 8px; height: 8px; border-radius: 50%; flex: none;
       background: var(--faint); margin-top: 4px;
@@ -108,6 +109,13 @@
       line-height: 1.4; max-height: 4.2em; overflow-y: auto;
     }
     #lastError.show { display: block; }
+    #pluginUpdate {
+      display: none; font-size: var(--fs-meta); color: var(--warn);
+      background: color-mix(in oklab, var(--warn) 12%, var(--surface));
+      border: 1px solid color-mix(in oklab, var(--warn) 35%, transparent);
+      border-radius: var(--r-ctl); padding: 7px 8px; word-break: break-word;
+    }
+    #pluginUpdate.show { display: block; }
 
     /* --- Controls ------------------------------------------------------- */
     button {
@@ -133,6 +141,13 @@
     button.ghost { background: none; border-color: transparent; color: var(--dim); }
     button.ghost:hover { background: var(--raised); color: var(--text); }
     button.wide { width: 100%; }
+    button.icon {
+      width: 28px; height: 28px; flex: none; align-self: center;
+      display: grid; place-items: center; padding: 5px;
+      border-color: transparent; background: transparent; color: var(--dim);
+    }
+    button.icon:hover { background: var(--raised); color: var(--text); }
+    button.icon svg { width: 18px; height: 18px; display: block; fill: currentColor; }
 
     /* --- Disclosure sections -------------------------------------------- */
     .section { display: flex; flex-direction: column; gap: 8px; }
@@ -202,14 +217,20 @@
        Status and its explanation live together, announced as one region. -->
   <div class="card">
     <span id="dot" class="dot connecting" aria-hidden="true"></span>
-    <div role="status" aria-live="polite">
+    <div class="status-copy" role="status" aria-live="polite">
       <div id="status">Starting…</div>
       <div id="hint" class="hint">Keep this window open while working.</div>
     </div>
+    <button id="reconnectBtn" class="icon" type="button" aria-label="Reconnect now" title="Reconnect now">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true" focusable="false">
+        <path d="M481.54-180q-125.63 0-212.81-87.17-87.19-87.17-87.19-212.77 0-125.6 87.19-212.83Q355.91-780 481.54-780q70.15 0 132.77 31.19 62.61 31.2 104.15 88.04V-750q0-12.75 8.63-21.37 8.63-8.63 21.38-8.63 12.76 0 21.37 8.63 8.62 8.62 8.62 21.37v178.46q0 15.37-10.39 25.76-10.4 10.39-25.76 10.39H563.85q-12.75 0-21.38-8.62-8.62-8.63-8.62-21.39 0-12.75 8.62-21.37 8.63-8.61 21.38-8.61h128q-31.62-57.93-87.7-91.27Q548.08-720 481.54-720q-100 0-170 70t-70 170q0 100 70 170t170 70q69.73 0 127.67-36.62 57.94-36.61 87.79-97.69 5.69-10.92 16.73-15.27 11.04-4.34 22.5-.5 12.23 3.85 17.12 16 4.88 12.16-.81 23.08-37.16 77.69-109.7 124.34Q570.3-180 481.54-180Z"/>
+      </svg>
+    </button>
   </div>
 
   <div id="selInfo"></div>
   <div id="lastError" role="alert"></div>
+  <div id="pluginUpdate" role="alert"></div>
 
   <div class="actions">
     <button id="pauseBtn" type="button">Pause agent</button>
@@ -249,8 +270,6 @@
     </div>
   </section>
 
-  <button id="reconnectBtn" class="wide" type="button" hidden>Reconnect this window</button>
-
   <script>
     // ============ Handshake crypto ============
     // The daemon and this panel authenticate each other with HMAC-SHA256 over a
@@ -266,7 +285,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v2';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bumped to 3 with the challenge-response handshake.
-    const PLUGIN_VERSION = '3.0.0';
+    const PLUGIN_VERSION = '3.1.0';
 
     const SHA_K = new Uint32Array([
       0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -402,6 +421,7 @@
     const logBtn = document.getElementById('logBtn');
     const statsEl = document.getElementById('stats');
     const lastErrorEl = document.getElementById('lastError');
+    const pluginUpdateEl = document.getElementById('pluginUpdate');
     const logEl = document.getElementById('log');
 
     // Daemon-unreachable detection: endless "Scanning…" tells the user
@@ -418,8 +438,16 @@
       dotEl.className = 'dot ' + state;
     }
     function setConnMeta() {
-      if (!connectedPort) { connMetaEl.textContent = ''; return; }
-      connMetaEl.textContent = ':' + connectedPort + (latencyMs !== null ? ' · ' + latencyMs + 'ms' : '');
+      connMetaEl.textContent = 'v' + PLUGIN_VERSION
+        + (connectedPort ? ' · :' + connectedPort + (latencyMs !== null ? ' · ' + latencyMs + 'ms' : '') : '');
+    }
+    function showPluginUpdate(message) {
+      const current = message.pluginVersion || PLUGIN_VERSION;
+      const bundled = message.bundledPluginVersion || 'newer';
+      pluginUpdateEl.textContent = 'Plugin update available (' + current + ' → ' + bundled
+        + '). In Figma, re-import ~/.figma-bridge-mcp/plugin/manifest.json to replace the cached build.';
+      pluginUpdateEl.classList.add('show');
+      syncSize();
     }
     // The panel is a fixed iframe, so every disclosure has to buy its own
     // room — otherwise an opened section is clipped with no way to scroll to
@@ -578,18 +606,25 @@
       setStatus('Another Figma window took over', 'error');
       hintEl.textContent = 'This window no longer receives agent commands. Use "Reconnect this window" to take back over.';
       hintEl.classList.add('warn');
-      reconnectBtn.hidden = false;
+      reconnectBtn.setAttribute('aria-label', 'Reconnect this window');
+      reconnectBtn.title = 'Reconnect this window';
       syncSize();
       parent.postMessage({ pluginMessage: { type: 'superseded' } }, '*');
     }
-    reconnectBtn.onclick = () => {
+    function forceReconnect() {
       superseded = false;
-      reconnectBtn.hidden = true;
-      syncSize();
-      hintEl.textContent = DEFAULT_HINT;
+      teardown();
+      failedScans = 0;
+      unreachableNotified = false;
+      reconnectBtn.setAttribute('aria-label', 'Reconnect now');
+      reconnectBtn.title = 'Reconnect now';
+      setStatus('Reconnecting…', 'connecting');
+      hintEl.textContent = 'Scanning every local bridge port now.';
       hintEl.classList.remove('warn');
       connectParallel();
-    };
+      syncSize();
+    }
+    reconnectBtn.onclick = forceReconnect;
 
     // ============ Selection display (feature C) ============
     // Selection changes arrive automatically from code.js (debounced
@@ -807,7 +842,8 @@
           ws = socket;
           authed = false;
           superseded = false;
-          reconnectBtn.hidden = true;
+          reconnectBtn.setAttribute('aria-label', 'Reconnect now');
+          reconnectBtn.title = 'Reconnect now';
           failedScans = 0;
           unreachableNotified = false;
           connectedPort = port;
@@ -831,8 +867,8 @@
           clearTimeout(reconnectTimer);
           failedScans++;
           if (failedScans >= UNREACHABLE_AFTER_SCANS) {
-            setStatus('Daemon not reachable', 'error');
-            hintEl.textContent = 'Start it from Claude with figma_connect. Reconnects automatically.';
+            setStatus('Waiting for MCP…', 'connecting');
+            hintEl.textContent = 'Start figma_connect in your AI app. Still retrying automatically; Reconnect now forces an immediate scan.';
             if (!unreachableNotified) {
               unreachableNotified = true;
               parent.postMessage({ pluginMessage: { type: 'daemon-unreachable' } }, '*');
@@ -939,6 +975,7 @@
 
         authed = true;
         okCount = 0; errCount = 0; renderStats();
+        if (msg.pluginUpdateAvailable) showPluginUpdate(msg);
         setStatus(paused ? 'Paused' : 'Connected', paused ? 'paused' : 'connected');
         hintEl.textContent = paused
           ? 'Agent commands are being rejected. Press Resume to continue.'
@@ -1109,6 +1146,7 @@
     // reachable now, connected or not), then fetch the key and connect.
     syncSize();
     renderRestStatus();
+    setConnMeta();
     requestKey();
   </script>
 </body>

@@ -3,6 +3,23 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
+## [Unreleased]
+
+### Added
+
+- Added an always-visible reload action in the Figma plugin status card. It
+  cancels stale sockets and scans, restores the fast retry state, and probes
+  every local bridge port immediately while the background reconnect remains
+  active.
+- Added a Figma-plugin build handshake. `figma_status` now distinguishes an
+  outdated Figma application cache from daemon, key, and port failures and
+  tells the user to re-import the stable local manifest path.
+
+### Changed
+
+- Replaced the terminal-looking "Daemon not reachable" state with an honest
+  animated "Waiting for MCP" state that says automatic retries are continuing.
+
 ## [0.5.1] — 2026-08-18
 
 ### Added

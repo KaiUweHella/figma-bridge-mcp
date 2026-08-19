@@ -22,6 +22,7 @@ import {
   sign as signHandshake,
   verify as verifyHandshake,
 } from '../engine/src/lib/plugin-handshake.js';
+import { PLUGIN_BUILD_VERSION } from '../engine/src/lib/plugin-version.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -67,7 +68,7 @@ function openWs(origin) {
   return new WebSocket(`ws://127.0.0.1:${PORT}/plugin`, opts);
 }
 
-const PLUGIN_VERSION = 't';
+const PLUGIN_VERSION = PLUGIN_BUILD_VERSION;
 
 /**
  * Play the plugin's side of the proto-2 handshake: wait for the daemon's
@@ -75,7 +76,12 @@ const PLUGIN_VERSION = 't';
  * `mutate` gets the outgoing hello and may sabotage any field — that is how the
  * negative tests below forge protos, nonces, ports and proofs.
  */
-function handshake(ws, { mutate = (h) => h, key = KEY, timeoutMs = 3000 } = {}) {
+function handshake(ws, {
+  mutate = (h) => h,
+  key = KEY,
+  timeoutMs = 3000,
+  version = PLUGIN_VERSION,
+} = {}) {
   return new Promise((resolve, reject) => {
     const seen = [];
     let challenge = null;
@@ -89,14 +95,14 @@ function handshake(ws, { mutate = (h) => h, key = KEY, timeoutMs = 3000 } = {}) 
         const hello = {
           type: 'hello',
           proto: HANDSHAKE_PROTO,
-          version: PLUGIN_VERSION,
+          version,
           capabilities: ['render-plan-v1', 'render-plan-batch-v1'],
           nonce: pluginNonce,
           proof: signHandshake(key, pluginTranscript({
             daemonNonce: m.nonce,
             pluginNonce,
             port: m.port,
-            version: PLUGIN_VERSION,
+            version,
           })),
         };
         ws.send(JSON.stringify(mutate(hello, m)));
@@ -260,12 +266,31 @@ test('WS challenge-response authenticates and the daemon proves itself back', as
     }), ack.proof),
     'daemon proof must verify under the shared key',
   );
+  assert.equal(ack.bundledPluginVersion, PLUGIN_BUILD_VERSION);
+  assert.equal(ack.pluginVersion, PLUGIN_BUILD_VERSION);
+  assert.equal(ack.pluginUpdateAvailable, false);
 
   // /health now reports an authenticated plugin.
   const res = await httpHealth(auth('GET', '/health'));
   const body = await res.json();
   assert.equal(body.plugin, true);
   assert.equal(body.pluginAuthenticated, true);
+  assert.equal(body.connections[0].pluginVersion, PLUGIN_BUILD_VERSION);
+  assert.equal(body.connections[0].pluginUpdateAvailable, false);
+  ws.close();
+});
+
+test('the handshake exposes a cached older Figma plugin build', async () => {
+  const ws = openWs();
+  const { ack } = await handshake(ws, { version: '3.0.0' });
+  assert.equal(ack.pluginVersion, '3.0.0');
+  assert.equal(ack.bundledPluginVersion, PLUGIN_BUILD_VERSION);
+  assert.equal(ack.pluginUpdateAvailable, true);
+
+  const body = await (await httpHealth(auth('GET', '/health'))).json();
+  const connection = body.connections.find((item) => item.pluginVersion === '3.0.0');
+  assert.ok(connection, 'health must expose the imported plugin build');
+  assert.equal(connection.pluginUpdateAvailable, true);
   ws.close();
 });
 
