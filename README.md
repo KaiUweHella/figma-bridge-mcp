@@ -24,11 +24,11 @@ all three clients:
 - `figma-bridge-code-to-figma` — semantic, componentized screens from code;
 - `figma-bridge-component-library` — tokens, styles, components, variants and properties.
 
-| Client | Plugin format | Full install path |
-| --- | --- | --- |
-| Codex / ChatGPT | `.codex-plugin/plugin.json` | This repository's Codex marketplace |
-| Claude Code | `.claude-plugin/plugin.json` | This repository's Claude marketplace |
-| Cursor | Agent Plugins 1.0 (`plugin.json`) | GitHub-backed team marketplace or local checkout |
+| Client          | Plugin format                     | Full install path                                |
+| --------------- | --------------------------------- | ------------------------------------------------ |
+| Codex / ChatGPT | `.codex-plugin/plugin.json`       | This repository's Codex marketplace              |
+| Claude Code     | `.claude-plugin/plugin.json`      | This repository's Claude marketplace             |
+| Cursor          | Agent Plugins 1.0 (`plugin.json`) | GitHub-backed team marketplace or local checkout |
 
 The adapters all discover the same `skills/` directory and start the same local
 MCP package. Users do **not** download or maintain the skills separately.
@@ -142,6 +142,13 @@ npm install
    with that Figma file. The pairing is remembered; on later sessions, only
    reopen the plugin in the file you want to use.
 
+The plugin keeps looking for the local bridge if it was opened first. Use the
+reload icon in its connection status card to scan immediately. After an npm
+upgrade, `figma_connect` refreshes the files at the stable path above, but Figma
+may keep the previously imported build in its application cache. `figma_status`
+detects that mismatch. Re-import the same `manifest.json` path once when it
+reports an older plugin build; the saved access key is retained.
+
 Figma Dev Mode needs separate adapters because Figma does not support combining
 the existing FigJam editor target with `dev` in one manifest:
 
@@ -220,8 +227,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   plugin markers themselves never count as visual changes.
 - A **Design Contract** turns one linked Design Entity's complete Design
   Capture into a deterministic repository gate. Run `figma_run ["contract",
-  "capture","ui.button"]` once and review the JSON; later `figma_run
-  ["contract","check","ui.button"]` reports canonical drift and separately
+"capture","ui.button"]` once and review the JSON; later `figma_run
+["contract","check","ui.button"]` reports canonical drift and separately
   enforces variant matrices, token-binding floors, geometry tolerances and
   prototype transitions. Volatile Figma handles are ignored and depth-limited
   captures are refused.
@@ -248,26 +255,26 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   - **The plugin WebSocket** (`/plugin`) requires the **access key**: an
     `Origin`/`Host` allowlist plus a **mutual challenge-response handshake** in
     which the key is only ever an HMAC secret and never crosses the wire either.
-    This closes the upstream gap where *any* local process could connect to the
+    This closes the upstream gap where _any_ local process could connect to the
     plugin socket and run code in your Figma document — and the inverse gap,
     where anything answering on a local port could drive an honest plugin.
 
 ## Tools
 
-| Tool | Purpose |
-|------|---------|
-| `figma_connect` | Start Safe Mode, generate/show the access key, print plugin setup steps. |
-| `figma_status` | Report local daemon/plugin/file/key state immediately; `validateRest:true` explicitly checks the optional REST token. |
-| `figma_pairing` | Show the access key; `{rotate:true}` generates a fresh one. |
-| `figma_run` | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`. |
-| `figma_render` | Render JSX into the open Figma design. |
-| `figma_inspect` | Inspect a node by id: geometry, fills/strokes/effects, clip, opacity (YAML). |
-| `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned). |
-| `figma_spec` | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases. |
-| `figma_reference` | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists the generated command index without starting the engine. |
-| `figma_history` | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural diff of the document itself (added/removed/replaced/moved/changed). `figma_run`/`figma_render` accept a `label` to annotate entries. |
-| `figma_selection` | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their stable publish `key`; linked nodes show their Design Entity, code file and Storybook story. |
-| `figma_comments` | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`). |
+| Tool               | Purpose                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `figma_connect`    | Start Safe Mode, generate/show the access key, print plugin setup steps.                                                                                                                                                                                                                                                                                                            |
+| `figma_status`     | Report local daemon/plugin/file/key state immediately; `validateRest:true` explicitly checks the optional REST token.                                                                                                                                                                                                                                                               |
+| `figma_pairing`    | Show the access key; `{rotate:true}` generates a fresh one.                                                                                                                                                                                                                                                                                                                         |
+| `figma_run`        | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`.                                                                                                                                                                                                                                                                       |
+| `figma_render`     | Render JSX into the open Figma design.                                                                                                                                                                                                                                                                                                                                              |
+| `figma_inspect`    | Inspect a node by id: geometry, fills/strokes/effects, clip, opacity (YAML).                                                                                                                                                                                                                                                                                                        |
+| `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned).                                                                                                                                                                                                                                                                                         |
+| `figma_spec`       | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases.                                                                                                                                                                                                                                                                        |
+| `figma_reference`  | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists the generated command index without starting the engine.                                                                                                                                                                                                                                       |
+| `figma_history`    | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural diff of the document itself (added/removed/replaced/moved/changed). `figma_run`/`figma_render` accept a `label` to annotate entries. |
+| `figma_selection`  | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their stable publish `key`; linked nodes show their Design Entity, code file and Storybook story.                                                                                                                                                                |
+| `figma_comments`   | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`).                                                                                                                                                                                                                                           |
 
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
 form `12-34`, or a full Figma URL (whose file key is checked against the files
@@ -283,11 +290,14 @@ published `key` or local `id`). Their editable overrides use the component's
 real Figma structure:
 
 ```jsx
-<Instance entity="ui.card" key="..."
+<Instance
+  entity="ui.card"
+  key="..."
   prop:Selected="true"
   text:Title="New title"
   fill:StatusDot="var:status/healthy|#22c55e"
-  swap:LeadingIcon="ui.icon.leaf" />
+  swap:LeadingIcon="ui.icon.leaf"
+/>
 ```
 
 `prop:` resolves a component-property definition; `text:` and `fill:` resolve
@@ -322,8 +332,13 @@ calculated. Span runs support `font`, `fontStyle`, `weight`, `italic`, `size`,
 
 ```jsx
 <Text font="Inter" size="14">
-  Hello <strong>bold <em>and italic</em></strong>
-  <Span color="#ef4444" size="18">red</Span>
+  Hello{" "}
+  <strong>
+    bold <em>and italic</em>
+  </strong>
+  <Span color="#ef4444" size="18">
+    red
+  </Span>
   <a href="https://example.com">link</a>
 </Text>
 ```
@@ -403,6 +418,7 @@ when its rendered design and states actually match.
    layout) without descendants. Then request child node ids in bounded calls.
    Use `dedup:true` for repeated cards/lists; shared `S<n>` references remain
    lossless and stop identical instance styles exhausting the result budget.
+
 6. **Verify** — screenshot your build and compare against the PNG from step 1,
    then run the mechanical check:
 
@@ -411,7 +427,7 @@ when its rendered design and states actually match.
    ```
 
    It greps the project against `assets.json` and lists every exported file
-   that is *not* referenced in the build — with size, offsets and parent, so
+   that is _not_ referenced in the build — with size, offsets and parent, so
    placing it is one step — plus a `border-image` lint (CSS `border-image`
    ignores `border-radius`; gradient strokes on rounded boxes need the
    wrapper or mask pattern). Exit code 1 when files are missing, so it works
@@ -540,13 +556,13 @@ figma_run ["link","status","screen.settings"]
 figma_run ["link","context","screen.settings"]
 ```
 
-| Status | Meaning |
-|--------|---------|
-| `unchanged` | Neither side moved from the accepted baseline. |
-| `code-only` | Only the linked code file moved. |
-| `figma-only` | Only the linked Figma subtree moved. |
-| `conflict` | Both moved; neither side is overwritten. |
-| `untracked` | No baseline has been explicitly accepted yet. |
+| Status       | Meaning                                        |
+| ------------ | ---------------------------------------------- |
+| `unchanged`  | Neither side moved from the accepted baseline. |
+| `code-only`  | Only the linked code file moved.               |
+| `figma-only` | Only the linked Figma subtree moved.           |
+| `conflict`   | Both moved; neither side is overwritten.       |
+| `untracked`  | No baseline has been explicitly accepted yet.  |
 
 `link context` is the preferred agent entry point after a link exists. It
 returns the smallest relevant projection: entity, code/export, Figma root,
@@ -630,7 +646,7 @@ the legacy file only after `link list` shows every mapping you still need.
 
 This project ships **no** design system — no shadcn, no Tailwind preset, no icon
 pack. That is deliberate: a bundled system is someone else's opinion rendered
-into your file. What it ships instead is a way to make *your* system legible to
+into your file. What it ships instead is a way to make _your_ system legible to
 an agent in one command:
 
 ```
@@ -639,12 +655,12 @@ figma_run ["kit", "init", "./my-app", "--storybook", "http://localhost:6006"]
 
 Four reads, one report:
 
-| Step | Result |
-|------|--------|
-| `extract` | `design/DESIGN.md` — structure, tokens, variant matrices |
-| `export dtcg` | `design/tokens.json` — W3C design tokens |
-| `component list --all-pages` | inventory with stable publish keys |
-| `map storybook` | `figma-map.json` — Figma component ↔ story |
+| Step                         | Result                                                   |
+| ---------------------------- | -------------------------------------------------------- |
+| `extract`                    | `design/DESIGN.md` — structure, tokens, variant matrices |
+| `export dtcg`                | `design/tokens.json` — W3C design tokens                 |
+| `component list --all-pages` | inventory with stable publish keys                       |
+| `map storybook`              | `figma-map.json` — Figma component ↔ story               |
 
 It ends by naming what is still missing — an unmapped Storybook, components with
 no story, the `tokens sync` command that keeps the two in step — because a setup
@@ -655,7 +671,7 @@ DESIGN.md is what an agent should read first; `tokens.json` is what it binds to.
 ## Several files at once
 
 The bridge holds one connection per Figma window in which you started the
-plugin. That is the consent model: a file is reachable because *you* opened it
+plugin. That is the consent model: a file is reachable because _you_ opened it
 and launched the plugin there — not because a flag widened the scope.
 
 - **One window** — nothing changes. Commands go there.
@@ -676,12 +692,12 @@ and launched the plugin there — not because a flag widened the scope.
   for a local path.
 
 There is deliberately **no "all files" option**. Every write names one file, so
-a mistaken command cannot fan out across a library. Two windows on the *same*
+a mistaken command cannot fan out across a library. Two windows on the _same_
 file are indistinguishable for routing, so the newer one takes over and the
 older is told it lost the bridge. Audit entries carry the file key, so
 `figma_history` stays readable when several files are in play.
 
-Reaching files you have *not* opened is out of scope: Figma's REST API cannot
+Reaching files you have _not_ opened is out of scope: Figma's REST API cannot
 write document content, so a bulk rename across thirty library files is not
 something this tool can honestly offer.
 
@@ -774,7 +790,7 @@ Safe three-way sync accepts only **DTCG / W3C design tokens** (`.json`, what
 `export dtcg` emits) and **CSS custom properties** (`.css`, what `export css`
 emits). Sass `$variables` are not CSS custom properties and `.scss` is refused
 rather than partially parsed. Note that
-`export dtcg` writes *every* local variable into one file while sync targets one
+`export dtcg` writes _every_ local variable into one file while sync targets one
 collection — pass `--collection` accordingly. If most names in the file already
 live in another collection, sync says so instead of offering to duplicate them. Tailwind configs
 are an import source only — their parser buckets values into
@@ -787,12 +803,12 @@ direction it picks destroys the other side's work. `figma-tokens.lock.json`
 records the state at the last successful sync, so every decision is a
 three-way comparison:
 
-| code | Figma | result |
-|------|-------|--------|
-| changed | unchanged | update Figma |
-| unchanged | changed | **reported, never overwritten** — update your code file |
-| both changed | | **conflict** — nothing is applied |
-| unchanged | unchanged | unchanged |
+| code         | Figma     | result                                                  |
+| ------------ | --------- | ------------------------------------------------------- |
+| changed      | unchanged | update Figma                                            |
+| unchanged    | changed   | **reported, never overwritten** — update your code file |
+| both changed |           | **conflict** — nothing is applied                       |
+| unchanged    | unchanged | unchanged                                               |
 
 Conflicts stop the whole run. Resolve them by editing one side, or decide them
 all at once with `--ours` (the code file wins) / `--theirs` (Figma wins, and
@@ -803,7 +819,7 @@ created — a variable it never tracked is reported as untracked and left alone.
 
 The lockfile also stores each variable's Figma id, which is what makes a
 **rename** one rename instead of a delete plus a create that would drop every
-layer binding. Pairing is by value and only when unambiguous: renaming *and*
+layer binding. Pairing is by value and only when unambiguous: renaming _and_
 re-valuing a token in the same commit falls back to create + delete, so do
 those as two steps if the bindings matter.
 
@@ -812,7 +828,7 @@ CI check for "is Figma in sync with the repo?".
 
 ### Binding, and switching which collection a design follows
 
-`tokens sync` writes token *values*. Two neighbouring things it deliberately
+`tokens sync` writes token _values_. Two neighbouring things it deliberately
 does not do:
 
 ```
@@ -1083,7 +1099,7 @@ token nor a network request.
 
 ## Version history and diffs
 
-Figma's plugin API can *write* a version but not read one back, so "what changed
+Figma's plugin API can _write_ a version but not read one back, so "what changed
 since this morning" has no answer from the bridge alone. `history` supplies one
 without any credential: record the structure of a subtree, record it again
 later, diff the two.
@@ -1120,7 +1136,7 @@ figma_history {diff: {from: "latest", to: "live"}}
 figma_history {diff: {from: "version:1234", to: "version:5678"}}   # REST add-on
 ```
 
-`version:` refs go through the REST layer and diff what *designers* saved, using
+`version:` refs go through the REST layer and diff what _designers_ saved, using
 the same differ. The two sources cannot be mixed in one diff: a REST document
 and a plugin snapshot expose different properties, so every node would look
 changed — the tool says so rather than producing a misleading wall of output.
@@ -1135,7 +1151,7 @@ Figma's first-party animation styles (`styles`, `style`), frame duration
 
 Like every other command it runs over the plugin bridge — there is no separate
 transport for it. `styles` and `inspect` are reads; everything else, `timeline`
-included (it reads *or* sets depending on its arguments), counts as a write
+included (it reads _or_ sets depending on its arguments), counts as a write
 under `FIGMA_WRITE_CONFIRM=1`.
 
 Motion is rolling out behind a Figma Beta flag. Without access, the commands
@@ -1148,31 +1164,31 @@ Everything above works with **zero Figma credentials**. Three things the local
 plugin bridge structurally cannot reach live behind Figma's REST API, and can
 be unlocked with a personal access token:
 
-| Feature | What it adds |
-|---------|--------------|
-| **Version history** | `figma_history {includeVersions:true}` merges what *designers* saved (when, by whom) into the local audit+git timeline — the plugin API can only *write* versions, not read them. `figma_history {diff:{from:"version:…", to:"version:…"}}` goes further and diffs the documents themselves. |
-| **Comments** | `figma_comments` reads design-review feedback (with node anchors and thread ids) and can reply. Posting always shows a preview first and requires `confirm:true` — comments are visible to other people. |
-| **Library metadata** | `map storybook` automatically enriches `figma-map.json` with the published components' `description` and documentation links — a far stronger matching signal than name normalization. |
+| Feature              | What it adds                                                                                                                                                                                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Version history**  | `figma_history {includeVersions:true}` merges what _designers_ saved (when, by whom) into the local audit+git timeline — the plugin API can only _write_ versions, not read them. `figma_history {diff:{from:"version:…", to:"version:…"}}` goes further and diffs the documents themselves. |
+| **Comments**         | `figma_comments` reads design-review feedback (with node anchors and thread ids) and can reply. Posting always shows a preview first and requires `confirm:true` — comments are visible to other people.                                                                                     |
+| **Library metadata** | `map storybook` automatically enriches `figma-map.json` with the published components' `description` and documentation links — a far stronger matching signal than name normalization.                                                                                                       |
 
 **Enabling it — the token never leaves your machine:**
 
 1. Create a personal access token in Figma (Settings → Security → Personal
    access tokens) with scopes: **File content (read)**, **File versions
-   (read)**, **Comments (read and write)**. *Current user (read)* is optional —
+   (read)**, **Comments (read and write)**. _Current user (read)_ is optional —
    it only makes `figma_status` show your handle.
 2. Open the **Figma Bridge plugin** in Figma Desktop, connect (the field
    appears once the plugin is authenticated), and expand **“REST token
-   (optional)”**. Paste the token, *Save token*.
+   (optional)”**. Paste the token, _Save token_.
 3. `figma_status` reports that the token is configured without making a remote
    request. Run `figma_status {validateRest:true}` when you want an explicit
    validity check; it reports your handle or verifies file access when the
-   optional *Current user* scope is absent.
+   optional _Current user_ scope is absent.
 
 The token travels from the plugin over the **authenticated localhost
 WebSocket** to the daemon, which stores it in `~/.figma-bridge-mcp/rest-token`
 (mode 0600). It is never entered in chat, never stored in your MCP client
 config, never echoed back by any tool, and never written to the audit log
-(REST calls are logged as method + path only). *Clear token* in the plugin
+(REST calls are logged as method + path only). _Clear token_ in the plugin
 removes the file.
 
 Headless/CI alternative: set the `FIGMA_REST_TOKEN` environment variable — it
@@ -1198,7 +1214,7 @@ must use the local Plugin API commands above.
   own env var), not in the MCP client config.
 - **No binary patching** — Yolo/CDP mode is stripped from the vendored engine.
 - **Capability-gated commands** — `figma_run` only accepts Commands exposed by
-  the Capability Catalog; `connect` is *not* exposed, so Safe-Mode-only
+  the Capability Catalog; `connect` is _not_ exposed, so Safe-Mode-only
   connection is enforced. The same resolved plan drives the write-confirm gate,
   target requirement and retry policy, preventing adapter drift.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
@@ -1221,7 +1237,7 @@ must use the local Plugin API commands above.
 publishes it in `~/.figma-bridge-mcp/daemon-port`; the CLI/MCP layers resolve the
 port per call (env `DAEMON_PORT` > port file > 3456), and the plugin scans the
 whole range, so a foreign process squatting 3456 no longer blocks connecting.
-The squatter check is an *unauthenticated* `/health` probe, and authenticated
+The squatter check is an _unauthenticated_ `/health` probe, and authenticated
 requests are HMAC-signed — a squatter on a range port sees neither the session
 token nor anything replayable (signatures bind timestamp, nonce, method, path
 and body; the daemon rejects reused nonces). The plugin socket is safe on any
@@ -1259,9 +1275,10 @@ follow:
   verifies 3457, so the relay collapses.
 
 There is no proto-1 fallback. `figma_connect` refreshes the installed plugin
-files on every run, so upgrading is: run `figma_connect`, then close and reopen
-the plugin window — a stale panel gets a named error saying exactly that,
-instead of a silently weaker handshake.
+files on every run. Figma may continue using an application-cached plugin
+build, so the authenticated handshake reports the imported build separately
+from the bundled build. `figma_status` then gives an explicit re-import path
+instead of treating the mismatch as a generic connection failure.
 
 The panel carries its own SHA-256/HMAC implementation: the plugin UI is a
 sandboxed null-origin iframe, where WebCrypto availability is not ours to
@@ -1281,7 +1298,7 @@ Node's `crypto` so the two implementations cannot drift apart.
   (one-time git clone of the Figma Plugin API docs mirror, for
   `figma_reference`; `api gap` instead measures against the installed official
   `@figma/plugin-typings` package), the Storybook index fetch of `import`/`map
-  storybook`
+storybook`
   (the URL/directory you pass in), and — only when you opt into the REST
   add-on — calls to `api.figma.com`. Nothing else talks to the network — the
   upstream's iconify/unsplash/remove.bg/screenshot-url integrations were
@@ -1309,7 +1326,7 @@ release instructions in [`docs/releasing.md`](docs/releasing.md). The public
 documentation index is [`docs/README.md`](docs/README.md).
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
-back within 3456–3460 when 3456 is taken, so both *can* coexist, but the plugin
+back within 3456–3460 when 3456 is taken, so both _can_ coexist, but the plugin
 scans the whole range and the two daemons use different access keys — which one
 the plugin reaches first is a coin toss. This build isolates its own
 token/pid/port files under `~/.figma-bridge-mcp/`.
