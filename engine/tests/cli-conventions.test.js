@@ -70,6 +70,24 @@ test('eval rejects execution errors instead of printing and returning success', 
     'sync fallback errors must reject the Commander action');
 });
 
+test('asset export delegates stable identity and publication to Manifest v2', () => {
+  const src = sources.get('export-eval.js');
+  assert.ok(src, 'export-eval.js exists');
+  assert.match(src, /planAssetExport\(/,
+    'asset export must resolve cross-run identity and filename collisions centrally');
+  assert.match(src, /publishAssetExportPlan\(/,
+    'asset export must use staged publication with the manifest written last');
+  assert.doesNotMatch(src, /const usedNames\s*=|const byContent\s*=/,
+    'run-local filename ordinals and dedup maps must not return');
+});
+
+test('token export projects valuesByMode centrally instead of selecting the first value', () => {
+  const src = sources.get('export-eval.js');
+  assert.match(src, /projectVariableModes\(/);
+  assert.doesNotMatch(src, /Object\.values\([^\n]*valuesByMode/,
+    'CSS/DTCG export must never silently select the first collection mode');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {

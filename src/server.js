@@ -15,6 +15,7 @@ import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection, resolveFileTarget } from "./engine.js";
+import { formatPublicError } from "./error-projection.js";
 import {
   listFigmaCapabilities,
   planFigmaCommand,
@@ -1858,7 +1859,7 @@ async function main() {
     try {
       return await handleTool(name, args);
     } catch (err) {
-      return errorResult(err.stderr || err.message || String(err));
+      return errorResult(formatPublicError(err));
     }
   });
 

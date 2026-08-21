@@ -69,6 +69,27 @@ function scanProject(dir) {
   return { manifests, files };
 }
 
+/** Read exactly the files named by each manifest, relative to that manifest. */
+function readManifestAssetFiles(manifests) {
+  const seen = new Set();
+  const assetFiles = [];
+  for (const manifest of manifests) {
+    for (const asset of manifest.data?.assets || []) {
+      if (!asset?.file) continue;
+      const path = join(dirname(manifest.path), asset.file);
+      if (seen.has(path)) continue;
+      seen.add(path);
+      try {
+        assetFiles.push({ file: asset.file, path, kind: asset.kind, bytes: readFileSync(path) });
+      } catch {
+        // Omission is intentional: verifyBuild reports it as a missing
+        // physical file whenever Manifest v2 supplied an expected digest.
+      }
+    }
+  }
+  return assetFiles;
+}
+
 /** Distinct export-root ids across the manifests ({ id, name } each). */
 function manifestRoots(manifests) {
   const byId = new Map();
@@ -168,7 +189,7 @@ program
       process.exit(1);
     }
 
-    const result = verifyBuild(manifests.map((m) => m.data), files);
+    const result = verifyBuild(manifests.map((m) => m.data), files, readManifestAssetFiles(manifests));
 
     // ---- visual pass (optional) ----
     let visual = null;
@@ -226,7 +247,8 @@ program
 
     const maxDiff = options.maxDiff !== undefined ? parseFloat(options.maxDiff) : null;
     const visualFail = visual && maxDiff !== null && Number.isFinite(maxDiff) && visual.diffPct > maxDiff;
-    const exitCode = result.missing.length || visualFail ? 1 : 0;
+    const integrityFail = result.integrity.mismatched.length || result.integrity.missingFiles.length;
+    const exitCode = result.missing.length || integrityFail || visualFail ? 1 : 0;
 
     if (options.json) {
       console.log(JSON.stringify({
@@ -235,6 +257,13 @@ program
         total: result.total,
         referenced: result.referenced.length,
         missing: result.missing.map(({ file, entries }) => ({ file, entries })),
+        integrity: {
+          ...result.integrity,
+          mismatched: result.integrity.mismatched.map((item) => ({
+            ...item,
+            ...(item.path ? { path: relative(root, item.path) || item.path } : {}),
+          })),
+        },
         borderImage: result.borderImage.map((b) => ({ file: relative(root, b.path), line: b.line })),
         ...(visual ? { visual } : {}),
       }, null, 2));
@@ -249,6 +278,23 @@ program
       console.log('  Each of these is real artwork from the design. Prefer rootX/rootY in the export-root coordinate space (rotation-safe); x/y are immediate-parent offsets. Placement fields are in assets.json — never approximate the asset with CSS.');
     } else if (result.total) {
       console.log(chalk.green('✓ every exported asset file is referenced.'));
+    }
+    if (result.integrity.mismatched.length) {
+      console.log(chalk.red(`✗ ${result.integrity.mismatched.length} exported asset file(s) differ from their Manifest v2 digest:`));
+      for (const item of result.integrity.mismatched) {
+        console.log(`  - ${item.file}${item.path ? ` (${relative(root, item.path)})` : ''}`);
+        console.log(`    expected ${item.expected}; actual ${item.actual || item.reason}`);
+      }
+    }
+    if (result.integrity.missingFiles.length) {
+      console.log(chalk.red(`✗ ${result.integrity.missingFiles.length} Manifest v2 asset file(s) are missing from disk:`));
+      for (const item of result.integrity.missingFiles) console.log(`  - ${item.file}`);
+    }
+    if (result.integrity.checked.length) {
+      console.log(chalk.green('✓'), `${result.integrity.checked.length} Manifest v2 asset digest(s) verified.`);
+    }
+    if (result.integrity.unverified.length) {
+      console.log(chalk.yellow(`⚠ ${result.integrity.unverified.length} legacy asset file(s) have no Manifest v2 digest yet.`));
     }
     if (result.borderImage.length) {
       console.log(chalk.yellow(`⚠ border-image found (ignores border-radius — gradient strokes on rounded boxes lose their corners; use the wrapper/padding or mask pattern instead):`));
@@ -274,7 +320,7 @@ program
       console.log(`  diff image: ${visual.diffOut} — Read it; red = differing pixels on a dimmed design.`);
       console.log('  A solid red band with correct content above it usually means a block was inserted/dropped there — everything below shifts. Cross-check the missing-asset findings above; region coordinates match the spec and assets.json placement fields.');
       if (visualFail) console.log(chalk.red(`✗ --max-diff ${maxDiff}% exceeded.`));
-    } else if (!result.missing.length) {
+    } else if (!result.missing.length && !integrityFail) {
       console.log(chalk.yellow('⚠ ASSET-ONLY CHECK PASSED; VISUAL FIDELITY IS NOT VERIFIED. Do not declare the implementation done yet.'));
       console.log('  Screenshot your build at the design\'s width and re-run with --compare <build.png> (add --design <figma.png> to stay offline). This catches omitted gradients, wrong component variants/sizes, and shifted absolute overlays.');
     }

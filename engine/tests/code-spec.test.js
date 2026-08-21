@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { walkerCode, nodeWalkerCode, dedupSiblings, formatTree } from '../src/design-extract.js';
 import {
   isVectorish, identSeg, layoutSeg, paintSeg, typeSeg, specLines, formatCodeSpec,
-  layerCoverage, specModel,
+  layerCoverage, specModel, specChecks,
 } from '../src/lib/code-spec.js';
 
 // ============ walker v2 flags ============
@@ -256,6 +256,67 @@ test('walker keeps invisible nodes with includeHidden, marked hidden:true', asyn
   const ghost = kids.find((k) => k.n === 'Ghost');
   assert.equal(ghost.hidden, true);
   assert.equal(kids.find((k) => k.n === 'Shown').hidden, undefined);
+});
+
+test('hidden-content census is complete and stable regardless of includeHidden', async () => {
+  const root = frameFixture();
+  root.children[1].children.push({
+    id: '9:4', name: 'Secret copy', type: 'TEXT', width: 80, height: 12,
+    visible: true, characters: 'Queued for approval', children: [],
+    fontName: { family: 'Inter', style: 'Regular' }, fontSize: 12,
+  });
+
+  const omitted = JSON.parse(await runWalker(nodeWalkerCode('9:1', {
+    withIds: true,
+  }), root));
+  const included = JSON.parse(await runWalker(nodeWalkerCode('9:1', {
+    withIds: true, includeHidden: true,
+  }), root));
+
+  assert.deepEqual(omitted.census, {
+    total: 4,
+    visible: 2,
+    hidden: 2,
+    hiddenText: 1,
+    hiddenIncluded: false,
+    hiddenNodes: [
+      { id: '9:3', name: 'Ghost', type: 'FRAME' },
+      { id: '9:4', name: 'Secret copy', type: 'TEXT', textPreview: 'Queued for approval' },
+    ],
+    omittedHiddenNodes: 0,
+  });
+  assert.deepEqual(included.census, { ...omitted.census, hiddenIncluded: true });
+  assert.equal(omitted.frames[0].kids.length, 1, 'default output still contains no phantom nodes');
+  assert.equal(included.frames[0].kids.length, 2, 'explicit inspection still includes the hidden subtree');
+});
+
+test('Code-Spec exposes hidden content as an incomplete exact-content check', () => {
+  const result = {
+    id: '9:1', name: 'Card', visibleNodeCount: 1,
+    frames: [{ t: 'FRAME', n: 'Card', id: '9:1' }], sets: [],
+    census: {
+      total: 3, visible: 1, hidden: 2, hiddenText: 1, hiddenIncluded: false,
+      hiddenNodes: [
+        { id: '9:3', name: 'Ghost', type: 'FRAME' },
+        { id: '9:4', name: 'Secret copy', type: 'TEXT', textPreview: 'Queued for approval' },
+      ],
+      omittedHiddenNodes: 0,
+    },
+  };
+  const check = specChecks(result).hiddenContent;
+  assert.equal(check.exactContentComplete, false);
+  assert.equal(check.hiddenText, 1);
+  assert.equal(specModel(result, { phase: 'all' }).checks.hiddenContent.exactContentComplete, false);
+  const output = formatCodeSpec(result, { phase: 'all' });
+  assert.match(output, /Hidden content census: 2 hidden layer\(s\), including 1 text layer/);
+  assert.match(output, /Secret copy \[9:4\].*Queued for approval/);
+  assert.match(output, /includeHidden.*true/);
+
+  const inspected = specChecks({
+    ...result,
+    census: { ...result.census, hiddenIncluded: true },
+  }).hiddenContent;
+  assert.equal(inspected.exactContentComplete, true);
 });
 
 test('depth 0 captures the requested node completely without descending', async () => {

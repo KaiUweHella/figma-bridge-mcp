@@ -5,19 +5,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { usedVariablesCode } from '../src/design-extract.js';
-import { buildDtcgTree, formatCssTokens } from '../src/lib/css-tokens.js';
+import { buildDtcgTree, formatCssTokens, projectVariableModes } from '../src/lib/css-tokens.js';
 
 // Variable registry stub: DLS tokens (as if from a library) + an unrelated
 // local plant-care collection that must NOT leak into the scoped export.
 const VARS = {
-  'v:surface': { id: 'v:surface', name: 'color/surface', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { type: 'VARIABLE_ALIAS', id: 'v:navy' } }, scopes: ['ALL_FILLS'], codeSyntax: { WEB: '--color-surface' } },
-  'v:navy': { id: 'v:navy', name: 'palette/navy/900', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { r: 0x06 / 255, g: 0x09 / 255, b: 0x14 / 255 } } },
-  'v:spacing-s': { id: 'v:spacing-s', name: 'spacing/s', resolvedType: 'FLOAT', variableCollectionId: 'c:dls', valuesByMode: { m1: 16 } },
-  'v:fontsize': { id: 'v:fontsize', name: 'fonts/fontsize/2xs', resolvedType: 'FLOAT', variableCollectionId: 'c:dls', valuesByMode: { m1: 14 } },
+  'v:surface': { id: 'v:surface', name: 'color/surface', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { type: 'VARIABLE_ALIAS', id: 'v:navy' }, m2: { type: 'VARIABLE_ALIAS', id: 'v:navy' } }, scopes: ['ALL_FILLS'], codeSyntax: { WEB: '--color-surface' } },
+  'v:navy': { id: 'v:navy', name: 'palette/navy/900', resolvedType: 'COLOR', variableCollectionId: 'c:dls', valuesByMode: { m1: { r: 0x06 / 255, g: 0x09 / 255, b: 0x14 / 255 }, m2: { r: 0.9, g: 0.92, b: 0.95 } } },
+  'v:spacing-s': { id: 'v:spacing-s', name: 'spacing/s', resolvedType: 'FLOAT', variableCollectionId: 'c:dls', valuesByMode: { m1: 16, m2: 20 } },
+  'v:fontsize': { id: 'v:fontsize', name: 'fonts/fontsize/2xs', resolvedType: 'FLOAT', variableCollectionId: 'c:dls', valuesByMode: { m1: 14, m2: 14 } },
   'v:sage': { id: 'v:sage', name: 'color/bg', resolvedType: 'COLOR', variableCollectionId: 'c:plant', valuesByMode: { m1: { r: 0.5, g: 0.7, b: 0.5 } } },
 };
 
-const COLLECTIONS = { 'c:dls': { name: 'DLS Tokens' }, 'c:plant': { name: 'plant-care' } };
+const COLLECTIONS = {
+  'c:dls': {
+    id: 'c:dls', name: 'DLS Tokens', defaultModeId: 'm1',
+    modes: [{ modeId: 'm1', name: 'Light' }, { modeId: 'm2', name: 'Dark' }],
+  },
+  'c:plant': { id: 'c:plant', name: 'plant-care', defaultModeId: 'm1', modes: [{ modeId: 'm1', name: 'Default' }] },
+};
 
 const makeTree = () => {
   const root = {
@@ -62,6 +68,12 @@ test('scoped collector: bound variables + style bindings + alias targets; hidden
   assert.equal(surface.id, 'v:surface');
   assert.deepEqual(surface.scopes, ['ALL_FILLS']);
   assert.deepEqual(surface.codeSyntax, { WEB: '--color-surface' });
+  assert.equal(surface.defaultModeId, 'm1');
+  assert.deepEqual(surface.modes, [{ modeId: 'm1', name: 'Light' }, { modeId: 'm2', name: 'Dark' }]);
+  assert.deepEqual(surface.valuesByMode, {
+    m1: { value: '#060914', ref: 'palette/navy/900' },
+    m2: { value: '#e6ebf2', ref: 'palette/navy/900' },
+  });
   assert.ok(!names.includes('color/bg'), 'the plant-care local collection does not leak in');
 });
 
@@ -105,6 +117,65 @@ test('buildDtcgTree: 2025 values and Figma metadata round-trip through extension
 
 test('buildDtcgTree rejects unknown dialects', () => {
   assert.throws(() => buildDtcgTree([], { dialect: 'future' }), /legacy or 2025/);
+});
+
+test('multi-mode DTCG preserves every mode value and per-mode alias', () => {
+  const tree = buildDtcgTree([{
+    id: 'v:surface', name: 'color/surface', type: 'COLOR', collection: 'Theme',
+    defaultModeId: 'm:light',
+    modes: [{ modeId: 'm:light', name: 'Light' }, { modeId: 'm:dark', name: 'Dark' }],
+    valuesByMode: {
+      'm:light': { value: '#ffffff', ref: 'palette/white' },
+      'm:dark': { value: '#111111', ref: 'palette/gray/950' },
+    },
+  }], { dialect: '2025' });
+  const extension = tree.color.surface.$extensions['figma-bridge-mcp'];
+  assert.equal(tree.color.surface.$value, '{palette.white}');
+  assert.equal(extension.defaultModeId, 'm:light');
+  assert.deepEqual(extension.modes, [
+    { modeId: 'm:light', name: 'Light' },
+    { modeId: 'm:dark', name: 'Dark' },
+  ]);
+  assert.deepEqual(extension.valuesByMode, {
+    'm:light': { modeName: 'Light', value: '{palette.white}' },
+    'm:dark': { modeName: 'Dark', value: '{palette.gray.950}' },
+  });
+});
+
+test('multi-mode CSS emits named scopes and never invents clamp semantics', () => {
+  const css = formatCssTokens([{
+    name: 'space/fluid', type: 'FLOAT', defaultModeId: 'm:compact',
+    modes: [{ modeId: 'm:compact', name: 'Compact' }, { modeId: 'm:comfortable', name: 'Comfortable' }],
+    valuesByMode: {
+      'm:compact': { value: 12, ref: null },
+      'm:comfortable': { value: 20, ref: null },
+    },
+  }]);
+  assert.match(css, /:root \{[\s\S]*--space-fluid: 12px;/);
+  assert.match(css, /\[data-figma-mode="Comfortable"\] \{[\s\S]*--space-fluid: 20px;/);
+  assert.doesNotMatch(css, /clamp\(/);
+});
+
+test('raw local variables resolve aliases by matching collection mode', () => {
+  const projected = projectVariableModes([
+    {
+      id: 'semantic', name: 'color/surface', resolvedType: 'COLOR', variableCollectionId: 'theme',
+      valuesByMode: { light: { type: 'VARIABLE_ALIAS', id: 'primitive' }, dark: { type: 'VARIABLE_ALIAS', id: 'primitive' } },
+    },
+    {
+      id: 'primitive', name: 'palette/surface', resolvedType: 'COLOR', variableCollectionId: 'theme',
+      valuesByMode: {
+        light: { r: 1, g: 1, b: 1 }, dark: { r: 0.1, g: 0.1, b: 0.1 },
+      },
+    },
+  ], [{
+    id: 'theme', name: 'Theme', defaultModeId: 'light',
+    modes: [{ modeId: 'light', name: 'Light' }, { modeId: 'dark', name: 'Dark' }],
+  }]);
+  assert.deepEqual(projected[0].valuesByMode, {
+    light: { value: '#ffffff', ref: 'palette/surface' },
+    dark: { value: '#1a1a1a', ref: 'palette/surface' },
+  });
 });
 
 test('formatCssTokens consumes the scoped list unchanged', () => {

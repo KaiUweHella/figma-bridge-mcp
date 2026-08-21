@@ -15,6 +15,7 @@ import path from "node:path";
 import { createDaemonClient, DaemonClientError } from "../engine/src/lib/daemon-client.js";
 import { createDesignCaptureModule } from "../engine/src/application/design-capture.js";
 import { retrySafeRead } from "../engine/src/lib/safe-read-retry.js";
+import { publicError } from "./error-projection.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
 import {
   listFigmaCapabilities,
@@ -236,7 +237,6 @@ async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes 
     const code = typeof err.code === "number" ? err.code : 1;
     const stderr = err.stderr ?? "";
     const stdout = err.stdout ?? "";
-    const detail = stderr || err.message || "Unknown error";
     // Some commands use the exit code as an ANSWER, not as a failure:
     // `history diff` exits 1 when the design changed, so it works as a CI
     // gate. Callers opt in by naming the codes explicitly — a blanket "ignore
@@ -245,11 +245,7 @@ async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes 
     if (okay.includes(code)) {
       return { stdout, stderr, code };
     }
-    const wrapped = new Error(`the engine exited with code ${code}: ${detail}`);
-    wrapped.code = code;
-    wrapped.stdout = stdout;
-    wrapped.stderr = stderr;
-    throw wrapped;
+    throw publicError(Object.assign(err, { code, stdout, stderr }));
   }
 }
 
@@ -261,16 +257,20 @@ export async function runInProcessCommand(args, opts = {}, operation) {
   if (typeof operation !== "function") throw new TypeError("runInProcessCommand requires an operation");
   const context = startCommandExecution(args, opts);
   const timeoutMs = executionTimeout(context, opts);
+  const deadline = Date.now() + timeoutMs;
+  const remaining = () => Math.max(1, deadline - Date.now());
   const invoke = () => operation({
     target: context.targetContext,
     fileKey: context.fileKey,
-    timeoutMs,
-    deadline: Date.now() + timeoutMs,
+    timeoutMs: remaining(),
+    deadline,
   });
   try {
     const result = context.plan.execution.retry === "safe-read"
       ? await retrySafeRead(invoke, {
-          waitUntilReady: opts.waitUntilReady || (() => waitForPluginConnection()),
+          waitUntilReady: opts.waitUntilReady
+            ? (error) => opts.waitUntilReady(error, { deadline, timeoutMs: remaining() })
+            : () => waitForPluginConnection(remaining()),
         })
       : await invoke();
     completeCommandExecution(context);
@@ -285,7 +285,7 @@ export async function runInProcessCommand(args, opts = {}, operation) {
     // write commands must never risk repeating an accepted mutation.
     if (context.plan.execution.retry === "safe-read" && isDaemonUnavailable(error)) {
       try {
-        const result = await spawnCliAdapter(context.args, opts, context.fileKey, timeoutMs, context.plan.execution.okExitCodes);
+        const result = await spawnCliAdapter(context.args, opts, context.fileKey, remaining(), context.plan.execution.okExitCodes);
         completeCommandExecution(context, result.code);
         return result;
       } catch (fallbackError) {
@@ -339,13 +339,7 @@ export async function ensureSafeConnect({ forceRestart = false } = {}) {
       ok: false,
       error: String(stderr || err.message || "connect failed").trim().split("\n")[0].slice(0, 200),
     });
-    const wrapped = new Error(
-      `connect failed with code ${code}: ${stderr || err.message}`,
-    );
-    wrapped.code = code;
-    wrapped.stdout = stdout;
-    wrapped.stderr = stderr;
-    throw wrapped;
+    throw publicError(Object.assign(err, { code, stdout, stderr }));
   }
 }
 
@@ -459,7 +453,7 @@ export function isDaemonUnavailable(error) {
 async function waitForPluginConnection(maxWaitMs = 8000) {
   const deadline = Date.now() + Math.max(0, Number(maxWaitMs) || 0);
   do {
-    const current = await health();
+    const current = await health({ timeoutMs: Math.max(1, Math.min(1000, deadline - Date.now())) });
     if (current.ok && current.plugin) return true;
     if (Date.now() >= deadline) break;
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -523,9 +517,9 @@ export async function getSelection(fileKey) {
  * the ground-truth signal: `plugin:true` means the Figma plugin is connected.
  * @returns {Promise<{ok: boolean, plugin: boolean, raw: object|null, message: string}>}
  */
-export async function health() {
+export async function health({ timeoutMs = 3000 } = {}) {
   try {
-    const response = await daemonClient().health({ timeoutMs: 3000 });
+    const response = await daemonClient().health({ timeoutMs });
     const raw = response.data || {};
     // 403 = a daemon answered but rejected OUR token. Without this branch the
     // message below reads "plugin NOT connected" and sends the user to

@@ -386,9 +386,14 @@ test('round-trip fidelity is exposed without a Figma connection', async () => {
   const { handleTool } = await import('../src/server.js');
   const result = await handleTool('figma_reference', { name: 'fidelity' });
   const text = result.content?.[0]?.text || '';
-  assert.match(text, /Round-trip Fidelity Contract v1/);
+  assert.match(text, /Round-trip Fidelity Contract v2/);
+  assert.match(text, /asset-identity \[assets\]/);
+  assert.match(text, /variable-modes \[design-system\]/);
+  assert.match(text, /hidden-content-and-alternate-states \[content\]/);
+  assert.match(text, /component-state-coverage \[design-system\]/);
   assert.match(text, /native-effects \[effects\]/);
   assert.match(text, /prototype-reactions \[interaction\]/);
+  assert.match(text, /verification\.prototype-inspection/);
   assert.match(text, /code -> Figma/);
   assert.match(text, /Figma -> code/);
 });

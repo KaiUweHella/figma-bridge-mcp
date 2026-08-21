@@ -56,6 +56,65 @@ export function fontSource(family) {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+const figmaColorToHex = (color) => {
+  const byte = (value) => Math.round(value * 255).toString(16).padStart(2, '0');
+  const base = `#${byte(color.r)}${byte(color.g)}${byte(color.b)}`;
+  return color.a != null && color.a < 1 ? base + byte(color.a) : base;
+};
+
+/** Raw Figma variables/collections → lossless formatter interface. */
+export function projectVariableModes(variables, collections) {
+  const byId = new Map((variables || []).map((variable) => [variable.id, variable]));
+  const collectionsById = new Map((collections || []).map((collection) => [collection.id, collection]));
+  const resolve = (variable, mode, chain = new Set()) => {
+    if (!variable || chain.has(variable.id)) return { value: null, ref: null };
+    const nextChain = new Set(chain).add(variable.id);
+    let value = variable.valuesByMode?.[mode.modeId];
+    if (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS') {
+      const target = byId.get(value.id);
+      if (!target) return { value: null, ref: null };
+      const targetCollection = collectionsById.get(target.variableCollectionId);
+      const targetModes = targetCollection?.modes || [];
+      const targetMode = Object.prototype.hasOwnProperty.call(target.valuesByMode || {}, mode.modeId)
+        ? mode
+        : targetModes.find((candidate) => candidate.name === mode.name)
+          || targetModes.find((candidate) => candidate.modeId === targetCollection?.defaultModeId)
+          || targetModes[0];
+      const resolved = resolve(target, targetMode || mode, nextChain);
+      return { value: resolved.value, ref: target.name };
+    }
+    if (variable.resolvedType === 'COLOR' && value && typeof value === 'object' && 'r' in value) {
+      value = figmaColorToHex(value);
+    }
+    if (value && typeof value === 'object') value = null;
+    return { value: value === undefined ? null : value, ref: null };
+  };
+
+  return (variables || []).map((variable) => {
+    const collection = collectionsById.get(variable.variableCollectionId);
+    const modes = collection?.modes?.length
+      ? collection.modes.map((mode) => ({ modeId: mode.modeId, name: mode.name }))
+      : Object.keys(variable.valuesByMode || {}).map((modeId) => ({ modeId, name: modeId }));
+    const defaultModeId = collection?.defaultModeId || modes[0]?.modeId;
+    const valuesByMode = Object.fromEntries(modes.map((mode) => [mode.modeId, resolve(variable, mode)]));
+    const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId] || { value: null, ref: null };
+    return {
+      id: variable.id,
+      name: variable.name,
+      type: variable.resolvedType,
+      value: selected.value,
+      ref: selected.ref,
+      valuesByMode,
+      modes,
+      defaultModeId,
+      collection: collection?.name,
+      description: variable.description || undefined,
+      scopes: Array.isArray(variable.scopes) ? Array.from(variable.scopes) : undefined,
+      codeSyntax: variable.codeSyntax && typeof variable.codeSyntax === 'object' ? variable.codeSyntax : undefined,
+    };
+  });
+}
+
 const isWeightName = (name) => /weight/i.test(name);
 // Two signals mark a font-family token: the NAME mentions font, or the VALUE
 // is a known family ("subheading: Clash Grotesk" has a font-less name).
@@ -83,7 +142,40 @@ function color2025(value) {
   return { colorSpace: 'srgb', components: [part(0), part(2), part(4)], alpha, hex };
 }
 
-function bridgeExtension(variable) {
+function modeEntries(variable) {
+  const modes = Array.isArray(variable.modes) ? variable.modes : [];
+  if (!variable.valuesByMode || !modes.length) {
+    return [{ modeId: null, modeName: null, value: variable.value, ref: variable.ref || null, isDefault: true }];
+  }
+  const defaultModeId = variable.defaultModeId || modes[0]?.modeId;
+  return modes.map((mode) => {
+    const stored = variable.valuesByMode[mode.modeId];
+    const record = stored && typeof stored === 'object' && ('value' in stored || 'ref' in stored)
+      ? stored
+      : { value: stored, ref: null };
+    return {
+      modeId: mode.modeId,
+      modeName: mode.name,
+      value: record.value,
+      ref: record.ref || null,
+      isDefault: mode.modeId === defaultModeId,
+    };
+  });
+}
+
+function dtcgValue(variable, value, ref, dialect) {
+  const dot = (name) => String(name).replace(/\//g, '.');
+  if (ref) return '{' + dot(ref) + '}';
+  if (value === null || value === undefined) return null;
+  if (variable.type === 'COLOR') return dialect === '2025' ? color2025(value) : value;
+  if (variable.type === 'FLOAT') return dialect === '2025'
+    ? { value: Number(value), unit: 'px' }
+    : value + 'px';
+  if (variable.type === 'BOOLEAN') return value;
+  return String(value);
+}
+
+function bridgeExtension(variable, dialect) {
   const metadata = {
     ...(variable.id ? { variableId: variable.id } : {}),
     ...(variable.collection ? { collection: variable.collection } : {}),
@@ -92,6 +184,15 @@ function bridgeExtension(variable) {
       ? { codeSyntax: Object.fromEntries(Object.entries(variable.codeSyntax).sort(([a], [b]) => a.localeCompare(b))) }
       : {}),
   };
+  const entries = modeEntries(variable);
+  if (variable.valuesByMode && entries.some((entry) => entry.modeId)) {
+    metadata.defaultModeId = variable.defaultModeId || entries[0]?.modeId;
+    metadata.modes = entries.map((entry) => ({ modeId: entry.modeId, name: entry.modeName }));
+    metadata.valuesByMode = Object.fromEntries(entries.map((entry) => [entry.modeId, {
+      modeName: entry.modeName,
+      value: dtcgValue(variable, entry.value, entry.ref, dialect),
+    }]));
+  }
   return Object.keys(metadata).length ? { [DTCG_BRIDGE_EXTENSION]: metadata } : null;
 }
 
@@ -110,15 +211,11 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
   };
   for (const v of vars) {
     const dtype = v.type === 'COLOR' ? 'color' : v.type === 'FLOAT' ? 'dimension' : v.type === 'BOOLEAN' ? 'boolean' : 'string';
-    let token;
-    if (v.ref) token = { $type: dtype, $value: '{' + dot(v.ref) + '}' };
-    else if (v.value === null || v.value === undefined) token = { $type: dtype, $value: null };
-    else if (v.type === 'COLOR') token = { $type: 'color', $value: dialect === '2025' ? color2025(v.value) : v.value };
-    else if (v.type === 'FLOAT') token = { $type: 'dimension', $value: dialect === '2025' ? { value: Number(v.value), unit: 'px' } : v.value + 'px' };
-    else if (v.type === 'BOOLEAN') token = { $type: 'boolean', $value: v.value };
-    else token = { $type: 'string', $value: String(v.value) };
+    const entries = modeEntries(v);
+    const selected = entries.find((entry) => entry.isDefault) || entries[0];
+    const token = { $type: dtype, $value: dtcgValue(v, selected?.value, selected?.ref, dialect) };
     if (v.description) token.$description = v.description;
-    const extension = bridgeExtension(v);
+    const extension = bridgeExtension(v, dialect);
     if (extension) token.$extensions = extension;
     setPath(v.name, token);
   }
@@ -131,6 +228,20 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
  * under a comment (they need a loading strategy, not just a value).
  */
 export function formatCssTokens(vars) {
+  const defaultVars = [];
+  const modeVars = new Map();
+  for (const variable of vars) {
+    const entries = modeEntries(variable);
+    const selected = entries.find((entry) => entry.isDefault) || entries[0];
+    defaultVars.push({ ...variable, value: selected?.value, ref: selected?.ref });
+    for (const entry of entries) {
+      if (entry === selected || !entry.modeName) continue;
+      if (!modeVars.has(entry.modeName)) modeVars.set(entry.modeName, []);
+      modeVars.get(entry.modeName).push({ ...variable, value: entry.value, ref: entry.ref });
+    }
+  }
+
+  const renderScope = (scopeVars, selector, includeFontGuide) => {
   const rules = [];
   const fontFamilies = [];
   // Same-named variables across collections (a primitive and a semantic
@@ -138,7 +249,7 @@ export function formatCssTokens(vars) {
   // dedupe silently, conflicting values keep the first and flag the clash.
   const seenProps = new Map(); // prop → first value
 
-  for (const v of vars) {
+  for (const v of scopeVars) {
     const prop = cssName(v.name);
     if (seenProps.has(prop)) {
       const prior = seenProps.get(prop);
@@ -166,19 +277,29 @@ export function formatCssTokens(vars) {
     }
   }
 
-  const parts = [':root {', ...rules];
+  const parts = [`${selector} {`, ...rules];
   if (fontFamilies.length) {
     // The workflow step, not just the value: a prior acceptance run shipped system-font
     // fallbacks because nothing SAID to go load the families.
     parts.push(
-      '',
-      '  /* Font families — REQUIRED STEP before building: load each family',
-      '     from the source named next to it (@font-face or <link>), or ask',
-      '     the user for the font files. Do not substitute look-alikes; a',
-      '     system-font fallback distorts metrics and does not count as done. */',
+      ...(includeFontGuide ? [
+        '',
+        '  /* Font families — REQUIRED STEP before building: load each family',
+        '     from the source named next to it (@font-face or <link>), or ask',
+        '     the user for the font files. Do not substitute look-alikes; a',
+        '     system-font fallback distorts metrics and does not count as done. */',
+      ] : []),
       ...fontFamilies,
     );
   }
   parts.push('}');
   return parts.join('\n');
+  };
+
+  const parts = [renderScope(defaultVars, ':root', true)];
+  for (const [modeName, scoped] of modeVars) {
+    const escaped = String(modeName).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    parts.push(renderScope(scoped, `[data-figma-mode="${escaped}"]`, false));
+  }
+  return parts.join('\n\n');
 }

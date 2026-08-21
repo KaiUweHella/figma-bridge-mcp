@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { verifyBuild, describeMissing } from '../src/lib/verify-build.js';
+import { assetContentDigest } from '../src/lib/asset-manifest.js';
 
 const manifest = (assets) => ({ root: '1:1', rootName: 'Frame', assets });
 
@@ -52,6 +53,36 @@ test('verifyBuild: empty manifest and empty project do not throw', () => {
   assert.deepEqual(r.borderImage, []);
 });
 
+test('verifyBuild: Manifest v2 detects a physically tampered asset even when the filename is referenced', () => {
+  const original = Buffer.from('<svg width="8" height="8"><path fill="red" d="M0 0h8v8z"/></svg>');
+  const tampered = Buffer.from('<svg width="8" height="8"><path fill="blue" d="M0 0h8v8z"/></svg>');
+  const v2 = {
+    schemaVersion: 2,
+    root: '1:1',
+    rootName: 'Frame',
+    assets: [{
+      sourceIdentity: 'design-entity:icon.alert',
+      contentDigest: assetContentDigest(original, 'vector'),
+      semanticLabel: 'alert',
+      file: 'alert.svg',
+      kind: 'vector',
+      placements: [{ nodeId: '1:2', rootId: '1:1' }],
+    }],
+  };
+  const source = [{ path: 'src/App.tsx', text: "import alert from './assets/alert.svg';" }];
+
+  const clean = verifyBuild([v2], source, [{ file: 'alert.svg', path: 'assets/alert.svg', bytes: original }]);
+  assert.deepEqual(clean.integrity.mismatched, []);
+  assert.deepEqual(clean.integrity.checked, ['alert.svg']);
+
+  const changed = verifyBuild([v2], source, [{ file: 'alert.svg', path: 'assets/alert.svg', bytes: tampered }]);
+  assert.equal(changed.missing.length, 0, 'the build still references the filename');
+  assert.equal(changed.integrity.mismatched.length, 1);
+  assert.equal(changed.integrity.mismatched[0].file, 'alert.svg');
+  assert.equal(changed.integrity.mismatched[0].expected, v2.assets[0].contentDigest);
+  assert.equal(changed.integrity.mismatched[0].actual, assetContentDigest(tampered, 'vector'));
+});
+
 test('describeMissing: placement fields make the report line actionable', () => {
   const line = describeMissing({
     file: 'navigation-step.svg',
@@ -74,6 +105,44 @@ test('describeMissing: legacy parent coordinates stay explicitly labeled', () =>
 test('describeMissing: degrades gracefully without placement data', () => {
   assert.equal(describeMissing({ file: 'x.svg', entries: [{}] }), 'x.svg');
   assert.equal(describeMissing({ file: 'x.svg', entries: [] }), 'x.svg');
+});
+
+test('verify-build CLI fails when a referenced Manifest v2 asset was tampered with', async () => {
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const dir = mkdtempSync(join(tmpdir(), 'verify-build-integrity-'));
+  const assetsDir = join(dir, 'src', 'assets');
+  mkdirSync(assetsDir, { recursive: true });
+  const original = Buffer.from('<svg width="8" height="8"><path fill="red" d="M0 0h8v8z"/></svg>');
+  const tampered = Buffer.from('<svg width="8" height="8"><path fill="blue" d="M0 0h8v8z"/></svg>');
+  writeFileSync(join(assetsDir, 'alert.svg'), tampered);
+  writeFileSync(join(assetsDir, 'assets.json'), JSON.stringify({
+    schemaVersion: 2,
+    root: '1:1',
+    rootName: 'Frame',
+    roots: [{ id: '1:1', name: 'Frame' }],
+    assets: [{
+      sourceIdentity: 'design-entity:icon.alert',
+      contentDigest: assetContentDigest(original, 'vector'),
+      semanticLabel: 'alert',
+      file: 'alert.svg',
+      kind: 'vector',
+      placements: [{ nodeId: '1:2', rootId: '1:1' }],
+    }],
+  }));
+  writeFileSync(join(dir, 'src', 'App.tsx'), "import alert from './assets/alert.svg';");
+  const entry = fileURLToPath(new URL('../src/index.js', import.meta.url));
+  const result = await promisify(execFile)(process.execPath, [entry, 'verify-build', dir, '--json'])
+    .then((value) => ({ code: 0, ...value }), (error) => ({ code: error.code, stdout: error.stdout, stderr: error.stderr }));
+
+  assert.equal(result.code, 1, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.missing.length, 0, 'the source still references alert.svg');
+  assert.equal(output.integrity.mismatched.length, 1);
+  assert.equal(output.integrity.mismatched[0].file, 'alert.svg');
 });
 
 // ---- CLI smoke: the offline visual pass (--compare + --design) ----

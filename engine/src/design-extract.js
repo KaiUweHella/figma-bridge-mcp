@@ -350,14 +350,20 @@ export function walkerCode(pageId, {
       if (!pb || !own) return null;
       return { x: Math.round(own.x - pb.x), y: Math.round(own.y - pb.y), w: Math.round(own.width), h: Math.round(own.height) };
     };
-    // Component sets seen while resolving instances: name -> { id, props }.
+    // Component sets seen while resolving instances. The Map key is a stable
+    // Design Entity / publish key / local id — never the mutable display name.
     const SETS = new Map();
     const setsOut = () => {
       const list = [];
-      for (const entry of SETS.entries()) {
-        const out = { name: entry[0], id: entry[1].id, props: entry[1].props };
-        if (entry[1].setKey) out.setKey = entry[1].setKey;
-        if (entry[1].dvKey) out.dvKey = entry[1].dvKey;
+      for (const entry of SETS.values()) {
+        const out = { name: entry.name, id: entry.id, props: entry.props };
+        if (entry.entityId) out.entityId = entry.entityId;
+        if (entry.setKey) out.setKey = entry.setKey;
+        if (entry.dvKey) out.dvKey = entry.dvKey;
+        if (entry.componentPropertyDefinitions && Object.keys(entry.componentPropertyDefinitions).length) {
+          out.componentPropertyDefinitions = entry.componentPropertyDefinitions;
+        }
+        if (entry.captureStatus) out.captureStatus = entry.captureStatus;
         list.push(out);
       }
       return list;
@@ -501,6 +507,37 @@ export function walkerCode(pageId, {
         out[name] = item;
       }
       return out;
+    };
+    const registerComponentSet = async (set) => {
+      let props = null;
+      try {
+        const vp = set.variantGroupProperties;
+        props = {};
+        for (const name of Object.keys(vp || {})) props[name] = Array.from(vp[name].values || []);
+      } catch (e) {}
+      const entry = {
+        name: set.name,
+        id: set.id,
+        props,
+        captureStatus: props === null ? 'notCaptured' : 'captured',
+      };
+      const link = pluginJson(set, ${JSON.stringify(DESIGN_ENTITY_PLUGIN_DATA_KEY)});
+      if (link && link.version === 1 && typeof link.id === 'string' && link.id) entry.entityId = link.id;
+      try { if (set.key) entry.setKey = set.key; } catch (e) {}
+      try {
+        const dv = set.defaultVariant || set.children?.[0];
+        if (dv && dv.key) entry.dvKey = dv.key;
+      } catch (e) {}
+      const definitions = await componentDefinitions(set);
+      if (Object.keys(definitions).length) entry.componentPropertyDefinitions = definitions;
+      const identity = entry.entityId
+        ? 'entity:' + entry.entityId
+        : entry.setKey ? 'key:' + entry.setKey : 'id:' + entry.id;
+      const prior = SETS.get(identity);
+      if (!prior || (prior.captureStatus === 'notCaptured' && entry.captureStatus === 'captured')) {
+        SETS.set(identity, entry);
+      }
+      return entry;
     };
     const exposedInstanceFacts = async (node) => {
       let exposed = [];
@@ -1006,6 +1043,7 @@ export function walkerCode(pageId, {
         }
       }
       if (n.type === 'COMPONENT_SET') {
+        await registerComponentSet(n);
         try { o.vp = n.variantGroupProperties; } catch (e) {}
         const definitions = await componentDefinitions(n);
         if (Object.keys(definitions).length) o.componentPropertyDefinitions = definitions;
@@ -1054,20 +1092,7 @@ export function walkerCode(pageId, {
               // per set into the envelope — the screen is only complete when
               // the interactive variants are built too, and without the axes
               // nobody knows they exist.
-              if (!SETS.has(main.parent.name)) {
-                let props = null;
-                try {
-                  const vp = main.parent.variantGroupProperties;
-                  if (vp) { props = {}; for (const k of Object.keys(vp)) props[k] = vp[k].values; }
-                } catch (e) {}
-                const entry = { id: main.parent.id, props };
-                try { if (main.parent.key) entry.setKey = main.parent.key; } catch (e) {}
-                try {
-                  const dv = main.parent.defaultVariant || main.parent.children[0];
-                  if (dv && dv.key) entry.dvKey = dv.key;
-                } catch (e) {}
-                SETS.set(main.parent.name, entry);
-              }
+              await registerComponentSet(main.parent);
             }
           }
         } catch (e) {}
@@ -1139,6 +1164,35 @@ export function walkerCode(pageId, {
       }
       return o;
     };
+    // Census is independent from includeHidden and projection depth. Hidden
+    // layers still stay out of the normal spec by default, but authored copy
+    // and alternate states can no longer disappear without an inspectable
+    // completeness fact. A hidden ancestor makes its whole subtree hidden.
+    const createHiddenCensus = (roots) => {
+      const census = {
+        total: 0, visible: 0, hidden: 0, hiddenText: 0,
+        hiddenIncluded: INCLUDE_HIDDEN, hiddenNodes: [], omittedHiddenNodes: 0,
+      };
+      const visit = (n, inheritedHidden) => {
+        const hidden = inheritedHidden || n.visible === false;
+        census.total++;
+        if (hidden) {
+          census.hidden++;
+          const item = { id: n.id, name: n.name, type: n.type };
+          if (n.type === 'TEXT' && typeof n.characters === 'string') {
+            census.hiddenText++;
+            item.textPreview = n.characters.slice(0, 120);
+          }
+          if (census.hiddenNodes.length < 50) census.hiddenNodes.push(item);
+          else census.omittedHiddenNodes++;
+        } else {
+          census.visible++;
+        }
+        if ('children' in n) n.children.forEach((child) => visit(child, hidden));
+      };
+      roots.forEach((root) => visit(root, false));
+      return census;
+    };
     const page = await figma.getNodeByIdAsync(${JSON.stringify(String(pageId))});
     if (!page) return JSON.stringify({ error: 'page not found' });
     if (typeof page.loadAsync === 'function') await page.loadAsync();
@@ -1153,9 +1207,10 @@ export function walkerCode(pageId, {
       ? page.children.reduce((sum, child) => sum + (child.visible === false ? 0 : 1), 0)
       : page.children.reduce((sum, child) => sum + countVisible(child), 0);
     const tops = page.children;
+    const census = createHiddenCensus(tops);
     const frames = [];
     for (const c of tops) { const f = await walk(c, 0); if (f) frames.push(f); }
-    return JSON.stringify({ id: page.id, name: page.name, nodeCount: visited, visibleNodeCount, frames, sets: setsOut() });
+    return JSON.stringify({ id: page.id, name: page.name, nodeCount: visited, visibleNodeCount, census, frames, sets: setsOut() });
   })()`;
 }
 
@@ -1170,7 +1225,7 @@ export function nodeWalkerCode(nodeId, opts = {}) {
   // is replaced by loading the node's page (dynamic-page requirement).
   const base = walkerCode('__NODE__', opts);
   return base.replace(
-    /const page = await figma\.getNodeByIdAsync\("__NODE__"\);[\s\S]*?return JSON\.stringify\(\{ id: page\.id, name: page\.name, nodeCount: visited, visibleNodeCount, frames, sets: setsOut\(\) \}\);/,
+    /const page = await figma\.getNodeByIdAsync\("__NODE__"\);[\s\S]*?return JSON\.stringify\(\{ id: page\.id, name: page\.name, nodeCount: visited, visibleNodeCount, census, frames, sets: setsOut\(\) \}\);/,
     `const node = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (!node) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop — if this id comes from another file (check the URL file key), open that file first.' });
     let visited = 0;
@@ -1181,7 +1236,8 @@ export function nodeWalkerCode(nodeId, opts = {}) {
       return 1 + ('children' in n ? n.children.reduce((sum, child) => sum + countVisible(child), 0) : 0);
     };
     const visibleNodeCount = MAX_DEPTH === 0 ? (node.visible === false ? 0 : 1) : countVisible(node);
-    return JSON.stringify({ id: node.id, name: node.name, nodeCount: visited, visibleNodeCount, frames: [await walk(node, 0)].filter(Boolean), sets: setsOut() });`
+    const census = createHiddenCensus([node]);
+    return JSON.stringify({ id: node.id, name: node.name, nodeCount: visited, visibleNodeCount, census, frames: [await walk(node, 0)].filter(Boolean), sets: setsOut() });`
   );
 }
 
@@ -1239,6 +1295,15 @@ export function assetCollectorCode(nodeId) {
     const hasImageFill = (n) => __assetAccess.hasImage(n);
     const images = new Map(); /* hash -> { hash, nodes: [] } */
     const vectors = [];
+    const designEntityId = (n) => {
+      try {
+        if (typeof n.getPluginData !== 'function') return null;
+        const raw = n.getPluginData('figma-bridge-design-entity');
+        if (!raw) return null;
+        const anchor = JSON.parse(raw);
+        return anchor && anchor.version === 1 && typeof anchor.id === 'string' ? anchor.id : null;
+      } catch (e) { return null; }
+    };
     /* Placement facts per node, so the manifest ALONE positions an overlay
        (no spec cross-reference needed): parent NODE ID, x/y offsets in the
        parent, absolute-positioning flag (same rule as the spec walker: an
@@ -1281,6 +1346,8 @@ export function assetCollectorCode(nodeId) {
         parent: ancestors.join(' / '), ancestors,
         ...posInfo(n),
       };
+      const entityId = designEntityId(n);
+      if (entityId) entry.designEntityId = entityId;
       if (cluster) entry.cluster = cluster;
       if (icon) entry.icon = true;
       vectors.push(entry);
@@ -1338,9 +1405,9 @@ export function assetCollectorCode(nodeId) {
  * Collected: node.boundVariables (fills, strokes, gaps, radii, typography …),
  * the boundVariables of every applied shared style (text/fill/stroke/effect),
  * and the full alias chain of each hit (alias targets export as tokens of
- * their own). Values are first-mode, alias-resolved; COLOR → hex (8-digit
- * when alpha < 1). Each entry carries its collection name and, when the
- * variable is itself an alias, the target's name as `ref`.
+ * their own). Every collection mode is retained and aliases are resolved per
+ * mode; COLOR → hex (8-digit when alpha < 1). Legacy `value`/`ref` fields
+ * mirror the default mode for backward-compatible formatters.
  */
 export function usedVariablesCode(nodeId) {
   return `(async () => {
@@ -1374,14 +1441,20 @@ export function usedVariablesCode(nodeId) {
     for (const sid of styleIds) {
       try { const st = await figma.getStyleByIdAsync(sid); if (st) addBV(st.boundVariables); } catch (e) {}
     }
-    const colName = new Map();
-    const collectionName = async (cid) => {
+    const colInfo = new Map();
+    const collectionInfo = async (cid) => {
       if (!cid) return null;
-      if (colName.has(cid)) return colName.get(cid);
-      let name = null;
-      try { const c = await figma.variables.getVariableCollectionByIdAsync(cid); if (c) name = c.name; } catch (e) {}
-      colName.set(cid, name);
-      return name;
+      if (colInfo.has(cid)) return colInfo.get(cid);
+      let info = null;
+      try {
+        const c = await figma.variables.getVariableCollectionByIdAsync(cid);
+        if (c) info = {
+          id: c.id || cid, name: c.name, defaultModeId: c.defaultModeId || c.modes?.[0]?.modeId,
+          modes: Array.from(c.modes || [], (mode) => ({ modeId: mode.modeId, name: mode.name })),
+        };
+      } catch (e) {}
+      colInfo.set(cid, info);
+      return info;
     };
     const out = [];
     const seen = new Set();
@@ -1392,26 +1465,53 @@ export function usedVariablesCode(nodeId) {
       let v = null;
       try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) {}
       if (!v) continue;
-      let val = Object.values(v.valuesByMode || {})[0];
-      let ref = null;
-      let guard = 10;
-      while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
-        add(val.id); /* alias target exports as a token of its own */
-        let t = null;
-        try { t = await figma.variables.getVariableByIdAsync(val.id); } catch (e) {}
-        if (!t) { val = null; break; }
-        if (!ref) ref = t.name;
-        val = Object.values(t.valuesByMode || {})[0];
+      const collection = await collectionInfo(v.variableCollectionId);
+      const modes = collection?.modes?.length
+        ? collection.modes
+        : Object.keys(v.valuesByMode || {}).map((modeId) => ({ modeId, name: modeId }));
+      const valuesByMode = {};
+      for (const mode of modes) {
+        let current = v;
+        let currentMode = mode;
+        let val = current.valuesByMode?.[currentMode.modeId];
+        let ref = null;
+        let guard = 10;
+        const chain = new Set([current.id]);
+        while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
+          add(val.id); /* alias target exports as a token of its own */
+          let target = null;
+          try { target = await figma.variables.getVariableByIdAsync(val.id); } catch (e) {}
+          if (!target || chain.has(target.id)) { val = null; break; }
+          chain.add(target.id);
+          if (!ref) ref = target.name;
+          const targetCollection = await collectionInfo(target.variableCollectionId);
+          const targetModes = targetCollection?.modes || [];
+          const sameId = Object.prototype.hasOwnProperty.call(target.valuesByMode || {}, currentMode.modeId);
+          const targetMode = sameId
+            ? currentMode
+            : targetModes.find((candidate) => candidate.name === currentMode.name)
+              || targetModes.find((candidate) => candidate.modeId === targetCollection?.defaultModeId)
+              || targetModes[0];
+          current = target;
+          currentMode = targetMode || { modeId: Object.keys(target.valuesByMode || {})[0], name: currentMode.name };
+          val = current.valuesByMode?.[currentMode.modeId];
+        }
+        if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
+        if (val && typeof val === 'object') val = null; /* unresolvable */
+        valuesByMode[mode.modeId] = { value: val === undefined ? null : val, ref };
       }
-      if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
-      if (val && typeof val === 'object') val = null; /* unresolvable */
+      const defaultModeId = collection?.defaultModeId || modes[0]?.modeId;
+      const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId] || { value: null, ref: null };
       out.push({
         id: v.id,
         name: v.name,
         type: v.resolvedType,
-        value: val === undefined ? null : val,
-        ref,
-        collection: await collectionName(v.variableCollectionId),
+        value: selected.value,
+        ref: selected.ref,
+        valuesByMode,
+        modes,
+        defaultModeId,
+        collection: collection?.name || null,
         description: v.description || undefined,
         scopes: Array.isArray(v.scopes) ? Array.from(v.scopes) : undefined,
         codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : undefined,

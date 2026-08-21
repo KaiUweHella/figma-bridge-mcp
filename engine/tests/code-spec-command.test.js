@@ -192,6 +192,33 @@ test('style projection refuses unaccounted visible Figma layers even without a d
   );
 });
 
+test('style projection blocks a notCaptured component set with one batch recipe', async () => {
+  const adapter = evaluator();
+  const captureDesign = async () => ({
+    result: {
+      id: '1:2', name: 'Screen', visibleNodeCount: 1,
+      frames: [{ t: 'FRAME', n: 'Screen', id: '1:2' }],
+      sets: [
+        { name: 'Button', id: 'set:1', setKey: 'BUTTON_KEY', props: null },
+        { name: 'Input', id: 'set:2', setKey: 'INPUT_KEY', props: null },
+      ],
+    },
+    completeness: {
+      requestedDepth: 12, actualDepth: 12, payloadComplete: true, depthLimited: false,
+    },
+  });
+  await assert.rejects(
+    () => executeCodeSpec({ nodeId: '1:2', phase: 'style' }, { ...adapter, captureDesign }),
+    (error) => {
+      assert.match(error.message, /component state contract is incomplete/i);
+      assert.match(error.message, /Button \[set:1\]/);
+      assert.match(error.message, /Input \[set:2\]/);
+      assert.match(error.message, /"nodeIds":\["set:1","set:2"\]/);
+      return true;
+    },
+  );
+});
+
 test('cached projections equal fresh projections and execute only one walker', async () => {
   const module = createDesignCaptureModule();
   let walks = 0;

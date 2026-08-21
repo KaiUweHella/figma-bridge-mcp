@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { assetSlug, isGenericName, effectiveAssetName, assetFileName, imageAssetBase } from '../src/lib/asset-names.js';
+import { assetContentDigest, planAssetExport, publishAssetExportPlan } from '../src/lib/asset-manifest.js';
 import { assetCollectorCode, imageBytesCode, nodeWalkerCode, svgBytesCode } from '../src/design-extract.js';
 import { paintSeg, specLines, styleFields, bundleKey } from '../src/lib/code-spec.js';
 
@@ -146,6 +147,8 @@ test('collector and spec export a small vector-only icon INSTANCE at frame bound
   const icon = {
     id: 'icon:1', name: 'distinguish/m/bell', type: 'INSTANCE', visible: true,
     width: 24, height: 24, x: 0, y: 0, children: [vector],
+    getPluginData: (key) => key === 'figma-bridge-design-entity'
+      ? JSON.stringify({ version: 1, id: 'icon.bell', kind: 'component' }) : '',
   };
   const root = {
     id: 'icon:0', name: 'Toolbar', type: 'FRAME', visible: true,
@@ -157,6 +160,7 @@ test('collector and spec export a small vector-only icon INSTANCE at frame bound
   assert.deepEqual(collected.vectors.map(({ id, name, w, h }) => ({ id, name, w, h })), [{
     id: 'icon:1', name: 'distinguish/m/bell', w: 24, h: 24,
   }]);
+  assert.equal(collected.vectors[0].designEntityId, 'icon.bell');
 
   const lines = specLines({
     t: 'INSTANCE', n: 'distinguish/m/bell', id: 'icon:1', w: 24, h: 24,
@@ -235,6 +239,71 @@ test('byte-fetch snippets are valid JS and target the right ids', () => {
 });
 
 // ---- manifest merge ----
+
+test('Manifest v2 preserves a prior filename when a later export proposes different content under the same label', () => {
+  const files = new Map();
+  const adapter = {
+    fileExists: (file) => files.has(file),
+    digestForFile: (file, kind) => assetContentDigest(files.get(file), kind),
+  };
+  const firstBytes = Buffer.from('<svg width="16" height="16"><path fill="red" d="M0 0h16v16z"/></svg>');
+  const secondBytes = Buffer.from('<svg width="16" height="16"><path fill="blue" d="M0 0h16v16z"/></svg>');
+  const candidate = (sourceIdentity, bytes, nodeId) => ({
+    sourceIdentity,
+    contentDigest: assetContentDigest(bytes, 'vector'),
+    semanticLabel: 'arrow-right-4',
+    proposedFile: 'arrow-right-4.svg',
+    kind: 'vector',
+    bytes,
+    placements: [{ nodeId, name: 'Arrow right 4', rootId: `root:${nodeId}` }],
+  });
+
+  const first = planAssetExport(null, [candidate('design-entity:icon.arrow-a', firstBytes, 'a:1')],
+    { id: 'root:a:1', name: 'First' }, adapter);
+  for (const write of first.filesToWrite) files.set(write.file, write.bytes);
+  assert.equal(first.manifest.schemaVersion, 2);
+  assert.equal(first.manifest.assets[0].file, 'arrow-right-4.svg');
+
+  const second = planAssetExport(first.manifest,
+    [candidate('design-entity:icon.arrow-b', secondBytes, 'b:1')],
+    { id: 'root:b:1', name: 'Second' }, adapter);
+  for (const write of second.filesToWrite) files.set(write.file, write.bytes);
+  const byIdentity = new Map(second.manifest.assets.map((asset) => [asset.sourceIdentity, asset]));
+  assert.equal(byIdentity.get('design-entity:icon.arrow-a').file, 'arrow-right-4.svg');
+  assert.notEqual(byIdentity.get('design-entity:icon.arrow-b').file, 'arrow-right-4.svg');
+  assert.match(byIdentity.get('design-entity:icon.arrow-b').file, /^arrow-right-4-[a-f0-9]{8}\.svg$/);
+  assert.deepEqual(files.get('arrow-right-4.svg'), firstBytes, 'the original file is never overwritten');
+
+  const repeated = planAssetExport(second.manifest,
+    [candidate('design-entity:icon.arrow-b', secondBytes, 'b:1')],
+    { id: 'root:b:1', name: 'Second' }, adapter);
+  assert.equal(repeated.manifest.assets.find((asset) => asset.sourceIdentity === 'design-entity:icon.arrow-b').file,
+    byIdentity.get('design-entity:icon.arrow-b').file, 'the collision decision is stable across runs');
+  assert.equal(repeated.filesToWrite.length, 0, 'identical content is reused across runs');
+});
+
+test('asset publication refuses to overwrite a reserved filename with different content', async () => {
+  const { mkdtempSync, readFileSync, writeFileSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'asset-publish-'));
+  const original = Buffer.from('original');
+  const changed = Buffer.from('changed');
+  writeFileSync(join(dir, 'reserved.png'), original);
+  const plan = {
+    manifest: { schemaVersion: 2, root: '1:1', rootName: 'Frame', roots: [], assets: [] },
+    filesToWrite: [{
+      file: 'reserved.png',
+      bytes: changed,
+      kind: 'image',
+      contentDigest: assetContentDigest(changed, 'image'),
+    }],
+  };
+
+  assert.throws(() => publishAssetExportPlan(dir, plan), /refusing to overwrite reserved\.png/);
+  assert.deepEqual(readFileSync(join(dir, 'reserved.png')), original);
+  assert.equal(existsSync(join(dir, 'assets.json')), false, 'manifest is not published after a failed file phase');
+});
 
 test('mergeAssetManifest keeps prior entries whose files exist, replaces re-exported nodes', async () => {
   const { mergeAssetManifest } = await import('../src/lib/asset-manifest.js');

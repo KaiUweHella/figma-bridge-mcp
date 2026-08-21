@@ -333,7 +333,7 @@ test('sets trailer renders the set key once; tree lines stay key-free', () => {
   };
   const md = formatCodeSpec(withSets, { phase: 'structure' });
   assert.match(md, /- Button — Size: S\/M · \[10:4\] · key `PLACEHOLDER_SET_KEY`/);
-  assert.match(md, /- Legacy · \[11:1\]\n/); // no trailing key segment
+  assert.match(md, /- Legacy · \[11:1\] · state:notCaptured\n/); // no key segment; local id remains the fallback identity
   // The 40-char-class key appears exactly once (trailer), never on tree lines.
   assert.equal((md.match(/PLACEHOLDER_SET_KEY/g) || []).length, 1);
   assert.ok(!/PLACEHOLDER_VARIANT_KEY/.test(md), 'instance keys stay out of the tree format');
