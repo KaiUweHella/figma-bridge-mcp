@@ -1391,6 +1391,22 @@ build, so the authenticated handshake reports the imported build separately
 from the bundled build. `figma_status` then gives an explicit re-import path
 instead of treating the mismatch as a generic connection failure.
 
+### Multiple Figma MCP servers
+
+Figma Bridge can coexist with another Figma MCP. Its registered server
+namespace is `figma-bridge` and every tool result carries
+`_mcp: "figma-bridge-mcp"` plus protocol metadata that scopes failures to this
+server. Errors also repeat that a failed Bridge call does not establish that
+Figma or another Figma MCP is unavailable.
+
+The bundled skills pin their workflows to Figma Bridge and begin with this
+server's `figma_status`. They never silently switch to a different MCP for a
+write, because another server may use different targeting, approval, retry and
+security semantics. An MCP cannot control which tool a host selects before the
+first call, so a generic task with several Figma servers remains a host/agent
+routing decision; once a Bridge skill is selected, the server identity and
+workflow contract make that route explicit and testable.
+
 The panel carries its own SHA-256/HMAC implementation: the plugin UI is a
 sandboxed null-origin iframe, where WebCrypto availability is not ours to
 guarantee, and a silent fallback to something weaker is the worst outcome for an

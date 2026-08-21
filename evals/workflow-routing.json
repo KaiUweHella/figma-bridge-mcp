@@ -15,7 +15,8 @@
         "source-assets",
         "project-stack",
         "pixel-verify",
-        "no-browser-install"
+        "no-browser-install",
+        "mcp-identity-pin"
       ]
     },
     {
@@ -30,7 +31,8 @@
         "bounded-figma-reads",
         "source-assets",
         "project-stack",
-        "pixel-verify"
+        "pixel-verify",
+        "mcp-identity-pin"
       ]
     },
     {
@@ -48,7 +50,8 @@
         "component-reuse",
         "sequential-figma-writes",
         "pixel-verify",
-        "no-browser-install"
+        "no-browser-install",
+        "mcp-identity-pin"
       ]
     },
     {
@@ -63,7 +66,8 @@
         "design-entity-reconcile",
         "component-reuse",
         "sequential-figma-writes",
-        "pixel-verify"
+        "pixel-verify",
+        "mcp-identity-pin"
       ]
     },
     {
@@ -80,7 +84,8 @@
         "component-properties",
         "variant-cap",
         "sequential-figma-writes",
-        "pixel-verify"
+        "pixel-verify",
+        "mcp-identity-pin"
       ]
     },
     {
@@ -96,7 +101,8 @@
         "token-bindings",
         "component-properties",
         "variant-cap",
-        "sequential-figma-writes"
+        "sequential-figma-writes",
+        "mcp-identity-pin"
       ]
     }
   ],

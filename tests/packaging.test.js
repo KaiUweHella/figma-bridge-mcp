@@ -67,6 +67,9 @@ test("Codex plugin bundles the MCP server and focused bidirectional skills", () 
       `${name} frontmatter must also validate after a Windows CRLF checkout`,
     );
     assert.doesNotMatch(skill, /\[TODO:/);
+    assert.match(skill, /Pin the Figma Bridge transport/);
+    assert.match(skill, /figma-bridge-mcp/);
+    assert.match(skill, /do not silently switch.*write/i);
   }
   assert.match(skills["figma-bridge-design-to-code"], /Do not install Playwright/);
   assert.match(skills["figma-bridge-design-to-code"], /Parallelize only independent sections/);

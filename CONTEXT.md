@@ -33,6 +33,10 @@ _Avoid_: backend, proxy
 The sole local interface to the **Bridge Daemon**, owning request signing, file targeting, timeouts, health and transport-error semantics.
 _Avoid_: fetch helper, daemon wrapper
 
+**MCP Server Identity**:
+The stable `figma-bridge-mcp` attribution attached to every tool result, with the `figma-bridge` namespace and a server-local failure scope. It lets agents distinguish this Bridge transport from other installed Figma MCPs; one server failure never proves Figma or another server unavailable and never authorizes switching write semantics.
+_Avoid_: tool prefix, Figma availability
+
 **Figma Target Context**:
 The immutable resolution of exactly one plugin file for a **Figma Command**, including whether the file came from an explicit key, a Figma URL, or the single connected window.
 _Avoid_: fileKey parameter, current window
