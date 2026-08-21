@@ -78,6 +78,8 @@ async function executeCode(code, timeoutMs = 22000) {
   return Promise.race([execPromise, timeoutPromise]);
 }
 
+// Generated runtime: npm run sync:plugin. Edit the canonical module at
+// engine/src/lib/structured-render-executor.js, never this marked block.
 // BEGIN STRUCTURED RENDER RUNTIME
 function structuredNumber(value, fallback = 0) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;

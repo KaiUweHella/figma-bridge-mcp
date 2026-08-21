@@ -1,0 +1,5 @@
+# The shipped Figma Plugin contains a generated runtime copied from the
+# canonical ESM module. Fixed line endings keep the artifact byte-deterministic
+# across Windows, macOS, and Linux checkouts.
+plugin/code.js text eol=lf
+engine/src/lib/structured-render-executor.js text eol=lf

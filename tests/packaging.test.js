@@ -165,12 +165,28 @@ test("package identity: name, bin, repository, prepublish test gate", () => {
   );
   assert.equal(
     pkg.scripts.prepublishOnly,
-    "npm run check:public-safety && npm test",
-    "publishing must scan public material before running the suite",
+    "npm run check:public-safety && npm test && npm run check:package-artifact",
+    "publishing must scan public material, run the suite, and verify the exact artifact",
   );
+  assert.equal(pkg.scripts["build:package-artifact"], "node scripts/verify-package-artifact.js");
   assert.equal(pkg.publishConfig.access, "public");
   assert.equal(pkg.publishConfig.registry, "https://registry.npmjs.org/");
   assert.equal(pkg.main, undefined, "the executable package must not claim a library entry point");
+});
+
+test("published runtime keeps the declared Node floor after consumer resolution", () => {
+  const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8"));
+  const workflow = readFileSync(join(ROOT, ".github", "workflows", "test.yml"), "utf8");
+
+  assert.equal(pkg.engines.node, ">=18.14.1");
+  assert.equal(
+    pkg.dependencies["@hono/node-server"],
+    "1.19.17",
+    "a direct exact dependency must carry the Node-18-compatible MCP transport into consumer installs",
+  );
+  assert.equal(pkg.overrides, undefined, "npm overrides are root-only and must not model the published graph");
+  assert.equal(lock.packages["node_modules/@hono/node-server"].version, "1.19.17");
+  assert.match(workflow, /pack:[\s\S]*node-version: 18[\s\S]*--engine-strict/);
 });
 
 test("root MIT license stays canonical; third-party notices stay complete", () => {

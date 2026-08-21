@@ -19,14 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run check:public-safety:history
 
   test:
@@ -51,12 +51,12 @@ jobs:
           - os: windows-latest
             node: 24
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm test
 
   architecture-latency:
@@ -64,12 +64,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # Wall-clock budgets need an otherwise idle Node process. Running this
       # inside `node --test` lets parallel test files create false regressions.
       - run: npm run check:architecture-latency
@@ -79,56 +79,53 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # Keep this network-backed check separate from `npm test`: contributors
       # can run the deterministic suite offline, while CI and releases still
       # fail on any advisory in the package users actually install.
       - run: npm run check:audit
+      # Development-only advisories stay visible for triage, but do not create
+      # false release blockers unless they affect a tool our build executes.
+      - name: report development dependency advisories
+        continue-on-error: true
+        run: npm run check:audit:development
 
   pack:
     name: tarball contains the runtime
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          # Exercise the installed tarball on the declared runtime floor, not
+          # only against the newer Node used to publish it.
+          node-version: 18
           cache: npm
-      - run: npm ci
-      # packaging.test.js checks package.json's `files` list; this checks what
-      # npm actually packs, which is the thing users install.
-      - name: pack and verify the plugin ships
-        run: |
-          npm pack --silent
-          tar -tzf figma-bridge-mcp-*.tgz > files.txt
-          for f in package/plugin/manifest.json package/plugin/code.js package/plugin/ui.html \
-                   package/src/server.js package/engine/src/daemon.js \
-                   package/engine/src/lib/plugin-handshake.js \
-                   package/engine/src/commands/slides.js package/README.md \
-                   package/.codex-plugin/plugin.json package/.claude-plugin/plugin.json \
-                   package/.claude-plugin/marketplace.json \
-                   package/.mcp.json package/plugin.json package/mcp.json \
-                   package/skills/figma-bridge-design-to-code/SKILL.md \
-                   package/skills/figma-bridge-code-to-figma/SKILL.md \
-                   package/skills/figma-bridge-component-library/SKILL.md \
-                   package/SECURITY.md package/CHANGELOG.md package/NOTICE \
-                   package/LICENSE package/engine/LICENSE; do
-            grep -qx "$f" files.txt || { echo "MISSING from tarball: $f"; exit 1; }
-          done
-          if grep -Eq '^package/(docs/|evals/|scripts/|tests/|CONTEXT\.md$|CONTRIBUTING\.md$|SUPPORT\.md$)' files.txt; then
-            echo "Repository-only material leaked into the npm tarball"
-            exit 1
-          fi
-          echo "tarball contents verified"
+      - run: npm ci --ignore-scripts
+      # The release gate compares the complete inventory to a reviewed
+      # allowlist, rejects new executable bits, and requires two identical packs.
+      - name: build independently verifiable package
+        run: npm run build:package-artifact -- --output-dir release-artifact
       - name: install the tarball and start its packaged engine
         run: |
           mkdir package-smoke
-          npm install --prefix package-smoke ./figma-bridge-mcp-*.tgz
-          node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp
+          npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts --engine-strict
+          node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js
           node package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js --help
+      - name: verify the installed production dependency graph
+        run: |
+          npm audit --prefix package-smoke --omit=dev
+          node scripts/write-installed-dependency-evidence.js package-smoke release-artifact/dependencies.json
+      - name: retain package integrity evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: verified-package-${{ github.sha }}
+          path: release-artifact/
+          if-no-files-found: error
+          retention-days: 30

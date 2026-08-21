@@ -54,6 +54,9 @@
     "start": "node src/server.js",
     "check:contracts": "tsc -p jsconfig.contracts.json",
     "check:audit": "npm audit --omit=dev",
+    "check:audit:development": "npm audit --include=dev --audit-level=high",
+    "check:package-artifact": "node scripts/verify-package-artifact.js",
+    "check:plugin": "node scripts/sync-plugin-artifact.js --check",
     "check:release": "node scripts/sync-release-version.js --check",
     "check:workflow-evals": "node scripts/validate-workflow-evals.js",
     "check:architecture-latency": "node scripts/check-architecture-latency.js",
@@ -62,12 +65,15 @@
     "check:public-safety:history": "node scripts/check-public-safety.js --history",
     "check:public-safety:push": "node scripts/check-public-safety.js --pre-push",
     "measure:architecture": "node scripts/measure-architecture-budgets.js",
+    "build:package-artifact": "node scripts/verify-package-artifact.js",
     "sync:release-version": "node scripts/sync-release-version.js",
-    "test": "npm run check:contracts && npm run check:release && npm run check:workflow-evals && node --test",
-    "prepublishOnly": "npm run check:public-safety && npm test",
+    "sync:plugin": "node scripts/sync-plugin-artifact.js",
+    "test": "npm run check:contracts && npm run check:release && npm run check:plugin && npm run check:workflow-evals && node --test",
+    "prepublishOnly": "npm run check:public-safety && npm test && npm run check:package-artifact",
     "prepare": "husky"
   },
   "dependencies": {
+    "@hono/node-server": "1.19.17",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
@@ -76,11 +82,8 @@
     "ws": "^8.21.3",
     "yaml": "^2.9.0"
   },
-  "overrides": {
-    "@hono/node-server": "1.19.17"
-  },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.14.1"
   },
   "publishConfig": {
     "access": "public",

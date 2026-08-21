@@ -11,3 +11,7 @@ node_modules/
 engine/docs/
 # local working docs (plans, reports, scratch)
 docs-local/
+# generated only by explicit package/release verification
+release-artifact/
+package-smoke/
+*.tgz

@@ -202,6 +202,39 @@ const EVIDENCE = Object.freeze([
       ],
     ],
   ],
+  [
+    "SEC-PACKAGE",
+    [
+      [
+        "tests/package-artifact.test.js",
+        "release artifact is allowlisted and byte-reproducible",
+      ],
+      [
+        "tests/package-artifact.test.js",
+        "artifact policy rejects an unreviewed executable even when it is regular",
+      ],
+      [
+        "tests/installed-dependency-evidence.test.js",
+        "installed dependency evidence is exact, deterministic, and path-sanitized",
+      ],
+      [
+        "tests/installed-dependency-evidence.test.js",
+        "installed dependency evidence rejects executable lifecycle hooks",
+      ],
+      [
+        "tests/packaging.test.js",
+        "published runtime keeps the declared Node floor after consumer resolution",
+      ],
+      [
+        "tests/release-integrity.test.js",
+        "release workflows pin every third-party Action to an immutable commit",
+      ],
+      [
+        "tests/release-integrity.test.js",
+        "publish workflow releases the verified tarball and retains all evidence",
+      ],
+    ],
+  ],
 ]);
 
 test("public security claims resolve to named executable evidence", () => {

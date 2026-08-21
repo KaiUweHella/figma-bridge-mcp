@@ -1,7 +1,9 @@
 # Releasing to npm
 
-Publishing is CLI-first. The repository never stores a long-lived npm write
-token, and no custom REST client publishes packages.
+Publishing is artifact-first. The repository never stores a long-lived npm
+write token, and no custom REST client publishes packages. CI publishes the
+same verified tarball it installed and tested; it never asks npm to repack the
+checkout after verification.
 
 ## Before every release
 
@@ -11,20 +13,42 @@ token, and no custom REST client publishes packages.
    engine, lockfile, Codex/Claude/Cursor manifests, GitHub marketplace tag
    pins, and both MCP runtime pins. Update `CHANGELOG.md` with the release date
    and contents; `npm run check:release` must pass without rewriting anything.
-3. Run `npm test` and `npm pack --dry-run --json`. The test command also
-   validates the cross-client install contract and workflow-routing evals.
-   Inspect the tarball list for
-   `src/`, `engine/src/`, all three plugin files, `README.md`, `SECURITY.md`,
-   `CHANGELOG.md`, `NOTICE`, and both licenses. Confirm that repository-only
-   material (`docs/`, `evals/`, `scripts/`, `tests/`, `CONTEXT.md`,
-   `CONTRIBUTING.md`, `SUPPORT.md`) is absent.
-4. Install the packed artifact in a temporary directory and run
-   `node_modules/.bin/figma-bridge-mcp < /dev/null` followed by
-   `node node_modules/figma-bridge-mcp/engine/src/index.js --help` there. This
-   proves both the public executable and packaged command graph start without
-   resolving files from the checkout; the CI `pack` job performs the same smoke
-   test.
-5. Commit, create the exact `v<version>` tag referenced by both GitHub
+3. Install the locked development graph without lifecycle scripts, then run the
+   deterministic tests and blocking runtime audit:
+
+   ```bash
+   npm ci --ignore-scripts
+   npm test
+   npm run check:audit
+   ```
+
+   `npm test` includes cross-client install contracts, workflow-routing evals,
+   Plugin artifact drift, and the package inventory/reproducibility gate.
+
+4. Build the release candidate:
+
+   ```bash
+   npm run build:package-artifact -- --output-dir release-artifact
+   ```
+
+   This compares the complete packed path list with
+   `release/package-artifact-policy.json`, rejects unexpected executable bits
+   and symlinks, requires two byte-identical packs, and writes
+   `release-artifact/integrity.json` with artifact and inventory digests. A
+   deliberate new runtime file must be added to the policy in the same reviewed
+   change.
+
+5. Install `release-artifact/package.tgz` into a fresh prefix and run
+   `scripts/smoke-mcp-server.js` with the installed server and engine paths.
+   The smoke uses a scratch home, generated credentials, and a temporary
+   loopback port. It exercises MCP initialization, tool discovery, pairing,
+   authenticated daemon startup, status, Plugin installation, and cleanup
+   without a maintainer secret. The installed lock is reduced to a sanitized
+   `dependencies.json` containing exact production versions, canonical npm
+   registry origins, and SHA-512 integrity; an install lifecycle script fails
+   the gate. The CI pack job installs with `--engine-strict` on Node 18, the
+   declared runtime floor. CI performs this automatically.
+6. Commit, create the exact `v<version>` tag referenced by both GitHub
    marketplaces, and push the commit and tag. Never move an existing release
    tag: publish a new version instead.
 
@@ -52,6 +76,32 @@ Code, and Cursor sessions and confirm that all three skills and the local MCP
 server load. Validators prove manifest shape; this client smoke test proves
 cache copying, discovery, and process startup.
 
+## Automated gates and maintainer attestations
+
+Automated on every tested release candidate:
+
+- public-history safety, type/contracts, protocol and Plugin checks;
+- generated Structured Render Runtime drift;
+- exact package inventory, executable-bit policy, and byte reproducibility;
+- root runtime audit plus audit of the fresh installed-package dependency graph;
+- scratch pairing and authenticated daemon startup;
+- tag/version agreement, commit-pinned Actions, npm OIDC publishing and
+  provenance;
+- retention of the tarball, `integrity.json`, and installed
+  `dependencies.json` as a workflow artifact.
+
+The maintainer still attests what CI cannot prove:
+
+- live Figma Desktop round trips for the changed product paths;
+- version/changelog correctness and the intent to publish that exact tag;
+- fresh Codex, Claude Code, and Cursor discovery after publication;
+- npm Trusted Publisher configuration and account security.
+
+Runtime advisories block CI and release. `npm run check:audit:development`
+reports development-only advisories separately. They are triaged and become
+blocking when the affected package executes in the build/release path; they do
+not automatically equate to code shipped to MCP users.
+
 ## First publication (maintainer runs locally)
 
 Trusted Publishing can only be configured after the package exists. The first
@@ -59,12 +109,22 @@ release is therefore an explicit maintainer operation:
 
 ```bash
 npm login
-npm publish --access public
+npm ci --ignore-scripts
+npm test
+npm run check:audit
+npm run build:package-artifact -- --output-dir release-artifact
+mkdir package-smoke
+npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts
+node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js
+npm audit --prefix package-smoke --omit=dev
+node scripts/write-installed-dependency-evidence.js package-smoke release-artifact/dependencies.json
+npm publish release-artifact/package.tgz --ignore-scripts --access public
 ```
 
-`publishConfig.access` makes the unscoped package public, and
-`prepublishOnly` runs the full test suite again. Local first publication does
-not claim CI provenance.
+`publishConfig.access` makes the unscoped package public. The explicit
+commands replace package lifecycle hooks because the verified tarball excludes
+maintainer scripts and is intentionally published with `--ignore-scripts`.
+Local first publication does not claim CI provenance.
 
 After the package exists, configure the GitHub workflow as its Trusted
 Publisher. Publishing through OIDC needs npm 11.5.1 or newer; the `npm trust`
@@ -90,6 +150,8 @@ gh run watch
 ```
 
 The manual workflow checks out the supplied tag, refuses a tag/version
-mismatch, installs dependencies without a release cache, runs all tests, and
-invokes `npm publish`. npm authenticates the specific GitHub workflow through
-OIDC and creates provenance automatically. No `NPM_TOKEN` secret is involved.
+mismatch, installs dependencies without lifecycle scripts or a release cache,
+runs all tests and audits, creates two identical packs, installs and smokes the
+candidate, retains its integrity evidence, and publishes that exact tarball.
+npm authenticates the specific GitHub workflow through OIDC and creates
+provenance automatically. No `NPM_TOKEN` secret is involved.

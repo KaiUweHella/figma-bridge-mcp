@@ -1489,8 +1489,10 @@ storybook`
 
 ```bash
 npm run check:contracts       # static JavaScript seam + plugin contracts
+npm run check:plugin          # generated Plugin runtime has no source drift
 npm run check:architecture-latency # warmed latency budget in an idle process
 npm run measure:architecture  # context, payload and local latency baselines
+npm run build:package-artifact -- --output-dir release-artifact # reproducible reviewed tarball + evidence
 npm test                      # all contracts and regression suites
 ```
 

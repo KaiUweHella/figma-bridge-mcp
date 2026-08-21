@@ -1,9 +1,9 @@
 /**
  * Native Semantic Render Plan executor shared with the shipped plugin.
  *
- * Keep this module self-contained: the implementation between the sync
- * markers is copied verbatim into plugin/code.js, where ESM imports are not
- * available. A regression test enforces byte-for-byte synchronisation.
+ * Keep this module self-contained: npm run sync:plugin deterministically
+ * compiles the implementation between the markers into plugin/code.js, where
+ * ESM imports are not available. npm run check:plugin rejects artifact drift.
  */
 
 // BEGIN STRUCTURED RENDER RUNTIME

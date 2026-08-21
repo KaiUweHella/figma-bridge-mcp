@@ -18,26 +18,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
       - name: Use an npm CLI with Trusted Publishing support
-        run: npm install --global npm@^11.5.1
+        run: npm install --global npm@11.15.0 --ignore-scripts
       - name: Require tag and package version to agree
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: node -e "const expected='v'+require('./package.json').version;if(process.env.RELEASE_TAG!==expected){throw new Error('tag '+process.env.RELEASE_TAG+' does not match '+expected)}"
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run check:public-safety:history
       - run: npm test
       - run: npm run check:audit
+      - name: build the exact release candidate
+        run: npm run build:package-artifact -- --output-dir release-artifact
+      - name: verify the registry-style installed package
+        run: |
+          mkdir package-smoke
+          npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts --engine-strict
+          node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js
+          npm audit --prefix package-smoke --omit=dev
+          node scripts/write-installed-dependency-evidence.js package-smoke release-artifact/dependencies.json
+      - name: retain release integrity evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-candidate-${{ inputs.tag }}
+          path: release-artifact/
+          if-no-files-found: error
+          retention-days: 90
       # Trusted Publishing creates provenance automatically. No long-lived
       # NPM_TOKEN is stored in GitHub; configure publish.yml once on npmjs.com
       # after the first manual package publication.
-      - run: npm publish
+      # Publish the byte-identical tarball that passed the installed-package
+      # smoke; do not let npm repack the checkout after verification.
+      - run: npm publish release-artifact/package.tgz --ignore-scripts
