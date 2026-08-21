@@ -62,7 +62,7 @@ export function readRestToken(env = process.env) {
 export const NOT_CONFIGURED_MSG =
   "Figma REST access is not configured (optional). To enable version history, " +
   "comments and library metadata: open the Figma Bridge plugin in Figma Desktop and " +
-  "paste a Figma personal access token into 'REST token (optional)' — it is " +
+  "open Setup, then paste a Figma personal access token into 'Figma REST token' — it is " +
   "stored 0600 on this machine only. Headless alternative: set the " +
   "FIGMA_REST_TOKEN environment variable. Required scopes: file content " +
   "(read), file versions (read), comments (read/write).";

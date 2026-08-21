@@ -809,8 +809,8 @@ tokens first, then components, then screens:
 === Optional REST add-on (Figma personal access token) ===
 
 Opt-in extras the local plugin bridge cannot reach. Setup: the user pastes a
-Figma personal access token into the Figma Bridge plugin's "REST token (optional)"
-field (stored 0600 on this machine; FIGMA_REST_TOKEN env for headless runs).
+Figma personal access token into Setup → "Figma REST token" in the Figma Bridge
+plugin (stored 0600 on this machine; FIGMA_REST_TOKEN env for headless runs).
 figma_status reports local configuration immediately; pass validateRest:true
 when an explicit remote validity check is needed.
 

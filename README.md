@@ -40,6 +40,18 @@ codex plugin marketplace add KaiUweHella/figma-bridge-mcp
 codex plugin add figma-bridge-mcp@figma-bridge
 ```
 
+Start a **new Codex task** after installation; plugin MCP servers and their
+tools are discovered when a task starts. Figma Bridge is a local STDIO server,
+so Codex may label its MCP auth as **Unsupported**. That label only means STDIO
+does not offer Codex's OAuth/Bearer login flow; the Figma connection still uses
+its own authenticated localhost handshake. Once the server is loaded, Codex
+discovers these 12 tools dynamically: `figma_connect`, `figma_status`,
+`figma_pairing`, `figma_run`, `figma_render`, `figma_selection`,
+`figma_history`, `figma_comments`, `figma_inspect`, `figma_reference`,
+`figma_screenshot`, and `figma_spec`. If a task still shows **Tools: (none)**,
+the server did not start in that task; it is not a static plugin capability
+list.
+
 This is a GitHub-hosted repository marketplace, not a submission to the
 universal OpenAI plugin directory. The catalog follows the repository, while
 each released plugin entry pins an exact `v<version>` Git tag and starts the
@@ -52,6 +64,26 @@ For Claude Code, add this repository as a marketplace and install the bundle:
 claude plugin marketplace add KaiUweHella/figma-bridge-mcp
 claude plugin install figma-bridge-mcp@figma-bridge
 ```
+
+Start a new Claude Code session after installing or updating the plugin, then
+open `/mcp`. The `figma-bridge` server should be **connected** and show 12
+tools: `figma_connect`, `figma_status`, `figma_pairing`, `figma_run`,
+`figma_render`, `figma_selection`, `figma_history`, `figma_comments`,
+`figma_inspect`, `figma_reference`, `figma_screenshot`, and `figma_spec`.
+Claude namespaces MCP tools internally (for example,
+`mcp__figma-bridge__figma_connect`) and resolves their schemas at runtime. It
+is therefore normal for `claude plugin details figma-bridge-mcp@figma-bridge`
+to report `tool schemas resolved at runtime; not counted`; `/mcp` is the source
+of truth for the live tool count.
+
+Choose either the full Claude plugin above or the MCP-only fallback below; do
+not register both under the same `figma-bridge` server name. Claude gives an
+existing manual MCP registration precedence and suppresses the plugin's copy,
+so a stale manual command can make a healthy plugin appear to have no tools.
+If `/mcp` reports a failed or zero-tool server, run
+`claude mcp get figma-bridge`. When it reports a manual project, local, or user
+configuration, use the scope-specific removal command it prints, start a new
+session, and check `/mcp` again.
 
 The Claude marketplace uses the same pinned GitHub release and shared skill
 tree. The matching npm package must be published before users install that
@@ -82,7 +114,8 @@ MCP instructions, the user-invoked `design-to-code`, `code-to-figma`, and
 ### 1. Add the MCP server (MCP-only fallback)
 
 Use this when the full plugin install is unavailable or you only want the MCP
-tools without the bundled skill. The `npx` setup needs no clone or build step.
+tools without the bundled skill. Do not add this fallback when the full plugin
+is already installed. The `npx` setup needs no clone or build step.
 For Claude Code:
 
 ```bash
@@ -154,8 +187,10 @@ the previously imported build in its application cache. `figma_status` detects
 that mismatch. Re-import the same `manifest.json` path once when it reports an
 older plugin build; the saved access key is retained.
 
-Figma Dev Mode needs separate adapters because Figma does not support combining
-the existing FigJam editor target with `dev` in one manifest:
+### Figma Dev Mode requires its own manifest
+
+The normal `manifest.json` does not work in Dev Mode. Figma does not support
+combining the existing FigJam editor target with `dev` in one manifest:
 
 - Import `~/.figma-bridge-mcp/plugin/manifest.dev.json` for **Figma Bridge Dev
   Mode**. It keeps the authenticated MCP bridge connected for selection,
@@ -176,6 +211,55 @@ The assistant can read the current selection, capture screenshots and specs,
 render JSX, export assets, or apply targeted edits. Keep the Figma Bridge plugin
 open in every document the assistant should access. If more than one document
 is connected, pass a Figma URL or file key so the target is unambiguous.
+
+## REST add-on (optional)
+
+Everything above works with **zero Figma credentials**. Three things the local
+plugin bridge structurally cannot reach live behind Figma's REST API, and can
+be unlocked with a personal access token:
+
+| Feature              | What it adds                                                                                                                                                                                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Version history**  | `figma_history {includeVersions:true}` merges what _designers_ saved (when, by whom) into the local audit+git timeline — the plugin API can only _write_ versions, not read them. `figma_history {diff:{from:"version:…", to:"version:…"}}` goes further and diffs the documents themselves. |
+| **Comments**         | `figma_comments` reads design-review feedback (with node anchors and thread ids) and can reply. Posting always shows a preview first and requires `confirm:true` — comments are visible to other people.                                                                                     |
+| **Library metadata** | `map storybook` automatically enriches `figma-map.json` with the published components' `description` and documentation links — a far stronger matching signal than name normalization.                                                                                                       |
+
+**Enabling it — the token never leaves your machine:**
+
+1. Create a personal access token in Figma (Settings → Security → Personal
+   access tokens) with scopes: **File content (read)**, **File versions
+   (read)**, **Comments (read and write)**. _Current user (read)_ is optional —
+   it only makes `figma_status` show your handle.
+2. Open the **Figma Bridge plugin** in Figma Desktop, connect, expand
+   **Setup**, paste the token under **Figma REST token**, and select **Save
+   token**. The plugin's **Save history** button becomes available after the
+   token is stored.
+3. `figma_status` reports that the token is configured without making a remote
+   request. Run `figma_status {validateRest:true}` when you want an explicit
+   validity check; it reports your handle or verifies file access when the
+   optional _Current user_ scope is absent.
+
+The token travels from the plugin over the **authenticated localhost
+WebSocket** to the daemon, which stores it in `~/.figma-bridge-mcp/rest-token`
+(mode 0600). It is never entered in chat, never stored in your MCP client
+config, never echoed back by any tool, and never written to the audit log
+(REST calls are logged as method + path only). _Clear token_ in the plugin
+removes the file.
+
+Headless/CI alternative: set the `FIGMA_REST_TOKEN` environment variable — it
+overrides the file.
+
+**Scope:** by default REST calls target the file currently open in Figma
+Desktop (the plugin pushes its file key). Other files require an explicit
+`fileKey` parameter (bare key or full Figma URL). Note that a PAT itself can
+read every file its account can access — keep the scopes minimal.
+
+The REST client is a closed internal allowlist, not a generic HTTP escape
+hatch. It permits token health, version lists, version-pinned document
+contents, comments, and file-wide published-component metadata. A bare current
+file fetch and all node/CSS/export/variable/style/Dev-Resource endpoints are
+rejected before the token is read or the network is touched; those operations
+must use the local Plugin API commands above.
 
 ## How it works
 
@@ -399,22 +483,25 @@ calculated. Span runs support `font`, `fontStyle`, `weight`, `italic`, `size`,
 
 The Figma Bridge plugin window is more than the connection status:
 
-- **Activity** — every command the agent runs, live, with duration and
-  ok/error; writes are highlighted. The collapsed row carries the tally
-  (`12 ok · 1 failed`); the connected port and round-trip latency sit in the
-  title bar.
+- **Compact by default** — the always-on view is a small status card plus one
+  control row. Activity and Setup expand only when needed and close each other,
+  so the panel does not cover the canvas after the one-time key entry.
+- **Save history** — the primary safety action, available after the optional
+  REST token is configured. It writes a human-readable labeled checkpoint such
+  as `Figma Bridge checkpoint · 21 Aug 2026, 14:05` into Figma's own version
+  history. There is no restore API for plugins: you roll back through Figma's
+  version history panel.
 - **Pause agent** — a kill switch: while paused, the plugin rejects every
   incoming agent command with an explicit error.
-- **Save version** — writes a labeled entry into Figma's own version history
-  (`Figma Bridge — <timestamp>`) as a manual restore point before letting the
-  agent loose. There is no restore API for plugins: you roll back through
-  Figma's version history panel.
+- **Activity** — a secondary icon in the title bar opens every command the
+  agent runs, with duration and ok/error state. A small badge carries the event
+  count without competing with the safety controls.
 - **Selection readout** — whatever the user selects is pushed to the agent
   automatically (debounced) and shown as "Agent sees: …", so the user always
   sees what `figma_selection` will return. Select a frame, say "build this" —
   no node-id copying.
-- **Setup** — access key and the optional REST token, always reachable
-  whether or not the bridge is connected.
+- **Setup** — the access key (masked by default, with Show/Hide) and the
+  optional REST token, always reachable whether or not the bridge is connected.
 
 ## Design-to-code workflow
 
@@ -1257,54 +1344,6 @@ under `FIGMA_WRITE_CONFIRM=1`.
 Motion is rolling out behind a Figma Beta flag. Without access, the commands
 fail with a named `MOTION_DISABLED` error telling you to update Figma Desktop
 rather than a generic API failure.
-
-## REST add-on (optional)
-
-Everything above works with **zero Figma credentials**. Three things the local
-plugin bridge structurally cannot reach live behind Figma's REST API, and can
-be unlocked with a personal access token:
-
-| Feature              | What it adds                                                                                                                                                                                                                                                                                 |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Version history**  | `figma_history {includeVersions:true}` merges what _designers_ saved (when, by whom) into the local audit+git timeline — the plugin API can only _write_ versions, not read them. `figma_history {diff:{from:"version:…", to:"version:…"}}` goes further and diffs the documents themselves. |
-| **Comments**         | `figma_comments` reads design-review feedback (with node anchors and thread ids) and can reply. Posting always shows a preview first and requires `confirm:true` — comments are visible to other people.                                                                                     |
-| **Library metadata** | `map storybook` automatically enriches `figma-map.json` with the published components' `description` and documentation links — a far stronger matching signal than name normalization.                                                                                                       |
-
-**Enabling it — the token never leaves your machine:**
-
-1. Create a personal access token in Figma (Settings → Security → Personal
-   access tokens) with scopes: **File content (read)**, **File versions
-   (read)**, **Comments (read and write)**. _Current user (read)_ is optional —
-   it only makes `figma_status` show your handle.
-2. Open the **Figma Bridge plugin** in Figma Desktop, connect (the field
-   appears once the plugin is authenticated), and expand **“REST token
-   (optional)”**. Paste the token, _Save token_.
-3. `figma_status` reports that the token is configured without making a remote
-   request. Run `figma_status {validateRest:true}` when you want an explicit
-   validity check; it reports your handle or verifies file access when the
-   optional _Current user_ scope is absent.
-
-The token travels from the plugin over the **authenticated localhost
-WebSocket** to the daemon, which stores it in `~/.figma-bridge-mcp/rest-token`
-(mode 0600). It is never entered in chat, never stored in your MCP client
-config, never echoed back by any tool, and never written to the audit log
-(REST calls are logged as method + path only). _Clear token_ in the plugin
-removes the file.
-
-Headless/CI alternative: set the `FIGMA_REST_TOKEN` environment variable — it
-overrides the file.
-
-**Scope:** by default REST calls target the file currently open in Figma
-Desktop (the plugin pushes its file key). Other files require an explicit
-`fileKey` parameter (bare key or full Figma URL). Note that a PAT itself can
-read every file its account can access — keep the scopes minimal.
-
-The REST client is a closed internal allowlist, not a generic HTTP escape
-hatch. It permits token health, version lists, version-pinned document
-contents, comments, and file-wide published-component metadata. A bare current
-file fetch and all node/CSS/export/variable/style/Dev-Resource endpoints are
-rejected before the token is read or the network is touched; those operations
-must use the local Plugin API commands above.
 
 ## Security model
 

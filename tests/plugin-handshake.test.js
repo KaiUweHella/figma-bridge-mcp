@@ -194,7 +194,7 @@ test('the shipped plugin scripts parse', () => {
   new Script(PLUGIN_CODE, { filename: 'plugin/code.js' });
 });
 
-test('the shipped plugin UI boots and begins a WebSocket scan after receiving its stored key', () => {
+test('the shipped plugin UI opens Setup for a missing key and scans after receiving a stored key', () => {
   // Parsing alone does not catch stale renamed constants: the previous build
   // parsed successfully, then threw only when the stored-key message entered
   // connectParallel(), leaving the real panel stuck on "Starting…". Exercise
@@ -205,15 +205,30 @@ test('the shipped plugin UI boots and begins a WebSocket scan after receiving it
   const elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) {
+      const classes = new Set();
+      const attributes = new Map();
       elements.set(id, {
         id,
         value: '',
         textContent: '',
         className: '',
         hidden: false,
-        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-        setAttribute() {},
-        focus() {},
+        focused: false,
+        classList: {
+          add(name) { classes.add(name); },
+          remove(name) { classes.delete(name); },
+          toggle(name, force) {
+            if (force === true) classes.add(name);
+            else if (force === false) classes.delete(name);
+            else if (classes.has(name)) classes.delete(name);
+            else classes.add(name);
+            return classes.has(name);
+          },
+          contains(name) { return classes.has(name); },
+        },
+        setAttribute(name, value) { attributes.set(name, String(value)); },
+        getAttribute(name) { return attributes.get(name) ?? null; },
+        focus() { this.focused = true; },
       });
     }
     return elements.get(id);
@@ -252,6 +267,13 @@ test('the shipped plugin UI boots and begins a WebSocket scan after receiving it
   new Script(script[1], { filename: 'plugin/ui.html' }).runInNewContext(context);
   assert.equal(posted.at(-1)?.pluginMessage?.type, 'get-key');
   assert.equal(typeof window.onmessage, 'function');
+
+  window.onmessage({ data: { pluginMessage: { type: 'key', value: '' } } });
+  assert.equal(elements.get('status').textContent, 'Enter your access key');
+  assert.equal(elements.get('setupPanel').classList.contains('show'), true);
+  assert.equal(elements.get('setupBtn').getAttribute('aria-expanded'), 'true');
+  assert.equal(elements.get('keyPanel').classList.contains('attention'), true);
+  assert.equal(elements.get('keyInput').focused, true);
 
   window.onmessage({ data: { pluginMessage: { type: 'key', value: 'stored-test-key' } } });
   assert.equal(elements.get('status').textContent, 'Scanning…');
