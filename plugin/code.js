@@ -36,9 +36,10 @@ function revisionMetadata(before) {
   };
 }
 
-// Visible UI: connection status, access-key entry, activity log, pause switch,
-// selection push, save version. The UI may grow itself via the `resize` message.
-figma.showUI(__html__, { width: 360, height: 220 });
+// Visible UI: a compact always-on status/kill-switch shell. Setup, activity
+// and checkpoint controls expand on demand through the `resize` message.
+const COMPACT_UI_SIZE = { width: 320, height: 132 };
+figma.showUI(__html__, COMPACT_UI_SIZE);
 
 // Execute code with auto-return and timeout protection.
 //
@@ -2235,7 +2236,7 @@ figma.ui.onmessage = async (msg) => {
     const { id } = msg;
     figma.ui.postMessage({ type: 'result', id, result: { reloading: true } });
     setTimeout(() => {
-      figma.showUI(__html__, { width: 360, height: 220 });
+      figma.showUI(__html__, COMPACT_UI_SIZE);
     }, 100);
     return;
   }
@@ -2323,13 +2324,22 @@ figma.ui.onmessage = async (msg) => {
   // --- UI feature bridge ---
   // The iframe cannot resize itself; it asks the main thread.
   if (msg.type === 'resize') {
-    const w = Math.max(280, Math.min(500, Number(msg.width) || 360));
-    const h = Math.max(200, Math.min(700, Number(msg.height) || 272));
+    const w = Math.max(300, Math.min(500, Number(msg.width) || COMPACT_UI_SIZE.width));
+    const h = Math.max(120, Math.min(620, Number(msg.height) || COMPACT_UI_SIZE.height));
     if (figma.editorType !== 'dev') figma.ui.resize(w, h);
     return;
   }
 
-  // Save version (UI feature D): a labeled entry in Figma's native version
+  function formatVersionHistoryLabel(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `Figma Bridge checkpoint · ${day} ${months[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`;
+  }
+
+  // Save checkpoint (UI feature D): a labeled entry in Figma's native version
   // history. No restore API exists — this is a safety net the user restores
   // from via Figma's own version history panel.
   if (msg.type === 'save-version') {
@@ -2340,12 +2350,12 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     try {
-      await figma.saveVersionHistoryAsync('Figma Bridge — ' + new Date().toISOString());
+      await figma.saveVersionHistoryAsync(formatVersionHistoryLabel(new Date()));
       figma.ui.postMessage({ type: 'version-saved' });
-      figma.notify('✓ Version saved to Figma’s version history', { timeout: 2000 });
+      figma.notify('✓ Checkpoint saved to Figma’s version history', { timeout: 2000 });
     } catch (e) {
       figma.ui.postMessage({ type: 'version-saved', error: errorMessage(e) });
-      figma.notify('Figma Bridge: saving the version failed — ' + errorMessage(e), { error: true });
+      figma.notify('Figma Bridge: saving the checkpoint failed — ' + errorMessage(e), { error: true });
     }
     return;
   }

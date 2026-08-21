@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
   <style>
     /* Palette in OKLCH: perceptually even steps, every foreground/background
        pair below verified >= 4.5:1. One accent hue (185, the Figma Bridge teal)
@@ -44,8 +45,8 @@
       overscroll-behavior: contain;
       display: flex;
       flex-direction: column;
-      padding: 12px;
-      gap: 10px;
+      padding: 8px;
+      gap: 6px;
     }
     /* No child may be squashed to buy room: the selection strip collapsed to
        0px and the error text was sliced mid-line whenever content overflowed.
@@ -55,7 +56,7 @@
     .row { display: flex; align-items: center; gap: 8px; }
 
     /* --- Identity bar --------------------------------------------------- */
-    .topbar { display: flex; align-items: center; gap: 7px; }
+    .topbar { display: flex; align-items: center; gap: 7px; min-height: 18px; }
     .mark {
       width: 12px; height: 12px; flex: none; border-radius: 3px;
       background: var(--accent);
@@ -65,20 +66,42 @@
     .wordmark { font-size: var(--fs-title); font-weight: 600; letter-spacing: 0.01em; }
     .meta {
       margin-left: auto; font-size: var(--fs-meta); color: var(--faint);
-      font-variant-numeric: tabular-nums;
+      font-variant-numeric: tabular-nums; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    button.top-action {
+      width: 24px; height: 24px; flex: none; position: relative;
+      display: grid; place-items: center; padding: 4px;
+      border-color: transparent; background: transparent; color: var(--faint);
+    }
+    button.top-action:hover { background: var(--raised); color: var(--text); }
+    button.top-action[aria-expanded="true"] {
+      background: color-mix(in oklab, var(--accent) 10%, var(--raised));
+      color: var(--accent);
+    }
+    button.top-action svg {
+      width: 15px; height: 15px; display: block; fill: none;
+      stroke: currentColor; stroke-width: 1.7; stroke-linecap: round;
+    }
+    .activity-count {
+      display: none; position: absolute; inset-block-start: -3px; inset-inline-end: -3px;
+      min-width: 12px; height: 12px; padding-inline: 2px; border-radius: 6px;
+      background: var(--accent); color: var(--accent-ink); font-size: 8px;
+      font-weight: 700; line-height: 12px; text-align: center;
+    }
+    .activity-count:not(:empty) { display: block; }
 
     /* --- Status card ---------------------------------------------------- */
     .card {
-      display: flex; gap: 9px; align-items: flex-start;
+      display: flex; gap: 7px; align-items: flex-start;
       background: var(--surface);
-      border-radius: var(--r-card);
-      padding: 10px;
+      border-radius: 8px;
+      padding: 8px;
     }
     .status-copy { flex: 1; min-width: 0; }
     .dot {
       width: 8px; height: 8px; border-radius: 50%; flex: none;
-      background: var(--faint); margin-top: 4px;
+      background: var(--faint); margin-top: 3px;
     }
     .dot.connecting { background: var(--warn); }
     .dot.connected  { background: var(--accent); }
@@ -120,18 +143,31 @@
     /* --- Controls ------------------------------------------------------- */
     button {
       font: inherit; font-size: var(--fs-meta); font-weight: 500;
-      padding: 7px 10px; border-radius: var(--r-ctl); cursor: pointer;
+      padding: 5px 8px; border-radius: var(--r-ctl); cursor: pointer;
       border: 1px solid var(--line); background: var(--raised); color: var(--text);
       transition: background-color 120ms ease-out, border-color 120ms ease-out, scale 120ms ease-out;
     }
     button:hover { background: color-mix(in oklab, var(--raised) 80%, var(--text)); }
     button:active { scale: 0.96; }
+    button:disabled {
+      cursor: not-allowed; opacity: 0.48; scale: 1;
+    }
+    button:disabled:hover { background: var(--raised); }
     @media (prefers-reduced-motion: reduce) { button { transition: none; } button:active { scale: 1; } }
-    .actions { display: flex; gap: 8px; }
-    .actions button { flex: 1; }
-    .actions button.active {
+    .toolbar {
+      display: grid; grid-template-columns: 0.75fr 1.4fr 1fr; gap: 4px;
+    }
+    .toolbar > button {
+      height: 28px; min-width: 0; display: flex; align-items: center;
+      justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden;
+    }
+    .toolbar button.active {
       background: color-mix(in oklab, var(--warn) 22%, var(--surface));
       border-color: var(--warn); color: var(--warn);
+    }
+    .toolbar button[aria-expanded="true"] {
+      border-color: color-mix(in oklab, var(--accent) 55%, var(--line));
+      background: color-mix(in oklab, var(--accent) 10%, var(--raised));
     }
     button.primary {
       background: var(--accent); color: var(--accent-ink);
@@ -149,24 +185,9 @@
     button.icon:hover { background: var(--raised); color: var(--text); }
     button.icon svg { width: 18px; height: 18px; display: block; fill: currentColor; }
 
-    /* --- Disclosure sections -------------------------------------------- */
-    .section { display: flex; flex-direction: column; gap: 8px; }
-    .disclosure {
-      display: flex; align-items: center; gap: 6px; width: 100%;
-      background: none; border: none; padding: 4px 2px; color: var(--dim);
-      font-size: var(--fs-meta); font-weight: 500; text-align: start;
-    }
-    .disclosure:hover { background: none; color: var(--text); }
-    .chev {
-      display: inline-block; color: var(--faint); font-size: 12px; line-height: 1;
-      transition: rotate 140ms ease-out;
-    }
-    .disclosure[aria-expanded="true"] .chev { rotate: 90deg; }
-    @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
-    .disclosure .trail { margin-inline-start: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
     .tag {
-      font-size: 9px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
-      color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px;
+      font-size: 8px; font-weight: 500; letter-spacing: 0.03em; text-transform: uppercase;
+      color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px;
     }
     .tag.on { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
 
@@ -174,7 +195,7 @@
     #log {
       /* Fixed height, not flex: the panel measures itself to ask the host for
          a size, and a stretching child would make that measurement circular. */
-      display: none; height: 170px; overflow-y: auto;
+      display: none; height: 150px; overflow-y: auto;
       background: var(--surface); border-radius: var(--r-ctl);
       padding: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: var(--fs-mono); line-height: 1.6;
@@ -188,7 +209,10 @@
     .logline.meta  { color: var(--accent); }
 
     /* --- Setup ----------------------------------------------------------- */
-    .panel { display: none; flex-direction: column; gap: 14px; }
+    .panel {
+      display: none; flex-direction: column; gap: 12px;
+      background: var(--surface); border-radius: 8px; padding: 10px;
+    }
     .panel.show { display: flex; }
     .field { display: flex; flex-direction: column; gap: 6px; }
     .field.attention {
@@ -203,6 +227,8 @@
     }
     input::placeholder { color: var(--faint); }
     input:focus-visible { border-color: var(--accent); }
+    .secret-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+    .secret-input button { min-width: 48px; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); }
   </style>
 </head>
@@ -211,6 +237,12 @@
     <span class="mark" aria-hidden="true"></span>
     <h1 class="wordmark">Figma Bridge</h1>
     <span id="connMeta" class="meta"></span>
+    <button id="logBtn" class="top-action" type="button" aria-label="Activity" aria-expanded="false" aria-controls="log" title="Activity">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M2 3.5h12M2 8h8M2 12.5h5" />
+      </svg>
+      <span id="stats" class="activity-count" aria-hidden="true"></span>
+    </button>
   </header>
 
   <!-- The one thing this window exists to answer: can the agent reach Figma?
@@ -232,29 +264,24 @@
   <div id="lastError" role="alert"></div>
   <div id="pluginUpdate" role="alert"></div>
 
-  <div class="actions">
-    <button id="pauseBtn" type="button">Pause agent</button>
-    <button id="saveVersionBtn" type="button">Save version</button>
+  <div class="toolbar" aria-label="Bridge controls">
+    <button id="pauseBtn" type="button">Pause</button>
+    <button id="saveVersionBtn" type="button" disabled title="Add the optional REST token in Setup to enable checkpoints">Save history</button>
+    <button id="setupBtn" type="button" aria-expanded="false" aria-controls="setupPanel">
+      Setup <span id="restTag" class="tag">REST off</span>
+    </button>
   </div>
 
-  <section class="section">
-    <button id="logBtn" class="disclosure" type="button" aria-expanded="false" aria-controls="log">
-      <span class="chev" aria-hidden="true">›</span>Activity
-      <span id="stats" class="trail"></span>
-    </button>
-    <div id="log" tabindex="0" role="log" aria-label="Agent activity"></div>
-  </section>
+  <div id="log" tabindex="0" role="log" aria-label="Agent activity"></div>
 
-  <section class="section">
-    <button id="setupBtn" class="disclosure" type="button" aria-expanded="false" aria-controls="setupPanel">
-      <span class="chev" aria-hidden="true">›</span>Setup
-      <span id="restTag" class="tag">REST off</span>
-    </button>
-    <div id="setupPanel" class="panel">
+  <div id="setupPanel" class="panel">
       <div class="field" id="keyPanel">
         <label for="keyInput">Access key</label>
         <p class="hint">Shown by <code>figma_connect</code>. Stored in this plugin, reused every session.</p>
-        <input id="keyInput" type="text" spellcheck="false" autocomplete="off" placeholder="paste key here" />
+        <div class="secret-input">
+          <input id="keyInput" type="password" spellcheck="false" autocomplete="off" placeholder="paste key here" />
+          <button id="keyVisibilityBtn" class="ghost" type="button" aria-label="Show access key" aria-controls="keyInput" aria-pressed="false">Show</button>
+        </div>
         <button id="saveBtn" class="primary" type="button">Save &amp; connect</button>
       </div>
       <div class="field">
@@ -267,8 +294,7 @@
         </div>
         <p id="restStatus" class="hint"></p>
       </div>
-    </div>
-  </section>
+  </div>
 
   <script>
     // ============ Handshake crypto ============
@@ -285,7 +311,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v2';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bumped to 3 with the challenge-response handshake.
-    const PLUGIN_VERSION = '3.3.1';
+    const PLUGIN_VERSION = '3.3.5';
 
     const SHA_K = new Uint32Array([
       0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -412,6 +438,7 @@
     const connMetaEl = document.getElementById('connMeta');
     const keyPanel = document.getElementById('keyPanel');
     const keyInput = document.getElementById('keyInput');
+    const keyVisibilityBtn = document.getElementById('keyVisibilityBtn');
     const saveBtn = document.getElementById('saveBtn');
     const setupBtn = document.getElementById('setupBtn');
     const setupPanel = document.getElementById('setupPanel');
@@ -429,7 +456,7 @@
     // Daemon-unreachable detection: endless "Scanning…" tells the user
     // nothing. After a few failed scan rounds we name the problem, say what
     // to do, and keep retrying quietly at a slower pace.
-    const DEFAULT_HINT = 'Keep this window open while working.';
+    const DEFAULT_HINT = 'Agent ready. Keep this panel open.';
     const MAX_INITIAL_WS_SCANS = 3;
     const HEALTH_DISCOVERY_MS = 3000;
     const HEALTH_PROBE_TIMEOUT_MS = 1500;
@@ -458,8 +485,8 @@
     // it. One place computes the size; both toggles call it.
     let logOpen = false;
     let setupOpen = false;
-    const PANEL_WIDTH = 360;
-    const BODY_PAD = 12;
+    const PANEL_WIDTH = 320;
+    const BODY_PAD = 8;
     // Measure the laid-out content instead of hard-coding a height per state:
     // hard-coded numbers drift the moment a string wraps to another line, and
     // the clipped control is never the one you were looking at.
@@ -475,12 +502,18 @@
       });
     }
     function setSetupOpen(open) {
+      if (open && logOpen) {
+        logOpen = false;
+        logEl.classList.remove('show');
+        logBtn.setAttribute('aria-expanded', 'false');
+      }
       setupOpen = open;
       setupPanel.classList.toggle('show', open);
       setupBtn.setAttribute('aria-expanded', String(open));
       // Show the key that is actually in use, so "is this the right one?" is
       // answerable without a round trip to the terminal.
       if (open && KEY && !keyInput.value) keyInput.value = KEY;
+      if (!open) setKeyVisible(false);
       syncSize();
     }
     setupBtn.onclick = () => setSetupOpen(!setupOpen);
@@ -495,6 +528,14 @@
         keyInput.focus();
       }
     }
+
+    function setKeyVisible(visible) {
+      keyInput.type = visible ? 'text' : 'password';
+      keyVisibilityBtn.textContent = visible ? 'Hide' : 'Show';
+      keyVisibilityBtn.setAttribute('aria-pressed', String(visible));
+      keyVisibilityBtn.setAttribute('aria-label', visible ? 'Hide access key' : 'Show access key');
+    }
+    keyVisibilityBtn.onclick = () => setKeyVisible(keyInput.type === 'password');
 
     // ============ Activity log (feature A) ============
     // Every eval already flows through this iframe — record it instead of
@@ -531,9 +572,11 @@
       renderLog();
     }
     function renderStats() {
-      statsEl.textContent = okCount + errCount
-        ? okCount + ' ok · ' + errCount + ' failed'
-        : '';
+      const total = okCount + errCount;
+      statsEl.textContent = total ? String(Math.min(total, 99)) + (total > 99 ? '+' : '') : '';
+      const summary = total ? `, ${okCount} successful, ${errCount} failed` : '';
+      logBtn.setAttribute('aria-label', 'Activity' + summary);
+      logBtn.title = 'Activity' + summary;
     }
     function showError(text) {
       const wasHidden = !lastErrorEl.classList.contains('show');
@@ -563,19 +606,26 @@
       }
     }
 
-    logBtn.onclick = () => {
-      logOpen = !logOpen;
+    function setLogOpen(open) {
+      if (open && setupOpen) {
+        setupOpen = false;
+        setupPanel.classList.remove('show');
+        setupBtn.setAttribute('aria-expanded', 'false');
+        setKeyVisible(false);
+      }
+      logOpen = open;
       logEl.classList.toggle('show', logOpen);
       logBtn.setAttribute('aria-expanded', String(logOpen));
       syncSize();
       renderLog();
-    };
+    }
+    logBtn.onclick = () => setLogOpen(!logOpen);
 
     // ============ Pause / kill switch (feature B) ============
     let paused = false;
     pauseBtn.onclick = () => {
       paused = !paused;
-      pauseBtn.textContent = paused ? 'Resume agent' : 'Pause agent';
+      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
       pauseBtn.classList.toggle('active', paused);
       if (paused) {
         setStatus('Paused', 'paused');
@@ -655,12 +705,18 @@
       if (!wasShown) syncSize();
     }
 
-    // ============ Save version (feature D) ============
+    // ============ Save checkpoint (feature D) ============
     // Named entry in Figma's own version history — the restore point for the
     // agent's writes, which are otherwise not undoable from here.
     saveVersionBtn.onclick = () => {
+      if (!restConfigured) {
+        setSetupOpen(true);
+        restStatusEl.textContent = 'Add the optional REST token to enable named checkpoints.';
+        restInput.focus();
+        return;
+      }
       parent.postMessage({ pluginMessage: { type: 'save-version' } }, '*');
-      addLog({ id: 'v' + Date.now(), t0: Date.now(), label: 'saving version…', kind: 'meta', status: 'ok', ms: 0 });
+      addLog({ id: 'v' + Date.now(), t0: Date.now(), label: 'saving checkpoint…', kind: 'meta', status: 'ok', ms: 0 });
     };
 
     // --- Access-key bootstrap: ask code.js (clientStorage lives there) ---
@@ -673,7 +729,9 @@
       if (!val) { setStatus('Enter a key first', 'error'); return; }
       KEY = val;
       parent.postMessage({ pluginMessage: { type: 'save-key', value: val } }, '*');
+      setKeyVisible(false);
       showKeyPanel(false);
+      setSetupOpen(false);
       // (Re)connect with the new key.
       teardown();
       connectParallel();
@@ -697,6 +755,10 @@
         : 'No token set — version history, comments and library docs stay off.';
       restTag.textContent = restConfigured ? 'REST on' : 'REST off';
       restTag.classList.toggle('on', restConfigured);
+      saveVersionBtn.disabled = !restConfigured;
+      saveVersionBtn.title = restConfigured
+        ? 'Save a named checkpoint to Figma version history'
+        : 'Add the optional REST token in Setup to enable checkpoints';
     }
     function sendRestToken(value) {
       if (!(ws && ws.readyState === WebSocket.OPEN && authed)) {
@@ -1213,8 +1275,8 @@
       }
 
       if (msg.type === 'version-saved') {
-        if (msg.error) showError('Saving the version failed: ' + msg.error);
-        else addLog({ id: 'vd' + Date.now(), t0: Date.now(), label: 'version saved ✓', kind: 'meta', status: 'ok', ms: 0 });
+        if (msg.error) showError('Saving the checkpoint failed: ' + msg.error);
+        else addLog({ id: 'vd' + Date.now(), t0: Date.now(), label: 'checkpoint saved ✓', kind: 'meta', status: 'ok', ms: 0 });
       }
     };
 

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+
 // Isolate the pairing key file so tests never touch the user's real
 // ~/.figma-bridge-mcp/plugin-key. Must be set BEFORE importing config.js/pairing.js.
 process.env.PLUGIN_KEY_FILE = join(mkdtempSync(join(tmpdir(), 'figma-bridge-key-')), 'plugin-key');
@@ -265,6 +267,30 @@ test('server entry-point detection resolves the symlink npm uses for installed b
     assert.equal(isServerEntryPoint(serverUrl.href, bin), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the live STDIO server advertises the complete tool surface to MCP clients', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+  const { TOOLS } = await import('../src/server.js');
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL('../src/server.js', import.meta.url))],
+    cwd: ROOT,
+    stderr: 'pipe',
+  });
+  const client = new Client({ name: 'figma-bridge-tool-discovery-test', version: '1.0.0' });
+  try {
+    await client.connect(transport);
+    const response = await client.listTools();
+    assert.deepEqual(
+      response.tools.map((tool) => tool.name),
+      TOOLS.map((tool) => tool.name),
+      'Codex and other MCP clients must discover every checked-in tool through tools/list',
+    );
+  } finally {
+    await client.close();
   }
 });
 

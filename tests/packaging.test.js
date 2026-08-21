@@ -113,6 +113,17 @@ test("Claude Code plugin reuses the same MCP server and skill", () => {
   assert.ok(existsSync(join(ROOT, "skills", "figma-bridge-component-library", "SKILL.md")));
 });
 
+test("README explains Claude's runtime tool discovery and duplicate-server precedence", () => {
+  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+
+  assert.match(readme, /open `\/mcp`/);
+  assert.match(readme, /show 12\s+tools/);
+  assert.match(readme, /tool schemas resolved at runtime; not counted/);
+  assert.match(readme, /claude mcp get figma-bridge/);
+  assert.match(readme, /do\s+not register both under the same `figma-bridge` server name/);
+  assert.match(readme, /Do not add this fallback when the full plugin\s+is already installed/);
+});
+
 test("portable Agent Plugin makes the bundle installable in Cursor", () => {
   const manifest = JSON.parse(readFileSync(join(ROOT, "plugin.json"), "utf8"));
   const mcp = JSON.parse(readFileSync(join(ROOT, "mcp.json"), "utf8"));
