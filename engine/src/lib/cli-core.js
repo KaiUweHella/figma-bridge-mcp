@@ -252,23 +252,33 @@ async function safeReadEval(code) {
 
 // Start daemon in background. The Safe-Mode build only ever runs the daemon in
 // plugin mode; the `mode` argument is accepted for signature compatibility but
-// ignored.
-function startDaemon(forceRestart = false, mode = 'plugin') {
+// ignored. Callers that already probed the daemon may pass that state so a
+// failed probe is not repeated (each forced probe spawns curl and can cost a
+// full second on a cold Windows runner).
+function startDaemon(forceRestart = false, mode = 'plugin', knownState = {}) {
   // If force restart, always kill existing daemon first
   if (forceRestart) {
     // stopDaemon() kills the daemon's own PID (guarded — never a foreign
     // process squatting the default port) and clears the port file.
     stopDaemon();
     sleepAfterStop();
-  } else if (isDaemonRunning(false, true) && daemonBuildMatchesCurrent()) {
+  } else {
     // force=true: bypass the 2s health cache. A stale cached "down" here
     // would rotate the session token underneath a LIVE daemon.
-    return true; // Already running
-  } else if (isDaemonRunning(false, true)) {
-    // A detached daemon can survive an MCP client upgrade. Replace an older
-    // bridge build once; later sessions match and preserve it normally.
-    stopDaemon();
-    sleepAfterStop();
+    const daemonRunning = typeof knownState.running === 'boolean'
+      ? knownState.running
+      : isDaemonRunning(false, true);
+    if (daemonRunning) {
+      const buildMatches = typeof knownState.buildMatches === 'boolean'
+        ? knownState.buildMatches
+        : daemonBuildMatchesCurrent();
+      if (buildMatches) return true; // Already running
+
+      // A detached daemon can survive an MCP client upgrade. Replace an older
+      // bridge build once; later sessions match and preserve it normally.
+      stopDaemon();
+      sleepAfterStop();
+    }
   }
 
   // Generate session token before spawning daemon. Safe even if a daemon

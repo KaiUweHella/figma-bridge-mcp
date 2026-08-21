@@ -264,6 +264,9 @@ test('figma_connect fails loudly when no daemon can bind', { timeout: 15_000 }, 
   const blockerSockets = new Set();
   const blocker = createServer((socket) => {
     blockerSockets.add(socket);
+    // Health probes may close as soon as they see the 503. Windows reports
+    // that normal teardown race as ECONNRESET on the server-side socket.
+    socket.on('error', () => {});
     socket.once('close', () => blockerSockets.delete(socket));
     socket.end('HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n');
   });

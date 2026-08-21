@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 
@@ -20,7 +21,7 @@ const packagePath = new URL('../node_modules/@figma/plugin-typings/package.json'
 const sourceText = readFileSync(typingsPath, 'utf8');
 const sourceFile = ts.createSourceFile('plugin-api.d.ts', sourceText, ts.ScriptTarget.Latest, true);
 const pluginApi = sourceFile.statements.find((node) => ts.isInterfaceDeclaration(node) && node.name.text === 'PluginAPI');
-const engineEntry = new URL('../engine/src/index.js', import.meta.url);
+const engineEntry = fileURLToPath(new URL('../engine/src/index.js', import.meta.url));
 
 function methodNames(predicate) {
   return pluginApi.members
@@ -64,7 +65,7 @@ test('supported and alternative operations are reachable through the Safe Mode c
 });
 
 function commandRows(...args) {
-  const output = execFileSync(process.execPath, [engineEntry.pathname, ...args, '--help'], { encoding: 'utf8' });
+  const output = execFileSync(process.execPath, [engineEntry, ...args, '--help'], { encoding: 'utf8' });
   return [...output.matchAll(/^  ([a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)?)(?:\s|$)/gm)]
     .map((match) => match[1].split('|'))
     .filter((names) => names[0] !== 'help');
@@ -114,7 +115,7 @@ test('all official variable and easing value types are exhaustively recognized',
 });
 
 test('variable collections have a scoped deletion command instead of requiring delete-all', () => {
-  const output = execFileSync(process.execPath, [engineEntry.pathname, 'col', '--help'], { encoding: 'utf8' });
+  const output = execFileSync(process.execPath, [engineEntry, 'col', '--help'], { encoding: 'utf8' });
   assert.match(output, /\bdelete\b/);
   assert.equal(planFigmaCommand(['col', 'delete', 'Audit']).effects.figma, 'write');
 });

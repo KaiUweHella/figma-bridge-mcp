@@ -305,7 +305,10 @@ program
       // healthy daemon and reserve destructive restarts for `daemon restart`.
       const daemonWasRunning = isDaemonRunning(false, true);
       const daemonWasReusable = daemonWasRunning && daemonBuildMatchesCurrent();
-      startDaemon(options.forceRestart === true, 'plugin');
+      startDaemon(options.forceRestart === true, 'plugin', {
+        running: daemonWasRunning,
+        buildMatches: daemonWasReusable,
+      });
       const daemonDeadline = Date.now() + 2000;
       let daemonReady = false;
       while (Date.now() < daemonDeadline) {
