@@ -11,14 +11,15 @@
 //   - The token is entered in the PLUGIN UI and persisted 0600 by the daemon
 //     (~/.figma-bridge-mcp/rest-token). FIGMA_REST_TOKEN env overrides the
 //     file for headless/CI use. The token never appears in chat, MCP client
-//     config, tool output, or the audit log.
-//   - Every REST call is audited with method + path only.
+//     config, tool output, or the Audit Trail.
+//   - Every REST call is audited by endpoint capability; method, path, file
+//     key, body, headers, and token are never retained raw.
 //   - Default file scope is the file open in Figma Desktop (fileKey pushed by
 //     the plugin); other files only via an explicit key/URL parameter.
 import fs from "node:fs";
-import { randomUUID } from "node:crypto";
 import { REST_TOKEN_FILE } from "./config.js";
-import { appendAudit, getSelection } from "./engine.js";
+import { getSelection } from "./engine.js";
+import { auditTrail } from "./audit-trail.js";
 
 const BASE_URL = "https://api.figma.com";
 const TIMEOUT_MS = 10000;
@@ -175,23 +176,36 @@ function restErrorMessage(status, path, headers) {
 }
 
 /**
- * Authenticated fetch against api.figma.com with audit logging (method + path
- * only — never the token, headers, or body). Throws Error with an actionable
- * message on any failure.
+ * Authenticated fetch against api.figma.com with closed-schema audit logging.
+ * Endpoint identity and read/write class stay readable; method, path, target,
+ * token, headers, and body are retained only as non-reversible summaries where
+ * needed. Throws Error with an actionable message on any failure.
  * @param {string} path - e.g. "/v1/files/abc/versions"
  * @param {{method?: string, body?: object, fetchImpl?: typeof fetch, env?: object}} [opts]
  * @returns {Promise<any>} parsed JSON
  */
 export async function restFetch(path, opts = {}) {
   const method = String(opts.method || "GET").toUpperCase();
-  if (!classifyRestRequest(path, method)) throw new Error(`${REST_DENIED_MSG} Rejected: ${method} ${path}`);
+  const endpoint = classifyRestRequest(path, method);
+  if (!endpoint) throw new Error(`${REST_DENIED_MSG} Rejected: ${method} ${path}`);
   const token = readRestToken(opts.env);
   if (!token) throw new Error(NOT_CONFIGURED_MSG);
   const doFetch = opts.fetchImpl || fetch;
-  const id = randomUUID();
-  appendAudit({ id, ts: new Date().toISOString(), rest: { method, path } });
+  const fileKey = path.match(/^\/v1\/files\/([A-Za-z0-9]{1,64})/)?.[1] || null;
+  const auditHandle = auditTrail.begin({
+    capability: `rest.${endpoint}`,
+    operation: method === "POST" ? "write" : "read",
+    effects: { figma: method === "POST" ? "write" : "read", workspace: "none", shared: "none" },
+    target: {
+      kind: fileKey ? "figma-rest-file" : "figma-rest-account",
+      ...(fileKey ? { identity: fileKey } : {}),
+    },
+    arguments: [method, path],
+    ...(opts.body == null ? {} : { body: opts.body }),
+  });
   let ok = false;
   let status = null;
+  let errorKind = null;
   try {
     const res = await doFetch(BASE_URL + path, {
       method,
@@ -208,16 +222,16 @@ export async function restFetch(path, opts = {}) {
     return await res.json();
   } catch (err) {
     if (err && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      errorKind = "rest-timeout";
       throw new Error(`Figma REST: request to ${path} timed out after ${TIMEOUT_MS / 1000}s.`);
     }
+    errorKind = "rest-request";
     throw err;
   } finally {
-    appendAudit({
-      id,
-      ts: new Date().toISOString(),
-      event: "done",
+    auditTrail.finish(auditHandle, {
       ok,
       ...(status !== null ? { status } : {}),
+      ...(errorKind ? { errorKind } : {}),
     });
   }
 }

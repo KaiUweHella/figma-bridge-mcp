@@ -46,6 +46,7 @@ import {
 import { designContractFileKeyFromArgv } from "../engine/src/application/design-contract-command.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { WRITE_CONFIRM } from "./config.js";
+import { getAuditStatus } from "./audit-trail.js";
 
 export const MCP_SERVER_ID = "figma-bridge-mcp";
 export const MCP_TOOL_NAMESPACE = "figma-bridge";
@@ -190,7 +191,7 @@ export const TOOLS = [
         },
         label: {
           type: "string",
-          description: "Optional audit-log intent note.",
+          description: "Optional intent note stored only as non-reversible audit metadata.",
         },
         fileKey: {
           type: "string",
@@ -217,7 +218,7 @@ export const TOOLS = [
         },
         label: {
           type: "string",
-          description: "Optional audit-log intent note.",
+          description: "Optional intent note stored only as non-reversible audit metadata.",
         },
         fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
@@ -243,7 +244,7 @@ export const TOOLS = [
   {
     name: "figma_history",
     description:
-      "Local change history of this machine's Figma sessions, from the audit log every figma_run/figma_render is recorded in. Filter by nodeId to see everything that touched a node. Optionally merges git history of generated code files for a combined design+code changelog. Note: node-id matching is text-based, so numbers like \"12:30\" in free text can match too.",
+      "Private local capability history for this machine's Figma sessions. Filter by nodeId using redacted node references; optionally merge git history and Figma version history. New records never retain raw commands, JSX, labels, file keys, paths, REST bodies, or error messages; bounded legacy records remain readable.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -938,7 +939,7 @@ function enrichStructuredSpec(text, format) {
   return serializeSpecModel(model, format);
 }
 
-function identifiedResult(result) {
+function identifiedResult(result, auditStatus = getAuditStatus()) {
   return {
     ...result,
     _mcp: MCP_SERVER_ID,
@@ -948,23 +949,45 @@ function identifiedResult(result) {
         serverId: MCP_SERVER_ID,
         toolNamespace: MCP_TOOL_NAMESPACE,
         failureScope: "this-server-only",
+        ...(auditStatus?.status === "degraded"
+          ? {
+              auditTrail: {
+                status: "degraded",
+                code: auditStatus.code,
+                since: auditStatus.since,
+              },
+            }
+          : {}),
       },
     },
   };
 }
 
-function textResult(text) {
-  return identifiedResult({ content: [{ type: "text", text: text || "" }] });
+function auditWarning(status) {
+  if (status?.status !== "degraded") return "";
+  return (
+    "[audit warning] This operation was not blocked, but its private local " +
+    `Audit Trail is incomplete (${status.code}). Fix local state permissions or disk availability; ` +
+    "the warning clears after a fully recorded operation."
+  );
 }
 
-function errorResult(text) {
+function textResult(text, { audit = getAuditStatus() } = {}) {
+  const warning = auditWarning(audit);
+  const body = [text || "", warning].filter(Boolean).join("\n\n");
+  return identifiedResult({ content: [{ type: "text", text: body }] }, audit);
+}
+
+function errorResult(text, { audit = getAuditStatus() } = {}) {
   let body = String(text || "The Figma Bridge request failed.");
   if (!body.startsWith(`[${MCP_SERVER_ID}]`)) {
     body = `[${MCP_SERVER_ID}] ${body}`;
   }
   const scope = "Only this Figma Bridge transport failed; this does not mean Figma or another Figma MCP is unavailable.";
   if (!body.includes(scope)) body += `\n\n${scope}`;
-  return identifiedResult({ content: [{ type: "text", text: body }], isError: true });
+  const warning = auditWarning(audit);
+  if (warning && !body.includes(warning)) body += `\n\n${warning}`;
+  return identifiedResult({ content: [{ type: "text", text: body }], isError: true }, audit);
 }
 
 export async function executeSpecBatch(requests, executeOne, options = {}) {
@@ -1020,14 +1043,14 @@ export async function executeSpecBatch(requests, executeOne, options = {}) {
   return textResult(output);
 }
 
-function resultFromCli({ stdout, stderr }) {
+function resultFromCli({ stdout, stderr, audit }) {
   // stdout AND stderr both reach the agent: the CLI puts warnings and
   // per-asset failure reasons on stderr, and dropping them produced summaries
   // like "1 asset(s) failed (listed above)" with nothing listed above.
   const out = (stdout || "").trimEnd();
   const err = (stderr || "").trim();
-  if (out && err) return textResult(out + "\n\n[warnings]\n" + err);
-  return textResult(out || err);
+  if (out && err) return textResult(out + "\n\n[warnings]\n" + err, { audit });
+  return textResult(out || err, { audit });
 }
 
 function previewResult(args) {
@@ -1885,7 +1908,7 @@ async function main() {
     try {
       return await handleTool(name, args);
     } catch (err) {
-      return errorResult(formatPublicError(err));
+      return errorResult(formatPublicError(err), { audit: err?.audit || getAuditStatus() });
     }
   });
 

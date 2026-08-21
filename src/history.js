@@ -1,14 +1,13 @@
-// Local change history (figma_history) — the Safe-Mode take on component
-// changelogs. Every write this machine performs flows through the audit log,
-// so the log IS the local design history. Optionally merged with `git log` of
-// generated code files, and (opt-in REST layer) with the file's real Figma
-// version history — what designers saved, by whom. The REST fetch happens in
-// the server handler; this module stays sync and pure and just merges the
-// pre-fetched entries.
+// Local change history (figma_history) — a best-effort, private capability
+// timeline. Versioned entries retain semantic capability/outcome facts and
+// redacted identifiers; bounded legacy records remain readable. It may be
+// merged with `git log` and the opt-in Figma version history. The REST fetch
+// happens in the server handler; this module stays synchronous.
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { AUDIT_LOG_PATH } from "./config.js";
 import { extractNodeIds } from "./engine.js";
+import { AUDIT_SCHEMA_VERSION, summarizeSensitive } from "./audit-trail.js";
 
 /**
  * Parse audit-log JSONL text into entries, silently skipping malformed lines
@@ -53,6 +52,16 @@ export function foldCompletions(entries) {
   return commands.map((e) => {
     const d = e.id ? done.get(e.id) : undefined;
     if (!d) return e;
+    if (d.schema === AUDIT_SCHEMA_VERSION && d.outcome) {
+      return {
+        ...e,
+        ok: d.outcome.ok === true,
+        ...(typeof d.outcome.durationMs === "number"
+          ? { durationMs: d.outcome.durationMs }
+          : {}),
+        ...(d.outcome.errorKind ? { errorKind: d.outcome.errorKind } : {}),
+      };
+    }
     return { ...e, ok: d.ok === true, ...(d.error ? { error: d.error } : {}) };
   });
 }
@@ -77,7 +86,11 @@ export function entryNodes(entry) {
 export function filterHistory(entries, { nodeId, limit = 20 } = {}) {
   let result = [...entries].reverse();
   if (nodeId) {
-    result = result.filter((e) => entryNodes(e).includes(nodeId));
+    const digest = summarizeSensitive(nodeId).sha256;
+    result = result.filter((e) =>
+      entryNodes(e).includes(nodeId) ||
+      e.data?.nodeRefs?.some((reference) => reference?.sha256 === digest),
+    );
   }
   return result.slice(0, limit);
 }
@@ -131,6 +144,12 @@ function cell(value, max = 120) {
 
 function designLabel(entry) {
   if (entry.label) return entry.label;
+  if (entry.schema === AUDIT_SCHEMA_VERSION) {
+    const operation = entry.operation && entry.operation !== "none"
+      ? ` [${entry.operation}]`
+      : "";
+    return `${entry.capability || "unknown"}${operation}`;
+  }
   // REST calls are audited as {rest:{method,path}} — no argv to render.
   if (entry.rest) return `REST ${entry.rest.method || "GET"} ${entry.rest.path || ""}`;
   const args = Array.isArray(entry.args) ? entry.args : [];
@@ -140,6 +159,14 @@ function designLabel(entry) {
 
 function nodesCell(entry) {
   if (entry.source === "code" || entry.source === "figma") return cell(entry.ref || "");
+  if (entry.schema === AUDIT_SCHEMA_VERSION) {
+    const parts = [];
+    const nodeCount = Array.isArray(entry.data?.nodeRefs) ? entry.data.nodeRefs.length : 0;
+    if (nodeCount) parts.push(`${nodeCount} redacted node${nodeCount === 1 ? "" : "s"}`);
+    const targetDigest = entry.target?.identity?.sha256;
+    if (targetDigest) parts.push(`target #${targetDigest.slice(0, 10)}`);
+    return cell(parts.join(" · "));
+  }
   const nodes = entryNodes(entry);
   if (!nodes.length) return "";
   const shown = nodes.slice(0, 6).join(", ");
@@ -232,7 +259,7 @@ export function buildHistory({
   }
 
   if (!merged.length && !notes.length) {
-    return "No history yet. History is recorded locally as figma_run/figma_render commands execute (pass `label` to annotate entries).";
+    return "No history yet. A private capability timeline is recorded locally as figma_run/figma_render commands execute; raw arguments and labels are not retained.";
   }
 
   let out = formatHistory(merged, { format });

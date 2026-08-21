@@ -150,26 +150,31 @@ test("error mapping: 401/403/404/429 → actionable messages", async () => {
   );
 });
 
-test("the token NEVER appears in the audit log; entries carry method+path only", async () => {
+test("REST audit uses endpoint capabilities and never retains token, path, file key, or body", async () => {
   const env = { FIGMA_REST_TOKEN: TOKEN };
-  await restFetch("/v1/files/abc/versions", { env, fetchImpl: fakeFetch(200, { versions: [] }) });
+  const privateKey = "PRIVATEFILEKEYDONOTSTORE";
+  await restFetch(`/v1/files/${privateKey}/versions`, { env, fetchImpl: fakeFetch(200, { versions: [] }) });
+  await restFetch(`/v1/files/${privateKey}/comments`, {
+    env,
+    method: "POST",
+    body: { message: "confidential review body" },
+    fetchImpl: fakeFetch(200, { id: "comment" }),
+  });
   await assert.rejects(() => restFetch("/v1/me", { env, fetchImpl: fakeFetch(401, {}) }));
   const log = readFileSync(AUDIT, "utf8");
-  assert.ok(!log.includes(TOKEN), "audit log must not contain the token");
-  const lines = log.trim().split("\n").map((l) => JSON.parse(l));
-  const restLines = lines.filter((l) => l.rest);
-  assert.ok(restLines.length >= 2, "REST calls are audited");
-  // Earlier tests also audit (the log is append-only) — assert on presence.
-  assert.ok(
-    restLines.some((l) => l.rest.method === "GET" && l.rest.path === "/v1/files/abc/versions"),
-    "versions call is audited with method+path",
-  );
-  for (const l of restLines) {
-    assert.deepEqual(Object.keys(l.rest).sort(), ["method", "path"], "rest entries carry method+path only");
+  for (const raw of [TOKEN, "/v1/", privateKey, "confidential review body"]) {
+    assert.equal(log.includes(raw), false, `audit log must redact ${raw}`);
   }
+  const lines = log.trim().split("\n").map((l) => JSON.parse(l));
+  const restLines = lines.filter((l) => l.event === "start" && l.capability?.startsWith("rest."));
+  assert.ok(restLines.length >= 2, "REST calls are audited");
+  assert.ok(restLines.some((l) => l.capability === "rest.version-list" && l.operation === "read"));
+  assert.ok(restLines.some((l) => l.capability === "rest.comments" && l.operation === "write"));
+  assert.ok(restLines.some((l) => l.target.kind === "figma-rest-file" && l.target.identity?.sha256));
+  assert.ok(restLines.some((l) => l.data.body?.sha256), "REST body is represented only by a digest");
   const doneLines = lines.filter((l) => l.event === "done");
-  assert.ok(doneLines.some((l) => l.ok === true && l.status === 200));
-  assert.ok(doneLines.some((l) => l.ok === false && l.status === 401));
+  assert.ok(doneLines.some((l) => l.outcome.ok === true && l.outcome.code === 200));
+  assert.ok(doneLines.some((l) => l.outcome.ok === false && l.outcome.code === 401));
 });
 
 test("getFileAtVersion pins the version and depth in the query string", async () => {

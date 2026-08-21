@@ -122,10 +122,38 @@ const EVIDENCE = Object.freeze([
         "tests/rest.test.js",
         "REST allowlist fails closed on URL canonicalization attacks before token lookup",
       ],
-      ["tests/rest.test.js", "the token NEVER appears in the audit log"],
+      [
+        "tests/rest.test.js",
+        "REST audit uses endpoint capabilities and never retains token, path, file key, or body",
+      ],
       [
         "tests/rest-token-daemon.test.js",
         "unauthenticated socket cannot plant a REST token",
+      ],
+    ],
+  ],
+  [
+    "SEC-AUDIT",
+    [
+      [
+        "tests/audit-trail.test.js",
+        "Audit Trail stores a closed redacted schema with private permissions",
+      ],
+      [
+        "tests/audit-trail.test.js",
+        "Audit Trail failure is explicit and non-blocking, then clears after recovery",
+      ],
+      [
+        "tests/audit-trail.test.js",
+        "Audit Trail keeps one bounded private rotation",
+      ],
+      [
+        "tests/audit-degraded-mcp.test.js",
+        "MCP command utility survives degraded audit storage and reports recovery",
+      ],
+      [
+        "tests/history.test.js",
+        "versioned audit history filters by redacted node digest without storing the node id",
       ],
     ],
   ],

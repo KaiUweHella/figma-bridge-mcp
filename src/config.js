@@ -19,14 +19,14 @@ export const ENGINE_ENTRY = fileURLToPath(
 // where the MCP client launched the server from.
 export const ENGINE_CWD = REPO_ROOT;
 
-// Base directory for all local state (token, pid, key, audit log). Kept
+// Base directory for all local state (token, pid, key, Audit Trail). Kept
 // separate from any upstream figma-ds-cli install so the two never share a
 // daemon, token, or port-owner. Single source of truth lives in the engine
 // lib (which also migrates ~/.figma-safe-mcp from pre-rename installs once).
 import { STATE_DIR } from "../engine/src/lib/state-dir.js";
 export { STATE_DIR };
 
-// Audit log path.
+// Audit Trail path.
 export const AUDIT_LOG_PATH =
   process.env.AUDIT_LOG_PATH || path.join(STATE_DIR, "audit.log");
 

@@ -9,8 +9,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 // Isolate the pairing key file so tests never touch the user's real
-// ~/.figma-bridge-mcp/plugin-key. Must be set BEFORE importing config.js/pairing.js.
-process.env.PLUGIN_KEY_FILE = join(mkdtempSync(join(tmpdir(), 'figma-bridge-key-')), 'plugin-key');
+// ~/.figma-bridge-mcp state. Must be set BEFORE importing config.js/pairing.js.
+const testState = mkdtempSync(join(tmpdir(), 'figma-bridge-mcp-layer-'));
+process.env.PLUGIN_KEY_FILE = join(testState, 'plugin-key');
+process.env.AUDIT_LOG_PATH = join(testState, 'audit.log');
 
 test('buildArgv resolves to the vendored engine entry with the current node', async () => {
   const { buildArgv, ENGINE_ENTRY } = await import('../src/config.js');

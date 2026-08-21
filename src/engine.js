@@ -6,23 +6,22 @@
 //  - `connect` is intentionally NOT allowlisted; connecting only ever happens
 //    through ensureSafeConnect(), which forces --safe. This makes Yolo/patching
 //    unreachable via the wrapper.
-//  - Every executed command is appended to an audit log.
+//  - Every executed command attempts one closed-schema Audit Trail lifecycle;
+//    storage failure is returned as degraded state without blocking Figma.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
 import { createDaemonClient, DaemonClientError } from "../engine/src/lib/daemon-client.js";
 import { createDesignCaptureModule } from "../engine/src/application/design-capture.js";
 import { retrySafeRead } from "../engine/src/lib/safe-read-retry.js";
 import { publicError } from "./error-projection.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
+import { auditTrail } from "./audit-trail.js";
 import {
   listFigmaCapabilities,
   planFigmaCommand,
 } from "./capability-catalog.js";
 import {
-  AUDIT_LOG_PATH,
   EXEC_TIMEOUT_MS,
   LONG_EXEC_TIMEOUT_MS,
   BACKGROUND_EXEC_TIMEOUT_MS,
@@ -60,37 +59,6 @@ export const HELP_TOKENS = new Set(["--help", "-h"]);
 // generous but still bounded.
 const MAX_ARG_LENGTH = 200000;
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
-
-// Rotation cap: figma_history reads the log synchronously, and render-JSX
-// args make entries fat — an unbounded log eventually made every history
-// call drag. One rotated generation is kept (audit.log.1) and still read
-// by figma_history, so rotation never visibly truncates recent history.
-const AUDIT_ROTATE_BYTES = 5 * 1024 * 1024;
-
-/**
- * Append a single JSON line to the audit log, creating the directory if
- * needed and rotating audit.log → audit.log.1 past the size cap.
- * @param {object} entry
- */
-export function appendAudit(entry) {
-  try {
-    fs.mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });
-    try {
-      if (fs.statSync(AUDIT_LOG_PATH).size >= AUDIT_ROTATE_BYTES) {
-        fs.renameSync(AUDIT_LOG_PATH, AUDIT_LOG_PATH + ".1");
-      }
-    } catch {
-      // ENOENT on first write — nothing to rotate.
-    }
-    fs.appendFileSync(AUDIT_LOG_PATH, JSON.stringify(entry) + "\n");
-  } catch {
-    // Audit logging must never block execution; swallow write errors.
-  }
-}
-
-function isoNow() {
-  return new Date().toISOString();
-}
 
 // Node ids referenced by a command, for the local history (figma_history).
 // Plain "12:34" plus the URL form "node-id=12-34". Best-effort: a "12:30"
@@ -158,17 +126,19 @@ function startCommandExecution(args, opts = {}) {
     );
   }
   const fileKey = plan.target.fileKey;
-  const auditId = randomUUID();
   const nodes = extractNodeIds(args);
-  appendAudit({
-    id: auditId,
-    ts: isoNow(),
-    args: plan.argv,
+  const audit = auditTrail.begin({
+    ...plan.audit,
+    arguments: plan.argv,
     ...(nodes.length ? { nodes } : {}),
-    ...(opts.label ? { label: String(opts.label).slice(0, 200) } : {}),
-    ...(fileKey ? { fileKey: String(fileKey).slice(0, 64) } : {}),
+    ...(opts.label == null ? {} : { label: opts.label }),
+    outputRoles: plan.audit.outputRoles,
+    target: {
+      kind: plan.audit.targetKind,
+      ...(fileKey ? { identity: fileKey } : {}),
+    },
   });
-  return { args: plan.argv, opts, command, plan, targetContext, fileKey, auditId };
+  return { args: plan.argv, opts, command, plan, targetContext, fileKey, audit };
 }
 
 function executionTimeout(context, opts) {
@@ -179,24 +149,22 @@ function executionTimeout(context, opts) {
 }
 
 function completeCommandExecution(context, code = 0) {
-  appendAudit({
-    id: context.auditId,
-    ts: isoNow(),
-    event: "done",
-    ok: true,
-    ...(code ? { exitCode: code } : {}),
-  });
+  return auditTrail.finish(context.audit, { ok: true, code });
 }
 
 function failCommandExecution(context, error) {
-  const detail = error?.stderr || error?.message || "Unknown error";
-  appendAudit({
-    id: context.auditId,
-    ts: isoNow(),
-    event: "done",
+  return auditTrail.finish(context.audit, {
     ok: false,
-    error: String(detail).trim().split("\n")[0].slice(0, 200),
+    ...(typeof error?.code === "number" ? { code: error.code } : {}),
+    errorKind: error?.kind || (typeof error?.code === "number" ? "engine-exit" : "request"),
   });
+}
+
+function attachAuditStatus(error, audit) {
+  if (error && (typeof error === "object" || typeof error === "function")) {
+    error.audit = audit;
+  }
+  return error;
 }
 
 /**
@@ -204,20 +172,19 @@ function failCommandExecution(context, error) {
  * @param {string[]} args
  * @param {{timeoutMs?: number, label?: string, fileKey?: string, okExitCodes?: number[]}} [opts]
  *   `timeoutMs` overrides the default EXEC_TIMEOUT_MS (long exports need more);
- *   `label` is a short human intent note stored in the audit/history log;
+ *   `label` is summarized non-reversibly for audit correlation;
  *   `fileKey` targets one of several connected Figma windows;
  *   `okExitCodes` names exit codes that are an ANSWER rather than a failure.
- * @returns {Promise<{stdout: string, stderr: string, code: number}>}
+ * @returns {Promise<{stdout: string, stderr: string, code: number, audit: object}>}
  */
 export async function runCli(args, opts = {}) {
   const context = startCommandExecution(args, opts);
   try {
     const result = await spawnCliAdapter(context.args, opts, context.fileKey, executionTimeout(context, opts), context.plan.execution.okExitCodes);
-    completeCommandExecution(context, result.code);
-    return result;
+    const audit = completeCommandExecution(context, result.code);
+    return { ...result, audit };
   } catch (error) {
-    failCommandExecution(context, error);
-    throw error;
+    throw attachAuditStatus(error, failCommandExecution(context, error));
   }
 }
 
@@ -273,11 +240,12 @@ export async function runInProcessCommand(args, opts = {}, operation) {
             : () => waitForPluginConnection(remaining()),
         })
       : await invoke();
-    completeCommandExecution(context);
+    const audit = completeCommandExecution(context);
     return {
       stdout: result?.stdout ?? "",
       stderr: result?.stderr ?? "",
       code: 0,
+      audit,
     };
   } catch (error) {
     // Read-only vertical slices may explicitly retain CLI self-healing during
@@ -286,15 +254,16 @@ export async function runInProcessCommand(args, opts = {}, operation) {
     if (context.plan.execution.retry === "safe-read" && isDaemonUnavailable(error)) {
       try {
         const result = await spawnCliAdapter(context.args, opts, context.fileKey, remaining(), context.plan.execution.okExitCodes);
-        completeCommandExecution(context, result.code);
-        return result;
+        const audit = completeCommandExecution(context, result.code);
+        return { ...result, audit };
       } catch (fallbackError) {
-        failCommandExecution(context, fallbackError);
-        throw fallbackError;
+        throw attachAuditStatus(
+          fallbackError,
+          failCommandExecution(context, fallbackError),
+        );
       }
     }
-    failCommandExecution(context, error);
-    throw error;
+    throw attachAuditStatus(error, failCommandExecution(context, error));
   }
 }
 
@@ -315,8 +284,13 @@ export async function ensureSafeConnect({ forceRestart = false } = {}) {
   const args = ["connect", "--safe", "--no-wait"];
   if (forceRestart) args.push("--force-restart");
   const { cmd, argv } = buildArgv(args);
-  const auditId = randomUUID();
-  appendAudit({ id: auditId, ts: isoNow(), args });
+  const auditHandle = auditTrail.begin({
+    capability: "bridge.connect",
+    operation: "write",
+    effects: { figma: "none", workspace: "none", shared: "write" },
+    target: { kind: "local-bridge" },
+    arguments: args,
+  });
 
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
@@ -326,20 +300,20 @@ export async function ensureSafeConnect({ forceRestart = false } = {}) {
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
-    appendAudit({ id: auditId, ts: isoNow(), event: "done", ok: true });
-    return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };
+    const audit = auditTrail.finish(auditHandle, { ok: true, code: 0 });
+    return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0, audit };
   } catch (err) {
     const stdout = err.stdout ?? "";
     const stderr = err.stderr ?? "";
     const code = typeof err.code === "number" ? err.code : 1;
-    appendAudit({
-      id: auditId,
-      ts: isoNow(),
-      event: "done",
+    const audit = auditTrail.finish(auditHandle, {
       ok: false,
-      error: String(stderr || err.message || "connect failed").trim().split("\n")[0].slice(0, 200),
+      code,
+      errorKind: "engine-connect",
     });
-    throw publicError(Object.assign(err, { code, stdout, stderr }));
+    const projected = publicError(Object.assign(err, { code, stdout, stderr }));
+    projected.audit = audit;
+    throw projected;
   }
 }
 

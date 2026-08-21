@@ -524,6 +524,14 @@ export function planFigmaCommand(rawArgs, {
       ? { kind: 'none', fileKey: null }
       : { kind: 'plugin-file', fileKey: fileKey || null },
   );
+  const outputs = Object.freeze(prepared.outputPath
+    ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
+    : []);
+  const operation = Object.values(effects).includes('write')
+    ? 'write'
+    : Object.values(effects).includes('read')
+      ? 'read'
+      : 'none';
   const jobKey = backgroundJobIdentity(prepared.args, target.fileKey);
   const retry = capability.mutatesDesign ? 'never' : capability.retry;
   const plan = {
@@ -543,9 +551,17 @@ export function planFigmaCommand(rawArgs, {
       jobKey,
     }),
     availability: Object.freeze(availabilityFor(prepared.args, capability)),
-    outputs: Object.freeze(prepared.outputPath
-      ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
-      : []),
+    outputs,
+    // Closed semantic projection for the Audit Trail. It deliberately omits
+    // argv, file keys, paths, labels, and payloads; the writer stores only
+    // non-reversible summaries for those values.
+    audit: Object.freeze({
+      capability: HELP_TOKENS.has(capability.name) ? 'help' : capability.name || 'unknown',
+      operation,
+      effects,
+      targetKind: target.kind,
+      outputRoles: Object.freeze(outputs.map(({ role }) => role)),
+    }),
     summary: capability.summary,
   };
   return Object.freeze(plan);

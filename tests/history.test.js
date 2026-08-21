@@ -15,6 +15,7 @@ process.env.AUDIT_LOG_PATH = AUDIT;
 process.env.PLUGIN_KEY_FILE = join(tmp, 'plugin-key');
 
 const { extractNodeIds, runCli } = await import('../src/engine.js');
+const { summarizeSensitive } = await import('../src/audit-trail.js');
 const { parseAuditLines, entryNodes, filterHistory, gitHistory, formatHistory, buildHistory, foldCompletions } =
   await import('../src/history.js');
 
@@ -33,20 +34,46 @@ test('extractNodeIds: plain ids, URL form normalized, dedupe, cap', () => {
 test('runCli with label writes an enriched audit line plus a completion entry', async () => {
   await runCli(['--help'], { label: 'discoverability check' });
   const lines = parseAuditLines(readFileSync(AUDIT, 'utf8'));
-  // Last two lines: the command entry and its {event:"done"} completion.
-  const entry = lines.findLast((e) => Array.isArray(e.args));
-  assert.deepEqual(entry.args, ['--help']);
-  assert.equal(entry.label, 'discoverability check');
+  const entry = lines.findLast((e) => e.event === 'start');
+  assert.equal(entry.schema, 2);
+  assert.equal(entry.capability, 'help');
+  assert.equal(entry.data.arguments.count, 1);
+  assert.equal(entry.data.label.bytes, Buffer.byteLength('discoverability check'));
   assert.ok(entry.id, 'command entries carry an id for completion matching');
-  assert.ok(!('nodes' in entry), 'no nodes key when the args contain no ids');
+  assert.ok(!('nodeRefs' in entry.data), 'no node refs when the args contain no ids');
+  assert.doesNotMatch(JSON.stringify(entry), /discoverability check|--help/);
   const done = lines.findLast((e) => e.event === 'done');
   assert.equal(done.id, entry.id);
-  assert.equal(done.ok, true);
+  assert.equal(done.outcome.ok, true);
 
   // A pre-enrichment line {ts, args} flows through entryNodes via re-extraction.
   const legacy = { ts: '2026-01-01T00:00:00.000Z', args: ['inspect', '7:9'] };
   assert.deepEqual(entryNodes(legacy), ['7:9']);
   assert.deepEqual(entryNodes(entry), []);
+});
+
+test('versioned audit history filters by redacted node digest without storing the node id', () => {
+  const nodeId = '77:99';
+  const sha256 = summarizeSensitive(nodeId).sha256;
+  const entries = [
+    {
+      schema: 2,
+      id: 'redacted',
+      ts: '2026-08-21T10:00:00.000Z',
+      event: 'start',
+      capability: 'inspect',
+      operation: 'read',
+      effects: { figma: 'read', workspace: 'none', shared: 'none' },
+      target: { kind: 'plugin-file' },
+      data: { arguments: { count: 2, bytes: 12, sha256: 'a'.repeat(64) }, nodeRefs: [{ bytes: 5, sha256 }] },
+    },
+  ];
+  assert.equal(filterHistory(entries, { nodeId }).length, 1);
+  assert.equal(filterHistory(entries, { nodeId: '77:98' }).length, 0);
+  const markdown = formatHistory(entries.map((entry) => ({ ...entry, source: 'design' })));
+  assert.match(markdown, /inspect \[read\]/);
+  assert.match(markdown, /1 redacted node/);
+  assert.doesNotMatch(markdown, /77:99/);
 });
 
 test('foldCompletions: outcomes attach to commands, failures get marked in markdown', () => {

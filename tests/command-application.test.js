@@ -21,21 +21,32 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
       return { stdout: 'result', stderr: 'notice' };
     },
   );
-  assert.deepEqual(result, { stdout: 'result', stderr: 'notice', code: 0 });
+  assert.deepEqual(result, { stdout: 'result', stderr: 'notice', code: 0, audit: { status: 'healthy' } });
   assert.equal(context.fileKey, 'FILE_A');
   assert.ok(context.deadline > Date.now());
 
   const entries = readFileSync(auditFile, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(entries.length, 2);
-  assert.deepEqual(entries[0].args, ['export', 'code-spec', '12:34']);
-  assert.deepEqual(entries[0].nodes, ['12:34']);
-  assert.equal(entries[0].fileKey, 'FILE_A');
-  assert.equal(entries[0].label, 'direct spec');
+  assert.equal(entries[0].schema, 2);
+  assert.equal(entries[0].event, 'start');
+  assert.equal(entries[0].capability, 'export');
+  assert.equal(entries[0].operation, 'read');
+  assert.equal(entries[0].target.kind, 'plugin-file');
+  assert.equal(entries[0].data.arguments.count, 3);
+  assert.equal(entries[0].data.nodeRefs.length, 1);
+  assert.equal(entries[0].data.label.bytes, Buffer.byteLength('direct spec'));
+  const serialized = JSON.stringify(entries);
+  assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec|code-spec/);
   assert.deepEqual(entries[1], {
+    schema: 2,
     id: entries[0].id,
     ts: entries[1].ts,
     event: 'done',
-    ok: true,
+    outcome: {
+      ok: true,
+      durationMs: entries[1].outcome.durationMs,
+      code: 0,
+    },
   });
 });
 
