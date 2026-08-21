@@ -326,6 +326,36 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   assert.match(VARIABLE_SCOPE_GUIDE, /Ask whether it should/);
 });
 
+test('mixed Figma MCPs stay explicitly scoped to Figma Bridge', async () => {
+  const { CallToolResultSchema } = await import('@modelcontextprotocol/sdk/types.js');
+  const { INSTRUCTIONS, MCP_SERVER_ID, TOOLS, handleTool } = await import('../src/server.js');
+
+  assert.equal(MCP_SERVER_ID, 'figma-bridge-mcp');
+  assert.match(INSTRUCTIONS, /server figma-bridge-mcp/i);
+  assert.match(INSTRUCTIONS, /does not prove.*Figma.*unavailable/i);
+  assert.match(INSTRUCTIONS, /never.*switch.*write/i);
+
+  const status = TOOLS.find((candidate) => candidate.name === 'figma_status');
+  assert.match(status.description, /this Figma Bridge only/i);
+
+  const success = await handleTool('figma_reference', { name: 'variable-scopes' });
+  assert.equal(success._mcp, MCP_SERVER_ID);
+  assert.deepEqual(success._meta?.[MCP_SERVER_ID], {
+    serverId: MCP_SERVER_ID,
+    toolNamespace: 'figma-bridge',
+    failureScope: 'this-server-only',
+  });
+  assert.equal(CallToolResultSchema.safeParse(success).success, true);
+
+  const failure = await handleTool('not-a-real-tool', {});
+  assert.equal(failure.isError, true);
+  assert.equal(failure._mcp, MCP_SERVER_ID);
+  assert.match(failure.content[0].text, /^\[figma-bridge-mcp\]/);
+  assert.match(failure.content[0].text, /only this Figma Bridge transport/i);
+  assert.match(failure.content[0].text, /does not mean Figma or another Figma MCP is unavailable/i);
+  assert.equal(CallToolResultSchema.safeParse(failure).success, true);
+});
+
 test('MCP prompts bundle both directions and component creation for non-plugin clients', async () => {
   const {
     PROMPTS,

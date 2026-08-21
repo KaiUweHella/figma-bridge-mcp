@@ -18,6 +18,7 @@ const BEHAVIORS = new Set([
   "component-properties",
   "variant-cap",
   "no-browser-install",
+  "mcp-identity-pin",
 ]);
 
 function skillNames(root) {

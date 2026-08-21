@@ -47,6 +47,9 @@ import { designContractFileKeyFromArgv } from "../engine/src/application/design-
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { WRITE_CONFIRM } from "./config.js";
 
+export const MCP_SERVER_ID = "figma-bridge-mcp";
+export const MCP_TOOL_NAMESPACE = "figma-bridge";
+
 export function isWrite(args) {
   return Array.isArray(args) && args.length > 0 && planFigmaCommand(args).effects.figma === "write";
 }
@@ -127,7 +130,7 @@ export const TOOLS = [
   {
     name: "figma_status",
     description:
-      "Show bridge/plugin/file/key state. Performs a real plugin round-trip by default; REST validation is opt-in.",
+      "Status for this Figma Bridge only. Real round-trip by default; REST validation opt-in.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -298,7 +301,7 @@ export const TOOLS = [
   {
     name: "figma_comments",
     description:
-      "Read or post Figma comments via the optional REST layer (design review feedback lives here — read it, act on it, reply with what you changed). action:'list' returns all comments with ids, authors, node anchors and resolved state. action:'post' needs message (+ optional nodeId anchor or replyTo thread id) and ALWAYS requires confirm:true after a preview — comments are visible to other people. Without a configured REST token this tool only explains the setup.",
+      "Read or post Figma comments through optional REST. list returns ids, authors, node anchors and resolved state. post needs message plus optional nodeId/replyTo; it always previews and requires confirm:true because comments are public. Without a REST token, returns setup guidance.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -536,7 +539,9 @@ export function createFigmaComponentPrompt(args = {}) {
 // tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
 // figma_reference name "workflow") or into tool OUTPUTS, which are never
 // truncated this way.
-export const INSTRUCTIONS = `Design-to-code: Figma is the spec. Never invent or drop text, assets,
+export const INSTRUCTIONS = `Server figma-bridge-mcp: its failure does not prove Figma unavailable; never switch MCPs for writes.
+
+Design-to-code: Figma is the spec. Never invent or drop text, assets,
 tokens, layout or states. Follow this order:
 1. figma_screenshot, then read the PNG as visual ground truth.
 2. Use one figma_spec call with phase "all", format "tree", depth 3-4. Copy
@@ -933,12 +938,33 @@ function enrichStructuredSpec(text, format) {
   return serializeSpecModel(model, format);
 }
 
+function identifiedResult(result) {
+  return {
+    ...result,
+    _mcp: MCP_SERVER_ID,
+    _meta: {
+      ...(result._meta || {}),
+      [MCP_SERVER_ID]: {
+        serverId: MCP_SERVER_ID,
+        toolNamespace: MCP_TOOL_NAMESPACE,
+        failureScope: "this-server-only",
+      },
+    },
+  };
+}
+
 function textResult(text) {
-  return { content: [{ type: "text", text: text || "" }] };
+  return identifiedResult({ content: [{ type: "text", text: text || "" }] });
 }
 
 function errorResult(text) {
-  return { content: [{ type: "text", text: text || "" }], isError: true };
+  let body = String(text || "The Figma Bridge request failed.");
+  if (!body.startsWith(`[${MCP_SERVER_ID}]`)) {
+    body = `[${MCP_SERVER_ID}] ${body}`;
+  }
+  const scope = "Only this Figma Bridge transport failed; this does not mean Figma or another Figma MCP is unavailable.";
+  if (!body.includes(scope)) body += `\n\n${scope}`;
+  return identifiedResult({ content: [{ type: "text", text: body }], isError: true });
 }
 
 export async function executeSpecBatch(requests, executeOne, options = {}) {
@@ -1189,7 +1215,7 @@ export async function handleTool(name, rawArgs) {
         "  the first time you launch it. It is stored in the plugin and\n" +
         "  reused across sessions.\n" +
         "────────────────────────────────────────\n";
-      return textResult((res.stdout || res.stderr || "") + recoveryNote + keyBlock);
+      return textResult(`[${MCP_SERVER_ID}]\n` + (res.stdout || res.stderr || "") + recoveryNote + keyBlock);
     }
 
     case "figma_status": {
@@ -1208,7 +1234,7 @@ export async function handleTool(name, rawArgs) {
           "plugin discovers it automatically without replacing a healthy connection.";
       }
       const lines = [
-        headline,
+        `[${MCP_SERVER_ID}] ${headline}`,
         `access key: ${key ? "configured" : "NOT set — run figma_connect to generate one"}`,
         `server version: ${SERVER_VERSION}`,
       ];
@@ -1835,7 +1861,7 @@ async function main() {
   const server = new Server(
     // Single source of truth: package.json (SERVER_VERSION also carries the
     // git SHA for figma_status; the MCP handshake wants the bare semver).
-    { name: "figma-bridge-mcp", version: SERVER_VERSION.split(" ")[0] },
+    { name: MCP_SERVER_ID, version: SERVER_VERSION.split(" ")[0] },
     { capabilities: { tools: {}, prompts: {} }, instructions: INSTRUCTIONS },
   );
 

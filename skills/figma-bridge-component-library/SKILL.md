@@ -9,6 +9,18 @@ Create reusable Figma contracts that stay connected to the codebase. A visual
 look-alike without tokens, variants, properties, and durable identity is not a
 finished component.
 
+## Pin the Figma Bridge transport
+
+- Use the tools from the server bundled with this skill: namespace
+  `figma-bridge`, server id `figma-bridge-mcp`. Do not select a similarly named
+  Figma MCP by name alone.
+- Start with this server's `figma_status`. Its result and every later result must
+  identify `_mcp: "figma-bridge-mcp"`.
+- A failed probe proves only that Figma Bridge transport is unavailable. It does
+  not prove that Figma or another Figma MCP is unavailable.
+- Do not silently switch to another Figma MCP for a write. Name the unavailable
+  transport and ask the user before changing tools or write semantics.
+
 ## Lock the component contract
 
 1. Inspect the code component, prop types and defaults, CSS or token sources,

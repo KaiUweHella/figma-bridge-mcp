@@ -9,6 +9,18 @@ Treat the rendered application as the visual contract, the source repository as
 the semantic contract, and the existing Figma file as the design-system
 contract. Preserve all three instead of drawing a flattened approximation.
 
+## Pin the Figma Bridge transport
+
+- Use the tools from the server bundled with this skill: namespace
+  `figma-bridge`, server id `figma-bridge-mcp`. Do not select a similarly named
+  Figma MCP by name alone.
+- Start with this server's `figma_status`. Its result and every later result must
+  identify `_mcp: "figma-bridge-mcp"`.
+- A failed probe proves only that Figma Bridge transport is unavailable. It does
+  not prove that Figma or another Figma MCP is unavailable.
+- Do not silently switch to another Figma MCP for a write. Name the unavailable
+  transport and ask the user before changing tools or write semantics.
+
 ## Choose the source path
 
 1. Inspect the source route, component tree, styles, tokens, assets, fonts,

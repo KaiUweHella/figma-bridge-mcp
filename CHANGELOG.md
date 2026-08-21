@@ -50,6 +50,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Mixed-Figma-MCP sessions no longer leave Bridge results ambiguous. Every
+  result carries the stable `figma-bridge-mcp` identity, every error states
+  that its failure is server-local, and bundled workflows pin their calls to
+  the `figma-bridge` namespace without silently switching write semantics.
 - `figma_spec` no longer requires one Manual Mode approval per structure/style
   section. A bounded `nodeIds[]` batch now carries up to eight complete reads
   inside one MCP call, and the design-to-code workflow prefers one shallow
