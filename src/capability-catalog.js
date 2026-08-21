@@ -14,6 +14,14 @@ const readGroup = (summary, readSubcommands, extra = {}) => ({
 const COMMANDS = Object.freeze({
   render: { summary: 'Render JSX into Figma or print a semantic browser capture expression', mutation: 'render', timeout: 'long', target: 'conditional', path: 'render-inputs' },
   'render-batch': { summary: 'Render several JSX frames into Figma', mutation: 'write', timeout: 'long', path: 'render-inputs' },
+  create: {
+    summary: 'Create typed Figma primitives, optionally inside an existing parent',
+    mutation: 'write',
+    allowedSubcommands: new Set([
+      'frame', 'rect', 'rectangle', 'ellipse', 'circle', 'polygon', 'star',
+      'vector', 'slice', 'text', 'line', 'autolayout', 'al',
+    ]),
+  },
   combos: { summary: 'Generate component variant combinations', mutation: 'write' },
   sizes: { summary: 'Generate component size variants', mutation: 'write' },
   node: readGroup('Inspect or mutate nodes', ['tree', 'bindings', 'css'], { path: 'node-inputs' }),
@@ -156,6 +164,10 @@ function commandCapability(args) {
   if (HELP_TOKENS.has(name)) return Object.freeze({ ...TOP_LEVEL_HELP, name });
   const entry = COMMANDS[name];
   if (!entry) return Object.freeze({ ...UNKNOWN, name });
+  const sub = args[1];
+  if (entry.allowedSubcommands && sub && !sub.startsWith('-') && !entry.allowedSubcommands.has(sub)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   const specialized = specializedPolicy(name, entry, args);
   return Object.freeze({
     name,

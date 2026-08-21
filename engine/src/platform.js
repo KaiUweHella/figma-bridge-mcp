@@ -12,9 +12,15 @@ export const nullDevice = PLATFORM === 'win32' ? 'NUL' : '/dev/null';
 
 // --- Port cleanup ---
 function killPortUnix(port) {
-  const portCheck = execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' });
+  // LISTENERS only. Plain `lsof -ti:<port>` also returns every connected
+  // client; using it here could SIGKILL Figma itself together with the daemon.
+  const portCheck = execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' });
   if (portCheck.trim()) {
-    try { execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: 'pipe' }); } catch {}
+    for (const rawPid of portCheck.trim().split(/\s+/)) {
+      const pid = Number(rawPid);
+      if (!Number.isInteger(pid) || pid <= 1) continue;
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
     try { execSync('sleep 0.3', { stdio: 'pipe' }); } catch {}
   }
 }
@@ -38,7 +44,7 @@ export const killPort = PLATFORM === 'win32' ? killPortWindows : killPortUnix;
 
 // --- Get PID listening on port ---
 function getPortPidUnix(port) {
-  return execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' }).trim() || null;
+  return execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' }).trim() || null;
 }
 
 function getPortPidWindows(port) {

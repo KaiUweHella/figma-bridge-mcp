@@ -34,14 +34,18 @@ identity.
 Before implementation, collect and retain:
 
 - one `figma_screenshot` PNG as visual ground truth;
-- one bounded `figma_spec` structure map with section node ids;
+- one bounded `figma_spec` `phase: "all"` map with section node ids (use
+  `structure` only when the screen is too large);
 - one scoped CSS or DTCG token export for the target node;
 - one asset export into the target project, including `assets.json`;
-- bounded style specs for the sections being implemented.
+- bounded style specs for the sections being implemented, grouped into one
+  `figma_spec` `nodeIds[]` batch so Manual Mode needs one approval, not one
+  approval per section.
 
 Do not repeat whole-screen reads. Reuse this package and pull style facts only
-for a section whose facts are still missing. If Figma changes during the task,
-invalidate the affected evidence and recapture it.
+for sections whose facts are still missing; put all known same-scope section
+reads into one `nodeIds[]` batch. If Figma changes during the task, invalidate the
+affected evidence and recapture it.
 
 ## Preserve source fidelity
 
@@ -55,6 +59,12 @@ invalidate the affected evidence and recapture it.
 - Copy text, hierarchy, tokens, typography, layout behavior, clipping, paints,
   effects, artwork placement, and component states from the evidence. Do not
   invent values from the screenshot.
+- Preserve native masks, blend modes, corner smoothing, stroke inclusion and
+  every parameter of modern Figma effects from the Spec. Do not replace these
+  facts with a screenshot-derived approximation.
+- Treat each `Prototype reaction:` record as interaction evidence. Implement
+  corresponding application behavior only when the mapping is clear; do not
+  translate Figma navigation, overlays or back actions blindly into app routes.
 - Preserve fill, hug, grid, and responsive relationships. Do not turn the whole
   design into a fixed-size canvas merely to match one screenshot.
 

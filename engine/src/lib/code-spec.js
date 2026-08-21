@@ -60,7 +60,7 @@ export function isIconInstance(node) {
 
 /** Paint-less styling helper (bounding rect, mask shape): renders nothing. */
 const isInvisibleHelper = (node) =>
-  isVectorish(node) && !(node.kids?.length) && !node.fills && !node.strokes && !node.fx;
+  isVectorish(node) && !(node.kids?.length) && !node.fills && !node.strokes && !node.fx && !node.mask;
 
 const pad4 = (pad) => {
   const [t, r, b, l] = pad;
@@ -80,6 +80,7 @@ export function structureVisualHint(node) {
   if (node.r != null) parts.push(`r${Array.isArray(node.r) ? node.r.join('/') : node.r}`);
   if (node.fx?.length) parts.push('effects');
   if (node.clip) parts.push('clip');
+  if (node.mask) parts.push(`mask:${String(node.maskType || 'ALPHA').toLowerCase()}`);
   return parts.length ? `visual:${parts.join('+')}` : '';
 }
 
@@ -248,13 +249,21 @@ export function paintSeg(node, opts = {}) {
     const r = Array.isArray(node.r) ? node.r.join('/') : node.r;
     parts.push(`r${r}${varSuffix(bvName(node, 'topLeftRadius', 'cornerRadius'))}`);
   }
+  if (node.cs != null) parts.push(`corner-smoothing:${node.cs}`);
+  if (node.sil) parts.push('strokes-in-layout');
   for (const e of node.fx || []) {
     if (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') {
       parts.push(`${e.type === 'INNER_SHADOW' ? 'inner-' : ''}shadow ${e.x}/${e.y}/${e.blur}/${e.spread} ${e.color}@${Math.round((e.a ?? 1) * 100)}%`);
     } else {
-      parts.push(`${e.type.toLowerCase().replace(/_/g, '-')} ${e.blur}`);
+      // Modern Figma effects carry several independent parameters. Printing
+      // only `blur` produced values such as `glass undefined`; stable JSON
+      // keeps the default Tree projection lossless without another formatter
+      // per upstream effect generation.
+      const { type, ...parameters } = e;
+      parts.push(`${String(type || 'effect').toLowerCase().replace(/_/g, '-')} ${stableStringify(parameters)}`);
     }
   }
+  if (node.blend) parts.push(`blend:${String(node.blend).toLowerCase().replace(/_/g, '-')}`);
   if (node.op != null) parts.push(`opacity ${Math.round(node.op * 100)}%`);
   if (node.rot) parts.push(`rot ${node.rot}°`);
   // Frame clipping (CSS: overflow hidden). Without it, children that overhang
@@ -291,7 +300,7 @@ export function typeSeg(node) {
   if (t.axisMetadataError) parts.push(`axes-meta-error(${t.axisMetadataError})`);
   if (Array.isArray(t.runs) && t.runs.length) {
     const runs = t.runs.map((run) => {
-      const { ot, decoration, case: textCase, fills, fs, bv, ...typography } = run;
+      const { ot, decoration, case: textCase, fills, fs, bv, hyperlink, ...typography } = run;
       const runNode = { txt: typography, fills, fs, bv };
       const detail = [
         typeSeg(runNode),
@@ -299,6 +308,7 @@ export function typeSeg(node) {
         decoration ? `decoration:${String(decoration).toLowerCase()}` : '',
         textCase ? `case:${String(textCase).toLowerCase()}` : '',
         Array.isArray(ot) && ot.length ? `ot(${ot.join(',')})` : '',
+        hyperlink ? `link:${stableStringify(hyperlink)}` : '',
       ].filter(Boolean).join(' · ');
       return `${run.start}:${run.end} ${JSON.stringify(run.chars)} → ${detail}`;
     });
@@ -315,6 +325,39 @@ export function cssSeg(node) {
   return `css{${entries.map(([property, value]) => `${property}:${value}`).join('; ')}}`;
 }
 
+const componentDefinitionsSeg = (definitions) => Object.entries(definitions || {})
+  .map(([name, definition]) => {
+    const parts = [`${name}:${definition?.type || 'UNKNOWN'}`];
+    if (definition && Object.prototype.hasOwnProperty.call(definition, 'defaultValue')) {
+      parts.push(`default=${stableStringify(definition.defaultValue)}`);
+    }
+    if (definition?.variantOptions?.length) {
+      parts.push(`options=${stableStringify(definition.variantOptions)}`);
+    }
+    if (definition?.preferredValues?.length) {
+      parts.push(`preferred=${stableStringify(definition.preferredValues)}`);
+    }
+    return parts.join(' ');
+  })
+  .join('; ');
+
+const componentPropertiesSeg = (properties) => Object.entries(properties || {})
+  .map(([name, property]) => {
+    const parts = [`${name}:${property?.type || 'UNKNOWN'}`];
+    if (property && Object.prototype.hasOwnProperty.call(property, 'value')) {
+      parts.push(`value=${stableStringify(property.value)}`);
+    }
+    if (property?.preferredValues?.length) {
+      parts.push(`preferred=${stableStringify(property.preferredValues)}`);
+    }
+    return parts.join(' ');
+  })
+  .join('; ');
+
+const componentReferencesSeg = (references) => Object.entries(references || {})
+  .map(([field, property]) => `${field}→${property}`)
+  .join('; ');
+
 /** Provenance and semantic facts that must not be mistaken for visual style. */
 export function factSegs(node) {
   const parts = [];
@@ -329,8 +372,15 @@ export function factSegs(node) {
       .filter(Boolean))];
     parts.push(`code-fallback:${policies.length ? policies.join(',') : node.bridge.fallbackAnnotations.length}`);
   }
-  if (node.componentProperties) parts.push(`component-properties:${Object.keys(node.componentProperties).length}`);
-  if (node.componentPropertyDefinitions) parts.push(`component-definitions:${Object.keys(node.componentPropertyDefinitions).length}`);
+  if (node.componentProperties && Object.keys(node.componentProperties).length) {
+    parts.push(`component-properties{${componentPropertiesSeg(node.componentProperties)}}`);
+  }
+  if (node.componentPropertyDefinitions && Object.keys(node.componentPropertyDefinitions).length) {
+    parts.push(`component-definitions{${componentDefinitionsSeg(node.componentPropertyDefinitions)}}`);
+  }
+  if (node.componentPropertyReferences && Object.keys(node.componentPropertyReferences).length) {
+    parts.push(`component-refs{${componentReferencesSeg(node.componentPropertyReferences)}}`);
+  }
   if (node.overrides?.length) parts.push(`direct-overrides:${node.overrides.length}`);
   if (node.exposedInstances?.length) parts.push(`exposed-instances:${node.exposedInstances.length}`);
   if (node.slot) {
@@ -339,6 +389,8 @@ export function factSegs(node) {
       : 'slot:valid');
   }
   if (node.annotations?.length) parts.push(`figma-annotations:${node.annotations.length}`);
+  if (node.rx?.length) parts.push(`prototype-reactions:${node.rx.length}`);
+  if (node.mask) parts.push(`mask:${String(node.maskType || 'ALPHA').toLowerCase()}`);
   if (node.vb && Object.keys(node.vb).length) parts.push(`variable-context:${Object.keys(node.vb).length}`);
   if (node.iv && Object.keys(node.iv).length) parts.push(`variable-suggestions:${Object.keys(node.iv).length} (inferred only)`);
   return parts;
@@ -354,10 +406,23 @@ const annotationSpecLines = (node, depth) => (node.annotations || []).map((annot
   return `${'  '.repeat(depth)}- Figma annotation: ${annotationText(annotation)}${category}${properties}`;
 });
 
+const reactionSpecLines = (node, depth) => (node.rx || []).map((reaction) =>
+  `${'  '.repeat(depth)}- Prototype reaction: ${stableStringify(reaction)}`);
+
+const supplementalSpecLines = (node, depth, { reactions = true } = {}) => [
+  ...annotationSpecLines(node, depth),
+  ...(reactions ? reactionSpecLines(node, depth) : []),
+];
+
 /** Copy exact non-style facts into the canonical JSON/YAML node. */
 function copyNodeFacts(node, target, { detail }) {
   if (node.bridge) target.bridge = node.bridge;
   if (node.annotations?.length) target.annotations = node.annotations;
+  if (node.rx?.length) target.reactions = node.rx;
+  if (node.mask) {
+    target.mask = true;
+    target.maskType = node.maskType || 'ALPHA';
+  }
   if (node.layoutSource) target.layoutSource = node.layoutSource;
   if (node.positionSource) target.positionSource = node.positionSource;
   if (node.componentPropertyReferences) target.componentPropertyReferences = node.componentPropertyReferences;
@@ -390,7 +455,7 @@ function copyNodeFacts(node, target, { detail }) {
 
 // NOTE: `abs` (overlay position) is deliberately NOT a style field — position
 // is per-node geometry; two badges sharing a style sit at different corners.
-const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'images', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'fx', 'op', 'rot', 'clip', 'bv', 'css'];
+const STYLE_NODE_KEYS = ['gap', 'pad', 'ap', 'ac', 'sh', 'sv', 'mnw', 'mxw', 'mnh', 'mxh', 'fills', 'images', 'fs', 'strokes', 'sw', 'sa', 'dash', 'r', 'cs', 'sil', 'fx', 'blend', 'op', 'rot', 'clip', 'bv', 'css'];
 const STYLE_TXT_KEYS = ['ts', 'font', 'style', 'weight', 'size', 'lh', 'ls', 'ot', 'axisRanges', 'axisMetadataError', 'runs'];
 /** Below this rendered length a ref saves nothing — leave the value inline. */
 const DEDUP_MIN_DEF_LEN = 16;
@@ -626,14 +691,14 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
     // nav item or a 22×30 speech-bubble shape IS the design. One pointer
     // line; internals stay hidden — the artwork is fetched as a file, not
     // rebuilt from paths.
-    return [vectorArtLine(node), ...annotationSpecLines(node, depth + 1)];
+    return [vectorArtLine(node), ...supplementalSpecLines(node, depth + 1, { reactions: phase !== 'style' })];
   }
   if (isVectorCluster(node)) {
     // Mostly-vector container (pattern of hundreds of shapes): ONE line,
     // exactly like `export assets` writes ONE file for it.
     return [
       vectorArtLine(node, ` ×${node.vectorCluster?.totalChildren ?? (node.kids || []).length}`),
-      ...annotationSpecLines(node, depth + 1),
+      ...supplementalSpecLines(node, depth + 1, { reactions: phase !== 'style' }),
     ];
   }
   if (isInvisibleHelper(node)) return []; // paint-less bounding/mask shape — renders nothing
@@ -708,7 +773,7 @@ export function specLines(node, depth, phase, ctx = null, ancestors = [], behind
   if (node.repeat) segs.push(`×${node.repeat}`);
   segs.push(...factSegs(node));
   const lines = [`${'  '.repeat(depth)}- ${segs.filter(Boolean).join(' · ')}`];
-  lines.push(...annotationSpecLines(node, depth + 1));
+  lines.push(...supplementalSpecLines(node, depth + 1, { reactions: phase !== 'style' }));
   // Icon instances collapse: their identity is the main-component name, the
   // paths inside are noise. All other containers DO list their vector kids.
   const rawKids = isIconInstance(node) ? [] : node.kids || [];

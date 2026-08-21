@@ -14,7 +14,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, getSelection, resolveFileTarget } from "./engine.js";
+import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection, resolveFileTarget } from "./engine.js";
 import {
   listFigmaCapabilities,
   planFigmaCommand,
@@ -43,6 +43,7 @@ import {
   formatDesignLinkResult,
 } from "../engine/src/application/design-link-command.js";
 import { designContractFileKeyFromArgv } from "../engine/src/application/design-contract-command.js";
+import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { WRITE_CONFIRM } from "./config.js";
 
 export function isWrite(args) {
@@ -75,13 +76,48 @@ function toolAnnotations({
   return { readOnlyHint, destructiveHint, openWorldHint };
 }
 
+const SPEC_REQUEST_PROPERTIES = {
+  nodeId: {
+    type: "string",
+    description: "Node id or Figma URL.",
+  },
+  phase: {
+    type: "string",
+    enum: ["structure", "style", "all"],
+    description: "all (default), structure, or style.",
+  },
+  depth: {
+    type: "number",
+    description: "Tree depth; 0 = node only, default 12, max 30.",
+  },
+  section: {
+    type: "string",
+    description: "Optional child layer name.",
+  },
+  format: {
+    type: "string",
+    enum: ["tree", "yaml", "json"],
+    default: DEFAULT_SPEC_FORMAT,
+    description: "tree (default), yaml, or json.",
+  },
+  includeHidden: {
+    type: "boolean",
+    description: "Include invisible nodes (default false).",
+  },
+  dedup: {
+    type: "boolean",
+    default: false,
+    description: "false: inline every layer; true: compact repeats.",
+  },
+};
+
 // Exported so tests can assert on the surface itself: "12 tools" is a claim the
 // project makes, and a schema regression should fail the build, not the README.
 export const TOOLS = [
   {
     name: "figma_connect",
     description:
-      "Connect to Figma in Safe Mode (never Yolo). Generates the plugin access key if needed and returns it with plugin import instructions.",
+      "Ensure Figma Bridge is available in Safe Mode (never Yolo) without dropping a healthy plugin connection. Self-heals a single connected but unresponsive plugin UI, generates the access key if needed, and returns plugin import instructions.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -107,7 +143,7 @@ export const TOOLS = [
   {
     name: "figma_pairing",
     description:
-      "Show the Figma plugin access key (paste it into the Figma Bridge plugin). Pass rotate:true to generate a fresh key (requires reconnect).",
+      "Show the Figma plugin access key. Pass rotate:true to generate a fresh key and restart the daemon with it.",
     annotations: toolAnnotations({
       readOnlyHint: false,
       destructiveHint: true,
@@ -119,7 +155,7 @@ export const TOOLS = [
         rotate: {
           type: "boolean",
           description:
-            "Generate a NEW key, invalidating the old one. Run figma_connect afterwards to restart the daemon.",
+            "Generate a NEW key, invalidate the old one, and restart the daemon automatically.",
         },
       },
       additionalProperties: false,
@@ -309,7 +345,7 @@ export const TOOLS = [
   {
     name: "figma_reference",
     description:
-      "Offline Plugin API reference. Special topics: capabilities, variable-scopes, workflow, workflow:design-to-code, workflow:code-to-figma.",
+      "Offline Plugin API reference. Special topics: capabilities, fidelity, variable-scopes, workflow, workflow:design-to-code, workflow:code-to-figma.",
     annotations: toolAnnotations({
       readOnlyHint: true,
       openWorldHint: false,
@@ -317,7 +353,7 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "API name, capabilities or workflow topic; omit to list API names." },
+        name: { type: "string", description: "API name, capabilities, fidelity or workflow topic; omit to list API names." },
       },
       additionalProperties: false,
     },
@@ -348,52 +384,28 @@ export const TOOLS = [
   {
     name: "figma_spec",
     description:
-      "Exact per-layer text, identity, layout, native CSS, paint, token and asset facts. Copy; never invent. Map structure, then pull style by node id.",
+      "Exact per-layer design facts. Copy; never invent. Use nodeIds[] for up to 8 same-scope reads behind one approval.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
     inputSchema: {
       type: "object",
       properties: {
-        nodeId: {
-          type: "string",
-          description: "Frame node id, URL-form id, or full Figma URL.",
-        },
-        phase: {
-          type: "string",
-          enum: ["structure", "style", "all"],
-          description: "structure = hierarchy + real content; style = layout/paint/typography detail; all (default) = both.",
-        },
-        depth: {
-          type: "number",
-          description: "Max tree depth (default 12). Use 0 for the requested node itself, complete and without descendants.",
-        },
-        section: {
-          type: "string",
+        ...SPEC_REQUEST_PROPERTIES,
+        nodeIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 8,
+          items: { type: "string" },
           description:
-            "Optional child layer name from the structure map. Prefer its node id when names repeat.",
-        },
-        format: {
-          type: "string",
-          enum: ["tree", "yaml", "json"],
-          default: DEFAULT_SPEC_FORMAT,
-          description:
-            "tree (default) is readable; yaml/json are lossless canonical adapters.",
-        },
-        includeHidden: {
-          type: "boolean",
-          description:
-            "Also list invisible nodes, marked hidden (default false). Useful to understand what a variant toggle would reveal.",
-        },
-        dedup: {
-          type: "boolean",
-          default: false,
-          description:
-            "false (default): inline every layer; true: compact S<n>/repeat refs.",
+            "Node ids for one bounded batch; phase/depth/format options apply to every id.",
         },
         fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
-      required: ["nodeId"],
+      anyOf: [
+        { required: ["nodeId"] },
+        { required: ["nodeIds"] },
+      ],
       additionalProperties: false,
     },
   },
@@ -475,7 +487,8 @@ export function codeToFigmaPrompt(args = {}) {
           `UI, use the semantic DOM-capture path rather than rewriting it as simplified ` +
           `JSX. Inspect Design Entity links, existing Figma components, variables and ` +
           `styles before writing. Sync tokens first, reuse exact linked components, ` +
-          `componentize repeated structures, preserve source SVGs/images and execute ` +
+          `componentize repeated structures, preserve source SVGs/images, map only ` +
+          `representable prototype reactions, and execute ` +
           `Figma mutations sequentially. Verify screenshots at the reference viewport ` +
           `and record a link accept pixel baseline before declaring parity. Do not ` +
           `install Playwright solely for capture without approval.`,
@@ -525,14 +538,15 @@ export function createFigmaComponentPrompt(args = {}) {
 export const INSTRUCTIONS = `Design-to-code: Figma is the spec. Never invent or drop text, assets,
 tokens, layout or states. Follow this order:
 1. figma_screenshot, then read the PNG as visual ground truth.
-2. figma_spec phase "structure", format "tree", depth 3-4. Copy hierarchy,
-   text, ids and icon/component names verbatim; use dedup for a large frame.
+2. Use one figma_spec call with phase "all", format "tree", depth 3-4. Copy
+   hierarchy, text, ids and exact styles; use structure for a very large frame.
 3. figma_run ["export","css","<nodeId>"] and wire up the scoped tokens/fonts.
 4. figma_run ["export","assets","<nodeId>","-o","/abs/project/src/assets"]
    for images/SVGs plus assets.json. Never substitute CSS placeholders or
    inline SVGs. If still RUNNING, poll the same call.
-5. figma_spec phase "style", format "tree" per section/node id. Use depth 0
-   for its container and dedup for repeats. Copy native css{} and exact facts.
+5. If deeper style facts are missing, use one figma_spec nodeIds[] batch for
+   all section ids. Use depth 0 and dedup for repeats. Do not call each
+   section separately; one batch needs one manual approval.
 6. Implement every interactive state flagged by component sets.
 7. Before declaring done, run figma_run ["verify-build","/abs/project"] and
    fix every missing asset/lint. Screenshot the build at the design width and
@@ -554,8 +568,10 @@ specification — copy it, never interpret it. Follow these steps in order:
 
 1. figma_screenshot on the target frame, then Read the saved PNG — the visual
    ground truth. Do not build from a node tree alone.
-2. figma_spec with phase "structure" and format "tree" — build the markup/component skeleton
-   from it: real text characters, real icon/component names, hierarchy.
+2. Prefer one figma_spec with phase "all", format "tree" and depth 3-4 — build
+   the markup/component skeleton and its bounded exact styles from it. For a
+   very large screen use phase "structure" here, then batch styles in step 5.
+   Use real text characters, real icon/component names and hierarchy.
    Texts and icons come verbatim from the spec; NEVER invent or paraphrase.
 3. Export the design tokens SCOPED TO YOUR FRAME (figma_run:
    ["export","css","<nodeId>"] or ["export","dtcg","<nodeId>"]) and wire them
@@ -581,22 +597,30 @@ specification — copy it, never interpret it. Follow these steps in order:
    never substitute CSS placeholders. Oversized PNGs default to 2x their
    largest Figma usage (retina); pass "--raster-scale","0" only when original
    PNG bytes are explicitly required.
-5. figma_spec with phase "style" — for each section, first request depth 0
-   to get that container's own background/border/radius/layout without its
-   descendants. Then pull its child ids in bounded calls; use dedup true for
-   repeated cards/lists. Apply sizes, gaps, padding, alignment,
+5. If deeper facts are still missing, make ONE figma_spec call with nodeIds[]
+   containing every same-scope section read, for example
+   {nodeIds:["12:34","12:56"],phase:"style",depth:0,dedup:true}.
+   This keeps multiple reads behind one manual approval. Do not call each
+   section separately. Depth 0 gets a container's own background/border/
+   radius/layout; add only child ids whose facts are still missing and use
+   dedup true for repeated cards/lists. Apply sizes, gaps, padding, alignment,
    fills/strokes (prefer the var(...) token names), radii, shadows,
-   typography, opacity, clip (overflow hidden), and abs positioning. Every
+   typography, opacity, clip (overflow hidden), masks, blend modes, corner
+   smoothing, strokes-in-layout, full modern effect parameters, and abs
+   positioning. Every
    "vector art -> assets/..." line is real artwork (waves, glyphs, bubbles):
    place the exported SVG at its "place left/top" offsets with its stated
    W x H — these are rendered values that match the file exactly. Keep
    overlays marked "overhangs parent" even when they stick out; never
    approximate artwork with CSS.
 6. Interactive states: the spec ends with "Component sets used on this
-   screen". One figma_spec call on the listed SET node id captures every
-   variant and its exact styles; use sufficient depth or its frontier calls.
+   screen". Add the listed SET node ids to the same nodeIds[] batch when
+   possible; one bounded set read captures every variant and its exact styles.
    Implement flagged axes as CSS :hover/:active/:focus-visible/
-   [disabled]. A screen with only default states is incomplete.
+   [disabled]. Treat every "Prototype reaction:" record as interaction
+   evidence: implement it only when its app behavior is clear, and never map
+   Figma navigation/overlay/back actions blindly onto routing. A screen with
+   only default states is incomplete.
 7. Verify: screenshot your build and compare it against the Figma PNG from
    step 1. Then walk this checklist before declaring done:
    - run figma_run ["verify-build","/abs/path/to/project"] — it greps the
@@ -632,11 +656,11 @@ value is in the phase "style" spec. If you only pulled "structure", pull
 "style" too before styling anything.
 
 Large screens: do NOT pull one giant style spec. First run figma_spec with
-phase "structure", format "tree" and depth 3-4 — a map of the screen with the node id of
-every section. Then pull phase "style" PER SECTION: depth 0 gives the section
-container itself as a complete contract; request its child ids separately and
-use dedup true for repeated rows/cards. Either pass the section's node id, or
-keep the ROOT nodeId and pass section: "<layer name from the structure map>".
+phase "structure", format "tree" and depth 3-4 — a map of the screen with the
+node id of every section. Then send all needed phase "style" depth-0 section
+reads together through nodeIds[] in one figma_spec call/manual approval. Add
+bounded child ids to that batch only when their facts are missing; use dedup
+true for repeated rows/cards. Do not issue one tool call per section.
 
 Parallel implementation is an OPTIONAL wall-clock optimization, not a default
 and not a token optimization. The coordinator owns the screenshot, structure
@@ -740,29 +764,34 @@ tokens first, then components, then screens:
    inherits the set's structure — then edit only what differs. Rendering
    3+ structurally identical siblings prints a componentize hint: render
    ONE, ["node","to-component","<id>"], place <Instance> copies.
-5. Images: <Image src="/abs/or/relative.png" imageScale="FILL|FIT|CROP|TILE">
+5. Interactions: map only representable source handlers to native prototype
+   reactions with ["prototype","add",...] or lossless
+   ["prototype","set","<id>","--json",...], then verify with
+   ["prototype","inspect","<id>"]. Routing, application state, async work and
+   other runtime behavior stay code-owned and must be reported as a boundary.
+6. Images: <Image src="/abs/or/relative.png" imageScale="FILL|FIT|CROP|TILE">
    imports the actual file (CLI reads it, no plugin network). Without src=
    you get a named grey placeholder carrying an "Image placeholder"
    annotation; fill it later with ["node","set-image","<id>","photo.png"].
    Files > 8 MB are refused — downscale first (Figma caps images at 4096px).
-6. Icons: <Icon name="check"> renders ~40 built-in geometry vectors
+7. Icons: <Icon name="check"> renders ~40 built-in geometry vectors
    (check/x/plus/chevrons/arrows/search/bell/droplet/sun/home/settings/...,
    aliases like close/back/gear). Project icons: ["render","--icons","<dir>"]
    loads every *.svg (name = file basename) and overrides built-ins.
    Unknown names stay grey placeholder boxes.
-7. Responsive by construction: size every container deliberately — w="fill"
+8. Responsive by construction: size every container deliberately — w="fill"
    (stretch), w="hug" (wrap content) or a fixed number; leaf elements
    (Image/Rect/Ellipse) take w="fill" too. Add minW/maxW/minH/maxH where a
    fluid element has real limits (cards in a grid: w="fill" minW="140"
    maxW="240"). A fixed-size element inside a fluid parent is usually a
    bug — the PlantCard photo overhang came from exactly that.
-8. Fix-ups without re-rendering: ["node","move","<id>","<x>","<y>"]
+9. Fix-ups without re-rendering: ["node","move","<id>","<x>","<y>"]
    (--page reparents across pages), ["node","resize","<id>","<w|keep|fill|hug>","<h|keep|fill|hug>"],
    ["node","rename"], ["node","set-text"], ["node","set-fill","<id>","#hex|var:name"],
    ["node","set-image"]. Find ids via ["node","tree","<id>","--ids"] or
    ["find","<name>"]. A fixed-height render prints an overflow warning with
    the measured spill — fix it right then.
-9. Organize: ["canvas","page-create","<name>"] for a fresh page,
+10. Organize: ["canvas","page-create","<name>"] for a fresh page,
    ["section","create","<name>","<ids>"] to group,
    ["section","arrange","<id>","--cols","4"] to tidy,
    ["section","fit","<id>"] after manual moves. ["render","--verify"]
@@ -909,6 +938,59 @@ function textResult(text) {
 
 function errorResult(text) {
   return { content: [{ type: "text", text: text || "" }], isError: true };
+}
+
+export async function executeSpecBatch(requests, executeOne, options = {}) {
+  if (!Array.isArray(requests) || requests.length < 1 || requests.length > 8) {
+    return errorResult("nodeIds must contain between 1 and 8 bounded figma_spec reads.");
+  }
+  if (typeof executeOne !== "function") {
+    return errorResult("figma_spec batch executor is unavailable.");
+  }
+
+  const allowed = new Set(Object.keys(SPEC_REQUEST_PROPERTIES));
+  for (let index = 0; index < requests.length; index++) {
+    const request = requests[index];
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      return errorResult(`requests[${index}] must be an object.`);
+    }
+    const unknown = Object.keys(request).filter((key) => !allowed.has(key));
+    if (unknown.length) {
+      return errorResult(`requests[${index}] has unknown parameter(s): ${unknown.join(", ")}.`);
+    }
+    if (typeof request.nodeId !== "string" || request.nodeId.length === 0) {
+      return errorResult(`requests[${index}].nodeId must be a non-empty string.`);
+    }
+  }
+
+  const parts = [];
+  for (let index = 0; index < requests.length; index++) {
+    const request = requests[index];
+    const result = await executeOne(request, index);
+    const text = (result?.content || [])
+      .filter((item) => item?.type === "text")
+      .map((item) => item.text || "")
+      .join("\n");
+    const label = `${request.nodeId} · ${request.phase || "all"} · depth ${request.depth ?? 12}`;
+    if (result?.isError) {
+      return errorResult(
+        `figma_spec batch stopped at request ${index + 1}/${requests.length} (${label}).\n\n${text}`,
+      );
+    }
+    parts.push(`## ${index + 1}/${requests.length} — ${label}\n\n${text}`);
+  }
+
+  const output = `# Figma Spec Batch — ${requests.length} complete reads\n\n${parts.join("\n\n")}`;
+  const limit = Number(options.limit) || SPEC_OUTPUT_LIMIT_CHARS;
+  if (output.length > limit) {
+    return errorResult(
+      `spec_batch_result:\n  complete: false\n  reason: output_budget\n` +
+      `  measured_chars: ${output.length}\n  limit_chars: ${limit}\n  requested_reads: ${requests.length}\n\n` +
+      `No partial batch data was returned. Retry once with fewer nodeIds in each batch; ` +
+      `keep style reads at depth 0 and use dedup true for repeated lists/cards.`,
+    );
+  }
+  return textResult(output);
 }
 
 function resultFromCli({ stdout, stderr }) {
@@ -1077,6 +1159,27 @@ export async function handleTool(name, rawArgs) {
       // reads the key file at startup and rejects the plugin without it.
       const { key, created } = ensureKey();
       const res = await ensureSafeConnect();
+      let recoveryNote = "";
+      // A new AI session must preserve a healthy socket. Only attempt the
+      // iframe self-heal when exactly one socket exists, no command is active,
+      // and a real read-only round-trip proves that socket is wedged.
+      const current = await health();
+      const connections = Array.isArray(current.raw?.connections) ? current.raw.connections : [];
+      if (current.plugin && connections.length === 1 && Number(current.raw?.inFlightExecs || 0) === 0) {
+        const probe = await probePluginResponsiveness(connections[0].fileKey, 3000);
+        if (!probe.responsive) {
+          try {
+            const recovery = await recoverPluginConnection(connections[0].fileKey, 6500);
+            recoveryNote = recovery.reloaded > 0
+              ? "\nPlugin socket was open but unresponsive; its UI was reloaded and is reconnecting automatically.\n"
+              : recovery.forcedClosed > 0
+                ? "\nPlugin UI did not answer; its stale socket was reset and quiet discovery is reconnecting it automatically.\n"
+                : "";
+          } catch (error) {
+            recoveryNote = `\nAutomatic plugin recovery could not complete: ${error.message}\n`;
+          }
+        }
+      }
       const keyBlock =
         "\n────────────────────────────────────────\n" +
         `  Plugin access key${created ? " (newly generated)" : ""}:\n\n` +
@@ -1085,7 +1188,7 @@ export async function handleTool(name, rawArgs) {
         "  the first time you launch it. It is stored in the plugin and\n" +
         "  reused across sessions.\n" +
         "────────────────────────────────────────\n";
-      return textResult((res.stdout || res.stderr || "") + keyBlock);
+      return textResult((res.stdout || res.stderr || "") + recoveryNote + keyBlock);
     }
 
     case "figma_status": {
@@ -1100,8 +1203,8 @@ export async function handleTool(name, rawArgs) {
       if (!h.ok && key) {
         headline =
           "Access key is configured — only the daemon/plugin link is down. " +
-          "Run figma_connect (restarts the daemon), then in Figma Desktop launch " +
-          "Plugins → Development → Figma Bridge; it reconnects with the stored key.";
+          "Run figma_connect to ensure the daemon is available; the open Figma Bridge " +
+          "plugin discovers it automatically without replacing a healthy connection.";
       }
       const lines = [
         headline,
@@ -1216,11 +1319,12 @@ export async function handleTool(name, rawArgs) {
     case "figma_pairing": {
       if (input.rotate === true) {
         const key = rotateKey();
+        await ensureSafeConnect({ forceRestart: true });
         return textResult(
           `New plugin access key generated:\n\n    ${key}\n\n` +
             `Stored at: ${keyPath()}\n\n` +
-            "The old key is now invalid. Run figma_connect to restart the daemon\n" +
-            "with the new key, then paste it into the Figma Bridge plugin.",
+            "The daemon was restarted with the new key and the old key is invalid.\n" +
+            "Paste the new key into the Figma Bridge plugin once.",
         );
       }
       const { key, created } = ensureKey();
@@ -1546,6 +1650,9 @@ export async function handleTool(name, rawArgs) {
       if (typeof input.name === "string" && /^capabilities$/i.test(input.name.trim())) {
         return textResult(listFigmaCapabilities({ formatted: true }));
       }
+      if (typeof input.name === "string" && /^fidelity$/i.test(input.name.trim())) {
+        return textResult(formatRoundTripFidelityContract());
+      }
       if (typeof input.name === "string" && /^variable-scopes$/i.test(input.name.trim())) {
         return textResult(VARIABLE_SCOPE_GUIDE);
       }
@@ -1612,6 +1719,19 @@ export async function handleTool(name, rawArgs) {
     }
 
     case "figma_spec": {
+      if (input.nodeIds != null) {
+        if (input.nodeId != null) {
+          return errorResult("Use either nodeId or nodeIds[], not both.");
+        }
+        const { nodeIds, fileKey, ...shared } = input;
+        const requests = Array.isArray(nodeIds)
+          ? nodeIds.map((nodeId) => ({ ...shared, nodeId }))
+          : nodeIds;
+        return executeSpecBatch(requests, (request) => handleTool("figma_spec", {
+          ...request,
+          ...(fileKey != null ? { fileKey } : {}),
+        }));
+      }
       const nodeId = input.nodeId;
       if (typeof nodeId !== "string" || nodeId.length === 0) {
         return errorResult("nodeId must be a non-empty string.");

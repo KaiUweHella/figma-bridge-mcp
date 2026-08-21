@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createDaemonClient, DaemonClientError } from "../engine/src/lib/daemon-client.js";
 import { createDesignCaptureModule } from "../engine/src/application/design-capture.js";
+import { retrySafeRead } from "../engine/src/lib/safe-read-retry.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
 import {
   listFigmaCapabilities,
@@ -148,8 +149,11 @@ function startCommandExecution(args, opts = {}) {
   const targetContext = resolveFigmaTarget({ explicitFileKey: opts.fileKey, args });
   const plan = planFigmaCommand(args, { fileKey: targetContext.fileKey });
   if (!plan.allowed) {
+    const rejected = ALLOWED_COMMANDS.has(command) && args[1]
+      ? `${command} ${args[1]}`
+      : command;
     throw new Error(
-      `Command not allowed: ${command}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
+      `Command not allowed: ${rejected}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
     );
   }
   const fileKey = plan.target.fileKey;
@@ -257,13 +261,18 @@ export async function runInProcessCommand(args, opts = {}, operation) {
   if (typeof operation !== "function") throw new TypeError("runInProcessCommand requires an operation");
   const context = startCommandExecution(args, opts);
   const timeoutMs = executionTimeout(context, opts);
+  const invoke = () => operation({
+    target: context.targetContext,
+    fileKey: context.fileKey,
+    timeoutMs,
+    deadline: Date.now() + timeoutMs,
+  });
   try {
-    const result = await operation({
-      target: context.targetContext,
-      fileKey: context.fileKey,
-      timeoutMs,
-      deadline: Date.now() + timeoutMs,
-    });
+    const result = context.plan.execution.retry === "safe-read"
+      ? await retrySafeRead(invoke, {
+          waitUntilReady: opts.waitUntilReady || (() => waitForPluginConnection()),
+        })
+      : await invoke();
     completeCommandExecution(context);
     return {
       stdout: result?.stdout ?? "",
@@ -297,10 +306,14 @@ export async function runInProcessCommand(args, opts = {}, operation) {
  * must never wait for the plugin that needs that key. `--no-wait` starts the
  * detached daemon, refreshes the stable plugin files and returns immediately.
  * CONNECT_TIMEOUT_MS remains a hard failure cap for daemon startup itself.
+ * A healthy daemon is reused by default; forceRestart is reserved for an
+ * explicit pairing-key rotation.
+ * @param {{forceRestart?: boolean}} [options]
  * @returns {Promise<{stdout: string, stderr: string, code: number}>}
  */
-export async function ensureSafeConnect() {
+export async function ensureSafeConnect({ forceRestart = false } = {}) {
   const args = ["connect", "--safe", "--no-wait"];
+  if (forceRestart) args.push("--force-restart");
   const { cmd, argv } = buildArgv(args);
   const auditId = randomUUID();
   appendAudit({ id: auditId, ts: isoNow(), args });
@@ -443,6 +456,17 @@ export function isDaemonUnavailable(error) {
     ].includes(error.kind);
 }
 
+async function waitForPluginConnection(maxWaitMs = 8000) {
+  const deadline = Date.now() + Math.max(0, Number(maxWaitMs) || 0);
+  do {
+    const current = await health();
+    if (current.ok && current.plugin) return true;
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  } while (true);
+  return false;
+}
+
 /**
  * Read the last selection the plugin UI pushed to the daemon (button or
  * debounced selectionchange). Null selection means nothing was pushed yet —
@@ -563,4 +587,16 @@ export async function probePluginResponsiveness(fileKey, timeoutMs = 4000) {
       error: error?.message || String(error),
     };
   }
+}
+
+/** Ask a still-connected plugin main thread to replace only its UI iframe.
+ * The daemon falls back to closing an unresponsive socket, after which the
+ * plugin's quiet HTTP discovery path reconnects it. */
+export async function recoverPluginConnection(fileKey, timeoutMs = 6500) {
+  const target = resolveFileTarget(fileKey, []);
+  const response = await daemonClient().reconnect({ fileKey: target, timeoutMs });
+  if (!response.ok || response.data?.error) {
+    throw new Error(response.data?.error || response.text || `Daemon answered HTTP ${response.status}`);
+  }
+  return response.data || {};
 }

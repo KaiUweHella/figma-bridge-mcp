@@ -170,6 +170,24 @@ test('HTTP /health without signed headers is rejected (403)', async () => {
   assert.equal(res.status, 403);
 });
 
+test('HTTP /plugin-ready exposes only a CORS-scoped, non-sensitive discovery beacon', async () => {
+  const accepted = await fetch(`http://127.0.0.1:${PORT}/plugin-ready`, {
+    headers: { Origin: 'null' },
+  });
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.headers.get('access-control-allow-origin'), 'null');
+  assert.deepEqual(await accepted.json(), {
+    bridge: 'figma-bridge-mcp',
+    ready: true,
+    port: PORT,
+  });
+
+  const rejected = await fetch(`http://127.0.0.1:${PORT}/plugin-ready`, {
+    headers: { Origin: 'https://attacker.example' },
+  });
+  assert.equal(rejected.status, 403);
+});
+
 test('HTTP /health with a valid signature succeeds and reports Safe-Mode shape', async () => {
   const res = await httpHealth(auth('GET', '/health'));
   assert.equal(res.status, 200);
@@ -728,7 +746,7 @@ test('/selection: plugin push is served with auth, per connection', async () => 
   assert.equal(noAuth.status, 403);
 });
 
-test('/reconnect: closes the plugin socket and reports hadPlugin', async () => {
+test('/reconnect: reloads a responsive plugin UI instead of dropping its socket', async () => {
   // Without a plugin: ok:true, hadPlugin:false.
   const idle = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
     headers: auth('GET', '/reconnect'),
@@ -736,15 +754,30 @@ test('/reconnect: closes the plugin socket and reports hadPlugin', async () => {
   assert.equal(idle.ok, true);
   assert.equal(idle.hadPlugin, false);
 
-  // With an authenticated plugin: socket gets closed by the daemon.
-  const closedByDaemon = await withAuthedWs(async (ws) => {
-    const closed = new Promise((resolve) => ws.on('close', () => resolve(true)));
-    const body = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
+  // With an authenticated plugin: ask its still-running main thread to reload
+  // only the iframe. This preserves the Figma plugin runtime and lets the new
+  // iframe run a clean discovery/authentication cycle.
+  const recovery = await withAuthedWs(async (ws) => {
+    const reload = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not request UI reload')), 3000);
+      ws.on('message', (raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.action !== 'reload-ui') return;
+        clearTimeout(timer);
+        ws.send(JSON.stringify({ type: 'result', id: message.id, result: { reloading: true } }));
+        resolve(message);
+      });
+    });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/reconnect`, {
       headers: auth('GET', '/reconnect'),
-    })).json();
-    assert.equal(body.ok, true);
-    assert.equal(body.hadPlugin, true);
-    return Promise.race([closed, new Promise((r) => setTimeout(() => r(false), 2000))]);
+    });
+    await reload;
+    const body = await (await responsePromise).json();
+    return { body, readyState: ws.readyState };
   });
-  assert.equal(closedByDaemon, true);
+  assert.equal(recovery.body.ok, true);
+  assert.equal(recovery.body.hadPlugin, true);
+  assert.equal(recovery.body.reloaded, 1);
+  assert.equal(recovery.body.forcedClosed, 0);
+  assert.equal(recovery.readyState, WebSocket.OPEN);
 });

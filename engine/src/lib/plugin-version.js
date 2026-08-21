@@ -1,7 +1,7 @@
 // Version of the Figma-side plugin bundle, independent from the npm package.
 // Server-only releases do not require a Figma re-import, so this value changes
 // only when plugin/code.js, plugin/ui.html or their manifest contract changes.
-export const PLUGIN_BUILD_VERSION = '3.1.0';
+export const PLUGIN_BUILD_VERSION = '3.3.1';
 
 function semverParts(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(value || ''));

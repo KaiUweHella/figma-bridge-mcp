@@ -82,6 +82,22 @@ test('daemon client signs the stable selection path while targeting through the 
   assert.ok(seen.options.headers['X-Daemon-Auth']);
 });
 
+test('daemon client requests authenticated plugin self-recovery', async () => {
+  let seen;
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3458,
+    fetchImpl: async (url, options) => {
+      seen = { url, options };
+      return response(200, { ok: true, hadPlugin: true, reloaded: 1, forcedClosed: 0 });
+    },
+  });
+  const result = await client.reconnect({ timeoutMs: 6000 });
+  assert.equal(result.data.reloaded, 1);
+  assert.equal(seen.url, 'http://127.0.0.1:3458/reconnect');
+  assert.equal(seen.options.method, 'GET');
+  assert.ok(seen.options.headers['X-Daemon-Auth']);
+});
+
 test('daemon client exposes stable error kinds for adapter fallback decisions', async () => {
   const missing = createDaemonClient({ readToken: () => null, getPort: () => 3456, fetchImpl: async () => response(200, {}) });
   await assert.rejects(() => missing.evaluate('x'), (error) => {
@@ -109,6 +125,16 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
   await assert.rejects(() => pluginDown.evaluate('x'), (error) => {
     assert.equal(error.kind, 'plugin-unavailable');
     assert.match(error.message, /Plugins → Development/);
+    return true;
+  });
+
+  const pluginDropped = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async () => response(503, { error: 'Plugin disconnected' }),
+  });
+  await assert.rejects(() => pluginDropped.evaluate('x'), (error) => {
+    assert.equal(error.kind, 'plugin-unavailable');
+    assert.match(error.message, /reconnect/i);
     return true;
   });
 

@@ -548,6 +548,14 @@ export function walkerCode(pageId, {
         const annotations = nativeAnnotations(n);
         if (annotations.length) o.annotations = annotations;
       } catch (e) {}
+      // Native prototype reactions are authored interaction facts. The
+      // Design Contract already validates rx; Capture must therefore own
+      // the adapter rather than relying on synthetic contract fixtures.
+      try {
+        if (Array.isArray(n.reactions) && n.reactions.length) {
+          o.rx = JSON.parse(JSON.stringify(Array.from(n.reactions)));
+        }
+      } catch (e) {}
       try {
         const references = n.componentPropertyReferences;
         if (references && typeof references === 'object') o.componentPropertyReferences = { ...references };
@@ -642,6 +650,26 @@ export function walkerCode(pageId, {
       if (typeof n.opacity === 'number' && n.opacity < 1) o.op = Math.round(n.opacity * 100) / 100;
       if (typeof n.rotation === 'number' && Math.abs(n.rotation) >= 0.5) o.rot = Math.round(n.rotation * 10) / 10;
       if (n.clipsContent === true) o.clip = true;
+      // Compositing and superellipse/stroke-sizing facts are independently
+      // writable by the Render Executor. Keep them in Design Capture so the
+      // reverse direction cannot silently flatten them.
+      try {
+        if (n.blendMode && n.blendMode !== 'PASS_THROUGH') o.blend = n.blendMode;
+      } catch (e) {}
+      try {
+        if (n.isMask === true) {
+          o.mask = true;
+          o.maskType = n.maskType || 'ALPHA';
+        }
+      } catch (e) {}
+      try {
+        if (typeof n.cornerSmoothing === 'number' && n.cornerSmoothing > 0) {
+          o.cs = cleanNumber(n.cornerSmoothing, false);
+        }
+      } catch (e) {}
+      try {
+        if (n.strokesIncludedInLayout === true) o.sil = true;
+      } catch (e) {}
       // Prototype scrolling is an explicit Figma fact, not something a code
       // agent should infer from a screenshot. In scrolling frames Figma
       // stores fixed layers as the final numberOfFixedChildren entries.
@@ -873,8 +901,11 @@ export function walkerCode(pageId, {
               'paragraphIndent', 'paragraphSpacing', 'listOptions', 'listSpacing',
               'openTypeFeatures', 'boundVariables', 'hyperlink',
             ]);
-            if (rawRuns.length > 1) {
-              o.txt.runs = [];
+            if (rawRuns.length) {
+              const capturedRuns = [];
+              const isHyperlinkTarget = value => value && typeof value === 'object'
+                && (value.type === 'URL' || value.type === 'NODE')
+                && typeof value.value === 'string';
               for (const segment of rawRuns) {
                 const run = { start: segment.start, end: segment.end, chars: segment.characters };
                 if (segment.fontName) { run.font = segment.fontName.family; run.style = segment.fontName.style; }
@@ -902,7 +933,14 @@ export function walkerCode(pageId, {
                 if (segment.paragraphSpacing) run.paragraphSpacing = segment.paragraphSpacing;
                 if (segment.listSpacing) run.listSpacing = segment.listSpacing;
                 if (segment.listOptions && segment.listOptions.type !== 'NONE') run.list = segment.listOptions;
-                if (segment.hyperlink) run.hyperlink = segment.hyperlink;
+                let hyperlink = isHyperlinkTarget(segment.hyperlink) ? segment.hyperlink : null;
+                if (!hyperlink && typeof n.getRangeHyperlink === 'function') {
+                  try {
+                    const rangeHyperlink = n.getRangeHyperlink(segment.start, segment.end);
+                    if (isHyperlinkTarget(rangeHyperlink)) hyperlink = rangeHyperlink;
+                  } catch (e) {}
+                }
+                if (hyperlink) run.hyperlink = hyperlink;
                 if (WITH_VARS && segment.boundVariables) {
                   const runBindings = await captureBindings(segment.boundVariables, n);
                   if (Object.keys(runBindings.names).length) run.bv = runBindings.names;
@@ -926,7 +964,13 @@ export function walkerCode(pageId, {
                   const st = await styleInfo(segment.fillStyleId, n);
                   if (st) run.fs = st.name;
                 }
-                o.txt.runs.push(run);
+                capturedRuns.push(run);
+              }
+              // A single uniform range normally belongs on the node itself.
+              // Hyperlinks are range-only semantics, though, so retain that
+              // one run rather than silently dropping its destination.
+              if (capturedRuns.length > 1 || capturedRuns.some(run => run.hyperlink)) {
+                o.txt.runs = capturedRuns;
               }
             }
           }

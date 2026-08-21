@@ -315,9 +315,12 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   assert.match(WORKFLOW_GUIDE, /do not install Playwright/i);
   assert.match(WORKFLOW_GUIDE, /Parallel implementation is an OPTIONAL/);
   assert.match(WORKFLOW_GUIDE, /Workers must not repeat global Figma reads/);
+  assert.match(WORKFLOW_GUIDE, /Prototype reaction:/);
+  assert.match(WORKFLOW_GUIDE, /corner\s+smoothing/);
   assert.ok(workflowGuideFor('workflow:design-to-code').length < WORKFLOW_GUIDE.length);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /Code-to-Figma workflow/);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /SCOPE DECISION REQUIRED/);
+  assert.match(workflowGuideFor('workflow:code-to-figma'), /prototype","inspect/);
   assert.match(VARIABLE_SCOPE_GUIDE, /COLOR: ALL_SCOPES, ALL_FILLS/);
   assert.match(VARIABLE_SCOPE_GUIDE, /FLOAT: ALL_SCOPES, CORNER_RADIUS, WIDTH_HEIGHT, GAP/);
   assert.match(VARIABLE_SCOPE_GUIDE, /Ask whether it should/);
@@ -379,6 +382,17 @@ test('capability index is generated on demand without an engine round-trip', asy
   assert.doesNotMatch(text, /^eval — /m);
 });
 
+test('round-trip fidelity is exposed without a Figma connection', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_reference', { name: 'fidelity' });
+  const text = result.content?.[0]?.text || '';
+  assert.match(text, /Round-trip Fidelity Contract v1/);
+  assert.match(text, /native-effects \[effects\]/);
+  assert.match(text, /prototype-reactions \[interaction\]/);
+  assert.match(text, /code -> Figma/);
+  assert.match(text, /Figma -> code/);
+});
+
 test('specialized Figma tools expose consistent explicit file targeting', async () => {
   const { TOOLS } = await import('../src/server.js');
   for (const name of ['figma_render', 'figma_selection', 'figma_inspect', 'figma_screenshot', 'figma_spec']) {
@@ -399,6 +413,70 @@ test('specialized Figma tools expose consistent explicit file targeting', async 
   assert.match(spec.description, /never invent/i);
   const screenshot = TOOLS.find((candidate) => candidate.name === 'figma_screenshot');
   assert.match(screenshot.description, /mandatory/i);
+});
+
+test('figma_spec batches bounded reads behind one manual approval', async () => {
+  const { TOOLS, INSTRUCTIONS, WORKFLOW_GUIDE, executeSpecBatch } = await import('../src/server.js');
+  const spec = TOOLS.find((candidate) => candidate.name === 'figma_spec');
+  const nodeIds = spec.inputSchema.properties.nodeIds;
+  assert.equal(nodeIds.type, 'array');
+  assert.ok(nodeIds.maxItems <= 8, 'a batch must stay bounded');
+  assert.equal(nodeIds.items.type, 'string');
+  assert.match(spec.description, /one approval/i);
+
+  const calls = [];
+  const result = await executeSpecBatch([
+    { nodeId: '1:2', phase: 'structure', depth: 4 },
+    { nodeId: '2:3', phase: 'style', depth: 0 },
+    { nodeId: '3:4', phase: 'style', depth: 0 },
+    { nodeId: '4:5', phase: 'style', depth: 0 },
+  ], async (request) => {
+    calls.push(request);
+    return { content: [{ type: 'text', text: `spec:${request.nodeId}` }] };
+  });
+  assert.equal(calls.length, 4, 'one MCP call may contain four internal bounded reads');
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /spec:1:2/);
+  assert.match(result.content[0].text, /spec:4:5/);
+
+  assert.match(INSTRUCTIONS, /one figma_spec call/i);
+  assert.match(INSTRUCTIONS, /nodeIds/i);
+  assert.match(WORKFLOW_GUIDE, /one manual approval/i);
+});
+
+test('figma_spec batch fails closed without partial or unbounded output', async () => {
+  const { executeSpecBatch } = await import('../src/server.js');
+  let calls = 0;
+  const tooMany = await executeSpecBatch(
+    Array.from({ length: 9 }, (_, index) => ({ nodeId: `${index + 1}:1` })),
+    async () => { calls++; return { content: [] }; },
+  );
+  assert.equal(tooMany.isError, true);
+  assert.equal(calls, 0, 'an invalid batch must fail before contacting Figma');
+
+  const failed = await executeSpecBatch([
+    { nodeId: '1:2', phase: 'style', depth: 0 },
+    { nodeId: '2:3', phase: 'style', depth: 0 },
+    { nodeId: '3:4', phase: 'style', depth: 0 },
+  ], async (request, index) => {
+    calls++;
+    return index === 1
+      ? { isError: true, content: [{ type: 'text', text: 'second failed' }] }
+      : { content: [{ type: 'text', text: `private-result:${request.nodeId}` }] };
+  });
+  assert.equal(failed.isError, true);
+  assert.equal(calls, 2, 'batch must stop at the first failed bounded read');
+  assert.match(failed.content[0].text, /second failed/);
+  assert.doesNotMatch(failed.content[0].text, /private-result/, 'earlier partial specs must not leak as a complete batch');
+
+  const oversized = await executeSpecBatch(
+    [{ nodeId: '1:2' }, { nodeId: '2:3' }],
+    async () => ({ content: [{ type: 'text', text: 'x'.repeat(80) }] }),
+    { limit: 100 },
+  );
+  assert.equal(oversized.isError, true);
+  assert.match(oversized.content[0].text, /complete: false/);
+  assert.doesNotMatch(oversized.content[0].text, /x{20}/, 'an oversized combined result must not be truncated into partial design data');
 });
 
 test('every MCP tool declares conservative safety annotations', async () => {

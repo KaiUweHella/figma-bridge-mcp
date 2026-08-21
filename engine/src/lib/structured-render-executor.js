@@ -342,7 +342,10 @@ function structuredEffects(props) {
       type: 'NOISE', noiseType,
       density: structuredFiniteEffectNumber(props, 'noiseDensity', 0.4, { max: 1 }),
       noiseSize: structuredFiniteEffectNumber(props, 'noiseSize', 1.5),
-      color: structuredEffectColor(props.noiseColor || '#000000'), visible: true, blendMode: 'NORMAL',
+      // Current Figma Desktop rejects blendMode on NOISE writes even though
+      // the installed typings expose it on readback. Omit the default NORMAL;
+      // Figma materializes it when the effect is read again.
+      color: structuredEffectColor(props.noiseColor || '#000000'), visible: true,
     };
     if (noiseType === 'DUOTONE') effect.secondaryColor = structuredEffectColor(props.noiseColor2 || '#ffffff');
     if (noiseType === 'MULTITONE') effect.opacity = structuredFiniteEffectNumber(props, 'noiseOpacity', 0.5, { max: 1 });
@@ -513,9 +516,10 @@ async function prepareStructuredComponents(figmaApi, plan) {
     const label = `Design Entity ${props.entity}`;
     bindings.set(node, component);
     const prepared = { properties: {}, texts: [], fills: [], swaps: [] };
-    const definitions = component.componentPropertyDefinitions
-      || (component.parent?.type === 'COMPONENT_SET' ? component.parent.componentPropertyDefinitions : null)
-      || {};
+    // Figma throws when componentPropertyDefinitions is read from a variant
+    // COMPONENT. Resolve the owning COMPONENT_SET before touching the accessor.
+    const definitionOwner = component.parent?.type === 'COMPONENT_SET' ? component.parent : component;
+    const definitions = definitionOwner.componentPropertyDefinitions || {};
     const definitionKeys = Object.keys(definitions);
 
     for (const entry of structuredOverrideEntries(props, 'prop')) {
@@ -1700,11 +1704,17 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
     }));
   };
 
+  const createdNodes = [];
+  const trackCreated = (node) => {
+    createdNodes.push(node);
+    return node;
+  };
+
   const create = async (semanticNode, parent = null, root = false) => {
     const props = semanticNode.source.props;
     let created;
     if (semanticNode.source.type === 'text') {
-      created = figmaApi.createText();
+      created = trackCreated(figmaApi.createText());
       created.name = props.name || String(props.content || '').slice(0, 40) || 'Text';
       created.fontName = variableContext.fontNames.get(semanticNode)
         || { family: resolvedString(semanticNode, 'fontFamily', props.font, 'Inter'), style: resolvedString(semanticNode, 'fontStyle', props.fontStyle, structuredFontStyle(resolvedNumber(semanticNode, 'fontWeight', props.weight, 400), props.italic)) };
@@ -1761,7 +1771,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
       }
       applyRichTextRuns(created, semanticNode, props);
     } else if (semanticNode.source.type === 'rect') {
-      created = figmaApi.createRectangle();
+      created = trackCreated(figmaApi.createRectangle());
       created.name = props.name || 'Rectangle';
       created.resize(resolvedNumber(semanticNode, 'width', value(props, 'w', 'width'), 100), resolvedNumber(semanticNode, 'height', value(props, 'h', 'height'), 100));
       const background = props.bg ?? props.fill ?? '#e4e4e7';
@@ -1776,7 +1786,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
       if (props.cornerSmoothing != null) created.cornerSmoothing = structuredNumber(props.cornerSmoothing);
       created.effects = structuredEffects(props);
     } else if (semanticNode.source.type === 'image') {
-      created = figmaApi.createRectangle();
+      created = trackCreated(figmaApi.createRectangle());
       created.name = props.name || semanticNode.asset.name || 'Image';
       created.resize(resolvedNumber(semanticNode, 'width', value(props, 'w', 'width'), 200), resolvedNumber(semanticNode, 'height', value(props, 'h', 'height'), 150));
       const imageHash = imageContext.bindings.get(semanticNode);
@@ -1792,7 +1802,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
       if (props.cornerSmoothing != null) created.cornerSmoothing = structuredNumber(props.cornerSmoothing);
       created.effects = structuredEffects(props);
     } else if (semanticNode.source.type === 'ellipse') {
-      created = figmaApi.createEllipse();
+      created = trackCreated(figmaApi.createEllipse());
       created.name = props.name || 'Ellipse';
       const width = resolvedNumber(semanticNode, 'width', value(props, 'w', 'width'), 100);
       created.resize(width, resolvedNumber(semanticNode, 'height', value(props, 'h', 'height'), width));
@@ -1815,7 +1825,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
       }
       created.effects = structuredEffects(props);
     } else if (semanticNode.source.type === 'icon') {
-      created = figmaApi.createNodeFromSvg(semanticNode.asset.svg);
+      created = trackCreated(figmaApi.createNodeFromSvg(semanticNode.asset.svg));
       created.name = props.name || semanticNode.asset.name || 'Icon';
       created.fills = [];
       const size = structuredNumber(props.size ?? props.s, 24);
@@ -1839,7 +1849,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
     } else if (semanticNode.source.type === 'instance') {
       const component = componentContext.bindings.get(semanticNode);
       if (!component) throw new Error(`Structured component preflight lost ${props.entity}`);
-      created = component.createInstance();
+      created = trackCreated(component.createInstance());
       created.name = props.name || component.name || props.entity;
       applyInstanceOverrides(created, semanticNode);
       const requestedWidth = value(props, 'w', 'width');
@@ -1850,7 +1860,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
         ? resolvedNumber(semanticNode, 'height', requestedHeight, created.height) : created.height;
       if (numericWidth !== created.width || numericHeight !== created.height) created.resize(numericWidth, numericHeight);
     } else {
-      created = figmaApi.createFrame();
+      created = trackCreated(figmaApi.createFrame());
       created.name = props.name || 'Frame';
       const width = value(props, 'w', 'width');
       const height = value(props, 'h', 'height');
@@ -1945,7 +1955,15 @@ export async function executeStructuredRenderPlan(figmaApi, plan) {
     return created;
   };
 
-  const root = await create(plan.root, null, true);
+  let root;
+  try {
+    root = await create(plan.root, null, true);
+  } catch (error) {
+    for (const node of createdNodes.reverse()) {
+      try { if (node && typeof node.remove === 'function') node.remove(); } catch {}
+    }
+    throw new Error(`Structured render failed; created nodes were rolled back (${error.message || error})`);
+  }
   const structuralReport = auditStructuredCreatedNodes(createdRecords);
   return {
     id: root.id, name: root.name, width: root.width, height: root.height,

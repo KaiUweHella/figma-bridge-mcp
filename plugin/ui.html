@@ -285,7 +285,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v2';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bumped to 3 with the challenge-response handshake.
-    const PLUGIN_VERSION = '3.1.0';
+    const PLUGIN_VERSION = '3.3.1';
 
     const SHA_K = new Uint32Array([
       0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -389,6 +389,8 @@
     let ws = null;
     let reconnectTimer = null;
     let activeScan = null;
+    let discoveryTimer = null;
+    let discoveryInFlight = false;
     let keepaliveTimer = null;
     let lastPong = Date.now();
     let lastPingSent = 0;
@@ -428,7 +430,9 @@
     // nothing. After a few failed scan rounds we name the problem, say what
     // to do, and keep retrying quietly at a slower pace.
     const DEFAULT_HINT = 'Keep this window open while working.';
-    const UNREACHABLE_AFTER_SCANS = 4;
+    const MAX_INITIAL_WS_SCANS = 3;
+    const HEALTH_DISCOVERY_MS = 3000;
+    const HEALTH_PROBE_TIMEOUT_MS = 1500;
     const PORT_SCAN_TIMEOUT_MS = 750;    // fallback for sockets that stay pending
     let failedScans = 0;
     let unreachableNotified = false;
@@ -716,6 +720,9 @@
       scanGen++; // invalidate any in-flight port scan
       stopKeepalive();
       clearTimeout(reconnectTimer);
+      clearTimeout(discoveryTimer);
+      discoveryTimer = null;
+      discoveryInFlight = false;
       if (activeScan) { activeScan.cancel(); activeScan = null; }
       if (ws) {
         try { ws.onclose = null; ws.onerror = null; ws.close(); } catch (e) {}
@@ -815,13 +822,68 @@
     }
 
     function reconnectDelay(scanFailures) {
-      // Fast while a daemon restart is in flight; still light enough in the
-      // long-running unreachable state (5 loopback ports every 500ms).
-      return scanFailures >= UNREACHABLE_AFTER_SCANS ? 500 : 120;
+      // A short bounded burst covers the normal same-port daemon restart.
+      // Endless failed WebSocket construction is deliberately avoided:
+      // Chromium can throttle it so heavily that even manual reconnect stops
+      // reaching a daemon that has already returned.
+      return Math.min(1000, 120 * Math.pow(2, Math.max(0, scanFailures - 1)));
+    }
+
+    function recoveryStrategy(scanFailures) {
+      return scanFailures < MAX_INITIAL_WS_SCANS
+        ? { kind: 'websocket', delayMs: reconnectDelay(scanFailures) }
+        : { kind: 'health', delayMs: HEALTH_DISCOVERY_MS };
+    }
+
+    function isBridgeReadyPayload(value) {
+      return !!(value
+        && value.bridge === 'figma-bridge-mcp'
+        && value.ready === true
+        && PORTS.includes(Number(value.port)));
+    }
+
+    function probeBridgePort(port, fetchImpl = fetch) {
+      let options = {};
+      try {
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+          options = { signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS) };
+        }
+      } catch (e) {}
+      return fetchImpl(`http://localhost:${port}/plugin-ready`, options)
+        .then((response) => response.ok ? response.json() : null)
+        .then((value) => isBridgeReadyPayload(value) ? { port } : null)
+        .catch(() => null);
+    }
+
+    function scheduleDiscovery(delayMs = HEALTH_DISCOVERY_MS) {
+      clearTimeout(discoveryTimer);
+      if (!KEY || superseded || (ws && ws.readyState === WebSocket.OPEN)) return;
+      discoveryTimer = setTimeout(runDiscoveryPass, delayMs);
+    }
+
+    async function runDiscoveryPass() {
+      discoveryTimer = null;
+      if (!KEY || superseded || (ws && ws.readyState === WebSocket.OPEN)) return;
+      if (discoveryInFlight) { scheduleDiscovery(); return; }
+      const generation = scanGen;
+      discoveryInFlight = true;
+      try {
+        const candidates = await Promise.all(PORTS.map(probeBridgePort));
+        if (generation !== scanGen || superseded || (ws && ws.readyState === WebSocket.OPEN)) return;
+        const found = candidates.find(Boolean);
+        if (found) {
+          failedScans = 0;
+          connectParallel([found.port]);
+        } else {
+          scheduleDiscovery();
+        }
+      } finally {
+        discoveryInFlight = false;
+      }
     }
 
     // Try all ports in parallel, use first socket that opens.
-    function connectParallel() {
+    function connectParallel(ports = PORTS) {
       if (!KEY) { showKeyPanel(true); setStatus('Access key required', 'error'); return; }
       if (ws && ws.readyState === WebSocket.OPEN) return;
 
@@ -831,9 +893,9 @@
 
       // Once we've declared the daemon unreachable, keep that message on
       // screen instead of flickering back to "Scanning…" on every retry.
-      if (failedScans < UNREACHABLE_AFTER_SCANS) setStatus('Scanning…', 'connecting');
+      if (failedScans < MAX_INITIAL_WS_SCANS) setStatus('Scanning…', 'connecting');
       activeScan = scanPorts({
-        ports: PORTS,
+        ports,
         WebSocketCtor: WebSocket,
         timeoutMs: PORT_SCAN_TIMEOUT_MS,
         isCurrent: () => gen === scanGen,
@@ -846,6 +908,8 @@
           reconnectBtn.title = 'Reconnect now';
           failedScans = 0;
           unreachableNotified = false;
+          clearTimeout(discoveryTimer);
+          discoveryTimer = null;
           connectedPort = port;
           setConnMeta();
           hintEl.textContent = DEFAULT_HINT;
@@ -866,15 +930,18 @@
           activeScan = null;
           clearTimeout(reconnectTimer);
           failedScans++;
-          if (failedScans >= UNREACHABLE_AFTER_SCANS) {
+          const recovery = recoveryStrategy(failedScans);
+          if (recovery.kind === 'health') {
             setStatus('Waiting for MCP…', 'connecting');
-            hintEl.textContent = 'Start figma_connect in your AI app. Still retrying automatically; Reconnect now forces an immediate scan.';
+            hintEl.textContent = 'Start figma_connect in your AI app. Quiet discovery keeps checking automatically; Reconnect now forces one immediate scan.';
             if (!unreachableNotified) {
               unreachableNotified = true;
               parent.postMessage({ pluginMessage: { type: 'daemon-unreachable' } }, '*');
             }
+            scheduleDiscovery(recovery.delayMs);
+          } else {
+            reconnectTimer = setTimeout(connectParallel, recovery.delayMs);
           }
-          reconnectTimer = setTimeout(connectParallel, reconnectDelay(failedScans));
         },
       });
     }
@@ -883,7 +950,7 @@
       if (reason === 'no-key-configured') {
         return {
           status: 'Daemon has no access key',
-          hint: 'The daemon started without a key file. Run figma_connect (it restarts the daemon with your key) — re-entering the key here will NOT help.',
+          hint: 'The daemon started without a key file. Run figma_connect so it can load your stored key — re-entering the key here will NOT help.',
           showPanel: false,
         };
       }
@@ -904,7 +971,7 @@
       if (reason === 'daemon-proof') {
         return {
           status: 'The daemon could not prove itself',
-          hint: 'Whatever answered on that port does not hold your access key — nothing was sent to it. Run figma_connect to restart the real daemon, and check what else is listening on 3456–3460.',
+          hint: 'Whatever answered on that port does not hold your access key — nothing was sent to it. Run figma_connect so the real bridge can claim a free approved port.',
           showPanel: false,
         };
       }
@@ -932,10 +999,13 @@
       if (t.showPanel) {
         showKeyPanel(true);
       } else if (reason === 'timeout') {
-        reconnectTimer = setTimeout(connectParallel, 1000);
+        scheduleDiscovery(1000);
+      } else if (reason === 'no-key-configured') {
+        // The normal fix is a daemon start with the already-stored key. Quiet
+        // discovery notices that transition without asking the user to reopen
+        // the plugin or click Reconnect again.
+        scheduleDiscovery();
       }
-      // no-key-configured: stay put — reconnecting is pointless until the
-      // daemon is restarted with a key; the user was told what to run.
     }
 
     function handleMessage(event) {
@@ -1031,6 +1101,12 @@
         const n = (msg.codes || []).length;
         addLog({ id: msg.id, t0: Date.now(), label: 'batch · ' + n + ' step' + (n !== 1 ? 's' : ''), kind: 'write' });
         parent.postMessage({ pluginMessage: { type: 'eval-batch', id: msg.id, codes: msg.codes } }, '*');
+      }
+      if (msg.action === 'reload-ui') {
+        // The long-lived plugin main thread owns figma.showUI(). Forward the
+        // authenticated recovery request there; it acknowledges through the
+        // normal result channel before replacing this iframe.
+        parent.postMessage({ pluginMessage: { type: 'reload-ui', id: msg.id } }, '*');
       }
       if (msg.action === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', id: msg.id }));

@@ -436,6 +436,75 @@ const componentCmd = program
   .description('Manage component properties and variants');
 
 componentCmd
+  .command('create [name]')
+  .description('Create an empty component with explicit geometry')
+  .option('-w, --width <n>', 'Width', '100')
+  .option('-h, --height <n>', 'Height', '100')
+  .option('-x <n>', 'X position', '0')
+  .option('-y <n>', 'Y position', '0')
+  .option('--parent <nodeId>', 'Create inside this existing parent')
+  .option('--index <n>', 'Insert at this child index')
+  .option('--json', 'Output as JSON')
+  .action(async (name, options) => {
+    try {
+      const width = Number(options.width), height = Number(options.height), x = Number(options.x), y = Number(options.y);
+      if (![width, height, x, y].every(Number.isFinite) || width <= 0 || height <= 0) throw new Error('Width and height must be positive numbers; x and y must be numbers');
+      const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
+      const index = options.index === undefined ? null : Number(options.index);
+      if (index !== null && (!Number.isInteger(index) || index < 0)) throw new Error('--index must be a non-negative integer');
+      await checkConnection();
+      const result = await daemonExec('eval', { code: `(async () => {
+let parent = figma.currentPage;
+${parentId ? `parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)}); if (!parent || typeof parent.appendChild !== 'function') throw new Error('Target parent cannot contain children');` : ''}
+${index === null ? '' : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});`}
+const component = figma.createComponent();
+component.name = ${JSON.stringify(name || 'Component')};
+component.resize(${width}, ${height});
+component.x = ${x}; component.y = ${y};
+${parentId ? (index === null ? 'parent.appendChild(component);' : `parent.insertChild(${index}, component);`) : ''}
+return { id: component.id, name: component.name, type: component.type, parentId: component.parent ? component.parent.id : null };
+})()` });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Created component "${result.name}" (${result.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+componentCmd
+  .command('instantiate <componentId>')
+  .description('Create an instance from an explicit main component')
+  .option('-x <n>', 'X position', '0')
+  .option('-y <n>', 'Y position', '0')
+  .option('--name <name>', 'Rename the instance layer')
+  .option('--parent <nodeId>', 'Create inside this existing parent')
+  .option('--index <n>', 'Insert at this child index')
+  .option('--json', 'Output as JSON')
+  .action(async (componentId, options) => {
+    try {
+      const component = normalizeNodeId(String(componentId)).id;
+      const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
+      const x = Number(options.x), y = Number(options.y);
+      const index = options.index === undefined ? null : Number(options.index);
+      if (![x, y].every(Number.isFinite)) throw new Error('x and y must be numbers');
+      if (index !== null && (!Number.isInteger(index) || index < 0)) throw new Error('--index must be a non-negative integer');
+      await checkConnection();
+      const result = await daemonExec('eval', { code: `(async () => {
+const component = await figma.getNodeByIdAsync(${JSON.stringify(component)});
+if (!component || component.type !== 'COMPONENT') throw new Error('Expected COMPONENT: ' + ${JSON.stringify(component)});
+let parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'figma.currentPage'};
+if (!parent || typeof parent.appendChild !== 'function') throw new Error('Target parent cannot contain children');
+${index === null ? '' : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});`}
+const instance = component.createInstance();
+${index === null ? 'parent.appendChild(instance);' : `parent.insertChild(${index}, instance);`}
+instance.x = ${x}; instance.y = ${y};
+${options.name ? `instance.name = ${JSON.stringify(options.name)};` : ''}
+return { id: instance.id, name: instance.name, type: instance.type, componentId: component.id, parentId: instance.parent ? instance.parent.id : null };
+})()` });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Created instance "${result.name}" (${result.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+componentCmd
   .command('list')
   .description('List component sets (with variant axes) and standalone components')
   .option('--all-pages', 'Search every page, not just the current one (slower on big files)')
@@ -524,6 +593,73 @@ componentCmd
     }
   });
 
+componentCmd
+  .command('swap <instanceId> <componentId>')
+  .description('Swap an explicit instance to an explicit main component')
+  .option('--json', 'Output as JSON')
+  .action(async (instanceId, componentId, options) => {
+    try {
+      const instance = normalizeNodeId(String(instanceId)).id;
+      const component = normalizeNodeId(String(componentId)).id;
+      await checkConnection();
+      const result = await daemonExec('eval', { code: `(async () => {
+const instance = await figma.getNodeByIdAsync(${JSON.stringify(instance)});
+const component = await figma.getNodeByIdAsync(${JSON.stringify(component)});
+if (!instance || instance.type !== 'INSTANCE') throw new Error('Expected INSTANCE: ' + ${JSON.stringify(instance)});
+if (!component || component.type !== 'COMPONENT') throw new Error('Expected COMPONENT: ' + ${JSON.stringify(component)});
+const previous = await instance.getMainComponentAsync();
+instance.swapComponent(component);
+return { instance: { id: instance.id, name: instance.name }, previous: previous ? { id: previous.id, name: previous.name } : null, component: { id: component.id, name: component.name } };
+})()` });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Swapped "${result.instance.name}" to ${result.component.name} (${result.component.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+componentCmd
+  .command('detach <instanceId>')
+  .description('Detach an explicit instance into an editable frame')
+  .option('--name <name>', 'Rename the detached frame')
+  .option('--json', 'Output as JSON')
+  .action(async (instanceId, options) => {
+    try {
+      const instance = normalizeNodeId(String(instanceId)).id;
+      await checkConnection();
+      const result = await daemonExec('eval', { code: `(async () => {
+const instance = await figma.getNodeByIdAsync(${JSON.stringify(instance)});
+if (!instance || instance.type !== 'INSTANCE') throw new Error('Expected INSTANCE: ' + ${JSON.stringify(instance)});
+const frame = instance.detachInstance();
+${options.name ? `frame.name = ${JSON.stringify(options.name)};` : ''}
+return { id: frame.id, name: frame.name, type: frame.type, parentId: frame.parent ? frame.parent.id : null };
+})()` });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Detached as "${result.name}" (${result.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+componentCmd
+  .command('overrides <instanceId> <action>')
+  .description('Reset instance overrides or remove overrides that match the main component (action: reset | remove)')
+  .option('--json', 'Output as JSON')
+  .action(async (instanceId, action, options) => {
+    try {
+      const instance = normalizeNodeId(String(instanceId)).id;
+      const normalizedAction = String(action).toLowerCase();
+      if (!['reset', 'remove'].includes(normalizedAction)) throw new Error('Action must be reset or remove');
+      await checkConnection();
+      const method = normalizedAction === 'reset' ? 'resetOverrides' : 'removeOverrides';
+      const result = await daemonExec('eval', { code: `(async () => {
+const instance = await figma.getNodeByIdAsync(${JSON.stringify(instance)});
+if (!instance || instance.type !== 'INSTANCE') throw new Error('Expected INSTANCE: ' + ${JSON.stringify(instance)});
+const before = instance.overrides.length;
+instance[${JSON.stringify(method)}]();
+return { id: instance.id, name: instance.name, action: ${JSON.stringify(normalizedAction)}, before, after: instance.overrides.length };
+})()` });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `${result.action === 'reset' ? 'Reset' : 'Removed matching'} overrides on "${result.name}" (${result.before} → ${result.after})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
 const propCmd = componentCmd
   .command('prop')
   .description('Manage component properties (BOOLEAN, TEXT, INSTANCE_SWAP, VARIANT)');
@@ -594,6 +730,72 @@ propCmd
       });
     } catch (e) {
       handleEvalError(e);
+    }
+  });
+
+propCmd
+  .command('set <instanceId> <name> <value>')
+  .description('Set a VARIANT, BOOLEAN, TEXT, or INSTANCE_SWAP property on an instance')
+  .option('--json', 'Output as JSON')
+  .action(async (instanceId, name, value, options) => {
+    await checkConnection();
+    const code = `(async () => {
+      const instance = await figma.getNodeByIdAsync(${JSON.stringify(instanceId)});
+      if (!instance) throw new Error('Node not found: ' + ${JSON.stringify(instanceId)});
+      if (instance.type !== 'INSTANCE' || typeof instance.setProperties !== 'function') {
+        throw new Error('Expected an INSTANCE; got ' + instance.type);
+      }
+      const current = instance.componentProperties || {};
+      const main = await instance.getMainComponentAsync();
+      const owner = main && main.parent && main.parent.type === 'COMPONENT_SET' ? main.parent : main;
+      const definitions = owner && owner.componentPropertyDefinitions ? owner.componentPropertyDefinitions : {};
+      const names = [...new Set([...Object.keys(current), ...Object.keys(definitions)])];
+      const requested = ${JSON.stringify(name)};
+      const base = (candidate) => String(candidate).split('#')[0].trim().toLowerCase();
+      let resolved = names.includes(requested) ? requested : null;
+      if (!resolved) {
+        const matches = names.filter((candidate) => base(candidate) === base(requested));
+        if (matches.length > 1) throw new Error('Property name is ambiguous: ' + requested + ' (' + matches.join(', ') + ')');
+        resolved = matches[0] || null;
+      }
+      if (!resolved) {
+        throw new Error('Unknown component property "' + requested + '". Available: ' + (names.join(', ') || '(none)'));
+      }
+      const definition = definitions[resolved] || current[resolved] || {};
+      const type = definition.type || (current[resolved] && current[resolved].type) || 'TEXT';
+      let parsed = ${JSON.stringify(value)};
+      if (type === 'BOOLEAN') {
+        const lowered = String(parsed).toLowerCase();
+        if (!['true', 'false', '1', '0'].includes(lowered)) throw new Error('BOOLEAN values must be true or false');
+        parsed = lowered === 'true' || lowered === '1';
+      } else if (type === 'INSTANCE_SWAP' && /^\\d+:\\d+$/.test(String(parsed))) {
+        let component = await figma.getNodeByIdAsync(String(parsed));
+        if (!component || !['COMPONENT', 'COMPONENT_SET'].includes(component.type)) {
+          throw new Error('INSTANCE_SWAP target is not a component: ' + parsed);
+        }
+        if (component.type === 'COMPONENT_SET') component = component.defaultVariant || component.children[0];
+        if (!component || component.type !== 'COMPONENT') {
+          throw new Error('INSTANCE_SWAP target component set has no variant: ' + parsed);
+        }
+        parsed = component.id;
+      }
+      instance.setProperties({ [resolved]: parsed });
+      const updated = instance.componentProperties && instance.componentProperties[resolved];
+      return {
+        id: instance.id,
+        name: instance.name,
+        property: resolved,
+        type,
+        value: updated ? updated.value : parsed,
+      };
+    })()`;
+    try {
+      const result = await daemonExec('eval', { code });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Set ${result.property}=${JSON.stringify(result.value)} on ${result.name} (${result.id})`);
+    } catch (e) {
+      handleEvalError(e);
+      process.exit(1);
     }
   });
 

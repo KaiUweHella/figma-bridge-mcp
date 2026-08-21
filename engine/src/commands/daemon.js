@@ -168,7 +168,11 @@ daemon
       if (result.error) {
         console.log(chalk.red('✗ Reconnect failed: ' + result.error));
       } else if (result.hadPlugin) {
-        console.log(chalk.green('✓ Plugin socket closed — the plugin reconnects automatically'));
+        console.log(chalk.green(
+          result.reloaded > 0
+            ? `✓ Reloaded ${result.reloaded} plugin UI${result.reloaded === 1 ? '' : 's'} — reconnecting automatically`
+            : '✓ Reset the unresponsive plugin socket — reconnecting automatically'
+        ));
       } else {
         console.log(chalk.yellow('○ No plugin was connected. Open Plugins → Development → Figma Bridge in Figma.'));
       }
@@ -280,4 +284,3 @@ daemon
 
     console.log();
   });
-

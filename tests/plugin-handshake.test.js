@@ -53,15 +53,17 @@ const plugin = loadPluginCrypto();
 
 function loadPluginReconnect() {
   const start = UI.indexOf('function scanPorts(');
-  const end = UI.indexOf('function connectParallel()', start);
+  const end = UI.indexOf('function connectParallel(', start);
   assert.ok(start > 0, 'scanPorts() not found in ui.html');
   assert.ok(end > start, 'connectParallel() marker not found after scanPorts()');
   const source = UI.slice(start, end);
   const factory = new Function(
-    'UNREACHABLE_AFTER_SCANS',
-    `${source}; return { scanPorts, reconnectDelay };`,
+    'PORTS',
+    'MAX_INITIAL_WS_SCANS',
+    'HEALTH_DISCOVERY_MS',
+    `${source}; return { scanPorts, reconnectDelay, recoveryStrategy, isBridgeReadyPayload, probeBridgePort };`,
   );
-  return factory(4);
+  return factory([3456, 3457, 3458, 3459, 3460], 3, 3000);
 }
 
 test('plugin HMAC matches Node crypto across sizes and key lengths', () => {
@@ -192,6 +194,76 @@ test('the shipped plugin scripts parse', () => {
   new Script(PLUGIN_CODE, { filename: 'plugin/code.js' });
 });
 
+test('the shipped plugin UI boots and begins a WebSocket scan after receiving its stored key', () => {
+  // Parsing alone does not catch stale renamed constants: the previous build
+  // parsed successfully, then threw only when the stored-key message entered
+  // connectParallel(), leaving the real panel stuck on "Starting…". Exercise
+  // that exact browser-side path with the smallest DOM/socket harness.
+  const script = UI.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(script, 'ui.html must contain a <script> block');
+
+  const elements = new Map();
+  const element = (id) => {
+    if (!elements.has(id)) {
+      elements.set(id, {
+        id,
+        value: '',
+        textContent: '',
+        className: '',
+        hidden: false,
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+        setAttribute() {},
+        focus() {},
+      });
+    }
+    return elements.get(id);
+  };
+  const posted = [];
+  const sockets = [];
+  class FakeWebSocket {
+    static OPEN = 1;
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      sockets.push(this);
+    }
+    close() {}
+    send() {}
+  }
+  const window = { crypto: null, scrollY: 0, onmessage: null };
+  const context = {
+    window,
+    document: {
+      getElementById: element,
+      body: { children: [] },
+      createElement: () => element('created'),
+    },
+    parent: { postMessage: (message) => posted.push(message) },
+    WebSocket: FakeWebSocket,
+    requestAnimationFrame: () => 1,
+    setTimeout: () => 1,
+    clearTimeout() {},
+    setInterval: () => 1,
+    clearInterval() {},
+    fetch: async () => ({ ok: false }),
+    console: { log() {}, warn() {}, error() {} },
+  };
+
+  new Script(script[1], { filename: 'plugin/ui.html' }).runInNewContext(context);
+  assert.equal(posted.at(-1)?.pluginMessage?.type, 'get-key');
+  assert.equal(typeof window.onmessage, 'function');
+
+  window.onmessage({ data: { pluginMessage: { type: 'key', value: 'stored-test-key' } } });
+  assert.equal(elements.get('status').textContent, 'Scanning…');
+  assert.deepEqual(sockets.map((socket) => socket.url), [
+    'ws://localhost:3456/plugin',
+    'ws://localhost:3457/plugin',
+    'ws://localhost:3458/plugin',
+    'ws://localhost:3459/plugin',
+    'ws://localhost:3460/plugin',
+  ]);
+});
+
 test('Capture revision metadata crosses both plugin threads', () => {
   assert.match(PLUGIN_CODE, /figma\.on\('documentchange'/);
   assert.match(PLUGIN_CODE, /documentRevisionBefore/);
@@ -249,10 +321,26 @@ test('plugin retries as soon as every localhost port refuses the scan', () => {
   assert.equal(exhausted, 1, 'fallback timer must not exhaust twice');
 });
 
-test('plugin reconnect delay stays responsive after daemon-unreachable state', () => {
+test('plugin bounds failed WebSocket scans and hands recovery to quiet HTTP discovery', async () => {
   const reconnect = loadPluginReconnect();
   assert.ok(reconnect.reconnectDelay(1) <= 150, 'initial retries should be near-immediate');
-  assert.ok(reconnect.reconnectDelay(4) <= 500, 'background reconnect should detect a returning daemon within 500ms');
+  assert.deepEqual(reconnect.recoveryStrategy(1), { kind: 'websocket', delayMs: 120 });
+  assert.deepEqual(reconnect.recoveryStrategy(3), { kind: 'health', delayMs: 3000 });
+  assert.equal(reconnect.isBridgeReadyPayload({ bridge: 'figma-bridge-mcp', ready: true, port: 3456 }), true);
+  assert.equal(reconnect.isBridgeReadyPayload({ bridge: 'another-local-service', ready: true, port: 3456 }), false);
+  let requestedUrl = null;
+  assert.deepEqual(
+    await reconnect.probeBridgePort(3456, async (url) => {
+      requestedUrl = url;
+      return {
+        ok: true,
+        json: async () => ({ bridge: 'figma-bridge-mcp', ready: true, port: 3456 }),
+      };
+    }),
+    { port: 3456 },
+  );
+  assert.equal(requestedUrl, 'http://localhost:3456/plugin-ready');
+  assert.match(UI, /fetchImpl\(`http:\/\/localhost:\$\{port\}\/plugin-ready`/);
 });
 
 test('manual reconnect stays visible and restarts the whole connection state', () => {
@@ -274,4 +362,17 @@ test('manual reconnect stays visible and restarts the whole connection state', (
   assert.match(source, /failedScans\s*=\s*0/, 'manual reconnect must restore the fast retry state');
   assert.match(source, /connectParallel\(\)/, 'manual reconnect must scan immediately');
   assert.match(source, /reconnectBtn\.onclick\s*=\s*forceReconnect/);
+});
+
+test('daemon recovery can reload only the Figma plugin iframe', () => {
+  assert.match(
+    UI,
+    /msg\.action === 'reload-ui'[\s\S]*?pluginMessage:\s*\{\s*type:\s*'reload-ui',\s*id:\s*msg\.id/,
+    'the authenticated socket must be able to ask the plugin main thread for a clean UI reload',
+  );
+  assert.match(
+    PLUGIN_CODE,
+    /msg\.type === 'reload-ui'[\s\S]*?figma\.ui\.postMessage\(\{\s*type:\s*'result'[\s\S]*?figma\.showUI\(__html__/,
+    'the main thread must acknowledge the request before replacing the iframe',
+  );
 });

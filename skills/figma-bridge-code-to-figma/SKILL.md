@@ -51,6 +51,11 @@ contract. Preserve all three instead of drawing a flattened approximation.
    icons with emoji, Unicode glyphs, rotated primitives, or guessed artwork.
 6. Componentize repeated source structures on the first pass: create one local
    component and place instances instead of emitting a flat repeated tree.
+7. Map only representable interactions to native prototype reactions with
+   `prototype add` or lossless `prototype set`, then verify them with
+   `prototype inspect`. Keep routing, application state, async work and other
+   runtime-owned behavior in code and record the boundary instead of inventing
+   a Figma substitute.
 
 ## Keep writes recoverable
 
@@ -69,7 +74,8 @@ contract. Preserve all three instead of drawing a flattened approximation.
    major section and for the completed view.
 2. Compare the final Figma screenshot with the browser reference at the same
    viewport. Check fonts, images, clipping, component variants, responsive
-   sizing, and overlays explicitly.
+   sizing, overlays, masks, blend modes, effects and prototype reactions
+   explicitly.
 3. Create or repair the Design Entity link with `link set`, then record a
    visually verified baseline with `link accept --compare --max-diff`.
 4. Report the entity id, reused and created components, token bindings, checks,

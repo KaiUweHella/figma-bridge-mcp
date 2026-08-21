@@ -6,6 +6,55 @@ const VARIABLE_SCOPES = Object.freeze([
   'PARAGRAPH_SPACING', 'PARAGRAPH_INDENT',
 ]);
 
+const VARIABLE_TYPES = Object.freeze(['BOOLEAN', 'COLOR', 'EASING', 'FLOAT', 'STRING', 'TIMING']);
+const EASING_TYPES = Object.freeze([
+  'EASE_IN', 'EASE_OUT', 'EASE_IN_AND_OUT', 'LINEAR', 'EASE_IN_BACK',
+  'EASE_OUT_BACK', 'EASE_IN_AND_OUT_BACK', 'CUSTOM_CUBIC_BEZIER', 'GENTLE',
+  'QUICK', 'BOUNCY', 'SLOW', 'CUSTOM_SPRING', 'HOLD',
+]);
+
+function parseVariableType(value) {
+  const type = String(value).trim().toUpperCase();
+  if (!VARIABLE_TYPES.includes(type)) throw new Error(`Type must be one of: ${VARIABLE_TYPES.join(', ')}`);
+  return type;
+}
+
+function parseVariableLiteral(value, typeValue) {
+  const type = parseVariableType(typeValue);
+  const raw = String(value);
+  if (type === 'STRING') return raw;
+  if (type === 'BOOLEAN') return parseBoolean(raw, 'BOOLEAN value');
+  if (type === 'FLOAT' || type === 'TIMING') {
+    const number = Number(raw);
+    if (!Number.isFinite(number)) throw new Error(`${type} value must be a finite number`);
+    if (type === 'TIMING' && number < 0) throw new Error('TIMING value must be zero or greater');
+    return number;
+  }
+  if (type === 'COLOR') {
+    const match = raw.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+    if (!match) throw new Error('COLOR value must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA');
+    let hex = match[1];
+    if (hex.length <= 4) hex = [...hex].map((character) => character + character).join('');
+    const color = {
+      r: parseInt(hex.slice(0, 2), 16) / 255,
+      g: parseInt(hex.slice(2, 4), 16) / 255,
+      b: parseInt(hex.slice(4, 6), 16) / 255,
+    };
+    if (hex.length === 8) color.a = parseInt(hex.slice(6, 8), 16) / 255;
+    return color;
+  }
+  let easing;
+  try { easing = JSON.parse(raw); }
+  catch {
+    const named = raw.trim().toUpperCase().replace(/[ -]+/g, '_');
+    easing = { type: named };
+  }
+  if (!easing || typeof easing !== 'object' || Array.isArray(easing)) throw new Error('EASING value must be a named easing or JSON object');
+  easing.type = String(easing.type || '').toUpperCase().replace(/[ -]+/g, '_');
+  if (!EASING_TYPES.includes(easing.type)) throw new Error(`Unknown EASING type: ${easing.type || '(missing)'}`);
+  return easing;
+}
+
 function parseBoolean(value, label = 'value') {
   if (value === true || value === false) return value;
   const normalized = String(value).trim().toLowerCase();
@@ -197,6 +246,16 @@ function collectionPublishStatusCode({ collection }) {
   return `(async () => {${variableHelpersCode()} const target = await __resolveCollection(${JSON.stringify(collection)}); return { id: target.id, name: target.name, publishStatus: await target.getPublishStatusAsync() }; })()`;
 }
 
+function collectionDeleteCode({ collection }) {
+  return `(async () => {${variableHelpersCode()}
+const target = await __resolveCollection(${JSON.stringify(collection)});
+if (target.remote) throw new Error('Remote collections cannot be deleted');
+const facts = { id: target.id, name: target.name, variableCount: target.variableIds.length };
+target.remove();
+return facts;
+})()`;
+}
+
 function collectionExtendCode({ collection, name }) {
   const extensionName = String(name || '').trim();
   if (!extensionName) throw new Error('Extension name is required');
@@ -220,8 +279,9 @@ return __collectionFacts(extended);
 }
 
 export {
-  VARIABLE_SCOPES, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
-  collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes,
+  EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
+  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
+  collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes, parseVariableLiteral, parseVariableType,
   variableCodeSyntaxCode, variablePublishStatusCode, variableResolveCode,
   variableSetValueCode, variableShowCode, variableUpdateCode,
 };

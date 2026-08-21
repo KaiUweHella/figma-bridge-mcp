@@ -1906,7 +1906,7 @@ export class FigmaClient {
         const comp${idx} = await __resolveComponent(${JSON.stringify(compId)}, ${JSON.stringify(compName)}, ${JSON.stringify(variantStr)}, ${JSON.stringify(compKey)});
         if (comp${idx}) {
           const el${idx} = comp${idx}.createInstance();
-          ${item.name && item.component ? `el${idx}.name = ${JSON.stringify(item.name)};` : ''}
+          ${item.name ? `el${idx}.name = ${JSON.stringify(item.name)};` : ''}
           ${parentVar}.appendChild(el${idx});
           ${variantStr ? `try { el${idx}.setProperties(__variantPairs(${JSON.stringify(variantStr)})); } catch (e) {}` : ''}
           ${Object.keys(propOverrides).length ? `try { el${idx}.setProperties(await __mapProps(el${idx}, ${JSON.stringify(propOverrides)})); } catch (e) {}` : ''}

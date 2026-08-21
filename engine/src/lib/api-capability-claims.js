@@ -3,6 +3,7 @@
 // an implemented object shape missing. Tests verify every name still exists in
 // the installed official declarations.
 const API_CAPABILITY_CLAIMS = Object.freeze({
+  'var create': ['VariableResolvedDataType', 'VariableValue', 'MotionEasing'],
   'col extend': ['VariableCollection', 'ExtendedVariableCollection'],
   'style bind-font': ['TextStyle', 'VariableBindableTextField'],
   prototype: ['Reaction', 'Action', 'Trigger', 'ConditionalBlock', 'VariableData'],

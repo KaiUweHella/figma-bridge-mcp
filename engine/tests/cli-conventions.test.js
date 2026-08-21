@@ -77,3 +77,14 @@ test('library code lives in lib/, not in command files', () => {
     assert.deepEqual(badImports, [], `${file} imports from a sibling command file`);
   }
 });
+
+test('component prop set keeps a validated local id for INSTANCE_SWAP values', () => {
+  const src = sources.get('misc.js');
+  const start = src.indexOf(".command('set <instanceId> <name> <value>')");
+  const end = src.indexOf(".command('delete <componentId> <propName>')", start);
+  const propSet = src.slice(start, end);
+  assert.match(propSet, /parsed = component\.id;/,
+    'Figma setProperties expects a local component node id for INSTANCE_SWAP');
+  assert.doesNotMatch(propSet, /parsed = component\.key;/,
+    'a publish key is not a valid local INSTANCE_SWAP property value');
+});

@@ -28,8 +28,9 @@ import {
   hexToFigmaRgb,
 } from '../lib/token-sync.js';
 import { normalizeNodeId } from '../lib/node-id.js';
+import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
 import {
-  collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
+  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
   collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
@@ -88,6 +89,12 @@ collections.command('publish-status <collection>').action(async (collection) => 
   try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionPublishStatusCode({ collection })), null, 2)); }
   catch (error) { handleEvalError(error); }
 });
+collections.command('delete <collection>')
+  .description('Delete one explicit local collection and its variables')
+  .action(async (collection) => {
+    try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionDeleteCode({ collection })), null, 2)); }
+    catch (error) { handleEvalError(error); }
+  });
 collections.command('extend <collection> <name>')
   .description('Create an Enterprise collection extension from a local collection or published collection key')
   .action(async (collection, name) => {
@@ -890,26 +897,21 @@ tokens
   .command('add <name> <value>')
   .description('Add a single token')
   .option('-c, --collection <name>', 'Collection name', 'Tokens')
-  .option('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN (auto-detected if not set)')
+  .option('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN, EASING, TIMING (auto-detected if not set)')
   .action(async (name, value, options) => {
+    let type;
+    if (options.type) type = parseVariableType(options.type);
+    else if (value.startsWith('#')) type = 'COLOR';
+    else if (!Number.isNaN(Number(value))) type = 'FLOAT';
+    else if (/^(true|false)$/i.test(value)) type = 'BOOLEAN';
+    else type = 'STRING';
+    const parsedValue = parseVariableLiteral(value, type);
     await checkConnection();
 
     const code = `(async () => {
 ${variableScopePolicyCode()}
-function hexToRgb(hex) {
-  const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-  if (!r) return null;
-  return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
-}
-
-const value = ${JSON.stringify(value)};
-let type = '${options.type || ''}';
-if (!type) {
-  if (value.startsWith('#')) type = 'COLOR';
-  else if (!isNaN(parseFloat(value))) type = 'FLOAT';
-  else if (value === 'true' || value === 'false') type = 'BOOLEAN';
-  else type = 'STRING';
-}
+const value = ${JSON.stringify(parsedValue)};
+const type = ${JSON.stringify(type)};
 
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
 let col = cols.find(c => c.name === ${JSON.stringify(options.collection)});
@@ -919,11 +921,7 @@ const modeId = col.modes[0].modeId;
 const v = figma.variables.createVariable(${JSON.stringify(name)}, col, type);
 __scopeTokenVariable(v, ${JSON.stringify(name)}, type);
 const scopeQuestion = __variableScopeQuestion(${JSON.stringify(name)}, type, ${JSON.stringify(options.collection)});
-let figmaValue = value;
-if (type === 'COLOR') figmaValue = hexToRgb(value);
-else if (type === 'FLOAT') figmaValue = parseFloat(value);
-else if (type === 'BOOLEAN') figmaValue = value === 'true';
-v.setValueForMode(modeId, figmaValue);
+v.setValueForMode(modeId, value);
 
 return { message: 'Created ' + type.toLowerCase() + ' token: ${name}', scopeQuestions: scopeQuestion ? [scopeQuestion] : [] };
 })()`;
