@@ -47,13 +47,17 @@ finished component.
 4. Expose TEXT, BOOLEAN, and INSTANCE_SWAP component properties deliberately.
    Use INSTANCE_SWAP for icons and swappable nested components; never create an
    icon-name variant axis.
-5. Import exact SVG or raster source from the codebase. Do not redraw icons from
+5. Map representable state transitions and interactions to native prototype
+   reactions, then verify them with `prototype inspect`. Do not invent a
+   reaction when the source behavior depends on app state, routing or async
+   work.
+6. Import exact SVG or raster source from the codebase. Do not redraw icons from
    primitives and do not detach imported design-system instances.
-6. Validate the component before starting the next one: inspect the component
+7. Validate the component before starting the next one: inspect the component
    main/set contract and property list, read the node tree, take a screenshot,
    and verify variant count, names, bindings, text overrides, clipping, states,
    and touch targets.
-7. Link the result with `link set` to its source/export and Storybook story.
+8. Link the result with `link set` to its source/export and Storybook story.
    Run Storybook mapping only after the component and story names are final.
 
 ## Keep the workflow safe and resumable

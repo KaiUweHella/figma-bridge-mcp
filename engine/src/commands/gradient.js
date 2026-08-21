@@ -4,6 +4,8 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { extractGradient, extractMesh, buildMeshFromColors, buildFigmaPaint, buildCssString } from '../gradient-extractor.js';
+import { FigmaClient } from '../lib/jsx-render.js';
+import { normalizeNodeId } from '../lib/node-id.js';
 import {
   progress,
   program,
@@ -17,6 +19,57 @@ import {
 const gradient = program
   .command('gradient')
   .description('Extract gradients from images and apply them to nodes');
+
+gradient
+  .command('apply <nodeId> <value>')
+  .description('Apply a CSS-like linear/radial/angular/diamond gradient directly to a fill or stroke')
+  .option('--field <field>', 'Paint field: fill or stroke', 'fill')
+  .option('--stroke-weight <n>', 'Also set stroke weight when --field stroke')
+  .option('--json', 'Output as JSON')
+  .action(async (nodeId, value, options) => {
+    const fieldName = String(options.field || 'fill').toLowerCase();
+    if (!['fill', 'stroke'].includes(fieldName)) {
+      console.error(chalk.red('Field must be fill or stroke'));
+      process.exit(1);
+    }
+    const strokeWeight = options.strokeWeight === undefined ? null : Number(options.strokeWeight);
+    if (strokeWeight !== null && (!Number.isFinite(strokeWeight) || strokeWeight < 0)) {
+      console.error(chalk.red('--stroke-weight must be a non-negative number'));
+      process.exit(1);
+    }
+    const paintCode = new FigmaClient().parseGradient(value);
+    if (!paintCode) {
+      console.error(chalk.red('Invalid gradient. Example: linear-gradient(90deg, #ffffff 0%, #000000 100%)'));
+      process.exit(1);
+    }
+    await checkConnection();
+    const normalizedId = normalizeNodeId(nodeId).id;
+    const field = fieldName === 'fill' ? 'fills' : 'strokes';
+    const code = `(async () => {
+      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizedId)});
+      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(normalizedId)});
+      if (!(${JSON.stringify(field)} in node)) throw new Error('Node does not support ${field}: ' + node.type);
+      ${strokeWeight === null ? '' : `if (!('strokeWeight' in node)) throw new Error('Node does not support stroke weight: ' + node.type);
+      `}
+      node[${JSON.stringify(field)}] = [${paintCode}];
+      ${strokeWeight === null ? '' : `node.strokeWeight = ${strokeWeight};`}
+      return {
+        id: node.id,
+        name: node.name,
+        type: node.type,
+        field: ${JSON.stringify(fieldName)},
+        strokeWeight: 'strokeWeight' in node ? node.strokeWeight : null,
+      };
+    })()`;
+    try {
+      const result = await fastEval(code);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Applied gradient ${result.field} to ${result.name} (${result.id})`);
+    } catch (e) {
+      console.error(chalk.red('Apply failed: ' + e.message));
+      process.exit(1);
+    }
+  });
 
 gradient
   .command('extract <image>')
@@ -311,4 +364,3 @@ gradient
       process.exit(1);
     }
   });
-

@@ -63,6 +63,7 @@ let boundPort = null; // set once the HTTP server wins a bind
 // (not env-driven) so no configuration can re-enable a CDP path.
 const MODE = 'plugin';
 const IDLE_TIMEOUT_MS = parseInt(process.env.DAEMON_IDLE_TIMEOUT) || 60 * 60 * 1000; // 60 minutes
+const BRIDGE_BUILD_VERSION = process.env.DAEMON_BRIDGE_BUILD_VERSION || PLUGIN_BUILD_VERSION;
 
 // ============ SECURITY ============
 
@@ -294,8 +295,7 @@ function resolveTarget(fileKey) {
   );
 }
 
-async function requestViaPlugin(action, data, fileKey = null) {
-  const ws = resolveTarget(fileKey);
+async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
   const conn = conns.get(ws);
   if (action === 'render-plan' && !conn?.capabilities?.includes('render-plan-v1')) {
     throw new Error('Plugin capability missing: render-plan-v1. Reload the installed Figma Bridge plugin to enable structured rendering.');
@@ -308,8 +308,8 @@ async function requestViaPlugin(action, data, fileKey = null) {
     const id = ++pluginMsgId;
     const timeout = setTimeout(() => {
       pluginPendingRequests.delete(id);
-      reject(new Error('Plugin execution timeout (25s)'));
-    }, 25000);
+      reject(new Error(`Plugin execution timeout (${timeoutMs / 1000}s)`));
+    }, timeoutMs);
 
     pluginPendingRequests.set(id, { resolve, reject, timeout, ws });
 
@@ -321,6 +321,10 @@ async function requestViaPlugin(action, data, fileKey = null) {
       reject(new Error(`Plugin send error: ${sendError.message}`));
     }
   });
+}
+
+async function requestViaPlugin(action, data, fileKey = null) {
+  return requestViaSocket(resolveTarget(fileKey), action, data);
 }
 
 // ============ UNIFIED EVAL ============
@@ -365,6 +369,50 @@ let inFlightExecs = 0;
 async function handleRequest(req, res) {
   resetIdleTimer();
 
+  const requestPath = (req.url || '').split('?')[0];
+
+  // Unauthenticated discovery beacon for the Figma plugin iframe. Repeated
+  // failed WebSocket construction is noisy and Chromium eventually backs it
+  // off aggressively; this tiny endpoint lets the panel poll quietly and only
+  // open a WebSocket after our daemon is really listening. It intentionally
+  // exposes no connection, file, token or version data. Every command-bearing
+  // HTTP route below remains signed, and the discovered WebSocket still has to
+  // pass the mutual HMAC handshake.
+  if (requestPath === '/plugin-ready') {
+    const host = req.headers.host || '';
+    const origin = req.headers.origin || '';
+    const localHost = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host);
+    const pluginOrigin = origin === 'null' || /^https:\/\/(?:www\.)?figma\.com$/.test(origin);
+    if (!localHost || !pluginOrigin) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Discovery request rejected' }));
+      return;
+    }
+    const headers = {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Private-Network': 'true',
+      'Cache-Control': 'no-store',
+    };
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      res.writeHead(405, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+    res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      bridge: 'figma-bridge-mcp',
+      ready: !!PLUGIN_KEY,
+      port: boundPort,
+    }));
+    return;
+  }
+
   // SECURITY: No CORS headers. Block preflight outright.
   if (req.method === 'OPTIONS') {
     res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -392,7 +440,7 @@ async function handleRequest(req, res) {
   // signature). That is deliberate and not an escalation: the query only
   // selects WHICH connected window to read, and every connected window is
   // equally authorised. Anything that grants access stays in the signed part.
-  const path = (req.url || '').split('?')[0];
+  const path = requestPath;
 
   // Health check
   if (path === '/health') {
@@ -405,10 +453,12 @@ async function handleRequest(req, res) {
       pluginAuthenticated: pluginConnected, // only authenticated sockets are stored
       cdp: false,                            // no CDP path in the Safe-Mode build
       keyConfigured: !!PLUGIN_KEY,
+      bridgeBuildVersion: BRIDGE_BUILD_VERSION,
       restTokenConfigured: restTokenConfigured(),
       // One entry per open Figma window. Callers that see more than one must
       // name a fileKey; there is no implicit "all of them".
       connections: connectionList(),
+      inFlightExecs,
       idleTimeoutMs: IDLE_TIMEOUT_MS
     }));
     return;
@@ -441,17 +491,42 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // Force the plugin to reconnect: close its socket — the plugin UI re-scans
-  // the whole port range automatically. Used by `daemon reconnect` (this route
-  // did not exist before; the command always failed on the 404 fallthrough).
+  // Authenticated local lifecycle control. Reply before beginning the drain so
+  // the short-lived CLI can distinguish an accepted graceful shutdown from a
+  // dead/hung daemon and use PID-specific fallback only when necessary.
+  if (path === '/shutdown') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    setImmediate(shutdown);
+    return;
+  }
+
+  // Recover the plugin without restarting its main Figma runtime. A responsive
+  // iframe forwards `reload-ui` to code.js, which acknowledges it and then
+  // calls figma.showUI(__html__) again. If that relay is wedged, close only the
+  // affected socket so a still-running iframe can fall back to normal discovery.
   if (path === '/reconnect') {
     const wanted = new URL(req.url, 'http://localhost').searchParams.get('fileKey');
     const targets = openConns().filter(([, c]) => !wanted || c.fileKey === wanted);
-    for (const [ws] of targets) {
-      try { ws.close(); } catch {}
-    }
+    let reloaded = 0;
+    let forcedClosed = 0;
+    await Promise.all(targets.map(async ([ws]) => {
+      try {
+        await requestViaSocket(ws, 'reload-ui', {}, 5000);
+        reloaded++;
+      } catch {
+        try { ws.close(); } catch {}
+        forcedClosed++;
+      }
+    }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, hadPlugin: targets.length > 0, closed: targets.length }));
+    res.end(JSON.stringify({
+      ok: true,
+      hadPlugin: targets.length > 0,
+      targeted: targets.length,
+      reloaded,
+      forcedClosed,
+    }));
     return;
   }
 

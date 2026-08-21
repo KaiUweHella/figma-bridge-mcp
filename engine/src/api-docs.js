@@ -10,6 +10,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { coveredApiTypeNames } from './lib/api-capability-claims.js';
+import {
+  PLUGIN_API_CREATION_OPERATIONS,
+  PLUGIN_API_STRUCTURAL_OPERATIONS,
+  operationCoverageSummary,
+} from './lib/api-operation-coverage.js';
+import {
+  auditRoundTripFidelityContract,
+} from './lib/round-trip-fidelity-contract.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = path.resolve(__dirname, '..', 'docs', 'figma-api');
@@ -506,6 +514,25 @@ export function gap() {
 
   console.log(`Figma Plugin API: ${all.length} total (${interesting.length} interesting)`);
   console.log(`source: ${official ? '@figma/plugin-typings (official, installed)' : 'offline Markdown fallback'}\n`);
+  const operationSummary = operationCoverageSummary();
+  console.log(`Core create/structure operations audited for typings ${operationSummary.auditedVersion}: ${operationSummary.total}`);
+  console.log(`  ${operationSummary.supported} direct · ${operationSummary.alternative} safe alternatives · ${operationSummary.boundary} explicit boundaries`);
+  const boundaries = [...Object.entries(PLUGIN_API_CREATION_OPERATIONS), ...Object.entries(PLUGIN_API_STRUCTURAL_OPERATIONS)]
+    .filter(([, entry]) => entry.status === 'boundary');
+  if (boundaries.length) {
+    console.log('  boundaries:');
+    for (const [name, entry] of boundaries) console.log(`    - ${name}: ${entry.note}`);
+  }
+  const fidelityAudit = auditRoundTripFidelityContract();
+  const fidelity = fidelityAudit.summary;
+  console.log(`Round-trip Fidelity Contract v${fidelity.version}: ${fidelity.classifiedBothWays}/${fidelity.total} fact families classified both ways`);
+  console.log(`  ${fidelity.exactBothWays} exact pairs · ${fidelity.explicitSeams} explicit seams`);
+  if (!fidelityAudit.ok) {
+    console.log('  CONTRACT INVALID:');
+    for (const error of fidelityAudit.errors) console.log(`    - ${error}`);
+    process.exitCode = 1;
+  }
+  console.log();
   console.log(`✓ Referenced or explicitly command-covered: ${referenced.length}`);
   console.log(`✗ NOT referenced (potential gap): ${missing.length}\n`);
 

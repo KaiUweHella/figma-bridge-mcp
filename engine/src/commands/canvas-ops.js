@@ -103,6 +103,27 @@ canvas
   });
 
 canvas
+  .command('page-divider [name]')
+  .description('Create a native page divider')
+  .option('--index <n>', 'Insert at this zero-based document index')
+  .option('--json', 'Output as JSON')
+  .action(async (name, options) => {
+    try {
+      const index = options.index === undefined ? null : Number(options.index);
+      if (index !== null && (!Number.isInteger(index) || index < 0)) throw new Error('--index must be a non-negative integer');
+      await checkConnection();
+      const code = `(async () => {
+const divider = figma.createPageDivider(${name === undefined ? '' : JSON.stringify(name)});
+${index === null ? '' : `if (${index} >= figma.root.children.length) throw new Error('Index out of range: ' + ${index}); figma.root.insertChild(${index}, divider);`}
+return { id: divider.id, name: divider.name, index: figma.root.children.indexOf(divider), isPageDivider: divider.isPageDivider };
+})()`;
+      const result = await daemonExec('eval', { code });
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓') + ` Created page divider ${chalk.gray('(' + result.id + ')')}`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+canvas
   .command('page <nameOrId>')
   .description('Switch the current page (by exact id, exact name, or unique substring)')
   .action(async (nameOrId) => {

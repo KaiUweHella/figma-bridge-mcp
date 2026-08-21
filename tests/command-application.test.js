@@ -63,6 +63,27 @@ test('in-process execution never repeats an ambiguous daemon failure by default'
   assert.equal(attempts, 1);
 });
 
+test('in-process safe reads retry one normalized plugin disconnect internally', async () => {
+  const { runInProcessCommand } = await import('../src/engine.js');
+  const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
+  let attempts = 0;
+  let waits = 0;
+  const result = await runInProcessCommand(
+    ['export', 'code-spec', '12:34'],
+    { waitUntilReady: async () => { waits++; return true; } },
+    async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new DaemonClientError('Plugin disconnected', { kind: 'plugin-unavailable' });
+      }
+      return { stdout: 'reconnected', stderr: '' };
+    },
+  );
+  assert.equal(result.stdout, 'reconnected');
+  assert.equal(attempts, 2);
+  assert.equal(waits, 1);
+});
+
 test('read-only fallback recognizes daemon and plugin disconnect/timeout kinds', async () => {
   const { isDaemonUnavailable } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');

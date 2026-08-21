@@ -574,19 +574,46 @@ describe('structured Semantic Render Plan executor', () => {
       'progressiveBlur="24" progressiveBlurDir="right" progressiveBlurStart="3" ' +
       'glass="true" glassRefraction="0.8" glassDepth="40" glassRadius="7" glassDispersion="0.2" glassLight="0.6" glassLightAngle="120" />',
     );
-    const figma = fakeFigma();
+    const figma = fakeFigma({
+      setFrameEffects(effects) {
+        for (const effect of effects) {
+          if (effect.type === 'NOISE' && 'blendMode' in effect) {
+            throw new Error('Figma runtime rejects blendMode on NOISE writes');
+          }
+        }
+      },
+    });
 
     await executeStructuredRenderPlan(figma, plan);
     const effects = figma.created.find((node) => node.name === 'Effects').effects;
 
     assert.deepEqual(effects.map((effect) => effect.type), ['NOISE', 'TEXTURE', 'LAYER_BLUR', 'GLASS']);
     assert.equal(effects[0].noiseType, 'DUOTONE');
-    assert.equal(effects[0].blendMode, 'NORMAL');
+    assert.equal('blendMode' in effects[0], false);
     assert.deepEqual(effects[0].secondaryColor, { r: 221 / 255, g: 238 / 255, b: 1, a: 1 });
     assert.equal(effects[1].clipToShape, false);
     assert.deepEqual(effects[2].startOffset, { x: 0, y: 0.5 });
     assert.equal(effects[2].startRadius, 3);
     assert.equal(effects[3].refraction, 0.8);
+  });
+
+  it('rolls back every created canvas node when Figma rejects a property write', async () => {
+    const plan = new FigmaClient().planJSX(
+      '<Frame name="Rollback root"><Frame name="Rejected child" noise="mono" /></Frame>',
+    );
+    const figma = fakeFigma({
+      setFrameEffects(effects) {
+        if (effects.some((effect) => effect.type === 'NOISE')) throw new Error('runtime validation failed');
+      },
+    });
+
+    await assert.rejects(
+      () => executeStructuredRenderPlan(figma, plan),
+      /created nodes were rolled back \(runtime validation failed\)/,
+    );
+    assert.equal(figma.currentPage.children.length, 0);
+    assert.ok(figma.created.length >= 2);
+    assert.ok(figma.created.every((node) => node.removed === true));
   });
 
   it('restores captured SVG descendant filters as native effects', async () => {
@@ -640,6 +667,27 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(instance.mainComponent.name, 'State=Active, Size=Large');
     assert.deepEqual([instance.width, instance.height], [140, 44]);
     assert.equal(figma.created.find((node) => node.name === 'Instances').children[0], instance);
+  });
+
+  it('reads component property definitions from the set without touching the throwing variant accessor', async () => {
+    const plan = new FigmaClient().planJSX(
+      '<Frame name="Variant owner"><Instance entity="ui.button" id="10:2" /></Frame>',
+    );
+    const figma = fakeFigma({
+      components: [{
+        id: '10:1', name: 'Button',
+        componentPropertyDefinitions: {
+          State: { type: 'VARIANT', defaultValue: 'Default', variantOptions: ['Default', 'Active'] },
+        },
+        variants: [
+          { id: '10:2', name: 'State=Default', variantPropertyAccessThrows: true },
+          { id: '10:3', name: 'State=Active', variantPropertyAccessThrows: true },
+        ],
+      }],
+    });
+
+    await assert.doesNotReject(() => executeStructuredRenderPlan(figma, plan));
+    assert.equal(figma.created.find((node) => node.type === 'INSTANCE').mainComponent.id, '10:2');
   });
 
   it('falls back from a failed published key to the same Design Entity local anchor', async () => {
@@ -1013,7 +1061,7 @@ function fakeVariable(name, resolvedType, value, scopes = ['ALL_SCOPES'], collec
   };
 }
 
-function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null } = {}) {
+function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null } = {}) {
   let id = 0;
   let imageId = 0;
   const created = [];
@@ -1074,6 +1122,14 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
   };
   const frame = () => {
     const node = enforceLayoutSizingParent(base('FRAME'));
+    if (setFrameEffects) {
+      let effects = node.effects;
+      Object.defineProperty(node, 'effects', {
+        get: () => effects,
+        set(value) { setFrameEffects(value, node); effects = value; },
+        configurable: true,
+      });
+    }
     let rows = [], columns = [];
     Object.defineProperty(node, 'gridRowCount', { get: () => rows.length, set: (count) => { rows = Array.from({ length: count }, () => ({})); } });
     Object.defineProperty(node, 'gridColumnCount', { get: () => columns.length, set: (count) => { columns = Array.from({ length: count }, () => ({})); } });
@@ -1116,7 +1172,13 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
     node.name = spec.name;
     node.width = spec.width || 100;
     node.height = spec.height || 40;
-    node.componentPropertyDefinitions = spec.componentPropertyDefinitions || {};
+    if (spec.variantPropertyAccessThrows) {
+      Object.defineProperty(node, 'componentPropertyDefinitions', {
+        get() { throw new Error('Can only get component property definitions of a component set or non-variant component'); },
+      });
+    } else {
+      node.componentPropertyDefinitions = spec.componentPropertyDefinitions || {};
+    }
     node.variantProperties = spec.variantProperties || Object.fromEntries(String(spec.name || '').split(',').map((part) => part.split('=').map((value) => value.trim())).filter((pair) => pair.length === 2));
     for (const childSpec of spec.children || []) node.appendChild(layerFromSpec(childSpec));
     node.createInstance = () => {
@@ -1124,7 +1186,8 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
       instance.width = node.width;
       instance.height = node.height;
       instance.mainComponent = node;
-      instance.componentProperties = Object.fromEntries(Object.entries(node.componentPropertyDefinitions).map(([key, definition]) => [key, { type: definition.type, value: definition.defaultValue }]));
+      const definitionOwner = node.parent?.type === 'COMPONENT_SET' ? node.parent : node;
+      instance.componentProperties = Object.fromEntries(Object.entries(definitionOwner.componentPropertyDefinitions || {}).map(([key, definition]) => [key, { type: definition.type, value: definition.defaultValue }]));
       instance.setProperties = (next) => {
         instance.appliedProperties = { ...(instance.appliedProperties || {}), ...next };
         for (const [key, value] of Object.entries(next)) {
@@ -1146,6 +1209,7 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
       set.id = spec.id;
       set.key = spec.key;
       set.name = spec.name;
+      set.componentPropertyDefinitions = spec.componentPropertyDefinitions || {};
       set.children = spec.variants.map((variant) => createComponent(variant));
       for (const child of set.children) child.parent = set;
       set.defaultVariant = set.children[0];

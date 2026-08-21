@@ -43,6 +43,7 @@ import {
   program,
   getDaemonPort,
   daemonCurl,
+  daemonBuildMatchesCurrent,
   isDaemonRunning,
   spinnerSucceed,
   pkg,
@@ -287,6 +288,7 @@ program
   .description('Connect to Figma Desktop (Safe Mode — plugin bridge only)')
   .option('--safe', 'Accepted for compatibility; Safe Mode is the only mode')
   .option('--no-wait', 'Start the daemon and return without waiting for the Figma plugin')
+  .option('--force-restart', 'Restart the daemon even when healthy (pairing-key rotation only)')
   .action(async (options) => {
     // Fun welcome message
     console.log(chalk.hex('#FF6B35')('\n  ✨ Hey designer! ') + chalk.white("Don't be afraid of the terminal!"));
@@ -296,9 +298,14 @@ program
 
     const daemonSpinner = progress('Starting daemon in Safe Mode...').start();
     try {
-      // startDaemon(true) already owns the guarded stop. Calling stopDaemon()
-      // immediately before it used to perform the shutdown path twice.
-      startDaemon(true, 'plugin');
+      // `connect` is the normal entry point for every new agent/session, so it
+      // must be idempotent. A forced restart here used to tear down an already
+      // authenticated Figma plugin socket; Chromium could then keep the panel
+      // in its failed-WebSocket retry state for seconds or minutes. Reuse a
+      // healthy daemon and reserve destructive restarts for `daemon restart`.
+      const daemonWasRunning = isDaemonRunning(false, true);
+      const daemonWasReusable = daemonWasRunning && daemonBuildMatchesCurrent();
+      startDaemon(options.forceRestart === true, 'plugin');
       const daemonDeadline = Date.now() + 2000;
       let daemonReady = false;
       while (Date.now() < daemonDeadline) {
@@ -309,13 +316,22 @@ program
         }
       }
       if (daemonReady) {
-        spinnerSucceed(daemonSpinner, 'Daemon running in Safe Mode');
+        spinnerSucceed(
+          daemonSpinner,
+          daemonWasReusable && options.forceRestart !== true
+            ? 'Daemon running in Safe Mode — existing plugin connection preserved'
+            : daemonWasRunning && options.forceRestart !== true
+              ? 'Daemon upgraded in Safe Mode — plugin reconnecting automatically'
+            : 'Daemon running in Safe Mode',
+        );
       } else {
         daemonSpinner.fail('Daemon failed to start');
+        process.exitCode = 1;
         return;
       }
     } catch (e) {
       daemonSpinner.fail('Daemon failed: ' + e.message);
+      process.exitCode = 1;
       return;
     }
 
@@ -335,9 +351,10 @@ program
     console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
       + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.dev.json')) + '\n');
 
-    console.log(chalk.white.bold('  EACH SESSION:\n'));
+    console.log(chalk.white.bold('  IF THE PLUGIN IS NOT ALREADY OPEN IN THIS FIGMA FILE:\n'));
     console.log(chalk.cyan('  → ') + chalk.white('Design mode: ') + chalk.yellow('Plugins → Development → Figma Bridge'));
     console.log(chalk.cyan('  → ') + chalk.white('Dev Mode: ') + chalk.yellow('Plugins → Development → Figma Bridge Dev Mode'));
+    console.log(chalk.cyan('  → ') + chalk.gray('A new AI session does not require reopening a healthy plugin.'));
     console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
 
     // MCP clients cannot show the access key appended by the wrapper until

@@ -3,6 +3,67 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
+## Unreleased
+
+### Added
+
+- Added Safe-Mode Commands for duplicating cloneable canvas nodes (including
+  Sections), reparenting nodes with explicit child order, setting instance
+  component properties, and applying editable gradients directly to fills or
+  strokes.
+- Capability-gated validated `create` primitives can now create Frames,
+  Rectangles, Ellipses, Text, Lines, and Auto Layout frames inside an existing
+  parent. Selection-based and network-backed legacy creators remain blocked.
+- Added validated Polygon, Star, Vector and Slice creation; ID-scoped
+  group/ungroup/flatten/Boolean operations; empty Component creation;
+  instance creation, swapping, detaching and override management; and native
+  page-divider creation.
+- Expanded `node set` to cover common Figma property-panel edits including
+  locking, rotation, constraints, masks, blend/effects, individual corners,
+  advanced strokes and Auto Layout container/child settings.
+- Added Figma 1.133 EASING and TIMING variable creation plus scoped local
+  collection deletion.
+- Added an operation-level API audit pinned to the official Figma typings. New
+  PluginAPI creators/structural operations, engine commands and variable or
+  easing types now fail tests until explicitly supported or classified as a
+  documented boundary.
+- Added a versioned, fail-closed Round-trip Fidelity Contract for 11 core Figma
+  fact families. `figma_reference {name:"fidelity"}` projects both directions,
+  their implementation seams and verification requirements without requiring
+  a Figma connection.
+
+### Fixed
+
+- `figma_spec` no longer requires one Manual Mode approval per structure/style
+  section. A bounded `nodeIds[]` batch now carries up to eight complete reads
+  inside one MCP call, and the design-to-code workflow prefers one shallow
+  `phase: "all"` read before batching only genuinely missing section facts.
+- Native variant rendering now resolves component-property definitions from
+  the owning Component Set before touching Figma's throwing variant accessor.
+- `figma_connect` is now idempotent: a new AI session reuses a healthy daemon
+  and authenticated Figma socket instead of forcibly restarting both. Explicit
+  pairing-key rotation still performs the required controlled restart.
+- Replaced the plugin's unbounded five-port WebSocket retry loop with three
+  fast attempts plus a quiet CORS-scoped `/plugin-ready` discovery probe. A
+  daemon that starts later is detected within about three seconds without
+  Chromium retry throttling; no-key and timeout states self-heal automatically.
+- `figma_connect` now verifies the one connected plugin with a read-only round
+  trip. If the socket is open but the iframe relay is wedged, the long-lived
+  Figma plugin thread reloads only that iframe and immediately reruns discovery;
+  an unresponsive relay falls back to a socket reset.
+- Daemon stop/restart now verifies that the PID file process owns the published
+  listening socket before sending any signal. Forced cleanup targets only that
+  PID, never other processes connected to the same port such as Figma Desktop.
+- Failed daemon startup now makes `figma_connect` fail instead of returning a
+  misleading success response with only setup instructions.
+- Design Capture and Code-Spec now preserve native prototype reactions, masks,
+  blend modes, corner smoothing, strokes included in Auto Layout and full
+  Noise/Texture/Glass/progressive-blur parameters.
+- Structured Noise writes omit the default `NORMAL` blend mode that current
+  Figma Desktop rejects despite exposing it in readback typings. Any later
+  property-write rejection now rolls back all canvas nodes created by that
+  render instead of leaving partial test or production objects behind.
+
 ## [0.5.2] — 2026-08-19
 
 ### Added

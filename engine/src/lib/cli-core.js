@@ -8,10 +8,12 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from '
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import * as apiDocs from '../api-docs.js';
-import { nullDevice, killPort, getPortPid, sleepAfterStop } from '../platform.js';
+import { nullDevice, getPortPid, sleepAfterStop } from '../platform.js';
 import { getDaemonPort, clearPortFile } from './daemon-port.js';
 import { signRequest } from './daemon-auth.js';
 import { createDaemonClient } from './daemon-client.js';
+import { PLUGIN_BUILD_VERSION } from './plugin-version.js';
+import { retrySafeRead } from './safe-read-retry.js';
 import { STATE_DIR } from './state-dir.js';
 // Moved out of this file; re-exported below so command modules keep importing
 // everything from one place.
@@ -112,6 +114,15 @@ function daemonCurl(path, extraArgs, { method = 'GET', body = '', timeout = 2000
 let _daemonHealthCache = { time: 0, value: null, port: null };
 const DAEMON_HEALTH_TTL_MS = 2000;
 function invalidateDaemonHealthCache() { _daemonHealthCache = { time: 0, value: null, port: null }; }
+
+function daemonBuildMatchesCurrent() {
+  try {
+    const raw = daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`], { timeout: 1000 });
+    return JSON.parse(raw).bridgeBuildVersion === PLUGIN_BUILD_VERSION;
+  } catch {
+    return false;
+  }
+}
 
 // Check if daemon is running (returns object with details, or false)
 function isDaemonRunning(returnDetails = false, force = false) {
@@ -230,6 +241,15 @@ async function fastEval(code) {
   return await daemonExec('eval', { code });
 }
 
+// Read-only commands may safely repeat one eval after a brief socket churn.
+// Mutation commands must continue using fastEval: their result can be lost
+// after Figma accepted the write, so replaying them could duplicate content.
+async function safeReadEval(code) {
+  return retrySafeRead(() => fastEval(code), {
+    waitUntilReady: () => waitForPluginConnection(),
+  });
+}
+
 // Start daemon in background. The Safe-Mode build only ever runs the daemon in
 // plugin mode; the `mode` argument is accepted for signature compatibility but
 // ignored.
@@ -240,10 +260,15 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
     // process squatting the default port) and clears the port file.
     stopDaemon();
     sleepAfterStop();
-  } else if (isDaemonRunning(false, true)) {
+  } else if (isDaemonRunning(false, true) && daemonBuildMatchesCurrent()) {
     // force=true: bypass the 2s health cache. A stale cached "down" here
     // would rotate the session token underneath a LIVE daemon.
     return true; // Already running
+  } else if (isDaemonRunning(false, true)) {
+    // A detached daemon can survive an MCP client upgrade. Replace an older
+    // bridge build once; later sessions match and preserve it normally.
+    stopDaemon();
+    sleepAfterStop();
   }
 
   // Generate session token before spawning daemon. Safe even if a daemon
@@ -283,31 +308,80 @@ function startDaemon(forceRestart = false, mode = 'plugin') {
   return true;
 }
 
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function listeningPids(port) {
+  try {
+    const raw = getPortPid(port);
+    if (!raw) return [];
+    return String(raw).split(/\s+/)
+      .map((value) => Number(value))
+      .filter((pid) => Number.isInteger(pid) && pid > 1);
+  } catch {
+    return [];
+  }
+}
+
+function sleepMs(ms) {
+  if (ms <= 0) return;
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) { /* best-effort fallback */ }
+  }
+}
+
+// Terminate only a process that is BOTH named by our PID file and currently
+// owns the published listening socket. This guards against stale PID reuse.
+// Escalation is PID-specific: connected clients (including Figma Desktop) are
+// never swept up just because they share the TCP port.
+function terminateVerifiedDaemon(pid, port, graceMs = 500) {
+  if (!Number.isInteger(pid) || pid <= 1 || !listeningPids(port).includes(pid)) return false;
+  try { process.kill(pid, 'SIGTERM'); } catch { return true; }
+  sleepMs(graceMs);
+  if (!processAlive(pid)) return true;
+  // If the daemon already released its listener, the restart can proceed and
+  // a still-draining process must not be force-killed. Recheck ownership to
+  // protect against PID reuse during the grace window as well.
+  if (!listeningPids(port).includes(pid)) return true;
+  try { process.kill(pid, 'SIGKILL'); } catch { return true; }
+  sleepMs(100);
+  return !processAlive(pid);
+}
+
 // Stop daemon
 function stopDaemon() {
   invalidateDaemonHealthCache(); // state changed — don't serve a stale "up"
   try {
     let filePid = null;
+    const port = getDaemonPort();
     if (existsSync(DAEMON_PID_FILE)) {
       filePid = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
+      // Prefer an authenticated in-band shutdown. This works even when OS
+      // listener inspection is unavailable and lets active evals drain. A
+      // foreign service cannot authenticate this request.
       try {
-        process.kill(filePid, 'SIGTERM');
+        daemonCurl('/shutdown', [`http://127.0.0.1:${port}/shutdown`], { timeout: 1000 });
+        sleepMs(150);
       } catch {}
-      unlinkSync(DAEMON_PID_FILE);
+      terminateVerifiedDaemon(filePid, port);
+      // Do not unlink a PID written by a replacement daemon in a concurrent
+      // restart race. The contents must still be the PID we inspected.
+      try {
+        const current = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
+        if (current === filePid) unlinkSync(DAEMON_PID_FILE);
+      } catch {}
     }
-    // Kill-by-port ONLY when the listener is provably our daemon (PID file
-    // match). After an idle shutdown the port file is gone and the resolved
-    // port is the range default — killPort() there would SIGKILL whatever
-    // foreign process the port fallback deliberately left alone.
-    try {
-      const port = getDaemonPort();
-      const raw = getPortPid(port);
-      if (raw && filePid !== null) {
-        const pids = String(raw).split('\n').map((s) => parseInt(s.trim(), 10));
-        if (pids.includes(filePid)) killPort(port);
-      }
-    } catch {}
-    clearPortFile();
+    // A dying old daemon must not delete a newer daemon's published port.
+    clearPortFile(process.env, port);
   } catch {}
 }
 
@@ -496,15 +570,24 @@ function daemonHealthy() {
   }
 }
 
+async function waitForPluginConnection(maxWaitMs = 8000) {
+  if (!(await ensureDaemonRunning())) return false;
+  const deadline = Date.now() + Math.max(0, Number(maxWaitMs) || 0);
+  do {
+    if (daemonHealthy()) return true;
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  } while (true);
+  return false;
+}
+
 // Helper: Check connection
 async function checkConnection() {
   // Self-heal: if the daemon idle-shut-down, bring it back BEFORE any command
   // tries to talk to it. Several command paths (e.g. render-batch) call
   // daemonExec directly with no fallback, so a dead daemon would hard-error
   // rather than just run slow. Resurrecting it here keeps the fast path alive.
-  await ensureDaemonRunning();
-
-  if (daemonHealthy()) return true;
+  if (await waitForPluginConnection()) return true;
 
   // No direct CDP fallback in Safe Mode — the plugin bridge must be connected.
   console.log(chalk.red('\n✗ Not connected to Figma\n'));
@@ -534,6 +617,7 @@ export {
   daemonExec,
   detectWrapperSplit,
   fastEval,
+  safeReadEval,
   figmaEvalSync,
   evalPrint,
   progress,
@@ -551,6 +635,7 @@ export {
   handleEvalError,
   hexToRgb,
   isDaemonRunning,
+  daemonBuildMatchesCurrent,
   isVarRef,
   loadConfig,
   pkg,

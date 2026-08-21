@@ -198,6 +198,278 @@ node
     }
   });
 
+function normalizedNodeIds(values) {
+  return values.map((value) => normalizeNodeId(String(value)).id);
+}
+
+function structuralParentOptions(command) {
+  return command
+    .option('--parent <nodeId>', 'Use this parent instead of the first node\'s current parent')
+    .option('--index <n>', 'Insert at this child index')
+    .option('--name <name>', 'Name the resulting node')
+    .option('--json', 'Output as JSON');
+}
+
+function structuralRequest(nodeIds, options, minimum = 1) {
+  const ids = normalizedNodeIds(nodeIds);
+  if (ids.length < minimum) throw new Error(`Provide at least ${minimum} node id${minimum === 1 ? '' : 's'}`);
+  if (new Set(ids).size !== ids.length) throw new Error('Node ids must be unique');
+  const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
+  const index = options.index === undefined ? null : Number(options.index);
+  if (index !== null && (!Number.isInteger(index) || index < 0)) {
+    throw new Error('--index must be a non-negative integer');
+  }
+  return { ids, parentId, index };
+}
+
+function structuralPrelude({ ids, parentId, index }) {
+  return `const ids = ${JSON.stringify(ids)};
+const nodes = [];
+for (const id of ids) {
+  const candidate = await figma.getNodeByIdAsync(id);
+  if (!candidate || candidate.type === 'DOCUMENT' || candidate.type === 'PAGE') throw new Error('Canvas node not found: ' + id);
+  nodes.push(candidate);
+}
+let parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'nodes[0].parent'};
+if (!parent || typeof parent.appendChild !== 'function') throw new Error('Target parent cannot contain children');
+${parentId ? '' : `if (nodes.some(candidate => !candidate.parent || candidate.parent.id !== parent.id)) throw new Error('Nodes must share one parent unless --parent is provided');`}
+${index === null ? 'const insertionIndex = undefined;' : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index}); const insertionIndex = ${index};`}`;
+}
+
+structuralParentOptions(node
+  .command('group <nodeIds...>')
+  .description('Group two or more explicit node IDs'))
+  .action(async (nodeIds, options) => {
+    try {
+      const request = structuralRequest(nodeIds, options, 2);
+      await checkConnection();
+      const result = await fastEval(`(async () => {
+${structuralPrelude(request)}
+const result = figma.group(nodes, parent, insertionIndex);
+${options.name ? `result.name = ${JSON.stringify(options.name)};` : ''}
+return { id: result.id, name: result.name, type: result.type, parentId: result.parent ? result.parent.id : null, childIds: result.children.map(child => child.id) };
+})()`);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Grouped ${result.childIds.length} nodes as "${result.name}" (${result.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+node
+  .command('ungroup <nodeId>')
+  .description('Ungroup an explicit group or transform group')
+  .option('--json', 'Output as JSON')
+  .action(async (nodeId, options) => {
+    try {
+      const id = normalizeNodeId(String(nodeId)).id;
+      await checkConnection();
+      const result = await fastEval(`(async () => {
+const target = await figma.getNodeByIdAsync(${JSON.stringify(id)});
+if (!target || !['GROUP', 'TRANSFORM_GROUP'].includes(target.type)) throw new Error('Expected GROUP or TRANSFORM_GROUP: ' + ${JSON.stringify(id)});
+const parentId = target.parent ? target.parent.id : null;
+const children = figma.ungroup(target);
+return { parentId, children: children.map(child => ({ id: child.id, name: child.name, type: child.type })) };
+})()`);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Ungrouped ${result.children.length} nodes into ${result.parentId}`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+structuralParentOptions(node
+  .command('boolean <operation> <nodeIds...>')
+  .description('Combine explicit nodes with union, subtract, intersect, or exclude'))
+  .action(async (operation, nodeIds, options) => {
+    try {
+      const method = String(operation).toLowerCase();
+      if (!['union', 'subtract', 'intersect', 'exclude'].includes(method)) {
+        throw new Error('Operation must be union, subtract, intersect, or exclude');
+      }
+      const request = structuralRequest(nodeIds, options, 2);
+      await checkConnection();
+      const result = await fastEval(`(async () => {
+${structuralPrelude(request)}
+const result = figma[${JSON.stringify(method)}](nodes, parent, insertionIndex);
+${options.name ? `result.name = ${JSON.stringify(options.name)};` : ''}
+return { id: result.id, name: result.name, type: result.type, operation: result.booleanOperation, parentId: result.parent ? result.parent.id : null };
+})()`);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `${result.operation} created as "${result.name}" (${result.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+structuralParentOptions(node
+  .command('flatten <nodeIds...>')
+  .description('Flatten one or more explicit nodes into one vector'))
+  .action(async (nodeIds, options) => {
+    try {
+      const request = structuralRequest(nodeIds, options, 1);
+      await checkConnection();
+      const result = await fastEval(`(async () => {
+${structuralPrelude(request)}
+const result = figma.flatten(nodes, parent, insertionIndex);
+${options.name ? `result.name = ${JSON.stringify(options.name)};` : ''}
+return { id: result.id, name: result.name, type: result.type, parentId: result.parent ? result.parent.id : null };
+})()`);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Flattened to "${result.name}" (${result.id})`);
+    } catch (error) { handleEvalError(error); }
+  });
+
+node
+  .command('duplicate <nodeId>')
+  .description('Duplicate any cloneable canvas node (including frames and sections)')
+  .option('--parent <nodeId>', 'Place the copy inside this parent instead of beside the source')
+  .option('--index <n>', 'Insert at this child index (default: append)')
+  .option('--name <name>', 'Rename the copy')
+  .option('--offset-x <n>', 'Horizontal offset from the source', '40')
+  .option('--offset-y <n>', 'Vertical offset from the source', '40')
+  .option('--json', 'Output as JSON')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+    const sourceId = normalizeNodeId(nodeId).id;
+    const parentId = options.parent ? normalizeNodeId(options.parent).id : null;
+    const offsetX = Number(options.offsetX);
+    const offsetY = Number(options.offsetY);
+    const index = options.index === undefined ? null : Number(options.index);
+    if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
+      console.error(chalk.red('✗ --offset-x and --offset-y must be numbers'));
+      process.exit(1);
+    }
+    if (index !== null && (!Number.isInteger(index) || index < 0)) {
+      console.error(chalk.red('✗ --index must be a non-negative integer'));
+      process.exit(1);
+    }
+    const code = `(async () => {
+      const source = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+      if (!source) throw new Error('Node not found: ' + ${JSON.stringify(sourceId)});
+      if (typeof source.clone !== 'function') throw new Error('Node cannot be duplicated: ' + source.type);
+      let parent = source.parent;
+      ${parentId ? `parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+      if (!parent) throw new Error('Parent not found: ' + ${JSON.stringify(parentId)});
+      if (typeof parent.appendChild !== 'function') throw new Error('Target cannot contain children: ' + parent.type);` : ''}
+      const copy = source.clone();
+      try {
+        ${parentId ? `${index === null
+          ? 'parent.appendChild(copy);'
+          : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});
+        parent.insertChild(${index}, copy);`}` : ''}
+        ${options.name ? `copy.name = ${JSON.stringify(options.name)};` : ''}
+        if ('x' in copy && typeof source.x === 'number') copy.x = source.x + ${offsetX};
+        if ('y' in copy && typeof source.y === 'number') copy.y = source.y + ${offsetY};
+      } catch (error) {
+        try { copy.remove(); } catch {}
+        throw error;
+      }
+      return {
+        id: copy.id,
+        name: copy.name,
+        type: copy.type,
+        parentId: copy.parent ? copy.parent.id : null,
+        x: typeof copy.x === 'number' ? copy.x : null,
+        y: typeof copy.y === 'number' ? copy.y : null,
+      };
+    })()`;
+    try {
+      const result = await fastEval(code);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Duplicated "${result.name}" (${result.id}) in ${result.parentId}`);
+    } catch (e) {
+      console.error(chalk.red('✗ Duplicate failed: ' + e.message));
+      process.exit(1);
+    }
+  });
+
+node
+  .command('reparent <nodeId> <parentId>')
+  .description('Move a canvas node into another page, frame, section, component, or group')
+  .option('--index <n>', 'Insert at this child index (default: append)')
+  .option('--no-preserve-position', 'Use the node\'s existing local x/y instead of preserving its canvas position')
+  .option('--json', 'Output as JSON')
+  .action(async (nodeId, parentId, options) => {
+    await checkConnection();
+    const childId = normalizeNodeId(nodeId).id;
+    const destinationId = normalizeNodeId(parentId).id;
+    const index = options.index === undefined ? null : Number(options.index);
+    if (index !== null && (!Number.isInteger(index) || index < 0)) {
+      console.error(chalk.red('✗ --index must be a non-negative integer'));
+      process.exit(1);
+    }
+    const code = `(async () => {
+      const child = await figma.getNodeByIdAsync(${JSON.stringify(childId)});
+      const parent = await figma.getNodeByIdAsync(${JSON.stringify(destinationId)});
+      if (!child) throw new Error('Node not found: ' + ${JSON.stringify(childId)});
+      if (!parent) throw new Error('Parent not found: ' + ${JSON.stringify(destinationId)});
+      if (child.type === 'DOCUMENT' || child.type === 'PAGE') throw new Error('Only canvas nodes can be reparented; got ' + child.type);
+      if (typeof parent.appendChild !== 'function') throw new Error('Target cannot contain children: ' + parent.type);
+      for (let cursor = parent; cursor; cursor = cursor.parent) {
+        if (cursor.id === child.id) throw new Error('Cannot reparent a node into itself or one of its descendants');
+      }
+      if (child.parent && child.parent.id === parent.id && ${index === null}) {
+        return { id: child.id, name: child.name, parentId: parent.id, unchanged: true, positionPreserved: true };
+      }
+      const oldParent = child.parent;
+      const oldIndex = oldParent && oldParent.children ? oldParent.children.indexOf(child) : -1;
+      const oldX = typeof child.x === 'number' ? child.x : null;
+      const oldY = typeof child.y === 'number' ? child.y : null;
+      const transform = child.absoluteTransform;
+      const absoluteX = transform && transform[0] ? transform[0][2] : oldX;
+      const absoluteY = transform && transform[1] ? transform[1][2] : oldY;
+      let positionPreserved = false;
+      try {
+        ${index === null
+          ? 'parent.appendChild(child);'
+          : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});
+        parent.insertChild(${index}, child);`}
+        const canPosition = ${options.preservePosition !== false}
+          && 'x' in child && 'y' in child
+          && (parent.type === 'PAGE' || !('layoutMode' in parent) || parent.layoutMode === 'NONE');
+        if (canPosition && absoluteX != null && absoluteY != null) {
+          if (parent.type === 'PAGE') {
+            child.x = absoluteX;
+            child.y = absoluteY;
+            positionPreserved = true;
+          } else {
+            const t = parent.absoluteTransform;
+            const a = t[0][0], c = t[0][1], tx = t[0][2];
+            const b = t[1][0], d = t[1][1], ty = t[1][2];
+            const det = a * d - b * c;
+            if (Math.abs(det) > 1e-9) {
+              const dx = absoluteX - tx, dy = absoluteY - ty;
+              child.x = (d * dx - c * dy) / det;
+              child.y = (-b * dx + a * dy) / det;
+              positionPreserved = true;
+            }
+          }
+        }
+      } catch (error) {
+        try {
+          if (oldParent && typeof oldParent.appendChild === 'function') {
+            if (oldIndex >= 0 && typeof oldParent.insertChild === 'function') oldParent.insertChild(oldIndex, child);
+            else oldParent.appendChild(child);
+            if (oldX !== null) child.x = oldX;
+            if (oldY !== null) child.y = oldY;
+          }
+        } catch {}
+        throw error;
+      }
+      return {
+        id: child.id,
+        name: child.name,
+        oldParentId: oldParent ? oldParent.id : null,
+        parentId: parent.id,
+        index: parent.children ? parent.children.indexOf(child) : null,
+        positionPreserved,
+      };
+    })()`;
+    try {
+      const result = await fastEval(code);
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(chalk.green('✓'), `Moved "${result.name}" (${result.id}) into ${result.parentId}`);
+    } catch (e) {
+      console.error(chalk.red('✗ Reparent failed: ' + e.message));
+      process.exit(1);
+    }
+  });
+
 node
   .command('move <nodeId> <x> <y>')
   .description('Move a node to an absolute canvas position (top-left corner). Sections move with their children.')
@@ -601,19 +873,42 @@ node
 // helper as `node bind`, which means an ambiguous name is reported instead of
 // silently resolved to whichever collection came first.
 
-const SET_PROPS = {
-  fill:        'paint',
-  stroke:      'paint',
-  strokeWidth: 'number',
-  radius:      'number',
-  opacity:     'number',
-  x:           'number',
-  y:           'number',
-  width:       'number',
-  height:      'number',
-  name:        'string',
-  visible:     'boolean',
-};
+const SET_ENUMS = Object.freeze({
+  blendMode: ['PASS_THROUGH', 'NORMAL', 'DARKEN', 'MULTIPLY', 'LINEAR_BURN', 'COLOR_BURN', 'LIGHTEN', 'SCREEN', 'LINEAR_DODGE', 'COLOR_DODGE', 'OVERLAY', 'SOFT_LIGHT', 'HARD_LIGHT', 'DIFFERENCE', 'EXCLUSION', 'HUE', 'SATURATION', 'COLOR', 'LUMINOSITY'],
+  strokeAlign: ['CENTER', 'INSIDE', 'OUTSIDE'],
+  strokeCap: ['NONE', 'ROUND', 'SQUARE', 'ARROW_LINES', 'ARROW_EQUILATERAL', 'DIAMOND_FILLED', 'TRIANGLE_FILLED', 'CIRCLE_FILLED'],
+  strokeJoin: ['MITER', 'BEVEL', 'ROUND'],
+  maskType: ['ALPHA', 'VECTOR', 'LUMINANCE'],
+  layoutMode: ['NONE', 'HORIZONTAL', 'VERTICAL', 'GRID'],
+  layoutWrap: ['NO_WRAP', 'WRAP'],
+  primaryAxisAlign: ['MIN', 'MAX', 'CENTER', 'SPACE_BETWEEN'],
+  counterAxisAlign: ['MIN', 'MAX', 'CENTER', 'BASELINE'],
+  layoutSizingHorizontal: ['FIXED', 'HUG', 'FILL'],
+  layoutSizingVertical: ['FIXED', 'HUG', 'FILL'],
+  layoutAlign: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'INHERIT'],
+  layoutPositioning: ['AUTO', 'ABSOLUTE'],
+  constraintsHorizontal: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE'],
+  constraintsVertical: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE'],
+});
+
+const SET_PROPS = Object.freeze({
+  fill: 'paint', stroke: 'paint', effects: 'json-array',
+  strokeWidth: 'number', strokeTopWidth: 'number', strokeRightWidth: 'number',
+  strokeBottomWidth: 'number', strokeLeftWidth: 'number', strokeMiterLimit: 'number',
+  strokeAlign: 'enum', strokeCap: 'enum', strokeJoin: 'enum', dashPattern: 'number-list',
+  radius: 'number', radii: 'radii', cornerSmoothing: 'number',
+  opacity: 'number', blendMode: 'enum', visible: 'boolean', locked: 'boolean',
+  isMask: 'boolean', maskType: 'enum', clip: 'boolean', constrainProportions: 'boolean',
+  x: 'number', y: 'number', width: 'number', height: 'number', rotation: 'number',
+  minWidth: 'nullable-number', maxWidth: 'nullable-number', minHeight: 'nullable-number', maxHeight: 'nullable-number',
+  name: 'string',
+  constraintsHorizontal: 'enum', constraintsVertical: 'enum',
+  layoutMode: 'enum', layoutWrap: 'enum', primaryAxisAlign: 'enum', counterAxisAlign: 'enum',
+  layoutSizingHorizontal: 'enum', layoutSizingVertical: 'enum', layoutAlign: 'enum',
+  layoutPositioning: 'enum', layoutGrow: 'number', itemSpacing: 'number', counterAxisSpacing: 'nullable-number',
+  padding: 'number', paddingTop: 'number', paddingRight: 'number', paddingBottom: 'number', paddingLeft: 'number',
+  pointCount: 'number', innerRadius: 'number', sectionContentsHidden: 'boolean',
+});
 
 /**
  * Normalize one set request. Pure — exported for tests.
@@ -628,6 +923,7 @@ export function parseSetRequest(entry) {
     w: 'width', h: 'height',
     newName: 'name', label: 'name',
     cornerRadius: 'radius', strokeWeight: 'strokeWidth',
+    rotate: 'rotation', clipsContent: 'clip',
   };
   const props = {};
   for (const [rawKey, value] of Object.entries(entry)) {
@@ -642,8 +938,39 @@ export function parseSetRequest(entry) {
       const n = Number(value);
       if (!Number.isFinite(n)) throw new Error(`${key} must be a number, got ${JSON.stringify(value)}`);
       props[key] = n;
+    } else if (want === 'nullable-number') {
+      if (value === null || /^(none|null)$/i.test(String(value))) props[key] = null;
+      else {
+        const n = Number(value);
+        if (!Number.isFinite(n)) throw new Error(`${key} must be a number or null, got ${JSON.stringify(value)}`);
+        props[key] = n;
+      }
     } else if (want === 'boolean') {
-      props[key] = value === true || value === 'true';
+      if (value === true || value === false) props[key] = value;
+      else if (/^(true|false)$/i.test(String(value))) props[key] = String(value).toLowerCase() === 'true';
+      else throw new Error(`${key} must be true or false`);
+    } else if (want === 'enum') {
+      let normalized = String(value).trim().toUpperCase().replace(/[ -]+/g, '_');
+      if (key === 'layoutMode' && normalized === 'ROW') normalized = 'HORIZONTAL';
+      if (key === 'layoutMode' && ['COL', 'COLUMN'].includes(normalized)) normalized = 'VERTICAL';
+      if (!SET_ENUMS[key].includes(normalized)) throw new Error(`${key} must be one of: ${SET_ENUMS[key].join(', ')}`);
+      props[key] = normalized;
+    } else if (want === 'number-list' || want === 'radii') {
+      const values = Array.isArray(value) ? value : String(value).split(',');
+      const numbers = values.map((item) => Number(item));
+      if (numbers.some((number) => !Number.isFinite(number) || number < 0)) throw new Error(`${key} must contain non-negative numbers`);
+      if (want === 'radii' && numbers.length !== 4) throw new Error('radii must contain four values: top-left, top-right, bottom-right, bottom-left');
+      props[key] = numbers;
+    } else if (want === 'json-array') {
+      let parsed = value;
+      if (typeof value === 'string') {
+        try { parsed = JSON.parse(value); }
+        catch (error) { throw new Error(`${key} must be valid JSON: ${error.message}`); }
+      }
+      if (!Array.isArray(parsed) || parsed.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+        throw new Error(`${key} must be a JSON array of Figma effect objects`);
+      }
+      props[key] = parsed;
     } else {
       props[key] = String(value);
     }
@@ -653,6 +980,10 @@ export function parseSetRequest(entry) {
   if (('width' in props) !== ('height' in props)) {
     throw new Error('width and height must be set together (Figma resizes in one call)');
   }
+  if ('opacity' in props && (props.opacity < 0 || props.opacity > 1)) throw new Error('opacity must be between 0 and 1');
+  if ('cornerSmoothing' in props && (props.cornerSmoothing < 0 || props.cornerSmoothing > 1)) throw new Error('cornerSmoothing must be between 0 and 1');
+  if ('innerRadius' in props && (props.innerRadius < 0 || props.innerRadius > 1)) throw new Error('innerRadius must be between 0 and 1');
+  if ('pointCount' in props && (!Number.isInteger(props.pointCount) || props.pointCount < 3)) throw new Error('pointCount must be an integer of at least 3');
   return { nodeId: normalizeNodeId(String(rawId)).id, props };
 }
 
@@ -711,14 +1042,76 @@ for (const req of requests) {
   }
 
   const scalars = [
-    ['strokeWidth', 'strokeWeight'], ['radius', 'cornerRadius'], ['opacity', 'opacity'],
-    ['x', 'x'], ['y', 'y'], ['name', 'name'], ['visible', 'visible'],
+    ['strokeWidth', 'strokeWeight'], ['strokeTopWidth', 'strokeTopWeight'],
+    ['strokeRightWidth', 'strokeRightWeight'], ['strokeBottomWidth', 'strokeBottomWeight'],
+    ['strokeLeftWidth', 'strokeLeftWeight'], ['strokeMiterLimit', 'strokeMiterLimit'],
+    ['strokeAlign', 'strokeAlign'], ['strokeCap', 'strokeCap'], ['strokeJoin', 'strokeJoin'],
+    ['radius', 'cornerRadius'], ['cornerSmoothing', 'cornerSmoothing'],
+    ['opacity', 'opacity'], ['blendMode', 'blendMode'], ['visible', 'visible'], ['locked', 'locked'],
+    ['isMask', 'isMask'], ['maskType', 'maskType'], ['clip', 'clipsContent'],
+    ['constrainProportions', 'constrainProportions'],
+    ['x', 'x'], ['y', 'y'], ['rotation', 'rotation'], ['name', 'name'],
+    ['minWidth', 'minWidth'], ['maxWidth', 'maxWidth'], ['minHeight', 'minHeight'], ['maxHeight', 'maxHeight'],
+    ['layoutMode', 'layoutMode'], ['layoutWrap', 'layoutWrap'],
+    ['primaryAxisAlign', 'primaryAxisAlignItems'], ['counterAxisAlign', 'counterAxisAlignItems'],
+    ['layoutSizingHorizontal', 'layoutSizingHorizontal'], ['layoutSizingVertical', 'layoutSizingVertical'],
+    ['layoutAlign', 'layoutAlign'], ['layoutPositioning', 'layoutPositioning'], ['layoutGrow', 'layoutGrow'],
+    ['itemSpacing', 'itemSpacing'], ['counterAxisSpacing', 'counterAxisSpacing'],
+    ['paddingTop', 'paddingTop'], ['paddingRight', 'paddingRight'], ['paddingBottom', 'paddingBottom'], ['paddingLeft', 'paddingLeft'],
+    ['pointCount', 'pointCount'], ['innerRadius', 'innerRadius'], ['sectionContentsHidden', 'sectionContentsHidden'],
   ];
   for (const [key, field] of scalars) {
     if (!(key in p)) continue;
     if (!(field in node)) { skipped.push(key + ' (' + node.type + ' has no ' + field + ')'); continue; }
     try { node[field] = p[key]; applied.push(key); }
     catch (e) { failed.push({ nodeId: req.nodeId, reason: key + ': ' + e.message }); }
+  }
+
+  if ('padding' in p) {
+    const fields = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+    if (fields.some(field => !(field in node))) skipped.push('padding (' + node.type + ' has no Auto Layout padding)');
+    else {
+      try { for (const field of fields) node[field] = p.padding; applied.push('padding'); }
+      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'padding: ' + e.message }); }
+    }
+  }
+
+  if ('radii' in p) {
+    const fields = ['topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius'];
+    if (fields.some(field => !(field in node))) skipped.push('radii (' + node.type + ' has no individual corners)');
+    else {
+      try { fields.forEach((field, index) => { node[field] = p.radii[index]; }); applied.push('radii'); }
+      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'radii: ' + e.message }); }
+    }
+  }
+
+  if ('dashPattern' in p) {
+    if (!('dashPattern' in node)) skipped.push('dashPattern (' + node.type + ' has no strokes)');
+    else {
+      try { node.dashPattern = p.dashPattern; applied.push('dashPattern'); }
+      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'dashPattern: ' + e.message }); }
+    }
+  }
+
+  if ('effects' in p) {
+    if (!('effects' in node)) skipped.push('effects (' + node.type + ' has no effects)');
+    else {
+      try { node.effects = p.effects; applied.push('effects'); }
+      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'effects: ' + e.message }); }
+    }
+  }
+
+  if ('constraintsHorizontal' in p || 'constraintsVertical' in p) {
+    if (!('constraints' in node)) skipped.push('constraints (' + node.type + ' has no constraints)');
+    else {
+      try {
+        node.constraints = {
+          horizontal: p.constraintsHorizontal || node.constraints.horizontal,
+          vertical: p.constraintsVertical || node.constraints.vertical,
+        };
+        applied.push('constraints');
+      } catch (e) { failed.push({ nodeId: req.nodeId, reason: 'constraints: ' + e.message }); }
+    }
   }
 
   if ('width' in p && 'height' in p) {
@@ -741,15 +1134,59 @@ node
   .description(`Set properties on a node, or on many at once with --batch. Properties: ${Object.keys(SET_PROPS).join(', ')}. Colours take a hex or var:<name> — a var: reference stays bound.`)
   .option('--fill <color>', 'Hex ("#ff0000") or var:<name>')
   .option('--stroke <color>', 'Hex or var:<name>')
+  .option('--effects <json>', 'Figma Effect[] JSON')
   .option('--stroke-width <n>', 'Stroke weight')
+  .option('--stroke-top-width <n>', 'Top stroke weight')
+  .option('--stroke-right-width <n>', 'Right stroke weight')
+  .option('--stroke-bottom-width <n>', 'Bottom stroke weight')
+  .option('--stroke-left-width <n>', 'Left stroke weight')
+  .option('--stroke-miter-limit <n>', 'Miter limit')
+  .option('--stroke-align <value>', 'center, inside, or outside')
+  .option('--stroke-cap <value>', 'none, round, square, or an arrow/shape cap')
+  .option('--stroke-join <value>', 'miter, bevel, or round')
+  .option('--dash-pattern <values>', 'Comma-separated dash and gap lengths')
   .option('--radius <n>', 'Corner radius')
+  .option('--radii <values>', 'Four corners: top-left,top-right,bottom-right,bottom-left')
+  .option('--corner-smoothing <n>', 'Corner smoothing, 0–1')
   .option('--opacity <n>', 'Opacity, 0–1')
+  .option('--blend-mode <value>', 'Figma blend mode')
+  .option('--locked <bool>', 'true / false')
+  .option('--clip <bool>', 'Clip frame contents')
+  .option('--is-mask <bool>', 'Use this node as a mask')
+  .option('--mask-type <value>', 'alpha, vector, or luminance')
+  .option('--constrain-proportions <bool>', 'Lock or unlock aspect ratio')
   .option('--x <n>', 'X position')
   .option('--y <n>', 'Y position')
+  .option('--rotation <n>', 'Rotation in degrees')
   .option('--width <n>', 'Width (needs --height)')
   .option('--height <n>', 'Height (needs --width)')
+  .option('--min-width <n>', 'Minimum width, or null')
+  .option('--max-width <n>', 'Maximum width, or null')
+  .option('--min-height <n>', 'Minimum height, or null')
+  .option('--max-height <n>', 'Maximum height, or null')
   .option('--name <name>', 'Rename the layer')
   .option('--visible <bool>', 'true / false')
+  .option('--constraints-horizontal <value>', 'min, center, max, stretch, or scale')
+  .option('--constraints-vertical <value>', 'min, center, max, stretch, or scale')
+  .option('--layout-mode <value>', 'none, horizontal/row, vertical/column, or grid')
+  .option('--layout-wrap <value>', 'no-wrap or wrap')
+  .option('--primary-axis-align <value>', 'min, max, center, or space-between')
+  .option('--counter-axis-align <value>', 'min, max, center, or baseline')
+  .option('--layout-sizing-horizontal <value>', 'fixed, hug, or fill')
+  .option('--layout-sizing-vertical <value>', 'fixed, hug, or fill')
+  .option('--layout-align <value>', 'min, center, max, stretch, or inherit')
+  .option('--layout-positioning <value>', 'auto or absolute')
+  .option('--layout-grow <n>', 'Auto Layout grow value')
+  .option('--item-spacing <n>', 'Auto Layout item spacing')
+  .option('--counter-axis-spacing <n>', 'Wrapped-row spacing, or null')
+  .option('--padding <n>', 'Set all four Auto Layout paddings')
+  .option('--padding-top <n>', 'Top padding')
+  .option('--padding-right <n>', 'Right padding')
+  .option('--padding-bottom <n>', 'Bottom padding')
+  .option('--padding-left <n>', 'Left padding')
+  .option('--point-count <n>', 'Polygon sides or star points')
+  .option('--inner-radius <n>', 'Star inner radius, 0–1')
+  .option('--section-contents-hidden <bool>', 'Hide or reveal section contents')
   .option('-c, --collection <name>', 'Which collection var:<name> resolves in')
   .option('--batch <json>', 'Many at once: [{"node":"1:2","name":"Card","fill":"var:sage/50"}, …]')
   .action(async (nodeId, options) => {
@@ -773,11 +1210,8 @@ node
         process.exit(1);
       }
       const single = { node: nodeId };
-      for (const [flag, key] of [['fill', 'fill'], ['stroke', 'stroke'], ['strokeWidth', 'strokeWidth'],
-                                 ['radius', 'radius'], ['opacity', 'opacity'], ['x', 'x'], ['y', 'y'],
-                                 ['width', 'width'], ['height', 'height'], ['name', 'name'],
-                                 ['visible', 'visible']]) {
-        if (options[flag] !== undefined) single[key] = options[flag];
+      for (const key of Object.keys(SET_PROPS)) {
+        if (options[key] !== undefined) single[key] = options[key];
       }
       entries = [single];
     }

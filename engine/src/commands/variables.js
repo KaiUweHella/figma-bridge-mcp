@@ -16,7 +16,8 @@ import {
   spinnerSucceed
 } from '../lib/cli-core.js';
 import {
-  parseBoolean, parseScopes, variableCodeSyntaxCode, variablePublishStatusCode,
+  parseBoolean, parseScopes, parseVariableLiteral, parseVariableType,
+  variableCodeSyntaxCode, variablePublishStatusCode,
   variableResolveCode, variableSetValueCode, variableShowCode, variableUpdateCode,
 } from '../lib/variable-management.js';
 
@@ -39,34 +40,19 @@ variables
   .command('create <name>')
   .description('Create a variable')
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
-  .requiredOption('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN')
-  .option('-v, --value <value>', 'Initial value')
+  .requiredOption('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN, EASING, TIMING')
+  .option('-v, --value <value>', 'Initial value; EASING accepts a name or MotionEasing JSON, TIMING uses seconds')
   .action(async (name, options) => {
+    const type = parseVariableType(options.type);
+    const initialValue = options.value === undefined ? undefined : parseVariableLiteral(options.value, type);
     await checkConnection();
-    const type = options.type.toUpperCase();
     const code = `(async () => {
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
 let col = cols.find(c => c.id === ${JSON.stringify(options.collection)} || c.name === ${JSON.stringify(options.collection)});
 if (!col) return 'Collection not found: ' + ${JSON.stringify(options.collection)};
 const modeId = col.modes[0].modeId;
-
-function hexToRgb(hex) {
-  const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16) / 255,
-    g: parseInt(result[2], 16) / 255,
-    b: parseInt(result[3], 16) / 255
-  } : null;
-}
-
 const v = figma.variables.createVariable(${JSON.stringify(name)}, col, ${JSON.stringify(type)});
-${options.value ? `
-let figmaValue = ${JSON.stringify(options.value)};
-if (${JSON.stringify(type)} === 'COLOR') figmaValue = hexToRgb(${JSON.stringify(options.value)});
-else if (${JSON.stringify(type)} === 'FLOAT') figmaValue = parseFloat(${JSON.stringify(options.value)});
-else if (${JSON.stringify(type)} === 'BOOLEAN') figmaValue = ${JSON.stringify(options.value)} === 'true';
-v.setValueForMode(modeId, figmaValue);
-` : ''}
+${initialValue === undefined ? '' : `v.setValueForMode(modeId, ${JSON.stringify(initialValue)});`}
 return 'Created ${type.toLowerCase()} variable: ${name}';
 })()`;
     evalPrint(code);

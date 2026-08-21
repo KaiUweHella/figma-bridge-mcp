@@ -73,6 +73,10 @@ _Avoid_: eval renderer, plugin action, plan interpreter
 A native Figma annotation emitted by an explicitly opted-in lossy CSS ↔ Figma policy on the exact affected semantic node. It explains the boundary, scopes the relevant Figma properties and mirrors the stable policy id plus source fact into versioned plugin data. Equivalent mappings do not emit one.
 _Avoid_: warning label, generated comment, fallback badge
 
+**Round-trip Fidelity Contract**:
+The versioned executable classification of core Figma fact families across Design Capture, agent-facing projections, Semantic Render Plans, Figma Commands and verification. Every direction is explicitly exact, conditional, structural, code-only, Figma-only or stopped; an unclassified core fact is a failing contract rather than an implicit omission.
+_Avoid_: feature checklist, workflow matrix, capability claim
+
 ## Example dialogue
 
 > **Developer:** Does `figma_spec` behave differently through MCP and the CLI?
@@ -146,3 +150,7 @@ _Avoid_: warning label, generated comment, fallback badge
 > **Developer:** How can the agent tell whether a render reused tokens or created new ones?
 >
 > **Domain expert:** Every native render with variable intent returns one Variable Report: references, unique reused variables, created variables, bound properties, ambiguities and unsupported intents. Failed preflight uses the same vocabulary in its error and leaves both variables and canvas nodes untouched.
+
+> **Developer:** Code-to-Figma can write a native effect. Does that mean Design-to-Code can safely rebuild it?
+>
+> **Domain expert:** Only when the Round-trip Fidelity Contract classifies the reverse direction and its Capture, projection and verification are implemented. Write support alone never implies reverse fidelity.

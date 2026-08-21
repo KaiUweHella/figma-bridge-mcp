@@ -44,6 +44,10 @@ test('the manifest permits every port in the range and nothing beyond loopback',
         list.includes(`ws://localhost:${port}`),
         `manifest is missing ws://localhost:${port} — the daemon could bind a port Figma blocks`,
       );
+      assert.ok(
+        list.includes(`http://localhost:${port}`),
+        `manifest is missing http://localhost:${port} — quiet plugin discovery could be blocked`,
+      );
     }
     // The whole security claim of the manifest is that the plugin cannot reach
     // anything but our loopback daemon. A wildcard or any external host here
@@ -51,8 +55,8 @@ test('the manifest permits every port in the range and nothing beyond loopback',
     for (const entry of list) {
       assert.match(
         entry,
-        /^ws:\/\/localhost(:\d+)?$/,
-        `manifest entry "${entry}" is not a loopback WebSocket origin`,
+        /^(?:ws|http):\/\/localhost(:\d+)?$/,
+        `manifest entry "${entry}" is not an approved loopback origin`,
       );
     }
   }

@@ -139,15 +139,20 @@ npm install
 3. Open `Plugins → Development → Figma Bridge`, paste the access key, and
    click **Save & connect**.
 4. When the plugin shows **Connected (authenticated)**, the assistant can work
-   with that Figma file. The pairing is remembered; on later sessions, only
-   reopen the plugin in the file you want to use.
+   with that Figma file. The pairing is remembered. A later `figma_connect`
+   reuses the healthy daemon and socket instead of restarting them, so a new AI
+   session does not interrupt the open Figma file. If the only socket is open
+   but its plugin iframe no longer answers a read-only probe, `figma_connect`
+   reloads just that iframe and it reconnects with the stored key.
 
-The plugin keeps looking for the local bridge if it was opened first. Use the
-reload icon in its connection status card to scan immediately. After an npm
-upgrade, `figma_connect` refreshes the files at the stable path above, but Figma
-may keep the previously imported build in its application cache. `figma_status`
-detects that mismatch. Re-import the same `manifest.json` path once when it
-reports an older plugin build; the saved access key is retained.
+The plugin keeps looking for the local bridge if it was opened first. It uses a
+small bounded WebSocket burst for instant startup, then a quiet localhost health
+probe every three seconds and opens a socket only after the daemon is present.
+Use the reload icon to force one immediate scan. After an npm upgrade,
+`figma_connect` refreshes the files at the stable path above, but Figma may keep
+the previously imported build in its application cache. `figma_status` detects
+that mismatch. Re-import the same `manifest.json` path once when it reports an
+older plugin build; the saved access key is retained.
 
 Figma Dev Mode needs separate adapters because Figma does not support combining
 the existing FigJam editor target with `dev` in one manifest:
@@ -232,6 +237,11 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   enforces variant matrices, token-binding floors, geometry tolerances and
   prototype transitions. Volatile Figma handles are ignored and depth-limited
   captures are refused.
+- A versioned **Round-trip Fidelity Contract** classifies each core Figma fact
+  independently for Code → Figma and Figma → code, including its concrete
+  implementation and verification seam. CI fails when a core fact or direction
+  is unclassified; inspect the current projection with
+  `figma_reference {name:"fidelity"}`.
 - One **Capability Catalog** resolves every Figma Command entering through MCP
   into an immutable plan before either execution adapter runs it. That plan is
   the single source for exposure, Figma/workspace/shared-state effects, target
@@ -258,20 +268,24 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
     This closes the upstream gap where _any_ local process could connect to the
     plugin socket and run code in your Figma document — and the inverse gap,
     where anything answering on a local port could drive an honest plugin.
+  - The unauthenticated `GET /plugin-ready` route is a CORS-scoped discovery
+    beacon containing only bridge identity, readiness and port. It carries no
+    file, token, version or connection data; every command route remains signed
+    and the discovered WebSocket must still complete the mutual handshake.
 
 ## Tools
 
 | Tool               | Purpose                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `figma_connect`    | Start Safe Mode, generate/show the access key, print plugin setup steps.                                                                                                                                                                                                                                                                                                            |
+| `figma_connect`    | Ensure Safe Mode is available without replacing a healthy daemon/socket; self-heal a single unresponsive plugin iframe; generate/show the access key and print plugin setup steps.                                                                                                                                                                                                  |
 | `figma_status`     | Report local daemon/plugin/file/key state immediately; `validateRest:true` explicitly checks the optional REST token.                                                                                                                                                                                                                                                               |
 | `figma_pairing`    | Show the access key; `{rotate:true}` generates a fresh one.                                                                                                                                                                                                                                                                                                                         |
 | `figma_run`        | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`.                                                                                                                                                                                                                                                                       |
 | `figma_render`     | Render JSX into the open Figma design.                                                                                                                                                                                                                                                                                                                                              |
 | `figma_inspect`    | Inspect a node by id: geometry, fills/strokes/effects, clip, opacity (YAML).                                                                                                                                                                                                                                                                                                        |
 | `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned).                                                                                                                                                                                                                                                                                         |
-| `figma_spec`       | Design-to-code spec of a node: real content, component names, tokens, vector-art refs, clip/abs — in phases.                                                                                                                                                                                                                                                                        |
-| `figma_reference`  | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists the generated command index without starting the engine.                                                                                                                                                                                                                                       |
+| `figma_spec`       | Design-to-code spec of one node or a bounded `nodeIds[]` batch: real content, component names, tokens, vector-art refs, clip/abs — multiple same-scope reads can share one Manual Mode approval.                                                                                                                                                                                    |
+| `figma_reference`  | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists commands and `{name:"fidelity"}` projects both workflow directions and their explicit boundaries without starting Figma.                                                                                                                                                                       |
 | `figma_history`    | Local change history from the audit log — filter by `nodeId`, optionally merge `git log` of generated code files and (REST add-on) the file's real Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural diff of the document itself (added/removed/replaced/moved/changed). `figma_run`/`figma_render` accept a `label` to annotate entries. |
 | `figma_selection`  | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their stable publish `key`; linked nodes show their Design Entity, code file and Storybook story.                                                                                                                                                                |
 | `figma_comments`   | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`).                                                                                                                                                                                                                                           |
@@ -284,6 +298,44 @@ Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
 subcommand level: reads like `node tree` or `component list` pass freely,
 mutations like `node delete`, `combos`, or `tokens spacing` require confirm.
+
+Safe Mode exposes the core canvas edits as typed commands; raw `eval` remains
+blocked:
+
+```text
+figma_run {args:["node","duplicate","12:34","--name","Copy"]}
+figma_run {args:["node","reparent","12:34","56:78","--index","0"]}
+figma_run {args:["create","text","Watermark","--parent","56:78","-x","24","-y","24"]}
+figma_run {args:["create","star","Badge","--points","8","--inner-radius","0.55"]}
+figma_run {args:["node","boolean","subtract","12:34","12:35","--name","Cutout"]}
+figma_run {args:["node","set","12:34","--rotation","8","--radii","4,8,12,16","--layout-mode","column","--padding","16"]}
+figma_run {args:["component","instantiate","12:34","--parent","56:78"]}
+figma_run {args:["component","prop","set","12:34","State","Active"]}
+figma_run {args:["gradient","apply","12:34","linear-gradient(90deg, #7c3aed, #06b6d4)","--field","stroke","--stroke-weight","1"]}
+```
+
+`node duplicate` works for cloneable design nodes including Sections;
+`node reparent` accepts an explicit child index and preserves canvas position
+when the destination is not Auto Layout. `create frame|rect|ellipse|text|line|autolayout`
+plus `polygon|star|vector|slice` accept an explicit parent where Figma permits
+it, so small children can be added to an existing frame without rebuilding it.
+ID-scoped `node group|ungroup|boolean|flatten` replace selection-dependent
+structural edits. Components can be created, instantiated, swapped, detached,
+and have their overrides reset or compacted without relying on the current
+selection. The direct `node set` surface covers geometry, visibility/locking,
+fills/strokes/effects, blend and mask settings, individual corners, constraints,
+Auto Layout container/child properties, polygon/star geometry, and Section
+visibility. Legacy selection-based and network-backed `create` subcommands
+remain unreachable through `figma_run`.
+
+The operation audit is pinned to the installed official
+`@figma/plugin-typings` version. It exhaustively classifies every PluginAPI
+creator and structural method, checks every engine command against the Safe
+Mode Capability Catalog, and checks all official variable/easing value types.
+A Figma typings upgrade or newly registered command therefore fails CI until
+the new operation is supported or recorded as an explicit boundary. Run
+`figma_run {args:["api","gap"]}` for the current direct/alternative/boundary
+summary.
 
 Native JSX instances require durable Registry identity (`entity` plus a
 published `key` or local `id`). Their editable overrides use the component's
@@ -376,8 +428,9 @@ when its rendered design and states actually match.
 
 1. **`figma_screenshot`** on the target frame, then read the saved PNG — the
    visual ground truth. Never build from a node tree alone.
-2. **`figma_spec` with `phase: "structure"`** — build the markup skeleton:
-   real text characters, resolved icon/component names (instances are
+2. **One `figma_spec` with `phase: "all"`, `depth: 3–4`** — build the markup
+   skeleton and its bounded exact styles: real text characters, resolved
+   icon/component names (instances are
    descended into, so overrides and true main-component names appear),
    hierarchy and flex direction. Copy texts and icons verbatim. A
    `layout:inferred (Figma heuristic — verify)` marker is not authored Auto
@@ -399,8 +452,12 @@ when its rendered design and states actually match.
    (retina density), without upscaling and only when the encoded file becomes
    smaller. Aspect ratio, manifest placement and CSS crop behavior remain
    unchanged; pass `--raster-scale 0` to retain original PNG bytes.
-5. **`figma_spec` with `phase: "style"`** — apply sizes, gaps, padding,
-   alignment, fill/hug sizing, paints incl. gradients (`→ var(name)` marks a
+5. **One `figma_spec` `nodeIds[]` batch for any missing deeper styles** — put
+   all section/node reads into the same call instead of requesting each
+   section separately. In Manual Mode this means one approval for the batch.
+   Use `phase: "style"`, `depth: 0` for exact containers and `dedup: true` for
+   repeated lists/cards. Apply sizes, gaps, padding, alignment, fill/hug
+   sizing, paints incl. gradients (`→ var(name)` marks a
    design-token binding), radii, shadows, typography, `opacity`, `clip`
    (overflow hidden) and `abs` positioning. Decorative vectors appear as
    `vector art → assets/…` lines with placement — place the exported SVGs,
@@ -486,6 +543,12 @@ the configured output budget, the call returns `complete:false` with a
 section-by-section retry recipe and returns **no misleading partial design**.
 `depth:0` intentionally means “the requested node only” and is complete, not
 a depth-truncated tree.
+
+For large screens, first request one shallow structure map, then send up to
+eight bounded section/style reads through `nodeIds[]` in the next single
+`figma_spec` call. The batch fails closed on the first failed read or when its
+combined result would exceed the output budget; it never presents partial
+batch data as complete.
 
 IMAGE-fill filenames are keyed by Figma's stable image hash, not by the local
 layer name/path. This keeps `figma_spec`, isolated child calls, asset export and
@@ -1224,7 +1287,8 @@ must use the local Plugin API commands above.
   (`Origin`/`Host` allowlisted). Neither the session token nor the access key is
   ever transmitted in either direction — see [Handshake](#handshake).
 - **Localhost-locked plugin** — `plugin/manifest.json` restricts
-  `networkAccess.allowedDomains` to `ws://127.0.0.1:3456–3460`.
+  `networkAccess.allowedDomains` to WebSocket and discovery HTTP traffic on
+  `localhost:3456–3460` only.
 - **Isolated state** — token, pid, key, and audit log live under
   `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install.
 - **Audit log** — every executed command is appended to
@@ -1237,6 +1301,16 @@ must use the local Plugin API commands above.
 publishes it in `~/.figma-bridge-mcp/daemon-port`; the CLI/MCP layers resolve the
 port per call (env `DAEMON_PORT` > port file > 3456), and the plugin scans the
 whole range, so a foreign process squatting 3456 no longer blocks connecting.
+After three bounded WebSocket scans, quiet `/plugin-ready` probes discover a
+returning daemon every three seconds without flooding Chromium with refused
+socket attempts. A normal `figma_connect` is idempotent and preserves an
+authenticated, responsive socket. If that one socket is open but a live
+round-trip fails, it asks the persistent Figma plugin thread to recreate only
+the UI iframe; if the relay cannot answer, it resets that stale socket so quiet
+discovery can reconnect. Only explicit key rotation or `daemon restart`
+replaces the daemon. Stop/restart signals are sent only after the PID file and
+the published listening socket identify the same process, and escalation is
+limited to that listener PID rather than every client sharing the port.
 The squatter check is an _unauthenticated_ `/health` probe, and authenticated
 requests are HMAC-signed — a squatter on a range port sees neither the session
 token nor anything replayable (signatures bind timestamp, nonce, method, path
@@ -1288,6 +1362,12 @@ Node's `crypto` so the two implementations cannot drift apart.
 
 ## Known limitations
 
+- **Figma can terminate the complete plugin runtime.** Reconnect loops and UI
+  reloads work only while at least the plugin main thread is still running. If
+  Figma destroys both the iframe and main thread, no plugin JavaScript remains
+  that could reopen itself; start **Plugins → Development → Figma Bridge** once
+  in that file. The stored access key is reused and discovery reconnects it
+  automatically, so no new pairing is needed.
 - **Figma Slides is beta and deliberately bounded.** Grid inspection, slide
   create/duplicate/move/delete, skip state and transitions are supported.
   Speaker notes, interactive polls/embeds, presenter controls and a complete

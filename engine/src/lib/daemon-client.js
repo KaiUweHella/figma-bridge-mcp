@@ -126,6 +126,9 @@ export function createDaemonClient({
       if (/Unauthorized|token/i.test(raw)) {
         kind = 'authentication';
         message = `${raw}\nToken file: ${tokenFile}\nTry: node src/index.js daemon restart`;
+      } else if (/Plugin disconnected|Plugin connection superseded/i.test(raw)) {
+        kind = 'plugin-unavailable';
+        message = 'Plugin disconnected while the request was running. The plugin reconnects automatically; retry this read once it is connected.';
       } else if (/Plugin not connected/i.test(raw)) {
         kind = 'plugin-unavailable';
         message = 'Plugin not connected.\nIn Figma: Plugins → Development → Figma Bridge (keep that tab open).';
@@ -166,6 +169,11 @@ export function createDaemonClient({
       const target = options.fileKey || null;
       const route = target ? `/selection?fileKey=${encodeURIComponent(target)}` : '/selection';
       return request(route, { authPath: '/selection', timeoutMs: options.timeoutMs || 3000 });
+    },
+    reconnect(options = {}) {
+      const target = options.fileKey || null;
+      const route = target ? `/reconnect?fileKey=${encodeURIComponent(target)}` : '/reconnect';
+      return request(route, { authPath: '/reconnect', timeoutMs: options.timeoutMs || 6500 });
     },
   };
 }

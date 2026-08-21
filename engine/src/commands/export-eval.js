@@ -11,6 +11,7 @@ import {
   checkConnection,
   daemonExec,
   fastEval,
+  safeReadEval,
   figmaEvalSync,
   evalPrint,
   isDaemonRunning,
@@ -617,7 +618,7 @@ exp
         includeHidden: options.includeHidden,
         format: options.format,
         dedup: options.dedup,
-      }, { evaluate: fastEval });
+      }, { evaluate: safeReadEval });
       if (result.stderr) process.stderr.write(result.stderr + '\n');
       // process.exit right after console.log DROPS unflushed stdout beyond
       // 64KB (classic Node pitfall — surfaced as yaml/json output truncated
@@ -651,7 +652,7 @@ program
         savePath: !options.base64 && typeof options.save === 'string' ? options.save : null,
         saveDefault: !options.base64 && typeof options.save !== 'string',
       }, {
-        evaluate: fastEval,
+        evaluate: safeReadEval,
         save: (file, bytes) => writeFileSync(file, bytes),
         defaultSavePath: (capture) => `/tmp/figma-verify-${String(capture.id).replace(/:/g, '-')}.png`,
       });

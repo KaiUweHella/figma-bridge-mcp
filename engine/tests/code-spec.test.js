@@ -197,6 +197,29 @@ test('instance swap, slot, overrides and exposed instances survive as a componen
   assert.equal(model.componentProperties['Icon#2'].preferredValues[0].key, 'ICON_KEY');
   assert.equal(model.exposedInstances[0].main, 'Icon/Calendar');
   assert.deepEqual(model.kids[0].slot.limitViolations, ['MAX_CHILDREN']);
+  const output = formatCodeSpec(result, { phase: 'structure', dedup: false });
+  assert.match(output, /component-properties\{[^}]*State#1:VARIANT value="Default"/);
+  assert.match(output, /Icon#2:INSTANCE_SWAP value="COMPONENT_ID"/);
+  assert.match(output, /component-refs\{visible→Show icon#123\}/);
+});
+
+test('tree specs expose component definition names, types, defaults and variant options', () => {
+  const result = {
+    id: 'set:root', name: 'QA set', visibleNodeCount: 1, sets: [],
+    frames: [{
+      t: 'COMPONENT_SET', n: 'QA/Bridge Action', id: 'set:1',
+      componentPropertyDefinitions: {
+        'Label#set:1': { type: 'TEXT', defaultValue: 'Approve' },
+        'Show icon#set:2': { type: 'BOOLEAN', defaultValue: true },
+        State: { type: 'VARIANT', defaultValue: 'Default', variantOptions: ['Default', 'Active'] },
+      },
+      kids: [],
+    }],
+  };
+  const output = formatCodeSpec(result, { phase: 'structure', dedup: false });
+  assert.match(output, /component-definitions\{[^}]*Label#set:1:TEXT default="Approve"/);
+  assert.match(output, /Show icon#set:2:BOOLEAN default=true/);
+  assert.match(output, /State:VARIANT default="Default" options=\["Default","Active"\]/);
 });
 
 // ============ hidden-node filtering (IMPROVEMENTS #1) ============
@@ -284,6 +307,52 @@ test('walker exposes Figma prototype scrolling and fixed-child facts', async () 
   const model = specModel(withFixed, { phase: 'structure', dedup: false });
   assert.equal(model.frames[0].scroll, 'VERTICAL_SCROLLING');
   assert.equal(model.frames[0].kids[1].fixed, true);
+});
+
+test('Design Capture preserves reactions, masks, blend mode, corner smoothing and stroke sizing', async () => {
+  const root = {
+    id: 'fidelity:1', name: 'Interactive glass', type: 'FRAME', visible: true,
+    width: 180, height: 120, children: [],
+    blendMode: 'MULTIPLY', isMask: true, maskType: 'LUMINANCE',
+    cornerSmoothing: 0.62, strokesIncludedInLayout: true,
+    reactions: [{
+      trigger: { type: 'ON_CLICK' },
+      actions: [{ type: 'NODE', navigation: 'NAVIGATE', destinationId: '9:9', transition: null }],
+    }],
+    effects: [
+      { type: 'NOISE', noiseType: 'DUOTONE', density: 0.25, noiseSize: 2, color: { r: 0, g: 0, b: 0, a: 1 }, secondaryColor: { r: 1, g: 1, b: 1, a: 1 }, opacity: 0.4, visible: true },
+      { type: 'TEXTURE', noiseSize: 9, radius: 18, clipToShape: false, visible: true },
+      { type: 'LAYER_BLUR', radius: 20, blurType: 'PROGRESSIVE', startRadius: 3, startOffset: { x: 0, y: 0.5 }, endOffset: { x: 0, y: 1 }, visible: true },
+      { type: 'GLASS', refraction: 0.8, depth: 40, radius: 7, dispersion: 0.2, lightIntensity: 0.6, lightAngle: 120, visible: true },
+    ],
+  };
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, { withIds: true }), root));
+  const captured = result.frames[0];
+  assert.equal(captured.blend, 'MULTIPLY');
+  assert.equal(captured.mask, true);
+  assert.equal(captured.maskType, 'LUMINANCE');
+  assert.equal(captured.cs, 0.62);
+  assert.equal(captured.sil, true);
+  assert.equal(captured.rx[0].actions[0].destinationId, '9:9');
+  assert.deepEqual(captured.fx.map((effect) => effect.type), ['NOISE', 'TEXTURE', 'LAYER_BLUR', 'GLASS']);
+
+  const text = formatCodeSpec(result, { phase: 'all', dedup: false });
+  assert.match(text, /mask:luminance/);
+  assert.match(text, /blend:multiply/);
+  assert.match(text, /corner-smoothing:0\.62/);
+  assert.match(text, /strokes-in-layout/);
+  assert.match(text, /Prototype reaction: (?=.*ON_CLICK)(?=.*destinationId)(?=.*9:9).*/);
+  assert.doesNotMatch(text, /undefined/);
+  assert.match(text, /noise .*density.*0\.25/);
+  assert.match(text, /glass .*refraction.*0\.8/);
+
+  const model = specModel(result, { phase: 'all', dedup: false }).frames[0];
+  assert.equal(model.maskType, 'LUMINANCE');
+  assert.equal(model.reactions[0].trigger.type, 'ON_CLICK');
+  assert.equal(model.style.blend, 'MULTIPLY');
+  assert.equal(model.style.cs, 0.62);
+  assert.equal(model.style.sil, true);
+  assert.equal(model.style.fx[3].refraction, 0.8);
 });
 
 test('scroll on a vertically HUG node is marked incidental, not an inner-scroll contract', () => {
@@ -520,6 +589,26 @@ test('paintSeg renders shadows compactly', () => {
   assert.equal(seg, 'shadow 0/2/8/0 #000000@10%');
 });
 
+test('paintSeg preserves every modern native effect parameter without undefined placeholders', () => {
+  const seg = paintSeg({
+    blend: 'MULTIPLY', cs: 0.6, sil: true,
+    fx: [
+      { type: 'NOISE', noiseType: 'DUOTONE', density: 0.25, noiseSize: 2, opacity: 0.4 },
+      { type: 'TEXTURE', noiseSize: 9, radius: 18, clipToShape: false },
+      { type: 'LAYER_BLUR', blur: 20, blurType: 'PROGRESSIVE', startRadius: 3, startOffset: { x: 0, y: 0.5 }, endOffset: { x: 0, y: 1 } },
+      { type: 'GLASS', refraction: 0.8, depth: 40, radius: 7, dispersion: 0.2, lightIntensity: 0.6, lightAngle: 120 },
+    ],
+  });
+  assert.match(seg, /blend:multiply/);
+  assert.match(seg, /corner-smoothing:0\.6/);
+  assert.match(seg, /strokes-in-layout/);
+  assert.match(seg, /noise .*density.*0\.25/);
+  assert.match(seg, /texture .*clipToShape.*false/);
+  assert.match(seg, /layer-blur .*startRadius.*3/);
+  assert.match(seg, /glass .*lightAngle.*120/);
+  assert.doesNotMatch(seg, /undefined/);
+});
+
 test('typeSeg renders font, size/lh and letter spacing', () => {
   const seg = typeSeg({ txt: { font: 'Inter', style: 'Semi Bold', size: 16, lh: 19, ls: 0.2 } });
   assert.equal(seg, 'Inter Semi Bold 16/19 ls0.2');
@@ -655,6 +744,7 @@ test('walker and tree keep mixed rich-text run styles instead of flattening the 
         lineHeight: { unit: 'PIXELS', value: 20 }, letterSpacing: { unit: 'PIXELS', value: 0 },
         fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
         textDecoration: 'NONE', textCase: 'ORIGINAL', openTypeFeatures: {}, boundVariables: {},
+        hyperlink: 1,
       },
       {
         start: 6, end: 11, characters: 'world',
@@ -662,8 +752,12 @@ test('walker and tree keep mixed rich-text run styles instead of flattening the 
         lineHeight: { unit: 'PERCENT', value: 150 }, letterSpacing: { unit: 'PERCENT', value: 2 },
         fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }],
         textDecoration: 'UNDERLINE', textCase: 'UPPER', openTypeFeatures: { SS01: true }, boundVariables: {},
+        hyperlink: 1,
       },
     ],
+    getRangeHyperlink: (start, end) => start === 6 && end === 11
+      ? { type: 'URL', value: 'https://example.com/world' }
+      : null,
     children: [],
   };
   const figmaStub = {
@@ -683,11 +777,39 @@ test('walker and tree keep mixed rich-text run styles instead of flattening the 
   assert.deepEqual(runs[1], {
     start: 6, end: 11, chars: 'world', font: 'Inter', style: 'Bold', weight: 700,
     size: 18, lh: 27, ls: '2%', fills: ['#0000ff'], decoration: 'UNDERLINE',
-    case: 'UPPER', ot: ['SS01'],
+    case: 'UPPER', ot: ['SS01'], hyperlink: { type: 'URL', value: 'https://example.com/world' },
   });
   const output = formatCodeSpec(result, { phase: 'style', dedup: false });
   assert.match(output, /runs\{0:5 "Hello" → Inter Regular fw400 16\/20 · fill #ff0000/);
-  assert.match(output, /6:11 "world" → Inter Bold fw700 18\/27 ls2% · fill #0000ff · decoration:underline · case:upper · ot\(SS01\)/);
+  assert.match(output, /6:11 "world" → Inter Bold fw700 18\/27 ls2% · fill #0000ff · decoration:underline · case:upper · ot\(SS01\) · link:\{"type":"URL","value":"https:\/\/example\.com\/world"\}/);
+  const modelRuns = specModel(result, { phase: 'style', dedup: false }).frames[0].style.txt.runs;
+  assert.deepEqual(modelRuns[1].hyperlink, { type: 'URL', value: 'https://example.com/world' });
+});
+
+test('walker preserves a hyperlink when the entire text is one styled segment', async () => {
+  const root = {
+    id: 'link:1', name: 'Linked label', type: 'TEXT', visible: true, width: 160, height: 24,
+    characters: 'Open docs', fontName: { family: 'Inter', style: 'Regular' },
+    fontWeight: 400, fontSize: 16, openTypeFeatures: {},
+    getStyledTextSegments: () => [{
+      start: 0, end: 9, characters: 'Open docs',
+      fontName: { family: 'Inter', style: 'Regular' }, fontWeight: 400, fontSize: 16,
+      lineHeight: { unit: 'PIXELS', value: 20 }, letterSpacing: { unit: 'PIXELS', value: 0 },
+      fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }],
+      textDecoration: 'UNDERLINE', textCase: 'ORIGINAL', openTypeFeatures: {}, boundVariables: {},
+      hyperlink: 1,
+    }],
+    getRangeHyperlink: () => ({ type: 'URL', value: 'https://example.com/docs' }),
+    children: [],
+  };
+  const result = JSON.parse(await runWalker(nodeWalkerCode(root.id, {
+    resolveInstances: true, withIds: true, withVars: true, textLimit: 0,
+  }), root));
+  assert.deepEqual(result.frames[0].txt.runs?.[0]?.hyperlink, {
+    type: 'URL', value: 'https://example.com/docs',
+  });
+  assert.match(formatCodeSpec(result, { phase: 'style', dedup: false }),
+    /link:\{"type":"URL","value":"https:\/\/example\.com\/docs"\}/);
 });
 
 const SPEC_FIXTURE = {

@@ -59,6 +59,14 @@ describe('parseJSXBatch child-type parity with single render', () => {
     assertValidJs(code);
   });
 
+  it('keeps an explicit instance layer name when the component resolves by id', async () => {
+    const code = await client.parseJSXBatch([
+      '<Frame name="A"><Instance id="4:31" name="Leading icon" /></Frame>',
+    ]);
+    assert.match(code, /\.name = "Leading icon"/);
+    assertValidJs(code);
+  });
+
   it('supports grow on nested frames', async () => {
     const code = await client.parseJSXBatch(['<Frame name="A" flex="row"><Frame grow={1} bg="#fff"></Frame></Frame>']);
     assert.ok(/layoutSizingHorizontal = .FILL./.test(code), 'grow in row parent must map to FILL');
