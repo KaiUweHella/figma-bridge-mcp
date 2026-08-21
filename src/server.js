@@ -45,7 +45,8 @@ import {
 } from "../engine/src/application/design-link-command.js";
 import { designContractFileKeyFromArgv } from "../engine/src/application/design-contract-command.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
-import { WRITE_CONFIRM } from "./config.js";
+import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
+import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
 import { getAuditStatus } from "./audit-trail.js";
 
 export const MCP_SERVER_ID = "figma-bridge-mcp";
@@ -1149,7 +1150,10 @@ async function enrichFigmaMap(normalizedArgs, fileKey) {
   }
   if (!file) return null;
   try {
-    const doc = JSON.parse(readFileSync(file, "utf8"));
+    const doc = parseBoundedJson(
+      WORKSPACE_IO.readText(file, { role: "component-map-output" }),
+      { role: "component-map-output", limits: WORKSPACE_IO.limits },
+    );
     if (!Array.isArray(doc.mappings) || !doc.mappings.length) return null;
     const resolved = await resolveFileKey(fileKey);
     if (!resolved.key) return `Library metadata skipped: ${resolved.error}`;
@@ -1168,7 +1172,10 @@ async function enrichFigmaMap(normalizedArgs, fileKey) {
       if (meta.documentationLinks.length) m.documentationLinks = meta.documentationLinks;
     }
     doc.fileKey = resolved.key;
-    writeFileSync(file, JSON.stringify(doc, null, 2));
+    WORKSPACE_IO.write(file, JSON.stringify(doc, null, 2), {
+      role: "component-map-output",
+      createParents: true,
+    });
     return `Library metadata (REST): ${enriched} mapping(s) enriched with published descriptions/doc links.`;
   } catch (err) {
     return `Library metadata enrichment failed: ${err.message}`;
@@ -1390,14 +1397,14 @@ export async function handleTool(name, rawArgs) {
       if (!Array.isArray(args) || args.length === 0) {
         return errorResult("args must be a non-empty array of strings.");
       }
-      const prepared = planFigmaCommand(args);
+      const prepared = planFigmaCommand(args, { workspaceIO: WORKSPACE_IO });
       const inferredLinkFile = prepared.argv[0] === "link"
         ? designLinkFileKeyFromArgv([...prepared.argv])
         : prepared.argv[0] === "contract"
           ? designContractFileKeyFromArgv([...prepared.argv])
           : null;
       const target = resolveFileTarget(input.fileKey || inferredLinkFile, args);
-      const plan = planFigmaCommand(args, { fileKey: target });
+      const plan = planFigmaCommand(args, { fileKey: target, workspaceIO: WORKSPACE_IO });
       if (WRITE_CONFIRM && plan.effects.figma === "write" && input.confirm !== true) {
         return previewResult(args);
       }
@@ -1411,6 +1418,7 @@ export async function handleTool(name, rawArgs) {
           async ({ fileKey, timeoutMs }) => {
             const result = await executeDesignLink(designLinkRequestFromArgv(normalized), {
               evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+              workspaceIO: WORKSPACE_IO,
             });
             return { stdout: formatDesignLinkResult(result), stderr: "" };
           });

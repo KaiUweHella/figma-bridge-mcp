@@ -9,8 +9,8 @@
 //   2. the daemon's top-level-return auto-wrap is flaky on if-statement returns,
 //      so every eval body is wrapped in an explicit async IIFE (evalBody()).
 import chalk from 'chalk';
-import { readFileSync } from 'fs';
 import { progress, program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import {
   mapField,
   parseKeys,
@@ -208,7 +208,10 @@ motion
     const spinner = progress('Applying animation spec...').start();
     try {
       const trimmed = spec.trim();
-      const obj = trimmed.startsWith('{') ? JSON.parse(trimmed) : JSON.parse(readFileSync(spec, 'utf8'));
+      const text = trimmed.startsWith('{')
+        ? trimmed
+        : workspaceIO().readText(spec, { role: 'motion-file' });
+      const obj = parseBoundedJson(text, { role: 'motion-file', limits: workspaceIO().limits });
       const normalized = normalizeSpec(obj);
       const res = await runApply(normalized);
       reportApply(res, spinner);

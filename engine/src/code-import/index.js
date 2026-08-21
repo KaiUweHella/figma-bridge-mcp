@@ -5,12 +5,12 @@
  * string that parseDesignMd (src/design-md.js) can round-trip through.
  */
 
-import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { parseW3cTokens } from './w3c-tokens.js';
 import { parseCss } from './css.js';
 import { parseTailwindConfig } from './tailwind.js';
 import { parseStorybookIndex, fetchStorybookIndex } from './storybook.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 /**
  * Detect which parser to use from the source path + optional content sample.
@@ -48,7 +48,7 @@ export function detectSourceType(source, contentSample = '') {
 
   // Directory → storybook
   try {
-    if (statSync(source).isDirectory()) return 'storybook';
+    if (workspaceIO().authorizePath(source, { access: 'read', role: 'import-source', kind: 'any' }).metadata.isDirectory()) return 'storybook';
   } catch { /* not found or not a directory */ }
 
   return null;
@@ -166,7 +166,7 @@ export async function convert(source, { type } = {}) {
     let sample = '';
     if (!/^https?:\/\//.test(source)) {
       try {
-        sample = readFileSync(source, 'utf8').slice(0, 2048);
+        sample = workspaceIO().readText(source, { role: 'import-source' }).slice(0, 2048);
       } catch { /* file not readable — detectSourceType will figure it out */ }
     }
     resolvedType = detectSourceType(source, sample);
@@ -176,12 +176,12 @@ export async function convert(source, { type } = {}) {
 
   switch (resolvedType) {
     case 'tokens': {
-      const content = readFileSync(source, 'utf8');
+      const content = workspaceIO().readText(source, { role: 'import-source' });
       ({ tokens, meta } = parseW3cTokens(content));
       break;
     }
     case 'css': {
-      const content = readFileSync(source, 'utf8');
+      const content = workspaceIO().readText(source, { role: 'import-source' });
       ({ tokens, meta } = parseCss(content));
       break;
     }
@@ -196,11 +196,13 @@ export async function convert(source, { type } = {}) {
       } else {
         // Check if it's a directory
         let isDir = false;
-        try { isDir = statSync(source).isDirectory(); } catch { /* file */ }
+        try {
+          isDir = workspaceIO().authorizePath(source, { access: 'read', role: 'storybook-source', kind: 'any' }).metadata.isDirectory();
+        } catch { /* file */ }
         if (isDir) {
           content = await fetchStorybookIndex(source);
         } else {
-          content = readFileSync(source, 'utf8');
+          content = workspaceIO().readText(source, { role: 'storybook-index' });
         }
       }
       ({ tokens, meta } = parseStorybookIndex(content));

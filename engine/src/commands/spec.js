@@ -4,10 +4,10 @@
 // costs zero LLM tokens — the CLI returns a compact digest / verdict, not the
 // 600-line structure dump.
 import chalk from 'chalk';
-import { readFileSync } from 'fs';
 import { program, checkConnection, fastEval } from '../lib/cli-core.js';
 import { findComponentSpec, checkConformance, formatReuseDigest } from '../lib/design-spec.js';
 import { locateDesignMd } from '../lib/design-md-locate.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 // Measure a built node for conformance: type, variant property names, each
 // variant's name + size, and a DEEP tree (layout/gap/padding/children) of the
@@ -49,12 +49,12 @@ program
   .option('--check <nodeId>', 'Measure this node and ENFORCE the spec (exit 1 on violation)')
   .option('--tolerance <px>', 'Dimension tolerance in px for --check', '2')
   .action(async (component, options) => {
-    const file = locateDesignMd(options.file);
+    const file = locateDesignMd(options.file, workspaceIO().roots[0]);
     if (!file) {
       console.error(chalk.red('✗ No DESIGN.md found.'), 'Pass --file <path> or run from a folder that has one (try figma_run ["extract"] first).');
       process.exit(1);
     }
-    const md = readFileSync(file, 'utf8');
+    const md = workspaceIO().readText(file, { role: 'design-spec-file' });
     const spec = findComponentSpec(md, component);
     if (!spec) {
       console.error(chalk.red(`✗ No component matching "${component}" in ${file}.`));

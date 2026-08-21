@@ -32,6 +32,8 @@ import {
   DAEMON_TOKEN_FILE,
   PLUGIN_KEY_FILE,
   REST_TOKEN_FILE,
+  WORKSPACE_IO,
+  ENGINE_WORKSPACE_ROOTS,
   buildArgv,
 } from "./config.js";
 
@@ -42,7 +44,12 @@ const execFileAsync = promisify(execFile);
 // key the MCP layer generated, so the plugin handshake can be authenticated.
 // REST_TOKEN_FILE tells the daemon where to persist the optional REST token
 // the user pastes into the plugin UI (the MCP layer reads the same path).
-const engineEnv = { ...process.env, PLUGIN_KEY_FILE, REST_TOKEN_FILE };
+const engineEnv = {
+  ...process.env,
+  PLUGIN_KEY_FILE,
+  REST_TOKEN_FILE,
+  FIGMA_BRIDGE_WORKSPACE_ROOTS: ENGINE_WORKSPACE_ROOTS,
+};
 
 // Compatibility view for callers/tests. The Capability Catalog is the source
 // of truth; `connect`, raw eval/run and removed generators are absent there.
@@ -116,7 +123,10 @@ function startCommandExecution(args, opts = {}) {
   validateArgs(args);
   const command = args[0];
   const targetContext = resolveFigmaTarget({ explicitFileKey: opts.fileKey, args });
-  const plan = planFigmaCommand(args, { fileKey: targetContext.fileKey });
+  const plan = planFigmaCommand(args, {
+    fileKey: targetContext.fileKey,
+    workspaceIO: WORKSPACE_IO,
+  });
   if (!plan.allowed) {
     const rejected = ALLOWED_COMMANDS.has(command) && args[1]
       ? `${command} ${args[1]}`

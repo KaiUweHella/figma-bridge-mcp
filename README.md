@@ -331,6 +331,14 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   the single source for exposure, Figma/workspace/shared-state effects, target
   need, confirmation, normalized paths, retry, timeout, accepted exit codes
   and background-job identity. Unknown commands default to denied/write/no-retry.
+- One **Workspace I/O** module confines Command Capability file effects to the
+  MCP launch directory by default. Paths are checked after symlink resolution,
+  opened files are revalidated before bytes are read or written, and structured
+  whole-file inputs have byte, nesting, collection and YAML-alias limits. This
+  does not narrow normal Figma-to-code or code-to-Figma work inside the project.
+  For a legitimate second repository, add canonical roots explicitly with
+  `FIGMA_BRIDGE_EXTRA_ROOTS` (use the platform path-list separator: `:` on
+  macOS/Linux, `;` on Windows). The launch directory always remains allowed.
 - One immutable **Figma Target Context** resolves explicit `fileKey`, pasted
   Figma URL or implicit single-window targeting once per command and then
   accompanies planning, audit, job identity and daemon execution. One shared
@@ -382,6 +390,22 @@ Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
 subcommand level: reads like `node tree` or `component list` pass freely,
 mutations like `node delete`, `combos`, or `tokens spacing` require confirm.
+
+Workspace file access is zero-configuration for the project from which the MCP
+server is launched. For a multi-project workflow, configure additional roots
+on the server process, for example on macOS/Linux:
+
+```json
+{
+  "env": {
+    "FIGMA_BRIDGE_EXTRA_ROOTS": "/work/shared-design-system:/work/second-app"
+  }
+}
+```
+
+Use `;` between roots on Windows. Relative extra roots resolve from the launch
+workspace. Paths outside the launch workspace and these explicit additions are
+rejected without printing the private absolute path.
 
 Safe Mode exposes the core canvas edits as typed commands; raw `eval` remains
 blocked:

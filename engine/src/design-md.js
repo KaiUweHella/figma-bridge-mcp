@@ -19,9 +19,9 @@
  * system prompt without bloating it with 7000 lines of structure.
  */
 
-import fs from 'fs';
-import YAML from 'yaml';
 import { variableScopePolicyCode } from './lib/variable-scope-policy.js';
+import { createWorkspaceIO, parseBoundedJson, parseBoundedYaml, workspaceIO } from './lib/workspace-io.js';
+import { dirname } from 'node:path';
 
 const JSON_BLOCK_RE = /```json\s+design-tokens\s*\n([\s\S]*?)\n```/;
 
@@ -188,14 +188,17 @@ function parseProseSpec(text) {
 }
 
 export function parseDesignMd(filepath) {
-  const text = fs.readFileSync(filepath, 'utf-8');
+  const io = process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
+    ? workspaceIO()
+    : createWorkspaceIO({ root: dirname(filepath) });
+  const text = io.readText(filepath, { role: 'design-document' });
 
   // Format A: YAML frontmatter (Stitch / getdesign.md / awesome-design-md style)
   const fmMatch = text.match(FRONTMATTER_RE);
   if (fmMatch) {
     let spec;
     try {
-      spec = YAML.parse(fmMatch[1]);
+      spec = parseBoundedYaml(fmMatch[1], { role: 'design-frontmatter', limits: io.limits });
     } catch (e) {
       throw new Error(`YAML frontmatter in ${filepath} is not valid: ${e.message}`);
     }
@@ -220,7 +223,7 @@ export function parseDesignMd(filepath) {
   if (match) {
     let tokens;
     try {
-      tokens = JSON.parse(match[1]);
+      tokens = parseBoundedJson(match[1], { role: 'design-token-block', limits: io.limits });
     } catch (e) {
       throw new Error(`Token JSON block is not valid JSON: ${e.message}`);
     }

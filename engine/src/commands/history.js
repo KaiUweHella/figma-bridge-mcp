@@ -10,7 +10,6 @@
 // ~/.figma-bridge-mcp/snapshots and `diff --changelog` writes a markdown file
 // if asked to.
 import chalk from 'chalk';
-import { writeFileSync } from 'fs';
 import { resolve } from 'path';
 import {
   program,
@@ -24,6 +23,7 @@ import {
 } from '../lib/snapshot-store.js';
 import { diffSnapshots, formatDiff, formatChangelog, isEmptyDiff } from '../lib/doc-diff.js';
 import { saveVersionCode } from '../lib/version-history.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 const historyCmd = program
   .command('history')
@@ -198,7 +198,7 @@ historyCmd
       const md = formatChangelog(diff, { before, after });
       if (typeof options.changelog === 'string') {
         const out = resolve(options.changelog);
-        writeFileSync(out, md + '\n');
+        workspaceIO().write(out, md + '\n', { role: 'history-changelog', createParents: true });
         console.log(chalk.green('✓'), `Changelog written to ${out}`);
         return;
       }

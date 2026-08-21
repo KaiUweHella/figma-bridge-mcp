@@ -1,6 +1,5 @@
 import chalk from 'chalk';
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { program, checkConnection, daemonExec, handleEvalError } from '../lib/cli-core.js';
 import { DESIGN_LINK_REGISTRY_FILE } from '../lib/design-link-registry.js';
 import {
@@ -41,7 +40,6 @@ contract
         action: 'capture', ...optionsFor(entityId, options),
         geometryTolerance: Number(options.geometryTolerance),
       };
-      mkdirSync(dirname(request.contractPath), { recursive: true });
       const result = await executeDesignContract(request, {
         evaluate: (code) => daemonExec('eval', { code }),
       });

@@ -11,12 +11,12 @@
 
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
-import { readFileSync } from 'fs';
 import { extname } from 'path';
 import { gradientTransformFromCssAngle } from './lib/paint-css.js';
+import { workspaceIO } from './lib/workspace-io.js';
 
 export function loadImage(path) {
-  const buf = readFileSync(path);
+  const buf = workspaceIO().read(path, { role: 'gradient-image', maxBytes: 32 * 1024 * 1024 });
   const ext = extname(path).toLowerCase();
   if (ext === '.png') {
     const png = PNG.sync.read(buf);
@@ -551,4 +551,3 @@ export function buildMeshFromColors(colors, opts = {}) {
     blurFraction: opts.blur != null ? opts.blur : 0.42,
   };
 }
-

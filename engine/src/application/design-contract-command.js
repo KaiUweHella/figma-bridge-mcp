@@ -8,11 +8,15 @@ import {
   formatDesignContractCheck,
   serializeDesignContract,
 } from '../lib/design-contract.js';
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 
 const uncachedCapture = createDesignCaptureModule({ maxEntries: 0, maxBytes: 0 });
 
-function entityFor(manifestPath, entityId) {
-  const loaded = readDesignLinkRegistry(dirname(manifestPath), { manifestPath });
+function entityFor(manifestPath, entityId, io = null) {
+  const loaded = readDesignLinkRegistry(dirname(manifestPath), {
+    manifestPath,
+    ...(io ? { io } : {}),
+  });
   const entity = resolveDesignEntity(loaded.registry, { id: entityId });
   if (!entity) throw new Error(`Design Entity not found: ${entityId}`);
   if (!entity.figma?.nodeId) throw new Error(`Design Entity ${entity.id} has no Figma node link.`);
@@ -57,7 +61,9 @@ export async function executeDesignContract(request, adapters = {}) {
   if (maxDiffs !== undefined && (!Number.isInteger(maxDiffs) || maxDiffs < 1)) {
     throw new Error('Design Contract max diffs must be a positive integer.');
   }
-  const entity = entityFor(request.manifestPath, request.entityId);
+  const io = adapters.workspaceIO
+    || (process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS ? workspaceIO() : null);
+  const entity = entityFor(request.manifestPath, request.entityId, io);
   const capture = await captureFor(entity, {
     ...request,
     depth,
@@ -68,17 +74,26 @@ export async function executeDesignContract(request, adapters = {}) {
       entity, capture,
       geometryTolerance,
     });
-    const write = adapters.writeContract || ((path, content) => writeFileSync(path, content));
+    const write = adapters.writeContract || (io
+      ? ((path, content) => io.write(path, content, { role: 'design-contract-file', createParents: true }))
+      : ((path, content) => writeFileSync(path, content)));
     await write(request.contractPath, serializeDesignContract(contract));
     return { action: 'capture', entity, contract, path: request.contractPath };
   }
   if (request.action === 'check') {
-    const read = adapters.readContract || ((path) => readFileSync(path, 'utf8'));
+    const read = adapters.readContract || (io
+      ? ((path) => io.readText(path, { role: 'design-contract-file' }))
+      : ((path) => readFileSync(path, 'utf8')));
     if (!adapters.readContract && !existsSync(request.contractPath)) {
       throw new Error(`Design Contract not found: ${request.contractPath}`);
     }
     let contract;
-    try { contract = JSON.parse(await read(request.contractPath)); }
+    try {
+      contract = parseBoundedJson(await read(request.contractPath), {
+        role: 'design-contract-file',
+        limits: io?.limits,
+      });
+    }
     catch (error) { throw new Error(`Invalid Design Contract ${request.contractPath}: ${error.message}`); }
     if (contract.entity?.id !== entity.id) {
       throw new Error(`Design Contract belongs to ${contract.entity?.id || '(unknown)'}, not ${entity.id}.`);

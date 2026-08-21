@@ -78,7 +78,11 @@ async function verifyVisualParity(request, entity, nodeId, adapters) {
     return adapters.verifyVisual({ entity, nodeId, comparePath: request.comparePath, maxDiff });
   }
   let buildBuffer;
-  try { buildBuffer = readFileSync(request.comparePath); } catch (error) {
+  try {
+    buildBuffer = adapters.workspaceIO
+      ? adapters.workspaceIO.read(request.comparePath, { role: 'design-link-comparison', maxBytes: 32 * 1024 * 1024 })
+      : readFileSync(request.comparePath);
+  } catch (error) {
     throw new Error(`Cannot read visual comparison image ${request.comparePath}: ${error.message}`);
   }
   const designExport = await adapters.evaluate(exportDesignEntityPngCode(nodeId));
@@ -227,7 +231,9 @@ async function captureRoundTripState(entity, nodeId, projectRoot, adapters) {
   if (!nodeId) throw new Error(`Design Entity ${entity.id} has no Figma node link.`);
   const sourcePath = normalizeRepositoryPath(entity.code.path, projectRoot);
   const absoluteSource = resolvePath(projectRoot, sourcePath);
-  const readSource = adapters.readSource || ((path) => readFileSync(path, 'utf8'));
+  const readSource = adapters.readSource || (adapters.workspaceIO
+    ? ((path) => adapters.workspaceIO.readText(path, { role: 'design-link-source' }))
+    : ((path) => readFileSync(path, 'utf8')));
   let content;
   try { content = await readSource(absoluteSource); } catch (error) {
     throw new Error(`Cannot read code source ${sourcePath}: ${error.message}`);
@@ -378,7 +384,11 @@ export async function executeDesignLink(request, adapters = {}) {
   const manifestPath = request?.manifestPath;
   if (!manifestPath) throw new Error('Design Link Registry path is required.');
   const projectRoot = dirname(manifestPath);
-  const loaded = readDesignLinkRegistry(projectRoot, { manifestPath });
+  const registryOptions = {
+    manifestPath,
+    ...(adapters.workspaceIO ? { io: adapters.workspaceIO } : {}),
+  };
+  const loaded = readDesignLinkRegistry(projectRoot, registryOptions);
 
   if (request.action === 'list') {
     return {
@@ -400,7 +410,7 @@ export async function executeDesignLink(request, adapters = {}) {
         ...(request.tokens ? { tokens: normalizeRepositoryPath(request.tokens, projectRoot) } : {}),
       },
     };
-    writeDesignLinkRegistry(loaded.path, registry);
+    writeDesignLinkRegistry(loaded.path, registry, adapters.workspaceIO ? { io: adapters.workspaceIO } : {});
     return { action: 'configure', path: loaded.path, project: registry.project };
   }
 
@@ -453,7 +463,7 @@ export async function executeDesignLink(request, adapters = {}) {
       kind: resolved.entity.kind,
       baseline,
     });
-    writeDesignLinkRegistry(loaded.path, registry);
+    writeDesignLinkRegistry(loaded.path, registry, adapters.workspaceIO ? { io: adapters.workspaceIO } : {});
     return {
       action: 'accept', path: loaded.path,
       entity: resolveDesignEntity(registry, { id: resolved.entity.id }),
@@ -492,7 +502,7 @@ export async function executeDesignLink(request, adapters = {}) {
     },
   });
   try {
-    writeDesignLinkRegistry(loaded.path, registry);
+    writeDesignLinkRegistry(loaded.path, registry, adapters.workspaceIO ? { io: adapters.workspaceIO } : {});
   } catch (error) {
     throw new Error(
       `Figma node now carries Design Entity ${entityId}, but ${loaded.path} could not be written (${error.message}). `

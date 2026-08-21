@@ -6,7 +6,7 @@
 // Storybook story mirrors which Figma component. Writes a REPO FILE only;
 // never mutates the Figma document.
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { resolve } from 'path';
 import {
   program,
@@ -17,6 +17,7 @@ import {
 import { componentInventoryCode } from '../lib/component-inventory.js';
 import { fetchStorybookIndex, parseStorybookIndex } from '../code-import/storybook.js';
 import { matchComponents, mergeMaps } from '../lib/story-match.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 const mapCmd = program
   .command('map')
@@ -71,7 +72,7 @@ mapCmd
     const outPath = resolve(options.output);
     if (existsSync(outPath)) {
       try {
-        result = mergeMaps(JSON.parse(readFileSync(outPath, 'utf8')), result);
+        result = mergeMaps(workspaceIO().readJson(outPath, { role: 'component-map-output' }), result);
       } catch {
         console.log(chalk.yellow(`! Existing ${options.output} is not valid JSON — overwriting.`));
       }
@@ -89,7 +90,10 @@ mapCmd
       unmatchedStories: result.unmatchedStories,
     };
 
-    writeFileSync(outPath, JSON.stringify(map, null, 2) + '\n');
+    workspaceIO().write(outPath, JSON.stringify(map, null, 2) + '\n', {
+      role: 'component-map-output',
+      createParents: true,
+    });
 
     if (options.json) {
       console.log(JSON.stringify(map, null, 2));

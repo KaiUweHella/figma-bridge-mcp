@@ -6,6 +6,10 @@
 // the old wrapper is gone.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  createWorkspaceIO,
+  parseWorkspaceRoots,
+} from "../engine/src/lib/workspace-io.js";
 
 // Repo root (one level up from src/).
 export const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -18,6 +22,21 @@ export const ENGINE_ENTRY = fileURLToPath(
 // Working directory for the engine child. The repo root is stable regardless of
 // where the MCP client launched the server from.
 export const ENGINE_CWD = REPO_ROOT;
+
+// Workspace authority. The MCP launch directory remains the zero-config
+// project root. Multi-project work is explicit and additive; it never replaces
+// the launch root. The canonical list is forwarded to engine children so both
+// adapters enforce the same boundary even though the engine itself runs from
+// the stable package directory.
+export const WORKSPACE_ROOT = process.cwd();
+export const WORKSPACE_EXTRA_ROOTS = Object.freeze(
+  parseWorkspaceRoots(process.env.FIGMA_BRIDGE_EXTRA_ROOTS),
+);
+export const WORKSPACE_IO = createWorkspaceIO({
+  root: WORKSPACE_ROOT,
+  extraRoots: WORKSPACE_EXTRA_ROOTS,
+});
+export const ENGINE_WORKSPACE_ROOTS = WORKSPACE_IO.roots.join(path.delimiter);
 
 // Base directory for all local state (token, pid, key, Audit Trail). Kept
 // separate from any upstream figma-ds-cli install so the two never share a

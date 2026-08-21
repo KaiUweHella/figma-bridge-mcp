@@ -13,12 +13,13 @@
 // Read-only with respect to Figma. Everything it writes lands in the project
 // directory the user names.
 import chalk from 'chalk';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { resolve as resolvePath, join, relative, dirname } from 'path';
+import { resolve as resolvePath, join, relative, dirname, delimiter } from 'path';
 import { fileURLToPath } from 'url';
 import { program, checkConnection } from '../lib/cli-core.js';
+import { createWorkspaceIO, workspaceIO } from '../lib/workspace-io.js';
 
 const execFileAsync = promisify(execFile);
 const ENTRY = resolvePath(dirname(fileURLToPath(import.meta.url)), '..', 'index.js');
@@ -35,12 +36,20 @@ const kit = program
  * would take the whole kit run down after the first step. A child per step
  * also means one failure is a reported failure rather than the end of the run.
  */
-async function step(label, args, { optional = false, globals = [] } = {}) {
+async function step(label, args, {
+  optional = false,
+  globals = [],
+  workspaceRoots = process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS,
+} = {}) {
   process.stdout.write(chalk.gray(`  · ${label}… `));
   try {
     const { stdout } = await execFileAsync(process.execPath, [ENTRY, ...globals, ...args], {
       maxBuffer: 32 * 1024 * 1024,
       timeout: 5 * 60 * 1000,
+      env: {
+        ...process.env,
+        ...(workspaceRoots ? { FIGMA_BRIDGE_WORKSPACE_ROOTS: workspaceRoots } : {}),
+      },
     });
     console.log(chalk.green('ok'));
     return { label, ok: true, stdout: stdout || '' };
@@ -69,8 +78,12 @@ kit
       console.error(chalk.yellow('  Pass the path to your code project, e.g. figma_run ["kit","init","./my-app"]'));
       process.exit(1);
     }
+    const io = process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
+      ? workspaceIO()
+      : createWorkspaceIO({ root });
+    const workspaceRoots = io.roots.join(delimiter);
     const outDir = resolvePath(join(root, options.out));
-    mkdirSync(outDir, { recursive: true });
+    io.ensureDirectory(outDir, { role: 'kit-output-directory' });
 
     const designMd = join(outDir, 'DESIGN.md');
     const tokensFile = join(outDir, 'tokens.json');
@@ -85,19 +98,21 @@ kit
 
     const results = [];
     results.push(await step('DESIGN.md — structure, tokens, variant matrices',
-      ['extract', designMd], { globals }));
+      ['extract', designMd], { globals, workspaceRoots }));
     results.push(await step('tokens.json — DTCG design tokens',
       options.node ? ['export', 'dtcg', tokensFile, options.node] : ['export', 'dtcg', tokensFile],
-      { globals }));
+      { globals, workspaceRoots }));
     // --all-pages: kit is setting up a whole design system, and a library's
     // components are rarely all on the page that happens to be open.
     const inventory = await step('component inventory (stable publish keys)',
-      ['component', 'list', '--all-pages'], { globals });
+      ['component', 'list', '--all-pages'], { globals, workspaceRoots });
     results.push(inventory);
 
     if (options.storybook) {
       results.push(await step(`figma-map.json — matched against ${options.storybook}`,
-        ['map', 'storybook', options.storybook, '-o', mapFile], { optional: true, globals }));
+        ['map', 'storybook', options.storybook, '-o', mapFile], {
+          optional: true, globals, workspaceRoots,
+        }));
     }
 
     // ---- Report ------------------------------------------------------------
@@ -138,7 +153,7 @@ kit
         + 'resolve to their stories in figma_spec and figma_selection.');
     } else if (existsSync(mapFile)) {
       try {
-        const map = JSON.parse(readFileSync(mapFile, 'utf8'));
+        const map = io.readJson(mapFile, { role: 'component-map-output' });
         const entries = Object.keys(map.components || map.matched || {}).length;
         const unmatched = (map.unmatchedFigma || []).length;
         if (unmatched) {

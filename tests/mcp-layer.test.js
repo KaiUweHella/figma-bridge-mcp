@@ -162,9 +162,9 @@ test('normalizeOutputArgs anchors map storybook output to the client workspace',
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base).slice(-2),
     ['-o', inWorkspace('figma-map.json')]);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '-o', 'maps/m.json'], base),
-    ['map', 'storybook', 'u', '-o', inWorkspace('maps', 'm.json')]);
+    ['map', 'storybook', inWorkspace('u'), '-o', inWorkspace('maps', 'm.json')]);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '--output=m.json'], base),
-    ['map', 'storybook', 'u', `--output=${inWorkspace('m.json')}`]);
+    ['map', 'storybook', inWorkspace('u'), `--output=${inWorkspace('m.json')}`]);
 });
 
 test('Design Link Registry projection tolerates missing/corrupt files and keeps legacy Storybook mappings', async () => {
@@ -632,7 +632,7 @@ test('verify-build returns its report on exit 1 because findings are an answer',
   // history diff exits 1 when the design changed — in both cases the code IS
   // the answer. verify-build is used here because it needs no Figma
   // connection, so the test means the same thing on a CI box as it does here.
-  const dir = mkdtempSync(join(tmpdir(), 'figma-okexit-'));
+  const dir = mkdtempSync(join(process.cwd(), '.figma-okexit-'));
   try {
     const res = await runCli(['verify-build', dir]);
     assert.equal(res.code, 1);

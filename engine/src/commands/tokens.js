@@ -1,6 +1,6 @@
 // Commands: tokens (extracted from index.js)
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { join, resolve as resolvePath, dirname } from 'path';
 import {
   progress,
@@ -34,6 +34,7 @@ import {
   collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 
 // ============ COLLECTIONS ============
 
@@ -240,8 +241,8 @@ tokens
     // Read JSON file
     let tokensData;
     try {
-      const content = readFileSync(file, 'utf8');
-      tokensData = JSON.parse(content);
+      const content = workspaceIO().readText(file, { role: 'token-file' });
+      tokensData = parseBoundedJson(content, { role: 'token-file', limits: workspaceIO().limits });
     } catch (error) {
       console.log(chalk.red(`✗ Could not read file: ${file}`));
       process.exit(1);
@@ -498,7 +499,7 @@ tokens
 
     let codeTokens;
     try {
-      codeTokens = parseTokenFile(filePath, readFileSync(filePath, 'utf8'));
+      codeTokens = parseTokenFile(filePath, workspaceIO().readText(filePath, { role: 'token-file' }));
     } catch (e) {
       console.error(chalk.red(`✗ ${e.message}`));
       process.exit(1);
@@ -520,7 +521,9 @@ tokens
       process.exit(1);
     }
 
-    const lock = existsSync(lockPath) ? parseLock(readFileSync(lockPath, 'utf8')) : null;
+    const lock = existsSync(lockPath)
+      ? parseLock(workspaceIO().readText(lockPath, { role: 'token-lockfile' }))
+      : null;
     if (existsSync(lockPath) && !lock) {
       console.log(chalk.yellow(`⚠ ${lockPath} is unreadable or from a newer version — treating this as a first sync.`));
     }
@@ -657,11 +660,11 @@ tokens
     // A rename moved the entry to its new name; the old key must not linger,
     // or the next run would see a tracked variable that no longer exists.
     for (const r of plan.rename) synced.delete(r.from);
-    writeFileSync(lockPath, JSON.stringify(buildLock({
+    workspaceIO().write(lockPath, JSON.stringify(buildLock({
       collection: options.collection,
       fileKey: figmaSide.fileKey || null,
       tokens: synced,
-    }), null, 2) + '\n');
+    }), null, 2) + '\n', { role: 'token-lockfile', createParents: true });
     console.log(chalk.gray(`  lockfile: ${lockPath}`));
 
     if (plan.pull.length) {

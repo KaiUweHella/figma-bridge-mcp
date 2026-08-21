@@ -271,7 +271,7 @@ function optionalOutputFlag(args, baseDir) {
   return value;
 }
 
-function normalizeVerifyBuild(args, baseDir) {
+function normalizeVerifyBuild(args, baseDir, notePath) {
   const pathFlags = new Set(['--assets', '--compare', '--design', '--diff-out']);
   const skipValue = new Set(['--node', '--max-diff']);
   let positionalDone = false;
@@ -279,17 +279,28 @@ function normalizeVerifyBuild(args, baseDir) {
     const arg = args[index];
     const combined = arg.match(/^(--[a-z-]+)=(.*)$/);
     if (combined) {
-      if (pathFlags.has(combined[1])) args[index] = `${combined[1]}=${absolute(baseDir, combined[2])}`;
+      if (pathFlags.has(combined[1])) {
+        const value = absolute(baseDir, combined[2]);
+        args[index] = `${combined[1]}=${value}`;
+        notePath(value, combined[1] === '--diff-out' ? 'write' : 'read', `verify-build-${combined[1].slice(2)}`, combined[1] === '--assets' ? 'any' : 'file');
+      }
       continue;
     }
     if (pathFlags.has(arg)) {
-      if (typeof args[index + 1] === 'string') args[index + 1] = absolute(baseDir, args[index + 1]);
+      if (typeof args[index + 1] === 'string') {
+        args[index + 1] = absolute(baseDir, args[index + 1]);
+        notePath(args[index + 1], arg === '--diff-out' ? 'write' : 'read', `verify-build-${arg.slice(2)}`, arg === '--assets' ? 'any' : 'file');
+      }
       index++;
       continue;
     }
     if (skipValue.has(arg)) { index++; continue; }
     if (arg.startsWith('-')) continue;
-    if (!positionalDone) { args[index] = absolute(baseDir, arg); positionalDone = true; }
+    if (!positionalDone) {
+      args[index] = absolute(baseDir, arg);
+      notePath(args[index], 'read', 'verify-build-project', 'directory');
+      positionalDone = true;
+    }
   }
 }
 
@@ -299,16 +310,34 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
   const capability = commandCapability(args);
   let outputPath = null;
   let workspace = 'none';
-  const markRead = () => { if (workspace === 'none') workspace = 'read'; };
-  const markWrite = (value = null) => { workspace = 'write'; if (value) outputPath = value; };
+  const paths = [];
+  const notePath = (value, access, role, kind = access === 'read' ? 'file' : 'any') => {
+    if (typeof value !== 'string' || isUrl(value)) return;
+    paths.push(Object.freeze({ path: value, access, role, kind }));
+  };
+  const markRead = (value = null, role = 'workspace-input', kind = 'file') => {
+    if (workspace === 'none') workspace = 'read';
+    if (value) notePath(value, 'read', role, kind);
+  };
+  const markOptionalRead = (value, role = 'workspace-input', kind = 'file') => {
+    if (workspace === 'none') workspace = 'read';
+    if (value) notePath(value, 'read-optional', role, kind);
+  };
+  const markWrite = (value = null, role = 'workspace-output', kind = 'any') => {
+    workspace = 'write';
+    if (value) {
+      outputPath = value;
+      notePath(value, 'write', role, kind);
+    }
+  };
   switch (capability.pathPolicy) {
     case 'assets-dir':
       outputPath = outputFlag(args, baseDir, 'assets');
-      markWrite(outputPath);
+      markWrite(outputPath, 'asset-export-directory', 'directory');
       break;
     case 'export-image':
       outputPath = outputFlag(args, baseDir, args[1] === 'node' ? 'node-export.png' : 'screenshot.png');
-      markWrite(outputPath);
+      markWrite(outputPath, 'export-image-output');
       break;
     case 'video-output': {
       let format = 'mp4';
@@ -318,7 +347,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
         if ((args[index] === '--format' || args[index] === '-f') && args[index + 1]) format = args[index + 1].toLowerCase();
       }
       outputPath = outputFlag(args, baseDir, `video.${format}`);
-      markWrite(outputPath);
+      markWrite(outputPath, 'video-output');
       break;
     }
     case 'dtcg-output': {
@@ -326,13 +355,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       const nodeReference = typeof value === 'string' && /^(\d+[:-]\d+$|I\d|https?:\/\/)/.test(value);
       if (typeof value === 'string' && !nodeReference) {
         args[2] = absolute(baseDir, value);
-        markWrite(args[2]);
+        markWrite(args[2], 'dtcg-output');
       }
       break;
     }
     case 'node-json-output': {
       const output = optionalOutputFlag(args, baseDir);
-      if (output) markWrite(output);
+      if (output) markWrite(output, 'node-json-output');
       break;
     }
     case 'design-doc': {
@@ -342,45 +371,55 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
         if (arg.startsWith('-')) continue;
         args[index] = absolute(baseDir, arg);
         outputPath = args[index];
-        markWrite(outputPath);
+        markWrite(outputPath, 'design-document-output');
         break;
       }
       if (!outputPath) {
         outputPath = absolute(baseDir, 'DESIGN.md');
         args.push(outputPath);
-        markWrite(outputPath);
+        markWrite(outputPath, 'design-document-output');
       }
       break;
     }
     case 'map-file':
+      if (args[1] === 'storybook' && typeof args[2] === 'string' && !isUrl(args[2])) {
+        args[2] = absolute(baseDir, args[2]);
+        markRead(args[2], 'storybook-source', 'any');
+      }
       outputPath = outputFlag(args, baseDir, 'figma-map.json');
-      markWrite(outputPath);
+      markWrite(outputPath, 'component-map-output');
       break;
     case 'design-link-registry': {
       const supplied = pathFlag(args, ['--manifest'], baseDir);
       const manifest = supplied?.value || absolute(baseDir, 'figma-bridge.json');
       if (!supplied) args.push('--manifest', manifest);
       outputPath = manifest;
-      if (['set', 'accept', 'configure'].includes(args[1])) markWrite(manifest);
-      else markRead();
-      if (args[1] === 'accept' && pathFlag(args, ['--compare'], baseDir)) markRead();
+      if (['set', 'accept', 'configure'].includes(args[1])) markWrite(manifest, 'design-link-manifest');
+      else if (args[1] === 'list') markOptionalRead(manifest, 'design-link-manifest');
+      else markRead(manifest, 'design-link-manifest');
+      if (args[1] === 'accept') {
+        const compare = pathFlag(args, ['--compare'], baseDir);
+        if (compare) markRead(compare.value, 'design-link-comparison');
+      }
       break;
     }
     case 'design-contract': {
       const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
-      if (!suppliedManifest) args.push('--manifest', absolute(baseDir, 'figma-bridge.json'));
+      const manifest = suppliedManifest?.value || absolute(baseDir, 'figma-bridge.json');
+      if (!suppliedManifest) args.push('--manifest', manifest);
+      markRead(manifest, 'design-contract-manifest');
       let file = pathFlag(args, ['--file'], baseDir)?.value;
       if (!file) {
         const slug = String(args[2] || 'entity').replace(/[^a-zA-Z0-9._-]+/g, '_');
         file = absolute(baseDir, path.join('design-contracts', `${slug}.json`));
         args.push('--file', file);
       }
-      if (args[1] === 'capture') markWrite(file);
-      else markRead();
+      if (args[1] === 'capture') markWrite(file, 'design-contract-file');
+      else markRead(file, 'design-contract-file');
       break;
     }
     case 'verify-build':
-      normalizeVerifyBuild(args, baseDir);
+      normalizeVerifyBuild(args, baseDir, notePath);
       markRead();
       break;
     case 'verify-image': {
@@ -388,84 +427,108 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       if (index !== -1 && typeof args[index + 1] === 'string' && !args[index + 1].startsWith('-')) {
         args[index + 1] = absolute(baseDir, args[index + 1]);
         outputPath = args[index + 1];
-        markWrite(outputPath);
+        markWrite(outputPath, 'verification-image-output');
       }
       break;
     }
     case 'render-inputs': {
-      if (pathFlag(args, ['--icons'], baseDir)) markRead();
-      if (pathFlag(args, ['--dom-capture'], baseDir)) markRead();
+      const icons = pathFlag(args, ['--icons'], baseDir);
+      if (icons) markRead(icons.value, 'render-icons', 'directory');
+      const capture = pathFlag(args, ['--dom-capture'], baseDir);
+      if (capture) markRead(capture.value, 'dom-capture');
+      if (args[0] === 'render') {
+        const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
+        const manifest = suppliedManifest?.value || absolute(baseDir, 'figma-bridge.json');
+        if (!suppliedManifest) args.push('--manifest', manifest);
+        markOptionalRead(manifest, 'render-manifest');
+      }
       break;
     }
     case 'node-inputs': {
       if (args[1] === 'set-image' && typeof args[3] === 'string') {
         args[3] = absolute(baseDir, args[3]);
-        markRead();
+        markRead(args[3], 'node-image');
       }
       break;
     }
     case 'gradient-input': {
       if (args[1] === 'extract' && typeof args[2] === 'string') {
         args[2] = absolute(baseDir, args[2]);
-        markRead();
+        markRead(args[2], 'gradient-image');
       }
       break;
     }
     case 'token-files': {
       if (['import', 'sync', 'import-design-md'].includes(args[1]) && typeof args[2] === 'string') {
         args[2] = absolute(baseDir, args[2]);
-        markRead();
+        markRead(args[2], 'token-file');
       }
       const lockfile = pathFlag(args, ['--lockfile'], baseDir);
       if (lockfile) {
-        markRead();
-        if (args[1] === 'sync') markWrite(lockfile.value);
+        // A missing lockfile is valid on first sync, so authorize it as a
+        // write target. Existing files are reopened securely by WorkspaceIO.
+        if (args[1] === 'sync') markWrite(lockfile.value, 'token-lockfile');
+        else markRead(lockfile.value, 'token-lockfile');
       } else if (args[1] === 'sync') {
         // Sync persists its default lockfile beside the token file.
-        markWrite();
+        const defaultLock = absolute(baseDir, path.join(path.dirname(args[2]), 'figma-tokens.lock.json'));
+        markWrite(defaultLock, 'token-lockfile');
       }
       break;
     }
     case 'import-files': {
-      if (typeof args[1] === 'string' && !isUrl(args[1])) { args[1] = absolute(baseDir, args[1]); markRead(); }
+      if (typeof args[1] === 'string' && !isUrl(args[1])) {
+        args[1] = absolute(baseDir, args[1]);
+        markRead(args[1], 'import-source', 'any');
+      }
       const saved = pathFlag(args, ['--save'], baseDir);
-      if (saved) markWrite(saved.value);
+      if (saved) markWrite(saved.value, 'import-output');
+      else markWrite(absolute(baseDir, 'DESIGN-storybook.md'), 'import-output');
       break;
     }
     case 'motion-inputs': {
       if (args[1] === 'apply' && typeof args[2] === 'string' && !args[2].trimStart().startsWith('{')) {
         args[2] = absolute(baseDir, args[2]);
-        markRead();
+        markRead(args[2], 'motion-file');
       }
       break;
     }
     case 'spec-file': {
-      markRead();
-      if (pathFlag(args, ['-f', '--file'], baseDir)) markRead();
+      const supplied = pathFlag(args, ['-f', '--file'], baseDir);
+      if (supplied) markRead(supplied.value, 'design-spec-file');
+      else markRead(absolute(baseDir, '.'), 'design-spec-search', 'directory');
       break;
     }
     case 'history-output': {
       if (args[1] === 'diff') {
         const changelog = pathFlag(args, ['--changelog'], baseDir);
-        if (changelog) markWrite(changelog.value);
+        if (changelog) markWrite(changelog.value, 'history-changelog');
       }
       break;
     }
     case 'kit-files': {
       if (args[1] === 'init') {
         if (typeof args[2] === 'string' && !args[2].startsWith('-')) args[2] = absolute(baseDir, args[2]);
+        const projectRoot = args[2] || absolute(baseDir, '.');
+        let out = 'design';
+        for (let index = 2; index < args.length; index++) {
+          const combined = args[index].match(/^--out=(.*)$/);
+          if (combined) out = combined[1];
+          if (args[index] === '--out' && typeof args[index + 1] === 'string') out = args[index + 1];
+        }
         const storybook = pathFlag(args, ['--storybook'], baseDir);
         if (storybook && isUrl(storybook.value)) {
           // URLs are external inputs, not workspace reads.
-        } else if (storybook) markRead();
-        markWrite(args[2] || absolute(baseDir, '.'));
+        } else if (storybook) markRead(storybook.value, 'storybook-source', 'any');
+        markWrite(projectRoot, 'kit-project-directory', 'directory');
+        notePath(path.resolve(projectRoot, out), 'write', 'kit-output-directory', 'directory');
       }
       break;
     }
     default:
       break;
   }
-  return { args, outputPath, capability, workspace };
+  return { args, outputPath, capability, workspace, paths: Object.freeze(paths) };
 }
 
 function backgroundJobIdentity(args, fileKey) {
@@ -510,10 +573,20 @@ export function planFigmaCommand(rawArgs, {
   adapter = 'mcp',
   workspaceDir = process.cwd(),
   fileKey = null,
+  workspaceIO = null,
 } = {}) {
   const input = Array.isArray(rawArgs) ? rawArgs : [];
   const prepared = prepareCommandArgs(input, workspaceDir);
   const capability = prepared.capability;
+  if (workspaceIO) {
+    for (const intent of prepared.paths) {
+      workspaceIO.authorizePath(intent.path, {
+        access: intent.access,
+        role: intent.role,
+        kind: intent.kind,
+      });
+    }
+  }
   const effects = Object.freeze({
     figma: capability.mutatesDesign ? 'write' : capability.target === 'none' ? 'none' : 'read',
     workspace: hasHelp(prepared.args) ? 'none' : prepared.workspace,

@@ -13,13 +13,14 @@
 // offline) or is fetched live from Figma (--node, or the manifest's root).
 // Informational by default; --max-diff <pct> opts into gating the exit code.
 import chalk from 'chalk';
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { readdirSync } from 'fs';
 import { join, resolve, relative, basename, extname, dirname } from 'path';
 import { PNG } from 'pngjs';
 import { program, checkConnection, figmaEvalSync } from '../lib/cli-core.js';
 import { verifyBuild, describeMissing } from '../lib/verify-build.js';
 import { diffImages, describeRegions } from '../lib/image-diff.js';
 import { loadImage } from '../gradient-extractor.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 // Directories that are never part of the source build.
 const SKIP_DIRS = new Set([
@@ -44,24 +45,34 @@ const FETCH_MAX_DIM = 2000;
 function scanProject(dir) {
   const manifests = [];
   const files = [];
-  const walk = (d) => {
+  let entriesSeen = 0;
+  const walk = (d, depth = 0) => {
+    if (depth > workspaceIO().limits.nestingDepth) {
+      throw new Error(`Workspace verify-build-project rejected: nesting exceeds ${workspaceIO().limits.nestingDepth}.`);
+    }
+    const accepted = workspaceIO().authorizePath(d, {
+      access: 'read', role: 'verify-build-project', kind: 'directory',
+    });
     let entries;
-    try { entries = readdirSync(d, { withFileTypes: true }); } catch { return; }
+    try { entries = readdirSync(accepted.canonical, { withFileTypes: true }); } catch { return; }
+    entriesSeen += entries.length;
+    if (entriesSeen > workspaceIO().limits.collectionEntries) {
+      throw new Error(`Workspace verify-build-project rejected: collection exceeds ${workspaceIO().limits.collectionEntries} entries.`);
+    }
     for (const e of entries) {
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) walk(join(d, e.name));
+        if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) walk(join(accepted.canonical, e.name), depth + 1);
         continue;
       }
       if (!e.isFile()) continue;
-      const path = join(d, e.name);
+      const path = join(accepted.canonical, e.name);
       if (e.name === 'assets.json') {
-        try { manifests.push({ path, data: JSON.parse(readFileSync(path, 'utf8')) }); } catch {}
+        try { manifests.push({ path, data: workspaceIO().readJson(path, { role: 'asset-manifest' }) }); } catch {}
         continue;
       }
       if (!TEXT_EXT.has(extname(e.name).toLowerCase())) continue;
       try {
-        if (statSync(path).size > MAX_FILE_BYTES) continue;
-        files.push({ path, text: readFileSync(path, 'utf8') });
+        files.push({ path, text: workspaceIO().readText(path, { role: 'verify-build-source', maxBytes: MAX_FILE_BYTES }) });
       } catch {}
     }
   };
@@ -80,7 +91,12 @@ function readManifestAssetFiles(manifests) {
       if (seen.has(path)) continue;
       seen.add(path);
       try {
-        assetFiles.push({ file: asset.file, path, kind: asset.kind, bytes: readFileSync(path) });
+        assetFiles.push({
+          file: asset.file,
+          path,
+          kind: asset.kind,
+          bytes: workspaceIO().read(path, { role: 'exported-asset' }),
+        });
       } catch {
         // Omission is intentional: verifyBuild reports it as a missing
         // physical file whenever Manifest v2 supplied an expected digest.
@@ -166,7 +182,7 @@ program
   .action(async (projectDir, options) => {
     const root = resolve(projectDir);
     try {
-      if (!statSync(root).isDirectory()) throw new Error('not a directory');
+      workspaceIO().authorizePath(root, { access: 'read', role: 'verify-build-project', kind: 'directory' });
     } catch {
       console.error(chalk.red(`✗ verify-build: ${root} is not a readable directory.`));
       process.exit(1);
@@ -177,7 +193,7 @@ program
       const p = resolve(options.assets);
       const manifestPath = basename(p) === 'assets.json' ? p : join(p, 'assets.json');
       try {
-        manifests = [{ path: manifestPath, data: JSON.parse(readFileSync(manifestPath, 'utf8')) }];
+        manifests = [{ path: manifestPath, data: workspaceIO().readJson(manifestPath, { role: 'asset-manifest' }) }];
       } catch (e) {
         console.error(chalk.red(`✗ verify-build: cannot read ${manifestPath}: ${e.message}`));
         process.exit(1);
@@ -233,7 +249,10 @@ program
       const diffOut = options.diffOut
         ? resolve(options.diffOut)
         : join(dirname(buildPath), basename(buildPath, extname(buildPath)) + '-diff.png');
-      writeFileSync(diffOut, encodePng(diff.diffImage));
+      workspaceIO().write(diffOut, encodePng(diff.diffImage), {
+        role: 'verify-build-diff-out',
+        createParents: true,
+      });
       visual = {
         diffPct: diff.diffPct,
         compare: diff.compare,

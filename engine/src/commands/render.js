@@ -2,9 +2,10 @@
 import chalk from 'chalk';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { readdirSync, writeFileSync } from 'fs';
 import { FigmaClient } from '../lib/jsx-render.js';
 import { domCaptureToRenderPlan } from '../lib/dom-capture-to-jsx.js';
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import { browserDomCaptureScript } from '../lib/browser-dom-capture.js';
 import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-structural-gate.js';
 import { readImageBase64 } from '../lib/image-file.js';
@@ -271,19 +272,27 @@ function resolveLocalImages(jsx, ctx) {
 // without extension). Used by `render --icons <dir>`.
 function loadIconDir(dir) {
   const path = isAbsolute(dir) ? dir : resolve(process.cwd(), dir);
-  if (!existsSync(path)) {
+  let accepted;
+  try {
+    accepted = workspaceIO().authorizePath(path, { access: 'read', role: 'render-icons', kind: 'directory' });
+  } catch {
     console.error(chalk.red('\u2717'), `Icon directory not found: ${dir}`);
     process.exit(1);
   }
   const icons = {};
-  for (const file of readdirSync(path)) {
+  const files = readdirSync(accepted.canonical);
+  if (files.length > 10_000) throw new Error('Workspace render-icons rejected: collection exceeds 10000 entries.');
+  for (const file of files) {
     if (extname(file).toLowerCase() !== '.svg') continue;
-    const full = join(path, file);
-    if (statSync(full).size > 100 * 1024) {
+    const full = join(accepted.canonical, file);
+    let svg;
+    try {
+      svg = workspaceIO().readText(full, { role: 'render-icon', maxBytes: 100 * 1024 });
+    } catch (error) {
       console.log(chalk.yellow(`\u26a0 ${file} > 100 KB \u2014 skipped (icons should be small vectors).`));
       continue;
     }
-    icons[basename(file, extname(file))] = readFileSync(full, 'utf8');
+    icons[basename(file, extname(file))] = svg;
   }
   if (Object.keys(icons).length === 0) {
     console.log(chalk.yellow(`\u26a0 No .svg files found in ${dir}.`));
@@ -385,7 +394,8 @@ program
     if (options.domCapture) {
       let capture;
       try {
-        capture = JSON.parse(readFileSync(options.domCapture, 'utf8'));
+        const text = workspaceIO().readText(options.domCapture, { role: 'dom-capture' });
+        capture = parseBoundedJson(text, { role: 'dom-capture', limits: workspaceIO().limits });
       } catch (error) {
         console.error(chalk.red('✗'), `Could not read DOM capture ${options.domCapture}: ${error.message}`);
         return;

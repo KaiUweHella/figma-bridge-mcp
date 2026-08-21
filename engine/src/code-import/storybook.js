@@ -17,7 +17,7 @@
 export function parseStorybookIndex(jsonText) {
   let doc;
   try {
-    doc = JSON.parse(jsonText);
+    doc = parseBoundedJson(jsonText, { role: 'storybook-index', limits: workspaceIO().limits });
   } catch (e) {
     throw new Error(`Not valid JSON: ${e.message}`);
   }
@@ -97,11 +97,32 @@ async function fetchFromUrl(baseUrl) {
   if (!res.ok) {
     throw new Error(`Could not reach Storybook at ${baseUrl} — server returned ${res.status}`);
   }
-  return res.text();
+  return readBoundedResponseText(res, workspaceIO().limits.jsonBytes);
+}
+
+export async function readBoundedResponseText(res, limit) {
+  const advertised = Number(res.headers.get('content-length'));
+  if (Number.isFinite(advertised) && advertised > limit) {
+    throw new Error(`Storybook index exceeds ${limit} bytes.`);
+  }
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > limit) {
+      await reader.cancel();
+      throw new Error(`Storybook index exceeds ${limit} bytes.`);
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
 }
 
 async function readFromDir(dir) {
-  const { readFileSync, existsSync } = await import('node:fs');
   const { join } = await import('node:path');
 
   const candidates = [
@@ -110,9 +131,8 @@ async function readFromDir(dir) {
   ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return readFileSync(candidate, 'utf8');
-    }
+    try { return workspaceIO().readText(candidate, { role: 'storybook-index' }); }
+    catch { /* try the next conventional index location */ }
   }
 
   throw new Error(
@@ -120,3 +140,4 @@ async function readFromDir(dir) {
     candidates.map(c => `  ${c}`).join('\n')
   );
 }
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';

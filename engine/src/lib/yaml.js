@@ -14,6 +14,7 @@
  * roundtrips.
  */
 import YAML from 'yaml';
+import { parseBoundedYaml, workspaceIO } from './workspace-io.js';
 
 export function toYaml(value) {
   return YAML.stringify(value, {
@@ -24,5 +25,5 @@ export function toYaml(value) {
 
 /** Parse counterpart — only re-exported so tests and callers share one config. */
 export function fromYaml(text) {
-  return YAML.parse(text);
+  return parseBoundedYaml(text, { role: 'structured-yaml', limits: workspaceIO().limits });
 }

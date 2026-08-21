@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { canonicalSvg } from './svg-dedup.js';
+import { createWorkspaceIO, workspaceIO } from './workspace-io.js';
 
 export const ASSET_MANIFEST_SCHEMA_VERSION = 2;
 
@@ -165,43 +166,48 @@ export function planAssetExport(prior, candidates, root, adapters = {}) {
  * preflighted before the first rename, so a failed export cannot replace an
  * existing asset or advertise a manifest whose new files were not published.
  */
-export function publishAssetExportPlan(outDir, plan) {
-  const stageDir = mkdtempSync(join(outDir, '.figma-bridge-assets-'));
+export function publishAssetExportPlan(outDir, plan, {
+  io = process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
+    ? workspaceIO()
+    : createWorkspaceIO({ root: outDir }),
+} = {}) {
+  const canonicalOut = io.ensureDirectory(outDir, { role: 'asset-export-directory' });
   const writes = plan?.filesToWrite || [];
-  try {
-    for (const write of writes) {
-      if (assetContentDigest(write.bytes, write.kind) !== write.contentDigest) {
-        throw new Error(`Asset publication digest mismatch for ${write.file}`);
-      }
-      writeFileSync(join(stageDir, write.file), write.bytes, { flag: 'wx' });
+  for (const write of writes) {
+    if (assetContentDigest(write.bytes, write.kind) !== write.contentDigest) {
+      throw new Error(`Asset publication digest mismatch for ${write.file}`);
     }
-    writeFileSync(join(stageDir, 'assets.json'), `${JSON.stringify(plan.manifest, null, 2)}\n`, { flag: 'wx' });
-
-    for (const write of writes) {
-      const target = join(outDir, write.file);
-      if (!existsSync(target)) continue;
-      const actual = assetContentDigest(readFileSync(target), write.kind);
-      if (actual !== write.contentDigest) {
-        throw new Error(`Asset publication refusing to overwrite ${write.file}: existing ${actual}, planned ${write.contentDigest}`);
-      }
-    }
-
-    const written = [];
-    const reused = [];
-    for (const write of writes) {
-      const target = join(outDir, write.file);
-      if (existsSync(target)) {
-        reused.push(write.file);
-        continue;
-      }
-      renameSync(join(stageDir, write.file), target);
-      written.push(write.file);
-    }
-    renameSync(join(stageDir, 'assets.json'), join(outDir, 'assets.json'));
-    return { manifestPath: join(outDir, 'assets.json'), written, reused };
-  } finally {
-    rmSync(stageDir, { recursive: true, force: true });
   }
+  for (const write of writes) {
+    const target = join(canonicalOut, write.file);
+    if (!existsSync(target)) continue;
+    const actual = assetContentDigest(io.read(target, { role: 'exported-asset' }), write.kind);
+    if (actual !== write.contentDigest) {
+      throw new Error(`Asset publication refusing to overwrite ${write.file}: existing ${actual}, planned ${write.contentDigest}`);
+    }
+  }
+
+  const written = [];
+  const reused = [];
+  for (const write of writes) {
+    const target = join(canonicalOut, write.file);
+    if (existsSync(target)) {
+      reused.push(write.file);
+      continue;
+    }
+    io.write(target, write.bytes, {
+      role: 'exported-asset',
+      createParents: true,
+      exclusive: true,
+    });
+    written.push(write.file);
+  }
+  const manifestPath = io.write(
+    join(canonicalOut, 'assets.json'),
+    `${JSON.stringify(plan.manifest, null, 2)}\n`,
+    { role: 'asset-manifest', createParents: true },
+  );
+  return { manifestPath, written, reused };
 }
 
 /**

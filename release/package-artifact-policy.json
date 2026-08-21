@@ -132,6 +132,7 @@
     "engine/src/lib/variant-snippets.js",
     "engine/src/lib/verify-build.js",
     "engine/src/lib/version-history.js",
+    "engine/src/lib/workspace-io.js",
     "engine/src/lib/yaml.js",
     "engine/src/platform.js",
     "mcp.json",

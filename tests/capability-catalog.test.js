@@ -122,7 +122,10 @@ test('catalog prepares every known project-relative path policy', () => {
   );
   assert.deepEqual(
     argv(['render', '--dom-capture', 'captures/screen.json']),
-    ['render', '--dom-capture', inWorkspace('captures', 'screen.json')],
+    [
+      'render', '--dom-capture', inWorkspace('captures', 'screen.json'),
+      '--manifest', inWorkspace('figma-bridge.json'),
+    ],
   );
   assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), ['node', 'set-image', '1:2', inWorkspace('photo.png')]);
   assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [

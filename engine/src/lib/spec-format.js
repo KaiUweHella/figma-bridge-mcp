@@ -5,6 +5,7 @@
 // exactly. Keeping that invariant in one Module makes format changes cheap to
 // test and prevents an output-specific projection from dropping design facts.
 import { fromYaml, toYaml } from './yaml.js';
+import { parseBoundedJson, workspaceIO } from './workspace-io.js';
 
 export const STRUCTURED_SPEC_FORMATS = ['yaml', 'json'];
 // A real Sonnet 5 rebuild showed that minifying an otherwise lossless model
@@ -31,5 +32,7 @@ export function serializeSpecModel(model, format) {
 /** Parse a structured spec back into the canonical model. */
 export function parseSpecModel(text, format) {
   assertFormat(format);
-  return format === 'yaml' ? fromYaml(text) : JSON.parse(text);
+  return format === 'yaml'
+    ? fromYaml(text)
+    : parseBoundedJson(text, { role: 'structured-json', limits: workspaceIO().limits });
 }

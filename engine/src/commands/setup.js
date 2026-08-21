@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { STATE_DIR } from '../lib/state-dir.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 // Repo root = three levels up from engine/src/commands/setup.js. Used to
 // locate the shipped plugin files independent of the process cwd (the MCP
@@ -84,9 +85,12 @@ program
     // For URLs and directories we skip the readFileSync path entirely.
     // For file paths, check existence first.
     if (!isUrl) {
-      const { statSync } = await import('fs');
       let isDir = false;
-      try { isDir = statSync(source).isDirectory(); } catch { /* file or missing */ }
+      try {
+        isDir = workspaceIO().authorizePath(source, {
+          access: 'read', role: 'import-source', kind: 'any',
+        }).metadata.isDirectory();
+      } catch { /* file or missing */ }
       if (!isDir && !existsSync(source)) {
         console.error(chalk.red('✗'), `not found: ${source}`);
         process.exit(1);
@@ -94,7 +98,7 @@ program
 
       if (!isDir) {
         // Read content for DESIGN.md sniffing and type detection.
-        const content = readFileSync(source, 'utf-8');
+        const content = workspaceIO().readText(source, { role: 'import-source' });
 
         // Check if it's one of the three DESIGN.md formats (existing path).
         const hasFrontmatterTokens = /^---\s*\n[\s\S]*?(^colors:|^color:|^typography:)/m.test(content);
@@ -143,12 +147,12 @@ program
     let designMdPath;
     if (options.save) {
       designMdPath = options.save;
-      writeFileSync(designMdPath, designMd, 'utf-8');
+      workspaceIO().write(designMdPath, designMd, { role: 'import-output', createParents: true });
       console.log(chalk.green('✓'), `DESIGN.md saved to ${designMdPath}`);
     } else if (!hasTokens) {
       // Storybook (zero-token): default to ./DESIGN-storybook.md
       designMdPath = join(process.cwd(), 'DESIGN-storybook.md');
-      writeFileSync(designMdPath, designMd, 'utf-8');
+      workspaceIO().write(designMdPath, designMd, { role: 'import-output', createParents: true });
       console.log(chalk.green('✓'), `Component context saved to ${designMdPath}`);
     } else {
       // Tokens present: use a temp file (not permanent unless --save given)

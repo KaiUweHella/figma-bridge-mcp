@@ -135,7 +135,9 @@ test('verify-build CLI fails when a referenced Manifest v2 asset was tampered wi
   }));
   writeFileSync(join(dir, 'src', 'App.tsx'), "import alert from './assets/alert.svg';");
   const entry = fileURLToPath(new URL('../src/index.js', import.meta.url));
-  const result = await promisify(execFile)(process.execPath, [entry, 'verify-build', dir, '--json'])
+  const result = await promisify(execFile)(process.execPath, [entry, 'verify-build', dir, '--json'], {
+    env: { ...process.env, FIGMA_BRIDGE_WORKSPACE_ROOTS: dir },
+  })
     .then((value) => ({ code: 0, ...value }), (error) => ({ code: error.code, stdout: error.stdout, stderr: error.stderr }));
 
   assert.equal(result.code, 1, result.stderr);
@@ -176,7 +178,8 @@ test('verify-build --compare --design: offline visual diff end to end', async ()
 
   const entry = fileURLToPath(new URL('../src/index.js', import.meta.url));
   const run = (extra) => promisify(execFile)(process.execPath,
-    [entry, 'verify-build', dir, '--compare', join(dir, 'build.png'), '--design', join(dir, 'design.png'), '--json', ...extra])
+    [entry, 'verify-build', dir, '--compare', join(dir, 'build.png'), '--design', join(dir, 'design.png'), '--json', ...extra],
+    { env: { ...process.env, FIGMA_BRIDGE_WORKSPACE_ROOTS: dir } })
     .then((r) => ({ code: 0, ...r }), (e) => ({ code: e.code, stdout: e.stdout, stderr: e.stderr }));
 
   // Informational by default: a quarter of the image differs, exit stays 0.

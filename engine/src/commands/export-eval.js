@@ -1,8 +1,9 @@
 // Commands: export-eval (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { assetSlug, effectiveAssetName, imageAssetBase } from '../lib/asset-names.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 import {
   assetContentDigest,
   planAssetExport,
@@ -90,7 +91,7 @@ return {
     const outputFile = options.output === 'screenshot.png' && format !== 'PNG'
       ? `screenshot.${format.toLowerCase()}`
       : options.output;
-    writeFileSync(outputFile, buffer);
+    workspaceIO().write(outputFile, buffer, { role: 'export-image-output', createParents: true });
     console.log(chalk.green('✓'), `Screenshot: ${result.name} (${result.width}x${result.height}) → ${outputFile}`);
   });
 
@@ -127,7 +128,7 @@ return {
     const outputFile = options.output === 'node-export.png' && format !== 'PNG'
       ? `node-export.${format.toLowerCase()}`
       : options.output;
-    writeFileSync(outputFile, buffer);
+    workspaceIO().write(outputFile, buffer, { role: 'export-image-output', createParents: true });
     console.log(chalk.green('✓'), `Exported ${result.name} (${result.width}x${result.height}) to ${outputFile}`);
   });
 
@@ -162,8 +163,9 @@ const bytes = await frame.exportAsync(${JSON.stringify(settings)});
 return { requestedId: requested.id, frame: { id: frame.id, name: frame.name }, format: ${JSON.stringify(format)}, fps: ${fps}, base64: figma.base64Encode(bytes) };
 })()`);
     const outputFile = resolve(options.output || `video.${format.toLowerCase()}`);
-    mkdirSync(dirname(outputFile), { recursive: true });
-    writeFileSync(outputFile, Buffer.from(result.base64, 'base64'));
+    workspaceIO().write(outputFile, Buffer.from(result.base64, 'base64'), {
+      role: 'video-output', createParents: true,
+    });
     console.log(chalk.green('✓'), `Exported ${result.frame.name} as ${format} at ${fps} fps → ${outputFile}`);
   });
 
@@ -179,8 +181,7 @@ exp
       const json = JSON.stringify(result, null, 2) + '\n';
       if (options.output) {
         const outputFile = resolve(options.output);
-        mkdirSync(dirname(outputFile), { recursive: true });
-        writeFileSync(outputFile, json);
+        workspaceIO().write(outputFile, json, { role: 'node-json-output', createParents: true });
         console.log(chalk.green('✓'), `Native node JSON written to ${outputFile}`);
       } else {
         process.stdout.write(json);
@@ -332,7 +333,7 @@ exp
       jobs.sort((a, b) => b.area - a.area);
       const dropped = jobs.length > max ? jobs.splice(max) : [];
 
-      mkdirSync(outDir, { recursive: true });
+      workspaceIO().ensureDirectory(outDir, { role: 'asset-export-directory' });
       const sniffExt = (buf) =>
         buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg'
           : buf[0] === 0x47 && buf[1] === 0x49 ? 'gif'
@@ -423,10 +424,12 @@ exp
       // Existing files are persistent reservations, never overwrite targets.
       const manifestPath = join(outDir, 'assets.json');
       let prior = null;
-      try { prior = JSON.parse(readFileSync(manifestPath, 'utf8')); } catch {}
+      try { prior = workspaceIO().readJson(manifestPath, { role: 'asset-manifest' }); } catch {}
       const exportPlan = planAssetExport(prior, candidates, { id: found.id, name: found.name }, {
         fileExists: (file) => existsSync(join(outDir, file)),
-        digestForFile: (file, kind) => assetContentDigest(readFileSync(join(outDir, file)), kind),
+        digestForFile: (file, kind) => assetContentDigest(
+          workspaceIO().read(join(outDir, file), { role: 'exported-asset' }), kind,
+        ),
       });
       publishAssetExportPlan(outDir, exportPlan);
       const merged = exportPlan.manifest;
@@ -535,7 +538,7 @@ exp
       const tokenJson = JSON.stringify(buildDtcgTree(scoped.vars, { dialect }), null, 2);
       console.error(chalk.gray(`source: Figma file "${scoped.file}" — ${scoped.vars.length} token(s) actually bound under "${scoped.node}" (${scoped.id})`));
       if (output) {
-        writeFileSync(output, tokenJson + '\n');
+        workspaceIO().write(output, tokenJson + '\n', { role: 'dtcg-output', createParents: true });
         console.log(chalk.green('✓ Wrote DTCG tokens →'), resolve(output));
       } else {
         console.log(tokenJson);
@@ -574,7 +577,9 @@ return JSON.stringify({ __file: figma.root.name,
       console.error(chalk.gray(`source: Figma file "${sourceFile}" — if this is not the design you are building, open the right file in Figma Desktop and re-export`));
     }
     if (output) {
-      writeFileSync(output, tokenJson.endsWith('\n') ? tokenJson : tokenJson + '\n');
+      workspaceIO().write(output, tokenJson.endsWith('\n') ? tokenJson : tokenJson + '\n', {
+        role: 'dtcg-output', createParents: true,
+      });
       console.log(chalk.green('✓ Wrote DTCG tokens →'), resolve(output));
       if (sourceFile != null) console.log(chalk.gray(`  source: Figma file "${sourceFile}"`));
     } else {
@@ -641,7 +646,14 @@ program
         saveDefault: !options.base64 && typeof options.save !== 'string',
       }, {
         evaluate: safeReadEval,
-        save: (file, bytes) => writeFileSync(file, bytes),
+        save: (file, bytes) => {
+          if (typeof options.save === 'string') {
+            return workspaceIO().write(file, bytes, {
+              role: 'verification-image-output', createParents: true,
+            });
+          }
+          return writeFileSync(file, bytes);
+        },
         defaultSavePath: (capture) => `/tmp/figma-verify-${String(capture.id).replace(/:/g, '-')}.png`,
       });
       if (result.stderr) console.error(chalk.yellow(result.stderr));

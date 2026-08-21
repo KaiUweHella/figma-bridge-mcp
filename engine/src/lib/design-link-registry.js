@@ -7,9 +7,16 @@
 // understand how those representations fit together.
 import { createHash } from 'node:crypto';
 import {
-  existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
+  existsSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { createWorkspaceIO, parseBoundedJson, workspaceIO } from './workspace-io.js';
+
+function projectWorkspaceIO(projectRoot) {
+  return process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
+    ? workspaceIO()
+    : createWorkspaceIO({ root: projectRoot });
+}
 
 export const DESIGN_LINK_REGISTRY_VERSION = 1;
 export const DESIGN_LINK_REGISTRY_FILE = 'figma-bridge.json';
@@ -173,7 +180,7 @@ function assertNoConflicts(entities) {
 
 export function parseDesignLinkRegistry(text) {
   let doc;
-  try { doc = JSON.parse(text); } catch (error) {
+  try { doc = parseBoundedJson(text, { role: 'design-link-manifest', limits: workspaceIO().limits }); } catch (error) {
     throw new Error(`Invalid ${DESIGN_LINK_REGISTRY_FILE}: ${error.message}`);
   }
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
@@ -259,21 +266,21 @@ function mergeLegacy(registry, legacyEntities) {
 /**
  * Read the explicit registry and enrich it with non-conflicting legacy rows.
  * @param {string} [projectRoot]
- * @param {{manifestPath?: string}} [options]
+ * @param {{manifestPath?: string, io?: ReturnType<import('./workspace-io.js').createWorkspaceIO>}} [options]
  */
-export function readDesignLinkRegistry(projectRoot = process.cwd(), { manifestPath } = {}) {
+export function readDesignLinkRegistry(projectRoot = process.cwd(), { manifestPath, io = projectWorkspaceIO(projectRoot) } = {}) {
   const root = resolve(projectRoot);
   const path = manifestPath ? resolve(manifestPath) : join(root, DESIGN_LINK_REGISTRY_FILE);
   const legacyPath = join(root, LEGACY_FIGMA_MAP_FILE);
   let registry = emptyDesignLinkRegistry();
   let explicit = false;
   if (existsSync(path)) {
-    registry = parseDesignLinkRegistry(readFileSync(path, 'utf8'));
+    registry = parseDesignLinkRegistry(io.readText(path, { role: 'design-link-manifest' }));
     explicit = true;
   }
   let legacyEntities = [];
   if (existsSync(legacyPath)) {
-    try { legacyEntities = adaptLegacyFigmaMap(JSON.parse(readFileSync(legacyPath, 'utf8'))); } catch {}
+    try { legacyEntities = adaptLegacyFigmaMap(io.readJson(legacyPath, { role: 'legacy-component-map' })); } catch {}
   }
   return {
     registry: mergeLegacy(registry, legacyEntities),
@@ -351,19 +358,14 @@ export function upsertDesignEntity(registry, patch) {
   };
 }
 
-/** Atomic repository-adapter write: readers see either the old or new file. */
-export function writeDesignLinkRegistry(path, registry) {
+/** Repository-adapter write through the inode-verified workspace boundary. */
+export function writeDesignLinkRegistry(path, registry, { io = projectWorkspaceIO(dirname(resolve(path))) } = {}) {
   const target = resolve(path);
-  mkdirSync(dirname(target), { recursive: true });
-  const temp = `${target}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temp, serializeDesignLinkRegistry(registry), { mode: 0o644 });
-    renameSync(temp, target);
-  } catch (error) {
-    try { unlinkSync(temp); } catch {}
-    throw error;
-  }
-  return target;
+  return io.write(target, serializeDesignLinkRegistry(registry), {
+    role: 'design-link-manifest',
+    mode: 0o644,
+    createParents: true,
+  });
 }
 
 export function serializeDesignEntityPluginData(entity) {

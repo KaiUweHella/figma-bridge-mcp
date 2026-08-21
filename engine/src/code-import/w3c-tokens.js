@@ -1,3 +1,5 @@
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
+
 /**
  * W3C design-tokens (Style Dictionary / Tokens Studio) parser.
  * A token is any object carrying `$value` (or legacy `value`). Names are the
@@ -16,7 +18,7 @@ const isColor = (v) => typeof v === 'string' && /^(#|rgb|hsl)/.test(v.trim());
 
 export function parseW3cTokens(jsonText) {
   let doc;
-  try { doc = JSON.parse(jsonText); }
+  try { doc = parseBoundedJson(jsonText, { role: 'token-file', limits: workspaceIO().limits }); }
   catch (e) { throw new Error(`Not valid JSON: ${e.message}`); }
 
   // 1) flatten: path → raw token

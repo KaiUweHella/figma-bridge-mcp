@@ -110,7 +110,11 @@ test('tailwind: unloadable config throws a helpful error', async () => {
   await assert.rejects(() => parseTailwindConfig('/nonexistent/tailwind.config.js'), /load|find/i);
 });
 
-import { parseStorybookIndex, fetchStorybookIndex } from '../src/code-import/storybook.js';
+import {
+  parseStorybookIndex,
+  fetchStorybookIndex,
+  readBoundedResponseText,
+} from '../src/code-import/storybook.js';
 
 test('storybook: groups stories by component, skips docs entries', () => {
   const { meta } = parseStorybookIndex(fixture('storybook-index.json'));
@@ -144,6 +148,18 @@ test('storybook: keeps story ids, title and importPath (mapping identity)', () =
     ['components-button--primary', 'components-button--secondary']); // docs entry skipped
   // Back-compat: variants stays a plain string array (design-md consumers).
   assert.deepEqual(button.variants, ['Primary', 'Secondary']);
+});
+
+test('storybook: remote bodies stop at the byte limit even without Content-Length', async () => {
+  const encoder = new TextEncoder();
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('123456'));
+      controller.enqueue(encoder.encode('789012'));
+      controller.close();
+    },
+  }));
+  await assert.rejects(() => readBoundedResponseText(response, 10), /exceeds 10 bytes/);
 });
 
 import { convert, detectSourceType } from '../src/code-import/index.js';

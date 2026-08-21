@@ -22,6 +22,8 @@
 // Everything here is pure — no Figma, no filesystem — so the decision table is
 // testable in isolation. The command layer supplies the three inputs.
 
+import { parseBoundedJson } from './workspace-io.js';
+
 export const LOCKFILE_VERSION = 1;
 export const LOCKFILE_NAME = 'figma-tokens.lock.json';
 export const DTCG_BRIDGE_EXTENSION = 'figma-bridge-mcp';
@@ -140,7 +142,7 @@ function toNumber(value) {
  */
 export function parseDtcgFlat(jsonText) {
   let doc;
-  try { doc = JSON.parse(jsonText); } catch (e) {
+  try { doc = parseBoundedJson(jsonText, { role: 'token-file' }); } catch (e) {
     throw new Error(`Not valid JSON: ${e.message}`);
   }
   const raw = new Map();
@@ -263,7 +265,7 @@ export function emptyLock(collection) {
 export function parseLock(text) {
   if (!text) return null;
   let doc;
-  try { doc = JSON.parse(text); } catch { return null; }
+  try { doc = parseBoundedJson(text, { role: 'token-lockfile' }); } catch { return null; }
   if (!doc || typeof doc !== 'object' || !doc.tokens || typeof doc.tokens !== 'object') return null;
   if (doc.version !== LOCKFILE_VERSION) return null;
   return doc;

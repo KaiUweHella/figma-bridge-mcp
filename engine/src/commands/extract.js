@@ -1,12 +1,12 @@
 // Command: extract — scan the open Figma file and write a DESIGN.md
 import chalk from 'chalk';
-import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { progress, program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
 import {
   listPagesCode, walkerCode, variableCollectionsCode, variableChunkCode,
   generateDesignMd, generatePageStructureMd, estimateStructureTokens, ALL_SECTIONS,
 } from '../design-extract.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 const DEPTH_FLOOR = 3;
 // Variable values are fetched in bounded chunks so huge libraries (thousands
@@ -185,15 +185,18 @@ program
       if (autoSplit) {
         md = md.replace('-->\n', `-->\n\n> **Structure trees auto-split** (~${Math.round(structTokens / 1000)}k tokens — too large for one AI context): per-page trees are in \`DESIGN-structure/\`. Use \`--no-split\` to force a single file.\n`);
       }
-      writeFileSync(outPath, md);
+      workspaceIO().write(outPath, md, { role: 'design-document-output', createParents: true });
 
       const written = [outPath];
       if (doSplit) {
         const splitDir = join(dirname(outPath), 'DESIGN-structure');
-        mkdirSync(splitDir, { recursive: true });
+        workspaceIO().ensureDirectory(splitDir, { role: 'design-structure-directory' });
         for (const page of results) {
           const f = join(splitDir, `${slug(page.name)}.md`);
-          writeFileSync(f, generatePageStructureMd(page));
+          workspaceIO().write(f, generatePageStructureMd(page), {
+            role: 'design-structure-output',
+            createParents: true,
+          });
           written.push(f);
         }
       }

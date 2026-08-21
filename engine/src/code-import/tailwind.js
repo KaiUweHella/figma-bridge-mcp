@@ -8,6 +8,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { resolve, basename, dirname } from 'node:path';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,15 @@ function flattenColors(obj, prefix = '') {
  * @returns {Promise<{tokens, meta}>}
  */
 export async function parseTailwindConfig(configPath) {
-  const abs = resolve(configPath);
+  const requested = resolve(configPath);
+  let abs;
+  try {
+    abs = workspaceIO().authorizePath(requested, {
+      access: 'read', role: 'tailwind-config', kind: 'file',
+    }).canonical;
+  } catch (err) {
+    throw new Error(`Cannot load ${requested}: ${err.message}`);
+  }
   const url = pathToFileURL(abs).href;
 
   let mod;
