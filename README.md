@@ -442,12 +442,17 @@ when its rendered design and states actually match.
    `["export","assets","<nodeId>","-o","/abs/path/src/assets"]`) — every
    `→ assets/…` reference in the spec points at a file this writes. Pass an
    absolute path; large exports keep running in the background ("still
-   RUNNING") — re-run the same call to poll. `assets.json` is merged across
-   runs and byte-identical assets are deduped. Each entry carries placement
-   data (`x`/`y` offsets, `parent` name path, `parentId`, `absolutePosition`,
-   `overhang`), so the manifest alone positions an overlay — no spec
-   cross-reference needed. The export summary lists the absolutely-positioned
-   and overhanging files explicitly: those are the ones builds lose.
+   RUNNING") — re-run the same call to poll. Manifest v2 keeps source identity,
+   content digest, semantic label, physical filename and placements separate.
+   `assets.json` is merged across runs and byte-identical assets are deduped;
+   same-name/different-content collisions get a stable digest suffix instead of
+   overwriting an earlier file. Existing v1 manifests remain readable. Each
+   asset carries placement data (`x`/`y` offsets, `parent` name path,
+   `parentId`, `absolutePosition`, `overhang`), so the manifest alone positions
+   an overlay — no spec cross-reference needed. The export summary lists the
+   absolutely-positioned and overhanging files explicitly: those are the ones
+   builds lose. After export, `assets.json` is authoritative for any
+   collision-resolved filename.
    Oversized PNGs are downsampled by default to 2× their largest Figma usage
    (retina density), without upscaling and only when the encoded file becomes
    smaller. Aspect ratio, manifest placement and CSS crop behavior remain
@@ -544,6 +549,34 @@ section-by-section retry recipe and returns **no misleading partial design**.
 `depth:0` intentionally means “the requested node only” and is complete, not
 a depth-truncated tree.
 
+Every Design Capture also carries a hidden-content census independent of
+depth and `includeHidden`: total, visible, hidden and hidden-text counts plus
+bounded layer ids and text previews. Hidden layers remain excluded by default
+so they cannot become phantom UI, while Code-Spec marks exact hidden content
+and alternate-state inspection incomplete until the same node is requested
+with `includeHidden:true`.
+
+Used Component Sets are keyed by Design Entity, published set key, or local
+set id—not by their mutable display name. Code-Spec normalizes `State`,
+`Status`, `Interaction`, and Boolean component properties and reports every
+set as `defined`, `noneDefined`, or `notCaptured`. A `notCaptured` set blocks
+style output and returns one bounded `nodeIds[]` batch recipe, avoiding both
+guessed states and repeated Manual Mode approvals.
+
+CSS and DTCG token export preserve every Figma collection mode and resolve
+aliases per mode. DTCG keeps the complete mode table in the
+`figma-bridge-mcp` extension while its normal `$value` remains the default
+mode for standard consumers. CSS emits the default under `:root` and each
+additional mode under `[data-figma-mode="<Mode name>"]`; applying that
+attribute is an explicit application responsibility. Different mode values
+are never converted into `clamp()` without authored viewport/min/max intent.
+
+Public MCP failures use stable error kinds and user-facing details; internal
+Node executable paths and command arguments are never returned. Safe read
+recovery keeps its single retry, but the operation, readiness wait and CLI
+fallback all spend the same overall deadline. A missing daemon token goes
+straight to the existing startup fallback instead of waiting for readiness.
+
 For large screens, first request one shallow structure map, then send up to
 eight bounded section/style reads through `nodeIds[]` in the next single
 `figma_spec` call. The batch fails closed on the first failed read or when its
@@ -553,7 +586,11 @@ batch data as complete.
 IMAGE-fill filenames are keyed by Figma's stable image hash, not by the local
 layer name/path. This keeps `figma_spec`, isolated child calls, asset export and
 `assets.json` on the same filename even when generic layers such as “Frame 64”
-are reached through different roots.
+are reached through different roots. Linked vectors use their Design Entity
+identity; unlinked vectors fall back to canonical visual content identity,
+never a volatile node id. `verify-build` recomputes Manifest v2 digests from
+the physical files and exits non-zero for tampering or missing asset files;
+v1 entries without digests remain compatible but are reported as unverified.
 
 For MCP design-to-code calls, `dedup:false` is the default: every visible layer
 keeps its own id, native Figma Inspect `css{…}`, layout/paint/token facts and

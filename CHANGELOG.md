@@ -31,6 +31,22 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   fact families. `figma_reference {name:"fidelity"}` projects both directions,
   their implementation seams and verification requirements without requiring
   a Figma connection.
+- Added Asset Manifest v2 with separate source identity, canonical content
+  digest, semantic label, physical filename and root-scoped placements. Export
+  collisions now receive stable digest filenames, identical content is reused
+  across runs, and v1 manifests remain readable.
+- Design Capture now reports a depth-independent hidden-content census with
+  visible/hidden/hidden-text counts and bounded layer previews. Code-Spec keeps
+  hidden layers non-rendering by default while making incomplete hidden-state
+  inspection explicit in tree, YAML and JSON output.
+- Component Set capture now uses Design Entity, publish key, or local set id
+  instead of display name, normalizes common state/Boolean conventions, and
+  exposes a `defined | noneDefined | notCaptured` coverage lattice. Missing
+  set facts block style projection with one bounded batch-read recipe.
+- CSS and DTCG export now preserve complete collection modes and resolve alias
+  chains per mode. DTCG stores the lossless mode table in its Bridge extension;
+  CSS emits `:root` plus named `data-figma-mode` scopes and never invents
+  unauthored `clamp()` semantics.
 
 ### Fixed
 
@@ -63,6 +79,13 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   Figma Desktop rejects despite exposing it in readback typings. Any later
   property-write rejection now rolls back all canvas nodes created by that
   render instead of leaving partial test or production objects behind.
+- Asset export now stages all writes, refuses to overwrite different existing
+  bytes, and publishes the manifest last. `verify-build` validates physical
+  files against Manifest v2 digests and fails on missing or tampered assets.
+- Public command failures now pass through one stable error projection that
+  preserves actionable engine output without exposing internal executable
+  paths or argv. Safe-read retry, readiness wait and CLI fallback share one
+  decreasing deadline; a missing daemon token skips readiness waiting.
 
 ## [0.5.2] — 2026-08-19
 

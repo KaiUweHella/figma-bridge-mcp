@@ -6,10 +6,9 @@
 // proved that the same connection is still on the same document revision.
 import { nodeWalkerCode } from '../design-extract.js';
 
-// Bump whenever the canonical walker payload changes. Version 5 adds Bridge
-// semantic provenance, native annotations, inferred-layout provenance,
-// complete component contracts and mode-aware variable binding facts.
-export const DESIGN_CAPTURE_SCHEMA_VERSION = 5;
+// Bump whenever the canonical walker payload changes. Version 6 adds the
+// depth- and includeHidden-independent hidden-content census.
+export const DESIGN_CAPTURE_SCHEMA_VERSION = 6;
 
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;

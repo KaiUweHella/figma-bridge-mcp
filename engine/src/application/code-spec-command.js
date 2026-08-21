@@ -5,7 +5,7 @@
 // outside this seam. That gives CLI and MCP the same behaviour and makes the
 // command directly testable without booting a process.
 import { sectionFinderCode } from '../design-extract.js';
-import { formatCodeSpec, layerCoverage, specModel } from '../lib/code-spec.js';
+import { componentStateCoverage, formatCodeSpec, layerCoverage, specModel } from '../lib/code-spec.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   createDesignCaptureModule,
@@ -162,6 +162,17 @@ export async function executeCodeSpec(request, adapters = {}) {
     throw new Error(
       `Exact style contract is incomplete: ${coverage.unaccounted} visible Figma layer(s) are unaccounted. ` +
       'Use the ids from the structure map to request smaller child-node specs; never fill the gap by inference.',
+    );
+  }
+  const componentStates = componentStateCoverage(result);
+  if (input.phase !== 'structure' && !componentStates.complete) {
+    const missing = componentStates.sets.filter((set) => set.status === 'notCaptured');
+    const labels = missing.map((set) => `${set.name || 'Unnamed set'} [${set.id}]`).join(', ');
+    const nodeIds = missing.map((set) => set.id).filter(Boolean).slice(0, 8);
+    const recipe = JSON.stringify({ nodeIds, phase: 'all', depth: 2 });
+    throw new Error(
+      `Component state contract is incomplete for: ${labels}. ` +
+      `Capture the available set ids in one Manual Mode approval: figma_spec ${recipe}`,
     );
   }
   if (depth < input.depth) {

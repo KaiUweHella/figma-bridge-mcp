@@ -1,5 +1,4 @@
 const TRANSIENT_KINDS = new Set([
-  'missing-token',
   'unavailable',
   'timeout',
   'plugin-unavailable',

@@ -1095,6 +1095,57 @@ export function gradientBorderCss(spec, cls) {
 
 const INTERACTIVE_STATE_VALUE = /^(hover|active|press(ed)?|focus(ed)?|disabled|selected|loading)$/i;
 
+const componentPropertyName = (name) => String(name || '').split('#')[0].trim();
+const componentStateAxis = (name) => {
+  const normalized = componentPropertyName(name).toLowerCase();
+  return ['state', 'status', 'interaction'].includes(normalized) ? normalized : null;
+};
+const booleanStateName = (name) => componentPropertyName(name)
+  .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+  .replace(/[^a-zA-Z0-9]+/g, '-')
+  .replace(/^-|-$/g, '')
+  .toLowerCase();
+
+/**
+ * Per-used-set component state lattice. A missing capture is different from
+ * a captured set that intentionally defines no interactive state axes.
+ */
+export function componentStateCoverage(result) {
+  const sets = (result.sets || []).map((set) => {
+    const identity = set.entityId
+      ? { kind: 'designEntity', value: set.entityId }
+      : set.setKey
+        ? { kind: 'setKey', value: set.setKey }
+        : { kind: 'localId', value: set.id };
+    if (set.captureStatus === 'notCaptured' || set.props == null) {
+      return {
+        name: set.name, id: set.id, identity, status: 'notCaptured', axes: [], booleans: [],
+      };
+    }
+    const axes = Object.entries(set.props || {}).flatMap(([source, values]) => {
+      const canonical = componentStateAxis(source);
+      return canonical ? [{ source: componentPropertyName(source), canonical, values: Array.from(values || []) }] : [];
+    });
+    const booleans = Object.entries(set.componentPropertyDefinitions || {}).flatMap(([source, definition]) => {
+      if (definition?.type !== 'BOOLEAN') return [];
+      const clean = componentPropertyName(source);
+      return [{
+        source: clean,
+        canonical: `boolean:${booleanStateName(clean)}`,
+        values: [false, true],
+        ...(typeof definition.defaultValue === 'boolean' ? { defaultValue: definition.defaultValue } : {}),
+      }];
+    });
+    return {
+      name: set.name, id: set.id, identity,
+      status: axes.length || booleans.length ? 'defined' : 'noneDefined',
+      axes, booleans,
+    };
+  });
+  const notCapturedIds = sets.filter((set) => set.status === 'notCaptured').map((set) => set.id).filter(Boolean);
+  return { complete: notCapturedIds.length === 0, notCapturedIds, sets };
+}
+
 /**
  * Dynamic fidelity facts shared by every structured output adapter.
  *
@@ -1105,6 +1156,20 @@ const INTERACTIVE_STATE_VALUE = /^(hover|active|press(ed)?|focus(ed)?|disabled|s
 export function specChecks(result) {
   const frames = result.frames || [];
   const checks = { layerCoverage: layerCoverage(frames, result.visibleNodeCount) };
+  if (result.census) {
+    const census = result.census;
+    checks.hiddenContent = {
+      total: census.total || 0,
+      visible: census.visible || 0,
+      hidden: census.hidden || 0,
+      hiddenText: census.hiddenText || 0,
+      hiddenIncluded: census.hiddenIncluded === true,
+      hiddenNodes: Array.isArray(census.hiddenNodes) ? census.hiddenNodes : [],
+      omittedHiddenNodes: census.omittedHiddenNodes || 0,
+      exactContentComplete: (census.hiddenText || 0) === 0 || census.hiddenIncluded === true,
+      alternateStatesInspected: (census.hidden || 0) === 0 || census.hiddenIncluded === true,
+    };
+  }
   const assets = [...countAssetFiles(frames)].sort();
   if (assets.length) {
     checks.assets = { count: assets.length, files: assets.map((file) => `assets/${file}`) };
@@ -1127,6 +1192,8 @@ export function specChecks(result) {
   if (componentLayout.length) checks.componentLayoutDifferences = componentLayout;
   const fonts = typographyFamilies(frames);
   if (fonts.length) checks.typographyFamilies = fonts;
+
+  if (result.sets?.length) checks.componentStates = componentStateCoverage(result);
 
   const interactiveSets = [];
   for (const set of result.sets || []) {
@@ -1183,6 +1250,7 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   // (state=default/hover/…) define the interactive states the build needs.
   let anyInteractive = false;
   if (result.sets?.length) {
+    const stateById = new Map(componentStateCoverage(result).sets.map((set) => [set.id, set]));
     out.push('## Component sets used on this screen', '');
     for (const s of result.sets) {
       const axes = s.props
@@ -1195,7 +1263,11 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
       // Full set key ONCE per set (not per instance): the stable identity a
       // Storybook mapping (figma-map.json) is keyed by. The backtick form is
       // what the MCP layer's annotation pass greps for.
-      out.push(`- ${s.name}${axes ? ` — ${axes}` : ''} · [${s.id}]${s.setKey ? ` · key \`${s.setKey}\`` : ''}`);
+      const state = stateById.get(s.id);
+      const identity = state?.identity?.kind === 'designEntity'
+        ? ` · entity \`${state.identity.value}\``
+        : '';
+      out.push(`- ${s.name}${axes ? ` — ${axes}` : ''} · [${s.id}]${s.setKey ? ` · key \`${s.setKey}\`` : ''}${identity} · state:${state?.status || 'notCaptured'}`);
     }
     out.push('');
     if (anyInteractive) {
@@ -1205,6 +1277,23 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
   out.push('_Figma facts: copy, never invent content/names. `→ var(name)` = token binding; `style:<name>` / `→ style(name)` = shared style._');
   const coverage = layerCoverage(result.frames || [], result.visibleNodeCount);
   out.push('', `_Layer coverage: ${coverage.captured}/${coverage.sourceVisible} visible Figma layers accounted for; ${coverage.explicitRows} explicit implementation row(s), ${coverage.assetInternalLayers} SVG-internal, ${coverage.componentInternalLayers} component-internal, ${coverage.nonRenderingHelpers} non-rendering helper(s), ${coverage.unaccounted} unaccounted.${coverage.complete ? '' : ' INCOMPLETE — request deeper or smaller node specs before coding.'}_`);
+  const hiddenContent = specChecks(result).hiddenContent;
+  if (hiddenContent?.hidden) {
+    const inspection = hiddenContent.hiddenIncluded
+      ? 'Hidden content was explicitly included and inspected; keep it non-rendering unless its state is intentionally activated.'
+      : 'Exact hidden content and alternate-state inspection is INCOMPLETE. Re-run figma_spec for this node with `includeHidden:true`; do not render these layers by default.';
+    out.push('', `_Hidden content census: ${hiddenContent.hidden} hidden layer(s), including ${hiddenContent.hiddenText} text layer(s). ${inspection}_`);
+    for (const node of hiddenContent.hiddenNodes.slice(0, 10)) {
+      const preview = node.textPreview
+        ? ` — “${String(node.textPreview).replace(/\s+/g, ' ').replace(/[“”]/g, '"')}”`
+        : '';
+      out.push(`- ${node.name || 'Unnamed layer'}${node.id ? ` [${node.id}]` : ''} · ${node.type || 'NODE'}${preview}`);
+    }
+    if (hiddenContent.hiddenNodes.length > 10 || hiddenContent.omittedHiddenNodes) {
+      const omitted = Math.max(0, hiddenContent.hiddenNodes.length - 10) + hiddenContent.omittedHiddenNodes;
+      out.push(`- …${omitted} more hidden layer(s)`);
+    }
+  }
   if (phase !== 'structure') {
     out.push('', '_Sibling order = z-order; `clip` = `overflow:hidden`; `abs` offsets are parent-relative. Export/place every `vector art → assets/…` at its rendered W×H/offset; retain `overhangs parent`._');
   }

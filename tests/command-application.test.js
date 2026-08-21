@@ -84,6 +84,41 @@ test('in-process safe reads retry one normalized plugin disconnect internally', 
   assert.equal(waits, 1);
 });
 
+test('safe-read retries share one decreasing deadline budget', async () => {
+  const { runInProcessCommand } = await import('../src/engine.js');
+  const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
+  const contexts = [];
+  await runInProcessCommand(
+    ['export', 'code-spec', '12:34'],
+    { timeoutMs: 100, waitUntilReady: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return true;
+    } },
+    async (context) => {
+      contexts.push(context);
+      if (contexts.length === 1) throw new DaemonClientError('disconnected', { kind: 'plugin-unavailable' });
+      return { stdout: 'ok', stderr: '' };
+    },
+  );
+  assert.equal(contexts.length, 2);
+  assert.equal(contexts[0].deadline, contexts[1].deadline);
+  assert.ok(contexts[1].timeoutMs < contexts[0].timeoutMs);
+});
+
+test('missing daemon token does not spend time in readiness wait', async () => {
+  const { runInProcessCommand } = await import('../src/engine.js');
+  const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
+  let waits = 0;
+  await assert.rejects(
+    () => runInProcessCommand(
+      ['export', 'code-spec', '12:34'],
+      { timeoutMs: 50, waitUntilReady: async () => { waits++; return true; } },
+      async () => { throw new DaemonClientError('token missing', { kind: 'missing-token' }); },
+    ),
+  );
+  assert.equal(waits, 0);
+});
+
 test('read-only fallback recognizes daemon and plugin disconnect/timeout kinds', async () => {
   const { isDaemonUnavailable } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');

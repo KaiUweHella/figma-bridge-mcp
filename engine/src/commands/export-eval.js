@@ -1,10 +1,13 @@
 // Commands: export-eval (extracted from index.js)
 import chalk from 'chalk';
-import { createHash } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { assetSlug, effectiveAssetName, imageAssetBase } from '../lib/asset-names.js';
-import { mergeAssetManifest } from '../lib/asset-manifest.js';
+import {
+  assetContentDigest,
+  planAssetExport,
+  publishAssetExportPlan,
+} from '../lib/asset-manifest.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   program,
@@ -18,7 +21,7 @@ import {
   unescapeShell
 } from '../lib/cli-core.js';
 import { assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode } from '../design-extract.js';
-import { formatCssTokens, buildDtcgTree } from '../lib/css-tokens.js';
+import { formatCssTokens, buildDtcgTree, projectVariableModes } from '../lib/css-tokens.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
 import { nodeRestJsonCode } from '../lib/native-node-data.js';
 import {
@@ -27,7 +30,6 @@ import {
 } from '../application/code-spec-command.js';
 import { executeScreenshot } from '../application/screenshot-command.js';
 import { DEFAULT_RASTER_SCALE, optimizePngForUsages } from '../lib/raster-optimize.js';
-import { svgVisualFingerprint } from '../lib/svg-dedup.js';
 
 // Compatibility export for existing tests/callers while the Implementation
 // now lives behind the command application's Interface.
@@ -219,35 +221,19 @@ exp
       return;
     }
     console.error(chalk.yellow('⚠ no node id given — exporting ALL local variables of the open file. If this file contains more than one design system, pass the frame\'s node id/URL to scope the tokens.'));
-    // Plugin side only READS: name/type + alias-resolved raw value.
+    // Plugin side only READS raw values and collection mode definitions.
     // All formatting (kebab-case names, weight mapping, float rounding,
     // font-family grouping) happens Node-side in lib/css-tokens.js — pure
     // and unit-tested, instead of buried in an eval string.
     const code = `(async () => {
 const vars = await figma.variables.getLocalVariablesAsync();
-/* Aliased variables (color/bg -> sage/25 etc.) carry { type: 'VARIABLE_ALIAS' }
-   as their value — hex-converting that produced #NaNNaNNaN. Resolve the chain
-   to the target's concrete value first (guarded against cycles). NOTE: this
-   eval string is flattened to one line before sending — no // comments here. */
-const byId = {};
-for (const v of vars) byId[v.id] = v;
-const resolve = (val) => {
-  let guard = 10;
-  while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
-    const target = byId[val.id];
-    if (!target) return null; /* alias into a library / another file */
-    val = Object.values(target.valuesByMode)[0];
-  }
-  return (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS') ? null : val;
-};
-return JSON.stringify({ file: figma.root.name, vars: vars.map(v => {
-  const val = resolve(Object.values(v.valuesByMode)[0]);
-  let out = val;
-  if (v.resolvedType === 'COLOR' && val && typeof val === 'object') {
-    out = '#' + [val.r, val.g, val.b].map(n => Math.round(n*255).toString(16).padStart(2,'0')).join('');
-  }
-  return { name: v.name, type: v.resolvedType, value: out === undefined ? null : out };
-}) });
+const collections = await figma.variables.getLocalVariableCollectionsAsync();
+return JSON.stringify({ file: figma.root.name,
+  variables: vars.map(v => ({ id:v.id, name:v.name, resolvedType:v.resolvedType,
+    variableCollectionId:v.variableCollectionId, valuesByMode:v.valuesByMode,
+    description:v.description, scopes:v.scopes, codeSyntax:v.codeSyntax })),
+  collections: collections.map(c => ({ id:c.id, name:c.name, defaultModeId:c.defaultModeId, modes:c.modes }))
+});
 })()`;
     const result = evalPrint(code, { silent: true });
     let parsed;
@@ -259,7 +245,11 @@ return JSON.stringify({ file: figma.root.name, vars: vars.map(v => {
     }
     // Name the source file: tokens silently coming from the WRONG open file
     // (another tab's design system) are indistinguishable without this.
-    const vars = Array.isArray(parsed) ? parsed : parsed.vars || [];
+    const vars = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.variables)
+        ? projectVariableModes(parsed.variables, parsed.collections || [])
+        : parsed.vars || [];
     if (!Array.isArray(parsed) && parsed.file) {
       console.log(`/* source: Figma file "${parsed.file}" — if this is not the design you are building, open the right file in Figma Desktop and re-export */`);
     }
@@ -343,34 +333,13 @@ exp
       const dropped = jobs.length > max ? jobs.splice(max) : [];
 
       mkdirSync(outDir, { recursive: true });
-      const usedNames = new Set();
-      const uniqueName = (base, ext) => {
-        let file = `${base}.${ext}`, i = 2;
-        while (usedNames.has(file)) file = `${base}-${i++}.${ext}`;
-        usedNames.add(file);
-        return file;
-      };
-      // Content dedup: raster bytes must match exactly; SVGs use a visual
-      // fingerprint that ignores generated ids and imperceptible float noise.
-      const byContent = new Map(); // sha1 → file name already written
-      const writeUnique = (base, ext, buf) => {
-        const digest = ext === 'svg'
-          ? svgVisualFingerprint(buf)
-          : createHash('sha1').update(buf).digest('hex');
-        const prior = byContent.get(digest);
-        if (prior) return prior;
-        const file = uniqueName(base, ext);
-        writeFileSync(join(outDir, file), buf);
-        byContent.set(digest, file);
-        return file;
-      };
       const sniffExt = (buf) =>
         buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg'
           : buf[0] === 0x47 && buf[1] === 0x49 ? 'gif'
             : buf[0] === 0x52 && buf[1] === 0x49 ? 'webp' : 'png';
 
       // Phase B: one round-trip per asset — payload-safe for big artworks.
-      const manifest = [];
+      const candidates = [];
       const failures = [];
       const optimizedRasters = [];
       const oversizedRasters = [];
@@ -387,16 +356,21 @@ exp
             const raster = ext === 'png'
               ? optimizePngForUsages(source, job.nodes, rasterScale)
               : { buffer: source, optimized: false };
-            const file = writeUnique(base, ext, raster.buffer);
+            const contentDigest = assetContentDigest(raster.buffer, 'image');
             if (raster.optimized) {
-              optimizedRasters.push({ file, savedBytes: raster.savedBytes });
+              optimizedRasters.push({ contentDigest, savedBytes: raster.savedBytes });
             } else if (rasterScale === 0 && source.length >= 1024 * 1024
                 && Math.max(...job.nodes.map((n) => Math.max(n.w, n.h))) <= 256) {
-              oversizedRasters.push({ file, bytes: source.length, nodes: job.nodes });
+              oversizedRasters.push({ contentDigest, bytes: source.length, nodes: job.nodes });
             }
-            for (const n of job.nodes) {
-              manifest.push({
-                nodeId: n.id, name: n.name, file, kind: 'image', width: n.w, height: n.h,
+            candidates.push({
+              sourceIdentity: `figma-image:${job.hash}`,
+              contentDigest,
+              semanticLabel: job.name,
+              proposedFile: `${base}.${ext}`,
+              kind: 'image',
+              bytes: raster.buffer,
+              metadata: {
                 imageHash: job.hash,
                 ...(raster.optimized ? {
                   optimizedForScale: rasterScale,
@@ -405,25 +379,39 @@ exp
                   sourcePixelWidth: raster.sourceWidth,
                   sourcePixelHeight: raster.sourceHeight,
                 } : {}),
-                ...placement(n),
-              });
-            }
+              },
+              placements: job.nodes.map((n) => ({
+                nodeId: n.id, name: n.name, width: n.w, height: n.h, ...placement(n),
+              })),
+            });
           } else {
             const res = parse(await fastEval(svgBytesCode(job.id)));
             if (res?.error) throw new Error(res.error);
             const buf = Buffer.from(res.base64, 'base64');
-            const file = writeUnique(base, 'svg', buf);
             const n = job.nodes[0];
+            const kind = job.icon ? 'icon' : 'vector';
+            const contentDigest = assetContentDigest(buf, kind);
             // Intrinsic size straight from the written file — the ground
             // truth for placing it (node dimensions lie once rotation or
             // clipping is involved).
             const dims = buf.toString('utf8', 0, Math.min(buf.length, 500))
               .match(/<svg[^>]*?\bwidth="([0-9.]+)"[^>]*?\bheight="([0-9.]+)"/);
-            manifest.push({
-              nodeId: n.id, name: n.name, file, kind: job.icon ? 'icon' : 'vector',
-              width: dims ? Math.round(+dims[1]) : n.w, height: dims ? Math.round(+dims[2]) : n.h,
-              ...(job.icon ? { frameSize: { w: n.w, h: n.h } } : {}),
-              ...placement(n),
+            candidates.push({
+              sourceIdentity: n.designEntityId
+                ? `design-entity:${n.designEntityId}`
+                : `svg-content:${contentDigest.split(':').at(-1)}`,
+              contentDigest,
+              semanticLabel: effectiveAssetName(job.name, job.ancestors),
+              proposedFile: `${base}.svg`,
+              kind,
+              bytes: buf,
+              placements: [{
+                nodeId: n.id, name: n.name,
+                width: dims ? Math.round(+dims[1]) : n.w,
+                height: dims ? Math.round(+dims[2]) : n.h,
+                ...(job.icon ? { frameSize: { w: n.w, h: n.h } } : {}),
+                ...placement(n),
+              }],
             });
           }
         } catch (e) {
@@ -431,15 +419,33 @@ exp
         }
       }
 
-      // MERGE the manifest instead of clobbering it: a partial re-export used
-      // to replace the full-page manifest, orphaning every earlier reference.
+      // Plan every identity/name/content decision before the first write.
+      // Existing files are persistent reservations, never overwrite targets.
       const manifestPath = join(outDir, 'assets.json');
       let prior = null;
       try { prior = JSON.parse(readFileSync(manifestPath, 'utf8')); } catch {}
-      const merged = mergeAssetManifest(prior, manifest, { id: found.id, name: found.name },
-        (file) => existsSync(join(outDir, file)));
-      const kept = merged.assets.length - manifest.length;
-      writeFileSync(manifestPath, JSON.stringify(merged, null, 2) + '\n');
+      const exportPlan = planAssetExport(prior, candidates, { id: found.id, name: found.name }, {
+        fileExists: (file) => existsSync(join(outDir, file)),
+        digestForFile: (file, kind) => assetContentDigest(readFileSync(join(outDir, file)), kind),
+      });
+      publishAssetExportPlan(outDir, exportPlan);
+      const merged = exportPlan.manifest;
+      const assetByDigest = new Map(merged.assets.map((asset) => [asset.contentDigest, asset]));
+      const manifest = candidates.flatMap((candidate) => {
+        const asset = assetByDigest.get(candidate.contentDigest);
+        return candidate.placements.map((placementInfo) => ({
+          ...placementInfo,
+          file: asset.file,
+          kind: asset.kind,
+          sourceIdentity: candidate.sourceIdentity,
+          contentDigest: candidate.contentDigest,
+        }));
+      });
+      const totalPlacements = merged.assets.reduce((sum, asset) => sum + asset.placements.length, 0);
+      const kept = Math.max(0, totalPlacements - manifest.length);
+      for (const item of [...optimizedRasters, ...oversizedRasters]) {
+        item.file = assetByDigest.get(item.contentDigest)?.file;
+      }
 
       const files = new Set(manifest.map((m) => m.file));
       console.log(chalk.green('✓'), `${files.size} file(s) → ${outDir}/ (${manifest.length} node reference(s); manifest: ${manifestPath})`);
@@ -539,32 +545,13 @@ exp
     console.error(chalk.yellow('⚠ no node id given — exporting ALL local variables of the open file. If this file contains more than one design system, pass the frame\'s node id/URL to scope the tokens.'));
     const code = `(async () => {
 const vars = await figma.variables.getLocalVariablesAsync();
-const byId = {};
-for (const v of vars) byId[v.id] = v.name;
-const h2 = n => Math.round(n*255).toString(16).padStart(2,'0');
-const toColor = c => { const b = '#'+h2(c.r)+h2(c.g)+h2(c.b); return (c.a != null && c.a < 1) ? b+h2(c.a) : b; };
-const out = [];
-for (const v of vars) {
-  const val = Object.values(v.valuesByMode)[0];
-  let value = val;
-  let ref = null;
-  if (val && val.type === 'VARIABLE_ALIAS') {
-    ref = byId[val.id] || null;
-    value = null;
-  } else if (v.resolvedType === 'COLOR') {
-    value = toColor(val);
-  }
-  const collection = await figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
-  out.push({
-    id: v.id, name: v.name, type: v.resolvedType,
-    value: value === undefined ? null : value, ref,
-    description: v.description || undefined,
-    collection: collection ? collection.name : undefined,
-    scopes: Array.isArray(v.scopes) ? Array.from(v.scopes) : undefined,
-    codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : undefined,
-  });
-}
-return JSON.stringify({ __file: figma.root.name, vars: out });
+const collections = await figma.variables.getLocalVariableCollectionsAsync();
+return JSON.stringify({ __file: figma.root.name,
+  variables: vars.map(v => ({ id:v.id, name:v.name, resolvedType:v.resolvedType,
+    variableCollectionId:v.variableCollectionId, valuesByMode:v.valuesByMode,
+    description:v.description, scopes:v.scopes, codeSyntax:v.codeSyntax })),
+  collections: collections.map(c => ({ id:c.id, name:c.name, defaultModeId:c.defaultModeId, modes:c.modes }))
+});
 })()`;
     const result = evalPrint(code, { silent: true });
     // Unwrap the { __file, tree } envelope; on parse failure (plugin error
@@ -573,8 +560,9 @@ return JSON.stringify({ __file: figma.root.name, vars: out });
     let sourceFile = null;
     try {
       const parsed = JSON.parse(result);
-      if (parsed && Array.isArray(parsed.vars)) {
-        tokenJson = JSON.stringify(buildDtcgTree(parsed.vars, { dialect }), null, 2);
+      if (parsed && Array.isArray(parsed.variables)) {
+        const variables = projectVariableModes(parsed.variables, parsed.collections || []);
+        tokenJson = JSON.stringify(buildDtcgTree(variables, { dialect }), null, 2);
         sourceFile = parsed.__file;
       }
       else if (parsed && parsed.tree) { tokenJson = JSON.stringify(parsed.tree, null, 2); sourceFile = parsed.__file; }

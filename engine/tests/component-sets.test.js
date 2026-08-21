@@ -5,17 +5,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nodeWalkerCode } from '../src/design-extract.js';
-import { formatCodeSpec, specModel } from '../src/lib/code-spec.js';
+import { componentStateCoverage, formatCodeSpec, specModel } from '../src/lib/code-spec.js';
+
+const entityData = (id) => (key) => key === 'figma-bridge-design-entity'
+  ? JSON.stringify({ version: 1, id, kind: 'component' })
+  : '';
 
 const buttonSet = {
-  id: 'set:1', name: 'button', type: 'COMPONENT_SET',
+  id: 'set:1', key: 'BUTTON_SET_KEY', name: 'button', type: 'COMPONENT_SET',
+  getPluginData: entityData('component.button'),
   variantGroupProperties: {
     type: { values: ['primary', 'secondary'] },
     state: { values: ['default', 'hover', 'active'] },
   },
 };
 const badgeSet = {
-  id: 'set:2', name: 'badge', type: 'COMPONENT_SET',
+  id: 'set:2', key: 'BADGE_SET_KEY', name: 'badge', type: 'COMPONENT_SET',
+  getPluginData: entityData('component.badge'),
   variantGroupProperties: { tone: { values: ['info', 'attention'] } },
 };
 
@@ -51,7 +57,67 @@ test('walker: sets envelope — one entry per set with axes/values', async () =>
   assert.equal(result.sets.length, 2, 'button collected once despite two instances');
   const button = result.sets.find((s) => s.name === 'button');
   assert.equal(button.id, 'set:1');
+  assert.equal(button.entityId, 'component.button');
+  assert.equal(button.setKey, 'BUTTON_SET_KEY');
   assert.deepEqual(button.props.state, ['default', 'hover', 'active']);
+});
+
+test('walker keys sets by Design Entity/publish identity rather than display name', async () => {
+  const root = makeTree();
+  const secondButtonSet = {
+    ...buttonSet,
+    id: 'set:9', key: 'SECOND_BUTTON_SET_KEY',
+    getPluginData: entityData('component.secondary-button'),
+  };
+  root.children.push({
+    id: 'i:9', name: 'type=primary, state=default', type: 'INSTANCE', visible: true,
+    width: 100, height: 40, children: [], parent: root, componentProperties: {},
+    getMainComponentAsync: async () => ({
+      name: 'type=primary, state=default', parent: secondButtonSet,
+    }),
+  });
+  const result = JSON.parse(await runWalker(root, { resolveInstances: true }));
+  assert.equal(result.sets.filter((set) => set.name === 'button').length, 2);
+  assert.deepEqual(
+    result.sets.filter((set) => set.name === 'button').map((set) => set.entityId).sort(),
+    ['component.button', 'component.secondary-button'],
+  );
+});
+
+test('component-state coverage distinguishes defined, noneDefined, and notCaptured', () => {
+  const coverage = componentStateCoverage({
+    sets: [
+      {
+        name: 'button', id: 'set:1', entityId: 'component.button',
+        props: { Type: ['primary'], State: ['default', 'hover'] },
+      },
+      {
+        name: 'badge', id: 'set:2', setKey: 'BADGE_SET_KEY',
+        props: { Tone: ['info', 'attention'] },
+      },
+      {
+        name: 'switch', id: 'set:3', setKey: 'SWITCH_SET_KEY', props: { Size: ['sm', 'lg'] },
+        componentPropertyDefinitions: {
+          'Show icon#bool:1': { type: 'BOOLEAN', defaultValue: true },
+        },
+      },
+      { name: 'unresolved', id: 'set:4', setKey: 'MISSING_SET_KEY', props: null },
+    ],
+  });
+
+  assert.equal(coverage.complete, false);
+  assert.deepEqual(coverage.notCapturedIds, ['set:4']);
+  const [button, badge, toggle, unresolved] = coverage.sets;
+  assert.equal(button.status, 'defined');
+  assert.deepEqual(button.identity, { kind: 'designEntity', value: 'component.button' });
+  assert.deepEqual(button.axes, [{ source: 'State', canonical: 'state', values: ['default', 'hover'] }]);
+  assert.equal(badge.status, 'noneDefined');
+  assert.deepEqual(badge.identity, { kind: 'setKey', value: 'BADGE_SET_KEY' });
+  assert.equal(toggle.status, 'defined');
+  assert.deepEqual(toggle.booleans, [{
+    source: 'Show icon', canonical: 'boolean:show-icon', values: [false, true], defaultValue: true,
+  }]);
+  assert.equal(unresolved.status, 'notCaptured');
 });
 
 test('walker without resolveInstances: sets stay empty (no instance descent)', async () => {
@@ -80,4 +146,6 @@ test('yaml/json model carries the sets', async () => {
   const model = specModel(result, { phase: 'all' });
   assert.equal(model.sets.length, 2);
   assert.equal(model.sets[0].name, 'button');
+  assert.equal(model.checks.componentStates.complete, true);
+  assert.deepEqual(model.checks.componentStates.sets.map((set) => set.status), ['defined', 'noneDefined']);
 });

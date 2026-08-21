@@ -74,7 +74,7 @@ A native Figma annotation emitted by an explicitly opted-in lossy CSS ↔ Figma 
 _Avoid_: warning label, generated comment, fallback badge
 
 **Round-trip Fidelity Contract**:
-The versioned executable classification of core Figma fact families across Design Capture, agent-facing projections, Semantic Render Plans, Figma Commands and verification. Every direction is explicitly exact, conditional, structural, code-only, Figma-only or stopped; an unclassified core fact is a failing contract rather than an implicit omission.
+The versioned executable classification of core Figma fact families across Design Capture, agent-facing projections, Semantic Render Plans, Figma Commands and verification. Every direction is explicitly exact, conditional, structural, visual, code-only, Figma-only or stopped. Verification claims resolve through stable Evidence IDs to real checks, gates, probes or tests; an unknown Evidence ID or unclassified core fact is a failing contract rather than an implicit omission.
 _Avoid_: feature checklist, workflow matrix, capability claim
 
 ## Example dialogue
