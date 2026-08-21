@@ -30,7 +30,7 @@ function hmacHex(token, ts, nonce, method, path, body) {
  * @param {string} token - daemon session token (never sent itself)
  * @param {string} method - HTTP method the request will use
  * @param {string} path - URL path (no host, no query), e.g. "/exec"
- * @param {string} [body] - exact request body ('' for GET)
+ * @param {string|Buffer} [body] - exact request body ('' for GET)
  * @returns {{'X-Daemon-Ts': string, 'X-Daemon-Nonce': string, 'X-Daemon-Auth': string}}
  */
 export function signRequest(token, method, path, body = '') {
@@ -50,7 +50,7 @@ export function signRequest(token, method, path, body = '') {
  * @param {object} headers - lower-cased header map (Node's req.headers)
  * @param {string} method
  * @param {string} path
- * @param {string} [body]
+ * @param {string|Buffer} [body]
  * @param {{now?: number, windowMs?: number}} [opts]
  * @returns {boolean}
  */

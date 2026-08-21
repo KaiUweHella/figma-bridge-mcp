@@ -8,6 +8,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
 import { WebSocket } from 'ws';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +24,12 @@ import {
   verify as verifyHandshake,
 } from '../engine/src/lib/plugin-handshake.js';
 import { PLUGIN_BUILD_VERSION } from '../engine/src/lib/plugin-version.js';
+import {
+  MAX_EXEC_BODY_BYTES,
+  MAX_PLUGIN_MESSAGE_BYTES,
+  MAX_PROTOCOL_ERROR_BYTES,
+  MAX_PROTOCOL_VALUE_BYTES,
+} from '../engine/src/lib/protocol-contract.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -239,6 +246,38 @@ test('signature is bound to the exact body (POST /exec)', async () => {
   assert.equal(res.status, 403);
 });
 
+test('a signed request at the supported value limit keeps exact-body authentication', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'MAX_BODY_FILE' });
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route maximum eval')), 10_000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'eval') return;
+        clearTimeout(timer);
+        assert.equal(Buffer.byteLength(msg.code, 'utf8'), MAX_PROTOCOL_VALUE_BYTES);
+        ws.send(JSON.stringify({ type: 'result', id: msg.id, result: 'accepted-at-limit' }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({
+      action: 'eval',
+      code: 'x'.repeat(MAX_PROTOCOL_VALUE_BYTES),
+      fileKey: 'MAX_BODY_FILE',
+    });
+    assert.ok(Buffer.byteLength(body, 'utf8') <= MAX_EXEC_BODY_BYTES);
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).result, 'accepted-at-limit');
+  });
+});
+
 test('HTTP /exec without signed headers is rejected (403)', async () => {
   const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
     method: 'POST',
@@ -246,6 +285,24 @@ test('HTTP /exec without signed headers is rejected (403)', async () => {
     body: JSON.stringify({ action: 'eval', code: '1' }),
   });
   assert.equal(res.status, 403);
+});
+
+test('oversized chunked HTTP /exec is rejected before authentication or JSON parsing', async () => {
+  const body = Readable.from([
+    Buffer.alloc(MAX_EXEC_BODY_BYTES, 0x78),
+    Buffer.from('x'),
+  ]);
+  const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    duplex: 'half',
+  });
+  assert.equal(res.status, 413);
+  assert.match((await res.json()).error, /payload too large/i);
+
+  const health = await httpHealth(auth('GET', '/health'));
+  assert.equal(health.status, 200, 'oversize rejection must leave the daemon healthy');
 });
 
 test('verifyRequest (unit): freshness window and header shape', () => {
@@ -296,6 +353,31 @@ test('WS challenge-response authenticates and the daemon proves itself back', as
   assert.equal(body.connections[0].pluginVersion, PLUGIN_BUILD_VERSION);
   assert.equal(body.connections[0].pluginUpdateAvailable, false);
   ws.close();
+});
+
+test('oversized WebSocket messages close the unauthenticated peer with 1009', async () => {
+  const ws = openWs();
+  await new Promise((resolve, reject) => {
+    ws.once('message', (data) => {
+      const message = JSON.parse(data.toString());
+      if (message.type === 'challenge') resolve();
+      else reject(new Error(`unexpected first frame: ${message.type}`));
+    });
+    ws.once('error', reject);
+  });
+
+  const closed = new Promise((resolve, reject) => {
+    ws.once('close', (code) => resolve(code));
+    ws.once('error', (error) => {
+      if (error?.code !== 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH') reject(error);
+    });
+    setTimeout(() => reject(new Error('oversized WebSocket message was not closed')), 3000);
+  });
+  ws.send(Buffer.alloc(MAX_PLUGIN_MESSAGE_BYTES + 1, 0x78));
+  assert.equal(await closed, 1009);
+
+  const health = await httpHealth(auth('GET', '/health'));
+  assert.equal(health.status, 200, 'oversize WebSocket rejection must leave the daemon healthy');
 });
 
 test('the handshake exposes a cached older Figma plugin build', async () => {
@@ -510,6 +592,36 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     const connection = health.connections.find((item) => item.fileKey === 'REV_FILE');
     assert.match(connection.lastResponseAt, /^\d{4}-\d{2}-\d{2}T/,
       'health must distinguish a merely open socket from a plugin that has answered');
+  });
+});
+
+test('/exec rejects a bounded-but-invalid Plugin response without waiting for timeout', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'INVALID_RESPONSE_FILE' });
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route eval')), 3000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'eval') return;
+        clearTimeout(timer);
+        ws.send(JSON.stringify({
+          type: 'result',
+          id: msg.id,
+          error: 'x'.repeat(MAX_PROTOCOL_ERROR_BYTES + 1),
+        }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({ action: 'eval', code: 'capture()', fileKey: 'INVALID_RESPONSE_FILE' });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    assert.match((await response.json()).error, /Plugin protocol error:.*error.*limit/i);
   });
 });
 

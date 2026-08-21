@@ -41,7 +41,12 @@ import {
 } from './lib/plugin-handshake.js';
 import { STATE_DIR } from './lib/state-dir.js';
 import { getPortPid } from './platform.js';
-import { validateExecPayload, validatePluginMessage } from './lib/protocol-contract.js';
+import {
+  MAX_EXEC_BODY_BYTES,
+  MAX_PLUGIN_MESSAGE_BYTES,
+  validateExecPayload,
+  validatePluginMessage,
+} from './lib/protocol-contract.js';
 import { PLUGIN_BUILD_VERSION, pluginUpdateAvailable } from './lib/plugin-version.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
@@ -535,11 +540,48 @@ async function handleRequest(req, res) {
 }
 
 function handleExec(req, res) {
-  let body = '';
-  req.on('data', chunk => body += chunk);
+  const bodyChunks = [];
+  let receivedBytes = 0;
+  let finished = false;
+
+  const rejectTooLarge = () => {
+    if (finished) return;
+    finished = true;
+    res.writeHead(413, {
+      'Content-Type': 'application/json',
+      'Connection': 'close',
+    });
+    res.end(JSON.stringify({
+      error: `Payload too large: /exec accepts at most ${MAX_EXEC_BODY_BYTES} bytes`,
+    }));
+    // Discard the rest without retaining it. This keeps chunked senders from
+    // growing memory after the response and allows Node to close cleanly.
+    req.resume();
+  };
+
+  const declaredLength = req.headers['content-length'];
+  if (typeof declaredLength === 'string' && /^\d+$/.test(declaredLength)
+      && Number(declaredLength) > MAX_EXEC_BODY_BYTES) {
+    rejectTooLarge();
+    return;
+  }
+
+  req.on('data', (chunk) => {
+    if (finished) return;
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    receivedBytes += bytes.length;
+    if (receivedBytes > MAX_EXEC_BODY_BYTES) {
+      rejectTooLarge();
+      return;
+    }
+    bodyChunks.push(bytes);
+  });
   req.on('end', async () => {
+    if (finished) return;
+    finished = true;
+    const rawBody = Buffer.concat(bodyChunks, receivedBytes);
     // SECURITY: the signature covers the exact body — validate only now.
-    const authError = validateRequest(req, body);
+    const authError = validateRequest(req, rawBody);
     if (authError) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized: ' + authError }));
@@ -548,7 +590,7 @@ function handleExec(req, res) {
 
     let payload;
     try {
-      payload = JSON.parse(body);
+      payload = JSON.parse(rawBody.toString('utf8'));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid JSON body: ' + e.message }));
@@ -623,6 +665,9 @@ function handleExec(req, res) {
       inFlightExecs--;
     }
   });
+  req.on('aborted', () => {
+    finished = true;
+  });
 }
 
 // ============ START SERVERS ============
@@ -645,8 +690,15 @@ function verifyPluginClient(info) {
     return true;
 }
 
-const wss = new WebSocketServer({ server: httpServer, path: '/plugin', verifyClient: verifyPluginClient });
-const ipv6Wss = new WebSocketServer({ server: ipv6HttpServer, path: '/plugin', verifyClient: verifyPluginClient });
+const websocketOptions = {
+  path: '/plugin',
+  verifyClient: verifyPluginClient,
+  // ws defaults to 100 MiB. Figma Bridge accepts no protocol value above
+  // 5 MB, so reject oversized frames during streaming before JSON parsing.
+  maxPayload: MAX_PLUGIN_MESSAGE_BYTES,
+};
+const wss = new WebSocketServer({ server: httpServer, ...websocketOptions });
+const ipv6Wss = new WebSocketServer({ server: ipv6HttpServer, ...websocketOptions });
 
 // ws re-emits the underlying server's errors (including the EADDRINUSE of a
 // failed bind attempt) on the WebSocketServer. Without a listener that becomes
@@ -725,6 +777,16 @@ function handlePluginSocket(ws) {
         ws.close(4401, messageError);
       } else {
         console.error('[daemon] Plugin protocol error:', messageError);
+        // A malformed response must fail its HTTP request immediately instead
+        // of leaving the caller to hit a misleading execution timeout. Other
+        // authenticated pushes (selection/token) have no pending request and
+        // are simply ignored after the protocol error is logged.
+        const pending = Number.isSafeInteger(msg?.id) ? pluginPendingRequests.get(msg.id) : null;
+        if (pending && pending.ws === ws) {
+          clearTimeout(pending.timeout);
+          pluginPendingRequests.delete(msg.id);
+          pending.reject(new Error(`Plugin protocol error: ${messageError}`));
+        }
       }
       return;
     }
