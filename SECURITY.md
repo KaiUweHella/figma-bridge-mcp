@@ -2,7 +2,7 @@
 
 figma-bridge-mcp gives an AI agent write access to a live Figma document. This
 document says what that means, what protects it, and — just as importantly —
-what it does *not* protect against.
+what it does _not_ protect against.
 
 Everything here is checkable against the source: the daemon is
 `engine/src/daemon.js`, the handshake is `engine/src/lib/plugin-handshake.js`,
@@ -20,10 +20,18 @@ in the report if you have a disclosure deadline in mind.
 
 ## Threat model
 
-The assumed attacker is **another process on the same machine**: an npm
-postinstall script, a malicious editor extension, a second AI agent, a
-compromised dependency. Not a remote network attacker — nothing here listens off
-loopback — and not a malicious Figma itself.
+The primary runtime attacker is a process or browser origin that can reach
+loopback but **cannot** read Figma Bridge's private state: for example a port
+squatter, an untrusted local web page, a different OS user, or a sandboxed
+extension. MCP arguments, agent-generated commands, workspace files, imported
+design data, Figma-authored strings, and stale Plugins are also untrusted input.
+
+Arbitrary code already running as the same OS user with permission to read and
+replace Bridge files is a full host compromise, not a boundary HMAC or `0600`
+permissions can contain. Compromised dependencies are therefore addressed at
+the install/release boundary; after malicious dependency code runs as you, it
+has the same power as that host compromise. A malicious Figma application,
+account, or service is also outside this model.
 
 That framing matters because "it only listens on localhost" is not an access
 control on a developer machine. Every one of those processes runs as you.
@@ -36,13 +44,13 @@ mode was removed from the fork rather than disabled — there is no code path to
 it, and `connect` is absent from the command allowlist so Safe Mode cannot be
 switched off through the MCP layer.
 
-**No secret is ever transmitted.** Two separate credentials protect two separate
-channels, and neither crosses the wire:
+**Bridge authentication secrets are never transmitted.** Two separate
+credentials protect two separate channels, and neither crosses the wire:
 
-| Channel | Credential | How it is used |
-|---------|-----------|----------------|
-| HTTP (`/health`, `/exec`, …) | session token, 0600 | per-request HMAC over timestamp, nonce, method, path and body-hash; the daemon keeps a nonce cache, so captured headers cannot be replayed |
-| WebSocket (`/plugin`) | plugin access key, 0600 | mutual challenge-response; both sides prove possession by HMAC over both nonces, the bound port and the plugin version |
+| Channel                      | Credential              | How it is used                                                                                                                             |
+| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| HTTP (`/health`, `/exec`, …) | session token, 0600     | per-request HMAC over timestamp, nonce, method, path and body-hash; the daemon keeps a nonce cache, so captured headers cannot be replayed |
+| WebSocket (`/plugin`)        | plugin access key, 0600 | mutual challenge-response; both sides prove possession by HMAC over both nonces, the bound port and the plugin version                     |
 
 A process that binds a port in 3456–3460 before the daemon and records
 everything learns no reusable secret. Because the bound **port** is inside the
@@ -55,32 +63,35 @@ across two ports fails to verify.
 the access key. Without this, anything answering on a local port could drive
 your document without knowing the key at all.
 
-**The plugin cannot reach the network.** `plugin/manifest.json` restricts
-`networkAccess.allowedDomains` to `ws://localhost:3456–3460`. Figma enforces
-this; the plugin has no route to any external host, so nothing in your document
-can be exfiltrated through it. `tests/plugin-sync.test.js` fails the build if a
-non-loopback entry is ever added.
+**The plugin cannot reach external network domains.** `plugin/manifest.json`
+restricts `networkAccess.allowedDomains` to the exact HTTP/WebSocket localhost
+ports 3456–3460. Figma applies this policy to plugin requests, including remote
+image URLs passed to `createImageAsync`; those URLs are therefore deliberately
+blocked rather than becoming an exfiltration route. The manifest regression
+tests fail if a non-loopback entry is added. See Figma's
+[manifest network policy](https://developers.figma.com/docs/plugins/manifest/).
 
-**Only files you opened yourself are reachable.** The bridge holds one
-connection per Figma window in which *you* started the plugin — the consent is
-physical, not configured. With several connected, a command must name its
-target; there is no "all files" switch and no fan-out, so one mistaken command
-cannot sweep a library. A file you have not opened is unreachable: Figma's REST
-API cannot write document content, so no code path exists to it.
+**Live document mutation reaches only files you opened yourself.** The bridge
+holds one connection per Figma window in which _you_ started the plugin — the
+consent is physical, not configured. With several connected, a command must
+name its target; there is no "all files" switch and no fan-out, so one mistaken
+command cannot sweep a library. The optional REST add-on can explicitly read
+allowed metadata/history from another named file, but the REST API cannot write
+its document content.
 
 **No shell, and a fixed command surface.** The engine is spawned with
 `execFile` (`shell: false`). `figma_run` accepts only allowlisted first tokens.
 
-**Everything is logged and interruptible.** Every executed command is appended
-to `~/.figma-bridge-mcp/audit.log` with the node ids it touched and its outcome.
-The plugin panel shows commands live, **Pause** rejects every incoming agent
-command until resumed, and **Save version** writes a named restore point into
-Figma's own version history.
+**Commands are interruptible and currently have a best-effort local log.** The
+plugin panel shows commands live, **Pause** rejects incoming agent commands
+until resumed, and **Save version** writes a named restore point into Figma's
+own version history. The current `audit.log` is useful local history, but write
+failures are intentionally non-blocking and raw argv can retain source text or
+paths. It is not yet an evidence-grade, lossless, or fully redacted Audit Trail.
 
 **Optional REST is genuinely optional.** Without a token the code path is inert.
 With one, the token is pasted into the plugin window (never into chat, never
-into MCP client config), travels over the authenticated socket, and is stored
-0600. It is never echoed back by any tool and never written to the audit log —
+into MCP client config), travels over the authenticated socket, and is stored 0600. It is never echoed back by any tool and never written to the audit log —
 REST calls are logged as method and path only.
 
 **REST is closed by method and path.** The internal client accepts only token
@@ -98,16 +109,21 @@ marketing:
 - **Arbitrary code still reaches your document.** `figma_render` and several
   `figma_run` commands evaluate code in Figma's plugin sandbox. That is the
   product. The sandbox protects your filesystem and network; it does not protect
-  the *document*. What the allowlist, the audit log and Pause buy you is that
+  the _document_. What the allowlist, the audit log and Pause buy you is that
   the writes are bounded, visible and stoppable — not that they are impossible.
 - **An agent that has been prompt-injected can still act.** If untrusted content
   reaches your agent's context, it can ask for destructive edits, and they will
   be logged as ordinary commands. Set `FIGMA_WRITE_CONFIRM=1` to require an
   explicit `confirm:true` on every mutation, and use **Save version** before
   long unattended runs.
+- **Workspace access currently follows process permissions.** Command paths are
+  normalized and reported as Command Capability effects, but most file reads
+  and outputs are not yet confined to the MCP launch workspace or protected
+  against a symlink that resolves outside it. Do not expose this server to an
+  MCP client you would not trust with the same local project files.
 - **A local attacker with your file permissions has already won.** The 0600
   files are readable by any process running as you. The handshake defends
-  against a process that *cannot* read them (a port squatter); it cannot defend
+  against a process that _cannot_ read them (a port squatter); it cannot defend
   against one that can.
 - **Figma's undo is not a rollback.** Plugins cannot restore versions. Recovery
   goes through Figma's version-history panel — which is why the panel offers a
@@ -134,10 +150,26 @@ key, optional REST token (all 0600), daemon pid and port, and the audit log
 npm test    # includes the handshake, daemon auth, write gate and manifest checks
 ```
 
-The security-relevant suites are `tests/daemon-auth.test.js` (signing, replay,
-handshake forgery, relay defence), `tests/plugin-handshake.test.js` (the panel's
-own crypto is run against Node's and must agree), `tests/plugin-sync.test.js`
-(the manifest cannot silently widen), `tests/write-gate.test.js` (an unlisted
-command group defaults to *write*, never to ungated) and
-`tests/rest-token-daemon.test.js` (an unauthenticated socket cannot plant a
-token; the token never reaches the log).
+Public security claims map to the following executable evidence. The
+`tests/security-doc.test.js` contract fails if an evidence name stops resolving
+to the named regression test.
+
+| Evidence             | Claim                                                                                                                                                                                     | Regression test                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SEC-HTTP-AUTH`      | Request signatures bind freshness, nonce, method, path, and exact body; replay, malformed headers, and tampering fail.                                                                    | `tests/daemon-auth.test.js` — `replayed signed headers are rejected`, `signature is bound to method and path`, `signature is bound to the exact body`, `request authentication rejects an adversarial header corpus without throwing`                                                                               |
+| `SEC-PLUGIN-AUTH`    | Plugin and daemon mutually prove the current key; role, version, nonce, and port relay changes fail.                                                                                      | `tests/daemon-auth.test.js` — `WS challenge-response authenticates and the daemon proves itself back`, `a proof for a DIFFERENT port is rejected`; `tests/plugin-handshake.test.js` — `plugin HMAC matches on random inputs`                                                                                        |
+| `SEC-LOOPBACK`       | Listeners, Host/Origin policy, and discovery remain local and non-sensitive.                                                                                                              | `tests/daemon-auth.test.js` — `HTTP /plugin-ready exposes only a CORS-scoped, non-sensitive discovery beacon`, `WS with a disallowed browser Origin is rejected`; `tests/plugin-sync.test.js` — `the manifest permits every port in the range and nothing beyond loopback`                                          |
+| `SEC-PAYLOAD`        | HTTP, WebSocket, handshake, results, errors, metadata, selections, and batches are bounded.                                                                                               | `tests/daemon-auth.test.js` — `oversized chunked HTTP /exec is rejected`, `oversized WebSocket messages close`; `engine/tests/protocol-contract.test.js` — `plugin result, error, metadata, batch, token and selection payloads are bounded`                                                                        |
+| `SEC-TARGET`         | One command resolves one file and never fans out across windows.                                                                                                                          | `tests/daemon-auth.test.js` — `with several windows, /exec must name a file`; `tests/figma-target.test.js` — `Figma Target Context resolves precedence once and stays immutable`                                                                                                                                    |
+| `SEC-COMMAND`        | Unknown command groups are denied and all unknown actions receive conservative write policy.                                                                                              | `tests/capability-catalog.test.js` — `catalog denies and gates unknown commands with safe defaults`; `tests/write-gate.test.js` — `unknown command GROUPS default to WRITE`                                                                                                                                         |
+| `SEC-NO-SHELL`       | Agent strings stay argv data and do not select a shell command.                                                                                                                           | `tests/security-doc.test.js` — `engine execution stays argv-only without a shell`; `tests/error-projection.test.js` — `child-process projection never exposes the internal command line or argv`                                                                                                                    |
+| `SEC-NO-WRITE-RETRY` | Ambiguous writes never retry; only classified safe reads can retry inside one deadline.                                                                                                   | `tests/command-application.test.js` — `in-process execution never repeats an ambiguous daemon failure by default`, `safe-read retries share one decreasing deadline budget`                                                                                                                                         |
+| `SEC-REST`           | REST is opt-in, closed by canonical method/path before token lookup, and does not log the token.                                                                                          | `tests/rest.test.js` — `closed REST allowlist permits only named metadata/history endpoints`, `REST allowlist fails closed on URL canonicalization attacks before token lookup`, `the token NEVER appears in the audit log`; `tests/rest-token-daemon.test.js` — `unauthenticated socket cannot plant a REST token` |
+| `SEC-PLUGIN-NETWORK` | The Plugin manifest permits only the bounded localhost Bridge ports.                                                                                                                      | `tests/plugin-sync.test.js` — `the manifest permits every port in the range and nothing beyond loopback`                                                                                                                                                                                                            |
+| `SEC-LINK-PATH`      | Design Link source paths reject lexical project escapes, sibling-prefix tricks, null bytes, and non-text input. This does not yet claim symlink containment for every Command Capability. | `engine/tests/design-link-registry.test.js` — `repository path boundary rejects traversal, sibling-prefix and null-byte attacks`                                                                                                                                                                                    |
+| `SEC-DATA-AS-DATA`   | Representative generated-code, Markdown, and structured-plan inputs cannot break their data boundary.                                                                                     | `engine/tests/add-variant.test.js` — `a quoted payload cannot break out of the eval`; `tests/history.test.js` — `formatHistory sanitizes hostile labels/refs`; `engine/tests/structured-render-executor.test.js` — `preflights the whole plan and rejects unsupported facts without writes`                         |
+| `SEC-PUBLIC-SAFETY`  | Public source/history gates detect supported credential and private-data shapes without echoing them.                                                                                     | `tests/public-safety.test.js` — `public-safety rejects provider tokens without printing their value`, `public-safety history parser scans additions with their real line`                                                                                                                                           |
+
+The model must be reviewed whenever a transport, remote domain/dependency,
+credential, Plugin permission, Figma/workspace write surface, or public security
+claim is added.

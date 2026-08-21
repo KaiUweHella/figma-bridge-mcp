@@ -60,6 +60,9 @@ export function normalizeDesignEntityKind(value, fallback = 'frame') {
 /** Store source paths portably and refuse links outside the project root. */
 export function normalizeRepositoryPath(value, projectRoot = process.cwd()) {
   if (!value) return null;
+  if (typeof value !== 'string' || value.includes('\0')) {
+    throw new Error('Code source must be a text path without null bytes');
+  }
   const root = resolve(projectRoot);
   const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value);
   const rel = relative(root, absolute);

@@ -322,6 +322,30 @@ test('verifyRequest (unit): freshness window and header shape', () => {
   assert.equal(verifyRequest(TOKEN, {}, 'GET', '/health'), false);
 });
 
+test('request authentication rejects an adversarial header corpus without throwing', () => {
+  const valid = Object.fromEntries(
+    Object.entries(signRequest(TOKEN, 'GET', '/health')).map(([key, value]) => [key.toLowerCase(), value]),
+  );
+  const attacks = [
+    { 'x-daemon-ts': [] },
+    { 'x-daemon-ts': '-1' },
+    { 'x-daemon-ts': '1e6' },
+    { 'x-daemon-ts': '9'.repeat(17) },
+    { 'x-daemon-nonce': {} },
+    { 'x-daemon-nonce': valid['x-daemon-nonce'].toUpperCase() },
+    { 'x-daemon-nonce': `${valid['x-daemon-nonce']}00` },
+    { 'x-daemon-auth': ['a'.repeat(64)] },
+    { 'x-daemon-auth': 'a'.repeat(63) },
+    { 'x-daemon-auth': 'a'.repeat(64).toUpperCase() },
+    { 'x-daemon-auth': `${'a'.repeat(32)}\0${'a'.repeat(31)}` },
+  ];
+  for (const attack of attacks) {
+    const headers = { ...valid, ...attack };
+    assert.doesNotThrow(() => verifyRequest(TOKEN, headers, 'GET', '/health'));
+    assert.equal(verifyRequest(TOKEN, headers, 'GET', '/health'), false, JSON.stringify(attack));
+  }
+});
+
 test('WS challenge-response authenticates and the daemon proves itself back', async () => {
   const ws = openWs();
   const { ack, challenge, pluginNonce, seen } = await handshake(ws);

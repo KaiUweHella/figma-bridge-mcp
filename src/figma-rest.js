@@ -22,20 +22,44 @@ import { appendAudit, getSelection } from "./engine.js";
 
 const BASE_URL = "https://api.figma.com";
 const TIMEOUT_MS = 10000;
+const MAX_REST_PATH_BYTES = 2048;
+const FILE_KEY_PATH = "[A-Za-z0-9]{1,64}";
+
+function queryKeysAllowed(url, allowed) {
+  for (const key of url.searchParams.keys()) {
+    if (!allowed.has(key)) return false;
+  }
+  return true;
+}
 
 // Closed internal allowlist. There is intentionally no generic "REST request"
 // capability: adding an endpoint requires a named reason here plus tests.
 export const REST_ENDPOINTS = Object.freeze([
-  { id: "token-health", methods: ["GET"], pattern: /^\/v1\/me$/ },
-  { id: "version-list", methods: ["GET"], pattern: /^\/v1\/files\/[^/?]+\/versions(?:\?.*)?$/ },
-  { id: "version-content", methods: ["GET"], pattern: /^\/v1\/files\/[^/?]+\?(?=[^#]*\bversion=)[^#]+$/ },
-  { id: "comments", methods: ["GET", "POST"], pattern: /^\/v1\/files\/[^/?]+\/comments$/ },
-  { id: "published-components", methods: ["GET"], pattern: /^\/v1\/files\/[^/?]+\/components$/ },
+  { id: "token-health", methods: ["GET"], pattern: /^\/v1\/me$/, acceptsQuery: (url) => !url.search },
+  {
+    id: "version-list", methods: ["GET"], pattern: new RegExp(`^/v1/files/${FILE_KEY_PATH}/versions$`),
+    acceptsQuery: (url) => queryKeysAllowed(url, new Set(["page_size", "before", "after"])),
+  },
+  {
+    id: "version-content", methods: ["GET"], pattern: new RegExp(`^/v1/files/${FILE_KEY_PATH}$`),
+    acceptsQuery: (url) => Boolean(url.searchParams.get("version")) && queryKeysAllowed(url, new Set(["version", "depth"])),
+  },
+  { id: "comments", methods: ["GET", "POST"], pattern: new RegExp(`^/v1/files/${FILE_KEY_PATH}/comments$`), acceptsQuery: (url) => !url.search },
+  { id: "published-components", methods: ["GET"], pattern: new RegExp(`^/v1/files/${FILE_KEY_PATH}/components$`), acceptsQuery: (url) => !url.search },
 ]);
 
 export function classifyRestRequest(path, method = "GET") {
-  const normalizedMethod = String(method).toUpperCase();
-  const match = REST_ENDPOINTS.find((endpoint) => endpoint.methods.includes(normalizedMethod) && endpoint.pattern.test(String(path)));
+  if (typeof path !== "string" || typeof method !== "string") return null;
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\") || path.includes("#")) return null;
+  if (Buffer.byteLength(path, "utf8") > MAX_REST_PATH_BYTES) return null;
+  let url;
+  try { url = new URL(path, BASE_URL); } catch { return null; }
+  if (url.origin !== BASE_URL || `${url.pathname}${url.search}` !== path) return null;
+  const normalizedMethod = method.toUpperCase();
+  const match = REST_ENDPOINTS.find((endpoint) =>
+    endpoint.methods.includes(normalizedMethod)
+    && endpoint.pattern.test(url.pathname)
+    && endpoint.acceptsQuery(url));
   return match ? match.id : null;
 }
 

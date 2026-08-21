@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   DESIGN_ENTITY_PLUGIN_DATA_KEY,
   DESIGN_LINK_REGISTRY_FILE,
@@ -88,6 +88,20 @@ test('repository adapter writes atomically and keeps source paths portable', () 
   ));
   const parsed = JSON.parse(readFileSync(path, 'utf8'));
   assert.equal(parsed.entities[0].id, 'screen.settings');
+});
+
+test('repository path boundary rejects traversal, sibling-prefix and null-byte attacks', () => {
+  const dir = resolve('workspace', 'project');
+  assert.equal(normalizeRepositoryPath(join('src', '..', 'Screen.tsx'), dir), 'Screen.tsx');
+  for (const attack of [
+    join('..', 'outside.tsx'),
+    resolve(dir, '..', 'project-evil', 'outside.tsx'),
+    resolve(dir, '..', 'outside.tsx'),
+  ]) {
+    assert.throws(() => normalizeRepositoryPath(attack, dir), /inside the project/);
+  }
+  assert.throws(() => normalizeRepositoryPath('src/evil\0.tsx', dir), /null bytes/);
+  assert.throws(() => normalizeRepositoryPath({ toString: () => 'src/evil.tsx' }, dir), /text path/);
 });
 
 test('minimal Figma plugin data roundtrips and contains no code path', () => {

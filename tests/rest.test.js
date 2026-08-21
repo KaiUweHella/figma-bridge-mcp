@@ -93,6 +93,43 @@ test("closed REST allowlist permits only named metadata/history endpoints", asyn
   assert.equal(called, false, 'blocked endpoints never reach the network');
 });
 
+test("REST allowlist fails closed on URL canonicalization attacks before token lookup", async () => {
+  const attacks = [
+    ["GET", "//attacker.example/v1/me"],
+    ["GET", "/v1/../me"],
+    ["GET", "/v1/%2e%2e/me"],
+    ["GET", "/v1/files/k\\versions"],
+    ["GET", "/v1/files/k%2fcomments"],
+    ["GET", "/v1/files/k/comments?redirect=/v1/me"],
+    ["POST", "/v1/files/k/versions"],
+    ["GET", "/v1/files/k?foo=version=123"],
+    ["GET", "/v1/files/k?version="],
+    ["GET", "/v1/files/k?version=123#fragment"],
+    ["GET", "/v1/files/k/components/../comments"],
+  ];
+  for (const [method, path] of attacks) {
+    assert.equal(classifyRestRequest(path, method), null, `${method} ${path}`);
+  }
+
+  let tokenReadOrFetch = false;
+  await assert.rejects(
+    () => restFetch('/v1/files/k\\versions', {
+      env: {
+        get FIGMA_REST_TOKEN() {
+          tokenReadOrFetch = true;
+          return TOKEN;
+        },
+      },
+      fetchImpl: async () => {
+        tokenReadOrFetch = true;
+        throw new Error('must not fetch');
+      },
+    }),
+    (error) => error.message.includes(REST_DENIED_MSG),
+  );
+  assert.equal(tokenReadOrFetch, false, 'denial must happen before credential access or fetch');
+});
+
 test("error mapping: 401/403/404/429 → actionable messages", async () => {
   const env = { FIGMA_REST_TOKEN: TOKEN };
   await assert.rejects(
