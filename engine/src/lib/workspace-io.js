@@ -310,6 +310,36 @@ export function createWorkspaceIO({
     return canonicalRead(input, { role, kind });
   }
 
+  /**
+   * Probe existence without escaping the WorkspaceIO authority. Missing paths
+   * return false; symlinks, type mismatches and paths outside an allowed root
+   * remain policy errors instead of being mistaken for free destinations.
+   */
+  function exists(input, { role = 'workspace-input', kind = 'any' } = {}) {
+    const safeRole = normalizeRole(role);
+    const absolute = path.resolve(input);
+    if (!rootForLexical(absolute)) {
+      throw new WorkspaceIOError(safeRole, 'path is outside allowed roots');
+    }
+    try {
+      canonicalRead(absolute, { role: safeRole, kind });
+      return true;
+    } catch (error) {
+      try {
+        lstatSync(absolute);
+      } catch (probeError) {
+        if (probeError?.code === 'ENOENT') {
+          // ENOENT only proves that the leaf is missing. Resolve the deepest
+          // existing parent as well so an escaping symlink cannot turn a
+          // policy failure into an apparently free destination.
+          canonicalWrite(absolute, { role: safeRole, createParents: false, kind });
+          return false;
+        }
+      }
+      throw error;
+    }
+  }
+
   function read(input, { role = 'workspace-input', maxBytes = effectiveLimits.binaryBytes, encoding = null } = {}) {
     const opened = secureOpenRead(input, { role, maxBytes, kind: 'file' });
     try {
@@ -373,6 +403,7 @@ export function createWorkspaceIO({
     roots: Object.freeze(roots.map(({ canonical }) => canonical)),
     limits: effectiveLimits,
     authorizePath,
+    exists,
     ensureDirectory,
     read,
     readText,

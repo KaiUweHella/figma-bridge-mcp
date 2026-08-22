@@ -1524,23 +1524,31 @@ export function usedVariablesCode(nodeId) {
 /** Eval snippet: original encoded bytes of one image fill, base64. */
 export function imageBytesCode(hash) {
   return `(async () => {
-    const img = figma.getImageByHash(${JSON.stringify(String(hash))});
-    if (!img) return JSON.stringify({ error: 'image not found' });
-    const bytes = await img.getBytesAsync();
-    let size = null;
-    try { size = await img.getSizeAsync(); } catch (e) {}
-    return JSON.stringify({ base64: figma.base64Encode(bytes), size });
+    try {
+      const img = figma.getImageByHash(${JSON.stringify(String(hash))});
+      if (!img) return JSON.stringify({ error: 'image not found' });
+      const bytes = await img.getBytesAsync();
+      let size = null;
+      try { size = await img.getSizeAsync(); } catch (e) {}
+      return JSON.stringify({ base64: figma.base64Encode(bytes), size });
+    } catch (error) {
+      return JSON.stringify({ error: error && error.message ? error.message : String(error) });
+    }
   })()`;
 }
 
 /** Eval snippet: SVG markup of one node, base64. */
 export function svgBytesCode(nodeId) {
   return `(async () => {
-    const n = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
-    if (!n) return JSON.stringify({ error: 'node not found' });
-    if (!('exportAsync' in n)) return JSON.stringify({ error: 'node cannot be exported' });
-    const bytes = await n.exportAsync({ format: 'SVG' });
-    return JSON.stringify({ base64: figma.base64Encode(bytes) });
+    try {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
+      if (!n) return JSON.stringify({ error: 'node not found' });
+      if (!('exportAsync' in n)) return JSON.stringify({ error: 'node cannot be exported' });
+      const bytes = await n.exportAsync({ format: 'SVG' });
+      return JSON.stringify({ base64: figma.base64Encode(bytes) });
+    } catch (error) {
+      return JSON.stringify({ error: error && error.message ? error.message : String(error) });
+    }
   })()`;
 }
 

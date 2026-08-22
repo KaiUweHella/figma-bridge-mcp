@@ -30,6 +30,7 @@ import {
   ENGINE_CWD,
   DAEMON_HOST,
   getDaemonPort,
+  DAEMON_PID_FILE,
   DAEMON_TOKEN_FILE,
   PLUGIN_KEY_FILE,
   REST_TOKEN_FILE,
@@ -346,13 +347,19 @@ export async function runInProcessCommandPlan(plan, opts = {}, operation) {
  * CONNECT_TIMEOUT_MS remains a hard failure cap for daemon startup itself.
  * A healthy daemon is reused by default; forceRestart is reserved for an
  * explicit pairing-key rotation.
- * @param {{forceRestart?: boolean}} [options]
+ * @param {{forceRestart?: boolean, timeoutMs?: number}} [options]
  * @returns {Promise<{stdout: string, stderr: string, code: number}>}
  */
-export async function ensureSafeConnect({ forceRestart = false } = {}) {
+export async function ensureSafeConnect({
+  forceRestart = false,
+  timeoutMs = CONNECT_TIMEOUT_MS,
+} = {}) {
   const args = ["connect", "--safe", "--no-wait"];
   if (forceRestart) args.push("--force-restart");
   const { cmd, argv } = buildArgv(args);
+  const boundedTimeoutMs = Number.isFinite(Number(timeoutMs))
+    ? Math.max(1, Math.min(CONNECT_TIMEOUT_MS, Number(timeoutMs)))
+    : CONNECT_TIMEOUT_MS;
   const auditHandle = auditTrail.begin({
     capability: "bridge.connect",
     operation: "write",
@@ -363,7 +370,7 @@ export async function ensureSafeConnect({ forceRestart = false } = {}) {
 
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
-      timeout: CONNECT_TIMEOUT_MS,
+      timeout: boundedTimeoutMs,
       cwd: ENGINE_CWD,
       env: engineEnv,
       maxBuffer: MAX_BUFFER,
@@ -384,6 +391,86 @@ export async function ensureSafeConnect({ forceRestart = false } = {}) {
     projected.audit = audit;
     throw projected;
   }
+}
+
+const PLUGIN_READINESS_WAIT_MS = 8000;
+
+/**
+ * Bring an already configured idle Bridge Daemon back and wait for its Plugin
+ * connection without leaving the owning Command Plan deadline. This is a
+ * readiness Adapter only: it never executes or retries the Figma Command.
+ *
+ * @param {{
+ *   deadline: number,
+ *   maxWaitMs?: number,
+ *   adapters?: {
+ *     now?: () => number,
+ *     health?: (options: {timeoutMs: number}) => Promise<{ok?: boolean, plugin?: boolean, raw?: object|null}>,
+ *     hasPriorSetup?: () => boolean,
+ *     restart?: (options: {timeoutMs: number}) => Promise<unknown>,
+ *     wait?: (delayMs: number) => Promise<void>,
+ *   },
+ * }} options
+ * @returns {Promise<{restarted: boolean}>}
+ */
+export async function ensurePluginReadiness({
+  deadline,
+  maxWaitMs = PLUGIN_READINESS_WAIT_MS,
+  adapters = {},
+} = {}) {
+  const now = adapters.now || (() => Date.now());
+  const inspectHealth = adapters.health || ((options) => health(options));
+  const hasPriorSetup = adapters.hasPriorSetup || (() => fs.existsSync(DAEMON_PID_FILE));
+  const restart = adapters.restart || ((options) => ensureSafeConnect(options));
+  const wait = adapters.wait || ((delayMs) =>
+    new Promise((resolve) => setTimeout(resolve, delayMs)));
+  const startedAt = now();
+  const boundedWait = Number.isFinite(Number(maxWaitMs))
+    ? Math.max(0, Number(maxWaitMs))
+    : PLUGIN_READINESS_WAIT_MS;
+  const planDeadline = Number.isFinite(Number(deadline)) ? Number(deadline) : startedAt;
+  const stopAt = Math.min(planDeadline, startedAt + boundedWait);
+  let restartAttempted = false;
+
+  while (now() < stopAt) {
+    const probeBudget = Math.max(1, Math.min(1000, stopAt - now()));
+    let current;
+    try {
+      current = await inspectHealth({ timeoutMs: probeBudget });
+    } catch {
+      current = { ok: false, plugin: false, raw: null };
+    }
+    if (current?.ok && current.plugin) return { restarted: restartAttempted };
+    const remainingAfterProbe = stopAt - now();
+    if (remainingAfterProbe <= 0) break;
+
+    const daemonUnavailable = current?.raw == null;
+    if (daemonUnavailable && !restartAttempted) {
+      if (!hasPriorSetup()) break;
+      restartAttempted = true;
+      const restartBudget = Math.max(1, Math.min(CONNECT_TIMEOUT_MS, remainingAfterProbe));
+      try {
+        await restart({ timeoutMs: restartBudget });
+      } catch {
+        // A timed-out launcher may still have detached the daemon. Keep the
+        // remaining bounded health loop authoritative instead of retrying it.
+      }
+      continue;
+    }
+
+    const remaining = stopAt - now();
+    if (remaining <= 0) break;
+    await wait(Math.max(1, Math.min(200, remaining)));
+  }
+
+  throw new DaemonClientError(
+    "Plugin not connected. Run figma_connect, then launch the Figma Bridge plugin in Figma Desktop.",
+    {
+      kind: "plugin-unavailable",
+      phase: "target-resolution",
+      outcome: "not-dispatched",
+    },
+  );
 }
 
 /**

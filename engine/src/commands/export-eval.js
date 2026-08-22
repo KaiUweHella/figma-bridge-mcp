@@ -1,25 +1,25 @@
 // Commands: export-eval (extracted from index.js)
 import chalk from 'chalk';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
-import { dirname, join, resolve } from 'path';
-import { assetSlug, effectiveAssetName, imageAssetBase } from '../lib/asset-names.js';
-import { workspaceIO } from '../lib/workspace-io.js';
+import { resolve } from 'path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import {
-  assetContentDigest,
-  planAssetExport,
-  publishAssetExportPlan,
-} from '../lib/asset-manifest.js';
+  ensurePluginReadiness,
+  runInProcessCommandPlan,
+} from '../../../src/engine.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   program,
   checkConnection,
   daemonExec,
+  daemonExecWithMetadata,
   fastEval,
   safeReadEval,
   evalPrint,
-  unescapeShell
+  unescapeShell,
 } from '../lib/cli-core.js';
-import { assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode } from '../design-extract.js';
+import { usedVariablesCode } from '../design-extract.js';
 import { formatCssTokens, buildDtcgTree, projectVariableModes } from '../lib/css-tokens.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
 import { nodeRestJsonCode } from '../lib/native-node-data.js';
@@ -28,7 +28,14 @@ import {
   walkWithDepthRetry,
 } from '../application/code-spec-command.js';
 import { executeScreenshot } from '../application/screenshot-command.js';
-import { DEFAULT_RASTER_SCALE, optimizePngForUsages } from '../lib/raster-optimize.js';
+import { DEFAULT_RASTER_SCALE } from '../lib/raster-optimize.js';
+import {
+  AssetExportFailure,
+  assetExportPlanningArgvFromRequest,
+  assetExportResultRows,
+  executeAssetExportPlan,
+  formatAssetExportResult,
+} from '../application/asset-export-command.js';
 
 // Compatibility export for existing tests/callers while the Implementation
 // now lives behind the command application's Interface.
@@ -43,12 +50,6 @@ function normalizedId(input) {
   if (r.warning) console.error(chalk.yellow('⚠ ' + r.warning));
   return r.id;
 }
-
-/** Hint appended to empty-result errors: instance-path ids are the usual cause. */
-const instancePathHint = (nodeId) =>
-  /^I/.test(String(nodeId))
-    ? ' Instance-path ids (I…;…) often cannot be resolved — use the TOP-LEVEL instance id or the main component id instead.'
-    : '';
 
 const exp = program
   .command('export')
@@ -260,27 +261,42 @@ return JSON.stringify({ file: figma.root.name,
 // derivable from those. (Importing an EXISTING tailwind.config.js via
 // the `import` command stays supported — that reads the user's project.)
 
-/**
- * Placement block of a manifest entry, from a collector node. The manifest
- * alone must suffice to place an overlay (no spec cross-reference): parent
- * NODE ID next to the human-readable name path, x/y offsets in the immediate
- * parent, post-transform rootX/rootY offsets in the requested export root,
- * and the two flags builders need to not lose the asset —
- * absolutePosition (out of flow) and overhang (renders beyond the parent).
- */
-function placement(n) {
-  return {
-    ...(n.x != null ? { x: n.x, y: n.y } : {}),
-    ...(n.rootX != null ? {
-      rootX: n.rootX, rootY: n.rootY,
-      coordinateSpace: n.coordinateSpace || 'export-root',
-      ...(n.rootId ? { rootId: n.rootId } : {}),
-    } : {}),
-    parent: n.parent,
-    ...(n.parentId ? { parentId: n.parentId } : {}),
-    ...(n.absolute != null ? { absolutePosition: !!n.absolute } : {}),
-    ...(n.overhang != null ? { overhang: !!n.overhang } : {}),
-  };
+function renderAssetExportRows(rows) {
+  for (const row of rows) {
+    const render = row.tone === 'success' ? chalk.green
+      : row.tone === 'warning' ? chalk.yellow
+        : row.tone === 'error' ? chalk.red
+          : row.tone === 'muted' ? chalk.gray
+            : (value) => value;
+    console.log(render(row.text));
+  }
+}
+
+async function runAssetExportCommand(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(assetExportPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  let domainResult = null;
+  const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      const remainingMs = () => Math.max(0, deadline - Date.now());
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      domainResult = await executeAssetExportPlan(plan, {
+        workspaceIO: io,
+        remainingMs,
+        yieldControl: () => new Promise((resolveYield) => setImmediate(resolveYield)),
+        evaluate: (code, context = {}) => daemonExecWithMetadata('eval', {
+          code,
+          ...(context.fileKey || fileKey ? { fileKey: context.fileKey || fileKey } : {}),
+        }, Math.max(1, context.remainingMs ?? remainingMs())),
+      });
+      return { stdout: formatAssetExportResult(domainResult), stderr: '', code: 0 };
+    });
+  return { domainResult, execution };
 }
 
 exp
@@ -290,210 +306,21 @@ exp
   .option('--max <n>', 'Maximum number of assets to export (largest first; dropped ones are LISTED, never silent)', '100')
   .option('--raster-scale <n>', 'PNG density relative to largest Figma usage (default 2× retina; 0 keeps originals)', String(DEFAULT_RASTER_SCALE))
   .action(async (nodeId, options) => {
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
-    // ABSOLUTE output dir: a relative -o resolves against the CLI's cwd —
-    // when spawned by the MCP server that is the server's repo, NOT the
-    // user's project (files silently landed in the wrong repo). Resolving
-    // here and echoing the absolute path makes the target unambiguous.
-    const outDir = resolve(options.output);
-    const max = parseInt(options.max) || 100;
-    const rasterScale = Number(options.rasterScale);
-    if (!Number.isFinite(rasterScale) || rasterScale < 0 || rasterScale > 4) {
-      console.error(chalk.red('✗ --raster-scale must be a number between 0 and 4.'));
-      process.exit(1);
-    }
-    const parse = (res) => (typeof res === 'string' ? JSON.parse(res) : res);
     try {
-      // Phase A: one cheap eval collects the manifest (ids + names, no bytes).
-      const found = parse(await fastEval(assetCollectorCode(nodeId)));
-      if (found?.error) {
-        console.error(chalk.red('✗ ' + found.error));
-        process.exit(1);
-      }
-      if (!found || !Array.isArray(found.images) || !Array.isArray(found.vectors)) {
-        // Never surface a raw TypeError ("reading 'images'") — say what
-        // happened and what to try.
-        console.error(chalk.red(`✗ export assets: the plugin returned no data for node ${nodeId}.` +
-          instancePathHint(nodeId) + ' Otherwise retry — this is usually a transient bridge hiccup.'));
-        process.exit(1);
-      }
-      // Build the work list: images (deduped by hash) first, then vectors,
-      // largest first so a --max cut keeps the hero artwork, not the confetti.
-      const jobs = [];
-      for (const img of found.images) {
-        const first = img.nodes[0];
-        jobs.push({ kind: 'image', hash: img.hash, nodes: img.nodes, name: first.name, ancestors: first.ancestors, area: first.w * first.h });
-      }
-      for (const v of found.vectors) {
-        jobs.push({ kind: 'vector', id: v.id, nodes: [v], name: v.name, ancestors: v.ancestors, area: v.w * v.h, icon: v.icon === true });
-      }
-      jobs.sort((a, b) => b.area - a.area);
-      const dropped = jobs.length > max ? jobs.splice(max) : [];
-
-      workspaceIO().ensureDirectory(outDir, { role: 'asset-export-directory' });
-      const sniffExt = (buf) =>
-        buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg'
-          : buf[0] === 0x47 && buf[1] === 0x49 ? 'gif'
-            : buf[0] === 0x52 && buf[1] === 0x49 ? 'webp' : 'png';
-
-      // Phase B: one round-trip per asset — payload-safe for big artworks.
-      const candidates = [];
-      const failures = [];
-      const optimizedRasters = [];
-      const oversizedRasters = [];
-      for (const job of jobs) {
-        const base = job.kind === 'image'
-          ? imageAssetBase(job.hash)
-          : assetSlug(effectiveAssetName(job.name, job.ancestors));
-        try {
-          if (job.kind === 'image') {
-            const res = parse(await fastEval(imageBytesCode(job.hash)));
-            if (res?.error) throw new Error(res.error);
-            const source = Buffer.from(res.base64, 'base64');
-            const ext = sniffExt(source);
-            const raster = ext === 'png'
-              ? optimizePngForUsages(source, job.nodes, rasterScale)
-              : { buffer: source, optimized: false };
-            const contentDigest = assetContentDigest(raster.buffer, 'image');
-            if (raster.optimized) {
-              optimizedRasters.push({ contentDigest, savedBytes: raster.savedBytes });
-            } else if (rasterScale === 0 && source.length >= 1024 * 1024
-                && Math.max(...job.nodes.map((n) => Math.max(n.w, n.h))) <= 256) {
-              oversizedRasters.push({ contentDigest, bytes: source.length, nodes: job.nodes });
-            }
-            candidates.push({
-              sourceIdentity: `figma-image:${job.hash}`,
-              contentDigest,
-              semanticLabel: job.name,
-              proposedFile: `${base}.${ext}`,
-              kind: 'image',
-              bytes: raster.buffer,
-              metadata: {
-                imageHash: job.hash,
-                ...(raster.optimized ? {
-                  optimizedForScale: rasterScale,
-                  pixelWidth: raster.width,
-                  pixelHeight: raster.height,
-                  sourcePixelWidth: raster.sourceWidth,
-                  sourcePixelHeight: raster.sourceHeight,
-                } : {}),
-              },
-              placements: job.nodes.map((n) => ({
-                nodeId: n.id, name: n.name, width: n.w, height: n.h, ...placement(n),
-              })),
-            });
-          } else {
-            const res = parse(await fastEval(svgBytesCode(job.id)));
-            if (res?.error) throw new Error(res.error);
-            const buf = Buffer.from(res.base64, 'base64');
-            const n = job.nodes[0];
-            const kind = job.icon ? 'icon' : 'vector';
-            const contentDigest = assetContentDigest(buf, kind);
-            // Intrinsic size straight from the written file — the ground
-            // truth for placing it (node dimensions lie once rotation or
-            // clipping is involved).
-            const dims = buf.toString('utf8', 0, Math.min(buf.length, 500))
-              .match(/<svg[^>]*?\bwidth="([0-9.]+)"[^>]*?\bheight="([0-9.]+)"/);
-            candidates.push({
-              sourceIdentity: n.designEntityId
-                ? `design-entity:${n.designEntityId}`
-                : `svg-content:${contentDigest.split(':').at(-1)}`,
-              contentDigest,
-              semanticLabel: effectiveAssetName(job.name, job.ancestors),
-              proposedFile: `${base}.svg`,
-              kind,
-              bytes: buf,
-              placements: [{
-                nodeId: n.id, name: n.name,
-                width: dims ? Math.round(+dims[1]) : n.w,
-                height: dims ? Math.round(+dims[2]) : n.h,
-                ...(job.icon ? { frameSize: { w: n.w, h: n.h } } : {}),
-                ...placement(n),
-              }],
-            });
-          }
-        } catch (e) {
-          failures.push({ name: job.name, message: e.message });
-        }
-      }
-
-      // Plan every identity/name/content decision before the first write.
-      // Existing files are persistent reservations, never overwrite targets.
-      const manifestPath = join(outDir, 'assets.json');
-      let prior = null;
-      try { prior = workspaceIO().readJson(manifestPath, { role: 'asset-manifest' }); } catch {}
-      const exportPlan = planAssetExport(prior, candidates, { id: found.id, name: found.name }, {
-        fileExists: (file) => existsSync(join(outDir, file)),
-        digestForFile: (file, kind) => assetContentDigest(
-          workspaceIO().read(join(outDir, file), { role: 'exported-asset' }), kind,
-        ),
+      const { domainResult } = await runAssetExportCommand({
+        nodeId,
+        outputDir: resolve(options.output),
+        max: options.max,
+        rasterScale: options.rasterScale,
       });
-      publishAssetExportPlan(outDir, exportPlan);
-      const merged = exportPlan.manifest;
-      const assetByDigest = new Map(merged.assets.map((asset) => [asset.contentDigest, asset]));
-      const manifest = candidates.flatMap((candidate) => {
-        const asset = assetByDigest.get(candidate.contentDigest);
-        return candidate.placements.map((placementInfo) => ({
-          ...placementInfo,
-          file: asset.file,
-          kind: asset.kind,
-          sourceIdentity: candidate.sourceIdentity,
-          contentDigest: candidate.contentDigest,
-        }));
-      });
-      const totalPlacements = merged.assets.reduce((sum, asset) => sum + asset.placements.length, 0);
-      const kept = Math.max(0, totalPlacements - manifest.length);
-      for (const item of [...optimizedRasters, ...oversizedRasters]) {
-        item.file = assetByDigest.get(item.contentDigest)?.file;
+      renderAssetExportRows(assetExportResultRows(domainResult));
+    } catch (error) {
+      if (error instanceof AssetExportFailure && error.result) {
+        renderAssetExportRows(assetExportResultRows(error.result));
+      } else {
+        console.error(chalk.red('✗'), error.message);
       }
-
-      const files = new Set(manifest.map((m) => m.file));
-      console.log(chalk.green('✓'), `${files.size} file(s) → ${outDir}/ (${manifest.length} node reference(s); manifest: ${manifestPath})`);
-      for (const f of [...files].slice(0, 30)) console.log('  ' + f);
-      if (files.size > 30) console.log(`  … ${files.size - 30} more (see assets.json)`);
-      // The verification checklist lives HERE, in tool output — MCP clients
-      // truncate server instructions (a prior acceptance run lost the whole checklist that
-      // way), but tool results always arrive in full.
-      const flagged = [...new Map(
-        manifest.filter((m) => m.absolutePosition || m.overhang).map((m) => [m.file, m]),
-      ).values()];
-      if (flagged.length) {
-        console.log(chalk.yellow(`⚠ ${flagged.length} of ${files.size} file(s) are absolutely positioned or overhang their parent — exactly these get lost in builds:`));
-        for (const m of flagged) {
-          const at = m.rootX != null
-            ? ` @ root ${m.rootX},${m.rootY}`
-            : (m.x != null ? ` @ parent ${m.x},${m.y}` : '');
-          const over = m.overhang ? ' — overhangs, keep visible' : '';
-          console.log(`  - ${m.file}${at} in "${m.parent || 'root'}"${over}`);
-        }
-      }
-      if (optimizedRasters.length) {
-        const saved = optimizedRasters.reduce((sum, item) => sum + item.savedBytes, 0);
-        console.log(chalk.green('✓'), `${optimizedRasters.length} oversized PNG(s) downsampled for ${rasterScale}× use; saved ${(saved / 1024).toFixed(0)} KiB`);
-      }
-      if (oversizedRasters.length) {
-        console.log(chalk.yellow(`⚠ ${oversizedRasters.length} PNG(s) exceed 1 MiB although every usage is at most 256px:`));
-        for (const item of oversizedRasters.slice(0, 10)) {
-          const maxUse = Math.max(...item.nodes.map((n) => Math.max(n.w, n.h)));
-          console.log(`  - ${item.file}: ${(item.bytes / 1024 / 1024).toFixed(1)} MiB for max ${maxUse}px use`);
-        }
-        console.log('  Re-run this export with --raster-scale 2 for a retina-sized PNG; placement and CSS crop semantics stay unchanged.');
-      }
-      console.log(`Before declaring the build done: every file above must be referenced in the project — run \`verify-build <projectDir>\` to check the whole manifest mechanically (or grep each filename).`);
-      if (kept > 0) console.log(chalk.gray(`  manifest merged: ${kept} entr${kept === 1 ? 'y' : 'ies'} from earlier export(s) kept`));
-      if (dropped.length) {
-        console.log(chalk.yellow(`⚠ --max ${max}: dropped ${dropped.length} smaller asset(s):`),
-          dropped.slice(0, 10).map((d) => d.name).join(', ') + (dropped.length > 10 ? ', …' : ''));
-      }
-      if (failures.length) {
-        console.log(chalk.yellow(`⚠ ${failures.length} asset(s) failed to export:`));
-        for (const f of failures) console.log(chalk.yellow(`  - ${f.name}: ${f.message}`));
-      }
-      process.exit(failures.length && manifest.length === 0 ? 1 : 0);
-    } catch (e) {
-      console.error(chalk.red('✗ export assets failed: ' + e.message + instancePathHint(nodeId)));
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 

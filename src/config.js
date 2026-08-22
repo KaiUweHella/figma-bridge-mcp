@@ -88,6 +88,8 @@ export const CONNECT_TIMEOUT_MS =
 // default port was held by a foreign process.
 export const DAEMON_HOST = process.env.DAEMON_HOST || "127.0.0.1";
 export { getDaemonPort } from "../engine/src/lib/daemon-port.js";
+export const DAEMON_PID_FILE =
+  process.env.DAEMON_PID_FILE || path.join(STATE_DIR, "daemon.pid");
 export const DAEMON_TOKEN_FILE =
   process.env.DAEMON_TOKEN_FILE || path.join(STATE_DIR, ".daemon-token");
 

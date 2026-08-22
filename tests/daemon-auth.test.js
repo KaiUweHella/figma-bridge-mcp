@@ -641,6 +641,8 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
         const msg = JSON.parse(data.toString());
         if (msg.action !== 'eval') return;
         clearTimeout(timer);
+        assert.equal(msg.requireDocumentRevision, true,
+          'the authenticated daemon must preserve the explicit revision-proof request');
         ws.send(JSON.stringify({
           type: 'result', id: msg.id, result: { captured: true },
           metadata: {
@@ -652,7 +654,9 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'eval', code: 'capture()', fileKey: 'REV_FILE' });
+    const body = JSON.stringify({
+      action: 'eval', code: 'capture()', fileKey: 'REV_FILE', requireDocumentRevision: true,
+    });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
@@ -666,6 +670,7 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     assert.match(payload.metadata.connectionId, /^[0-9a-f-]{36}$/i);
     assert.notEqual(payload.metadata.connectionId, 'FORGED_BY_PLUGIN');
     assert.equal(payload.metadata.fileKey, 'REV_FILE');
+    assert.equal(payload.metadata.pluginVersion, PLUGIN_BUILD_VERSION);
     assert.equal(payload.metadata.documentRevisionBefore, 9);
     assert.equal(payload.metadata.documentRevisionAfter, 9);
     const health = await (await httpHealth(auth('GET', '/health'))).json();

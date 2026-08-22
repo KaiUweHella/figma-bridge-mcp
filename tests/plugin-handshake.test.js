@@ -288,8 +288,13 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
 
 test('Capture revision metadata crosses both plugin threads', () => {
   assert.match(PLUGIN_CODE, /figma\.on\('documentchange'/);
+  assert.match(PLUGIN_CODE, /await figma\.loadAllPagesAsync\(\)/,
+    'dynamic-page plugins must load all pages before documentchange subscription');
+  assert.match(PLUGIN_CODE, /if \(requireDocumentRevision === true\) await ensureDocumentRevisionReady\(\)/,
+    'only freshness-sensitive reads pay for document-wide revision tracking');
   assert.match(PLUGIN_CODE, /documentRevisionBefore/);
   assert.match(PLUGIN_CODE, /documentRevisionAfter/);
+  assert.match(UI, /requireDocumentRevision: msg\.requireDocumentRevision === true/);
   assert.match(UI, /metadata: msg\.metadata/);
 });
 

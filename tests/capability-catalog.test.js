@@ -340,11 +340,37 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     assert.equal(mcpAdapter, 'mcp');
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
-    if (['link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    if (['export.assets', 'link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
     else assert.equal(cliAllowed, false);
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
   assert.equal(planFigmaCommand(['future-command']).allowed, false);
+});
+
+test('Asset Export canonicalizes defaults into one cross-Adapter tracked-job policy', () => {
+  const options = { workspaceDir: '/work', fileKey: 'FILE_A' };
+  const variants = [
+    ['export', 'assets', '1:2'],
+    ['export', 'assets', '1:2', '-o', 'assets'],
+    ['export', 'assets', '1:2', '--max', '100', '--raster-scale', '2'],
+    ['export', 'assets', '--output=assets', '1:2'],
+  ];
+  const plans = variants.map((argv) => planFigmaCommand(argv, { ...options, adapter: 'mcp' }));
+  for (const plan of plans) {
+    const cli = planFigmaCommand(plan.argv, { ...options, adapter: 'cli' });
+    assert.equal(plan.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(plan.effects, {
+      figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+    });
+    assert.equal(plan.confirmation, 'none');
+    assert.equal(plan.execution.mode, 'tracked-job');
+    assert.equal(plan.execution.timeout, 'background');
+    assert.equal(plan.execution.retry, 'never');
+    assert.deepEqual(cli.target, plan.target);
+  }
+  assert.equal(new Set(plans.map((plan) => plan.execution.jobKey)).size, 1);
+  assert.equal(new Set(plans.map((plan) => JSON.stringify(plan.argv))).size, 1);
 });
 
 test('each capability supplies a closed audit projection without user payloads or identities', () => {

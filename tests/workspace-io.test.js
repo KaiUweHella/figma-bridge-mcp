@@ -64,6 +64,33 @@ test('workspace I/O rejects absolute and symlink escapes but permits contained s
   assert.throws(() => io.write(join(workspace, 'escape', 'leak.txt'), 'secret'), WorkspaceIOError);
 });
 
+test('workspace existence probes distinguish missing files from policy failures', (t) => {
+  const { workspace, outside } = fixture(t);
+  writeFileSync(join(workspace, 'present.txt'), 'safe');
+  writeFileSync(join(outside, 'secret.txt'), 'private');
+  symlinkSync(outside, join(workspace, 'escape'));
+  const io = createWorkspaceIO({ root: workspace });
+
+  assert.equal(io.exists(join(workspace, 'present.txt'), { role: 'asset-manifest', kind: 'file' }), true);
+  assert.equal(io.exists(join(workspace, 'missing.txt'), { role: 'asset-manifest', kind: 'file' }), false);
+  assert.equal(
+    io.exists(join(workspace, 'missing-parent', 'missing.txt'), { role: 'asset-manifest', kind: 'file' }),
+    false,
+  );
+  assert.throws(
+    () => io.exists(join(workspace, 'escape', 'secret.txt'), { role: 'exported-asset', kind: 'file' }),
+    WorkspaceIOError,
+  );
+  assert.throws(
+    () => io.exists(join(workspace, 'escape', 'missing.txt'), { role: 'exported-asset', kind: 'file' }),
+    WorkspaceIOError,
+  );
+  assert.throws(
+    () => io.exists(join(outside, 'secret.txt'), { role: 'exported-asset', kind: 'file' }),
+    WorkspaceIOError,
+  );
+});
+
 test('secure output detects a parent swap before bytes can escape', (t) => {
   const { workspace, outside } = fixture(t);
   const outputDir = join(workspace, 'output');

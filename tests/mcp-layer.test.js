@@ -114,7 +114,7 @@ test('withAbsoluteOutputDir handles the combined --output=dir form', async () =>
   // redirected the export to the default assets dir.
   const eq = withAbsoluteOutputDir(['export', 'assets', '1:2', '--output=src/assets'], base);
   assert.equal(eq.outDir, output);
-  assert.deepEqual(eq.args, ['export', 'assets', '1:2', `--output=${output}`]);
+  assert.deepEqual(eq.args, ['export', 'assets', '1:2', '-o', output]);
   const absoluteOutput = resolve('elsewhere', 'a');
   const eqAbs = withAbsoluteOutputDir(['export', 'assets', '1:2', `-o=${absoluteOutput}`], base);
   assert.equal(eqAbs.outDir, absoluteOutput);
@@ -153,6 +153,16 @@ test('figma_selection accepts only an optional file target', async () => {
   assert.equal(unknownParamError('figma_selection', {}), null);
   assert.equal(unknownParamError('figma_selection', { fileKey: 'FILE_A' }), null);
   assert.match(unknownParamError('figma_selection', { nodeId: '1:2' }), /Accepted parameters: fileKey/);
+});
+
+test('figma_run exposes an explicit fresh-capture escape from the retry cache', async () => {
+  const { handleTool, unknownParamError, TOOLS } = await import('../src/server.js');
+  assert.equal(unknownParamError('figma_run', { args: ['export', 'assets', '1:2'], force: true }), null);
+  const run = TOOLS.find((tool) => tool.name === 'figma_run');
+  assert.match(run.inputSchema.properties.force.description, /completed retry cache/);
+  const rejected = await handleTool('figma_run', { args: ['node', 'tree'], force: true });
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content[0].text, /only available for tracked Asset Export/);
 });
 
 test('normalizeOutputArgs anchors map storybook output to the client workspace', async () => {
@@ -313,6 +323,24 @@ test('figma_run routes Design Contract capture/check through the shared Applicat
   assert.match(source, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
 });
 
+test('figma_run keeps Asset Export polling around the shared in-process Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('async function runAssetExport');
+  const end = source.indexOf('/**\n * Resolve one figma_run Command Plan', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /assetJobs\.attach\(/);
+  assert.match(slice, /force && !attached\.started && attached\.job\.done/);
+  assert.match(slice, /runInProcessCommandPlan\(/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeAssetExportPlan\(plan/);
+  assert.ok(
+    slice.indexOf('await ensurePluginReadiness') < slice.indexOf('executeAssetExportPlan(plan'),
+    'readiness must complete inside the Plan before Asset Export dispatches',
+  );
+  assert.match(slice, /formatAssetExportResult\(result\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Asset Export must not re-enter Commander');
+});
+
 test('figma_run denies an unknown nested command before write confirmation', async () => {
   const { handleTool } = await import('../src/server.js');
   const result = await handleTool('figma_run', { args: ['node', 'future-action', 'private-value'] });
@@ -348,6 +376,22 @@ test('figma_run rejects malformed Design Contract argv before dispatch', async (
     assert.equal(result.isError, true, args.join(' '));
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Asset Export argv before job scheduling', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['export', 'assets'],
+    ['export', 'assets', '1:2', '--future', 'private-value'],
+    ['export', 'assets', '1:2', '--max', '3x'],
+    ['export', 'assets', '1:2', '--raster-scale', '5'],
+    ['export', 'assets', '1:2', '-o', 'a', '--output', 'b'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /RUNNING|private-value/);
   }
 });
 
@@ -657,6 +701,13 @@ test('asset background jobs include the target file in their identity', async ()
   assert.equal(assetExportJobKey(args, 'FILE_A'), assetExportJobKey([...args], 'FILE_A'));
   const plan = planFigmaCommand(args, { fileKey: 'FILE_A' });
   assert.equal(JSON.parse(plan.execution.jobKey).fileKey, plan.target.fileKey);
+
+  const url = 'https://www.figma.com/design/FILEA/Asset-Lab?node-id=1-2';
+  assert.equal(
+    assetExportJobKey(['export', 'assets', '1-2', '-o', '/tmp/assets'], 'FILEA'),
+    assetExportJobKey(['export', 'assets', url, '-o', '/tmp/assets'], null),
+    'equivalent node spellings and URL-derived targeting share one job identity',
+  );
 });
 
 test('figma_run creates one registry-targeted plan for Link and Contract execution', async () => {

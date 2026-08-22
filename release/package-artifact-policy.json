@@ -13,6 +13,8 @@
     "engine/LICENSE",
     "engine/package.json",
     "engine/src/api-docs.js",
+    "engine/src/application/asset-export-command.js",
+    "engine/src/application/asset-export-request.js",
     "engine/src/application/code-spec-command.js",
     "engine/src/application/design-capture.js",
     "engine/src/application/design-contract-command.js",
@@ -73,6 +75,7 @@
     "engine/src/lib/api-capability-claims.js",
     "engine/src/lib/api-operation-coverage.js",
     "engine/src/lib/asset-manifest.js",
+    "engine/src/lib/asset-output-lock.js",
     "engine/src/lib/asset-names.js",
     "engine/src/lib/asset-policy.js",
     "engine/src/lib/browser-dom-capture.js",
@@ -116,6 +119,7 @@
     "engine/src/lib/render-lint.js",
     "engine/src/lib/rich-text.js",
     "engine/src/lib/round-trip-fidelity-contract.js",
+    "engine/src/lib/revision-context.js",
     "engine/src/lib/round-trip-planner.js",
     "engine/src/lib/safe-read-retry.js",
     "engine/src/lib/semantic-dom-model.js",
@@ -165,7 +169,8 @@
     "src/figma-target.js",
     "src/history.js",
     "src/pairing.js",
-    "src/server.js"
+    "src/server.js",
+    "src/tracked-job-registry.js"
   ],
   "executables": ["engine/src/index.js"]
 }

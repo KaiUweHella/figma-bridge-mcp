@@ -164,6 +164,13 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
   return daemonClient().execute(action, data, { timeoutMs });
 }
 
+async function daemonExecWithMetadata(action, data = {}, timeoutMs = 90000) {
+  return daemonClient().executeWithMetadata(action, {
+    ...data,
+    ...(action === 'eval' ? { requireDocumentRevision: true } : {}),
+  }, { timeoutMs });
+}
+
 async function daemonHealth(timeoutMs = 3000) {
   return daemonClient().health({ timeoutMs });
 }
@@ -519,9 +526,9 @@ async function createCollection(name, { silent = false } = {}) {
 // Single source of truth for "daemon up AND plugin bridge connected". All
 // connection checks (checkConnection, `status`) go through this so
 // the health contract lives in one place.
-async function daemonHealthy() {
+async function daemonHealthy(timeoutMs = 3000) {
   try {
-    const response = await daemonHealth();
+    const response = await daemonHealth(timeoutMs);
     return response.ok && response.data?.status === 'ok' && !!response.data.plugin;
   } catch {
     return false;
@@ -529,12 +536,15 @@ async function daemonHealthy() {
 }
 
 async function waitForPluginConnection(maxWaitMs = 8000) {
-  if (!(await ensureDaemonRunning())) return false;
   const deadline = Date.now() + Math.max(0, Number(maxWaitMs) || 0);
+  if (!(await ensureDaemonRunning(Math.max(0, deadline - Date.now())))) return false;
   do {
-    if (await daemonHealthy()) return true;
-    if (Date.now() >= deadline) break;
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    if (await daemonHealthy(Math.max(1, Math.min(1000, remaining)))) return true;
+    const afterHealth = deadline - Date.now();
+    if (afterHealth <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(200, afterHealth)));
   } while (true);
   return false;
 }
@@ -572,6 +582,7 @@ export {
   checkConnection,
   componentContextExpr,
   daemonExec,
+  daemonExecWithMetadata,
   daemonHealth,
   daemonReconnect,
   detectWrapperSplit,
@@ -604,5 +615,6 @@ export {
   getPluginKeyFile,
   stopDaemon,
   unescapeShell,
+  waitForPluginConnection,
   varLoadingCode
 };

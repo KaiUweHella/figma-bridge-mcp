@@ -108,6 +108,7 @@ export function diffImages(design, build, opts = {}) {
 
   // Height mismatch in NORMALIZED space (same width ⇒ heights are
   // comparable): >1% is a structural finding of its own.
+  /** @type {null|{designH:number,buildH:number,deltaPct:number,direction:'taller'|'shorter'}} */
   let heightMismatch = null;
   const deltaPct = ((b.height - d.height) / d.height) * 100;
   if (Math.abs(deltaPct) > 1) {

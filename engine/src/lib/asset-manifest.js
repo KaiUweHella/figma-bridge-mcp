@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { canonicalSvg } from './svg-dedup.js';
 import { createWorkspaceIO, workspaceIO } from './workspace-io.js';
@@ -16,6 +15,25 @@ export function assetContentDigest(bytes, kind = '') {
 }
 
 const digestToken = (digest, length = 8) => String(digest || '').split(':').at(-1).slice(0, length);
+const RESERVED_ASSET_OUTPUT_NAMES = new Set([
+  'assets.json',
+  '.figma-bridge-assets.lock',
+]);
+
+/** Manifest files live directly inside the authorized export directory. */
+export function assertAssetManifestFile(file) {
+  const unsafeWindowsDevice = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$|clock\$)(?:\.|$)/i;
+  if (typeof file !== 'string' || !file || file === '.' || file === '..'
+    || /[<>:"/\\|?*\x00-\x1f\x7f]/.test(file)
+    || /[ .]$/.test(file)
+    || unsafeWindowsDevice.test(file)
+    || RESERVED_ASSET_OUTPUT_NAMES.has(String(file).toLowerCase())
+    || Buffer.byteLength(file, 'utf8') > 255) {
+    throw new Error('Asset manifest contains an unsafe file path.');
+  }
+  return file;
+}
+
 const splitFile = (file) => {
   const match = String(file || '').match(/^(.*?)(\.[^.]+)?$/);
   return { base: match?.[1] || 'asset', ext: match?.[2] || '' };
@@ -25,6 +43,7 @@ function legacyAssets(prior) {
   const byFile = new Map();
   for (const entry of prior?.assets || []) {
     if (!entry?.file) continue;
+    assertAssetManifestFile(entry.file);
     if (!byFile.has(entry.file)) {
       byFile.set(entry.file, {
         sourceIdentity: entry.imageHash ? `figma-image:${entry.imageHash}` : `legacy-file:${entry.file}`,
@@ -47,7 +66,9 @@ function normalizedPriorAssets(prior, { fileExists, digestForFile }) {
     : legacyAssets(prior);
   const assets = [];
   for (const asset of raw) {
-    if (!asset?.file || !fileExists(asset.file)) continue;
+    if (!asset?.file) continue;
+    assertAssetManifestFile(asset.file);
+    if (!fileExists(asset.file)) continue;
     const actualDigest = digestForFile?.(asset.file, asset.kind) || null;
     if (asset.contentDigest && actualDigest && asset.contentDigest !== actualDigest) {
       throw new Error(`Asset integrity mismatch for ${asset.file}: manifest ${asset.contentDigest}, file ${actualDigest}`);
@@ -89,17 +110,20 @@ export function planAssetExport(prior, candidates, root, adapters = {}) {
   const byDigest = new Map(assets.filter((asset) => asset.contentDigest)
     .map((asset) => [asset.contentDigest, asset]));
   const filesToWrite = [];
+  const preservePlacementKeys = new Set(adapters.preservePlacementKeys || []);
 
   // A re-export replaces placements in its own root while preserving every
   // prior filename reservation and placements belonging to other roots.
   for (const asset of assets) {
-    asset.placements = asset.placements.filter((placement) => placement.rootId !== root.id);
+    asset.placements = asset.placements.filter((placement) =>
+      placement.rootId !== root.id || preservePlacementKeys.has(placementKey(placement)));
   }
 
   for (const candidate of candidates || []) {
     if (!candidate?.sourceIdentity) throw new Error('Asset candidate needs a sourceIdentity');
     if (!candidate?.contentDigest) throw new Error(`Asset ${candidate.sourceIdentity} needs a contentDigest`);
     if (!candidate?.proposedFile) throw new Error(`Asset ${candidate.sourceIdentity} needs a proposedFile`);
+    assertAssetManifestFile(candidate.proposedFile);
     if (candidate.bytes && assetContentDigest(candidate.bytes, candidate.kind) !== candidate.contentDigest) {
       throw new Error(`Asset ${candidate.sourceIdentity} contentDigest does not match its bytes`);
     }
@@ -174,13 +198,15 @@ export function publishAssetExportPlan(outDir, plan, {
   const canonicalOut = io.ensureDirectory(outDir, { role: 'asset-export-directory' });
   const writes = plan?.filesToWrite || [];
   for (const write of writes) {
+    assertAssetManifestFile(write.file);
     if (assetContentDigest(write.bytes, write.kind) !== write.contentDigest) {
       throw new Error(`Asset publication digest mismatch for ${write.file}`);
     }
   }
+  for (const asset of plan?.manifest?.assets || []) assertAssetManifestFile(asset.file);
   for (const write of writes) {
     const target = join(canonicalOut, write.file);
-    if (!existsSync(target)) continue;
+    if (!io.exists(target, { role: 'exported-asset', kind: 'file' })) continue;
     const actual = assetContentDigest(io.read(target, { role: 'exported-asset' }), write.kind);
     if (actual !== write.contentDigest) {
       throw new Error(`Asset publication refusing to overwrite ${write.file}: existing ${actual}, planned ${write.contentDigest}`);
@@ -191,7 +217,11 @@ export function publishAssetExportPlan(outDir, plan, {
   const reused = [];
   for (const write of writes) {
     const target = join(canonicalOut, write.file);
-    if (existsSync(target)) {
+    if (io.exists(target, { role: 'exported-asset', kind: 'file' })) {
+      const actual = assetContentDigest(io.read(target, { role: 'exported-asset' }), write.kind);
+      if (actual !== write.contentDigest) {
+        throw new Error(`Asset publication refusing late collision for ${write.file}: existing ${actual}, planned ${write.contentDigest}`);
+      }
       reused.push(write.file);
       continue;
     }

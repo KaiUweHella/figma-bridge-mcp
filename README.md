@@ -288,9 +288,12 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   The Chrome-DevTools "Yolo mode" — which patches the Figma app binary — was
   removed entirely; there is no code path to it.
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
-  execute directly through value-returning **Command Application Modules**.
-  MCP and CLI are thin adapters over the same implementations; generic
-  `figma_run` remains the deliberately broad child-process CLI adapter. One
+  and migrated `figma_run` actions execute directly through value-returning
+  **Command Application Modules**. `export assets`, Design Link set/inspect,
+  and Design Contract capture/check use the same Implementation from MCP and
+  Commander. Other `figma_run` actions remain on the deliberately broad
+  child-process compatibility Adapter while they migrate one vertical slice at
+  a time. One
   **Daemon Client Module** owns signing, timeouts and transport errors for both
   paths.
 - The **Design Capture Module** walks an explicit node once and locally projects
@@ -568,6 +571,22 @@ when its rendered design and states actually match.
    (retina density), without upscaling and only when the encoded file becomes
    smaller. Aspect ratio, manifest placement and CSS crop behavior remain
    unchanged; pass `--raster-scale 0` to retain original PNG bytes.
+   CLI and MCP now execute this through one **Asset Export Command
+   Application**. Equivalent default flag spellings attach to the same tracked
+   job; polling never starts a duplicate. Every multi-step read is pinned to
+   one daemon-confirmed Figma connection, file and document revision. A change
+   aborts before publication. Document-wide revision observation initializes
+   only for freshness-sensitive reads; ordinary eval/render paths keep Figma's
+   dynamic page loading. A process-safe output lock serializes CLI/MCP
+   merges into the same directory. A partial byte-export failure keeps
+   successful files, preserves last-known-good failed placements and reports
+   every failed asset. If all selected assets fail, the command returns an
+   error and leaves an existing `assets.json` unchanged instead of replacing
+   it with an empty manifest. Aggregate
+   in-process asset Buffers are capped at 512 MiB to protect the long-lived MCP
+   process; if that explicit guard is reached, export smaller child frames.
+   Pass `force:true` to `figma_run` when an intentional fresh export should
+   bypass the short retry-result cache; a running job is still never duplicated.
 5. **One `figma_spec` `nodeIds[]` batch for any missing deeper styles** — put
    all section/node reads into the same call instead of requesting each
    section separately. In Manual Mode this means one approval for the batch.

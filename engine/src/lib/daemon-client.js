@@ -214,11 +214,12 @@ export function createDaemonClient({
 
   return {
     execute,
+    executeWithMetadata,
     evaluate(code, options) {
       return execute('eval', { code }, options);
     },
     evaluateWithMetadata(code, options) {
-      return executeWithMetadata('eval', { code }, options);
+      return executeWithMetadata('eval', { code, requireDocumentRevision: true }, options);
     },
     renderPlan(plan, options) {
       return execute('render-plan', { plan }, options);

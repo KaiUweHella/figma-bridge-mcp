@@ -88,14 +88,28 @@ test('supported Figma Commands never implement or spawn a daemon transport', () 
   }
 });
 
-test('asset export delegates stable identity and publication to Manifest v2', () => {
-  const src = sources.get('export-eval.js');
-  assert.ok(src, 'export-eval.js exists');
-  assert.match(src, /planAssetExport\(/,
+test('asset export Adapter delegates one Command Application to Manifest v2', () => {
+  const adapter = sources.get('export-eval.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'asset-export-command.js'), 'utf8');
+  assert.ok(adapter, 'export-eval.js exists');
+  assert.match(adapter, /runInProcessCommandPlan\(/);
+  assert.match(adapter, /executeAssetExportPlan\(/);
+  const implementationStart = adapter.indexOf('async function runAssetExportCommand');
+  const actionEnd = adapter.indexOf(".command('dtcg", implementationStart);
+  const assetAdapter = adapter.slice(implementationStart, actionEnd);
+  assert.doesNotMatch(assetAdapter, /checkConnection\(/,
+    'Asset Export connection recovery must stay inside its audited Command Plan');
+  assert.match(assetAdapter, /await ensurePluginReadiness\(\{ deadline/,
+    'Asset Export must use the shared bounded readiness Adapter');
+  assert.match(adapter, /daemonExecWithMetadata\(/,
+    'every Asset Export roundtrip must carry daemon-owned revision metadata');
+  assert.doesNotMatch(adapter, /planAssetExport\(|publishAssetExportPlan\(/,
+    'Commander must not own Asset Export domain logic');
+  assert.match(application, /planAssetExport\(/,
     'asset export must resolve cross-run identity and filename collisions centrally');
-  assert.match(src, /publishAssetExportPlan\(/,
+  assert.match(application, /publishAssetExportPlan\(/,
     'asset export must use staged publication with the manifest written last');
-  assert.doesNotMatch(src, /const usedNames\s*=|const byContent\s*=/,
+  assert.doesNotMatch(application, /const usedNames\s*=|const byContent\s*=/,
     'run-local filename ordinals and dedup maps must not return');
 });
 

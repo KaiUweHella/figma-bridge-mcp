@@ -12,7 +12,7 @@ import { FigmaClient } from '../src/lib/jsx-render.js';
 
 test('execution protocol accepts bounded eval and Semantic Render Plan shapes', () => {
   const plan = new FigmaClient().planJSX('<Frame name="Card"><Text>Hello</Text></Frame>');
-  assert.equal(validateExecPayload({ action: 'eval', code: '1+1', timeoutMs: 1000, fileKey: 'FILE' }), null);
+  assert.equal(validateExecPayload({ action: 'eval', code: '1+1', timeoutMs: 1000, fileKey: 'FILE', requireDocumentRevision: true }), null);
   assert.equal(validateExecPayload({ action: 'render-plan', plan, timeoutMs: 1000, fileKey: 'FILE' }), null);
   assert.equal(validateExecPayload({ action: 'render-plan-batch', plans: [plan, plan], options: { gap: 24, vertical: true } }), null);
   assert.match(validateExecPayload({ action: 'render', code: 'x' }), /eval.*render-plan.*render-plan-batch/);
@@ -21,6 +21,8 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', fileKey: 'x'.repeat(65) }), /64/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', timeoutMs: Infinity }), /finite/);
+  assert.match(validateExecPayload({ action: 'eval', code: 'x', requireDocumentRevision: 'yes' }), /boolean/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan, requireDocumentRevision: true }), /eval requests/);
 });
 
 test('execution limits are byte-based and leave room for the signed JSON envelope', () => {

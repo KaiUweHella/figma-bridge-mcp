@@ -14,7 +14,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
+import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
   listFigmaCapabilities,
@@ -51,10 +51,15 @@ import {
   executeDesignContractPlan,
   formatDesignContractAdapterResult,
 } from "../engine/src/application/design-contract-command.js";
+import {
+  executeAssetExportPlan,
+  formatAssetExportResult,
+} from "../engine/src/application/asset-export-command.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
 import { getAuditStatus } from "./audit-trail.js";
+import { createTrackedJobRegistry } from "./tracked-job-registry.js";
 
 export const MCP_SERVER_ID = "figma-bridge-mcp";
 export const MCP_TOOL_NAMESPACE = "figma-bridge";
@@ -204,6 +209,10 @@ export const TOOLS = [
         fileKey: {
           type: "string",
           description: "Target connected file: bare key or Figma URL.",
+        },
+        force: {
+          type: "boolean",
+          description: "Asset Export only: bypass completed retry cache; never duplicate a running job.",
         },
       },
       required: ["args"],
@@ -1084,25 +1093,40 @@ const ASSET_EXPORT_WAIT_MS = Number(process.env.ASSET_EXPORT_WAIT_MS) || 45000;
 // off a FULL duplicate export. Errors are not cached — a retry after a failure
 // should genuinely try again.
 const ASSET_RESULT_CACHE_MS = 60 * 1000;
-const assetJobs = new Map(); // canonical-args key → job
+const assetJobs = createTrackedJobRegistry({ resultCacheMs: ASSET_RESULT_CACHE_MS });
 
 export function assetExportJobKey(args, fileKey) {
   return planFigmaCommand(args, { fileKey }).execution.jobKey;
 }
 
-async function runAssetExport(plan, label) {
-  const args = [...plan.argv];
+async function runAssetExport(plan, label, { force = false } = {}) {
   const outDir = plan.outputs[0]?.path || null;
   const key = plan.execution.jobKey;
   if (!key) return errorResult("Command is not configured as a background job.");
-  let job = assetJobs.get(key);
-  if (!job) {
-    job = { startedAt: Date.now(), done: false, result: null, error: null };
-    job.promise = runCliPlan(plan, { label })
-      .then((res) => { job.done = true; job.result = res; })
-      .catch((err) => { job.done = true; job.error = err; });
-    assetJobs.set(key, job);
+  const operation = () => runInProcessCommandPlan(
+    plan,
+    { label, compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      const remainingMs = () => Math.max(0, deadline - Date.now());
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      const result = await executeAssetExportPlan(plan, {
+        workspaceIO: WORKSPACE_IO,
+        remainingMs,
+        yieldControl: () => new Promise((resolveYield) => setImmediate(resolveYield)),
+        evaluate: (code, context = {}) => evaluateFigmaWithMetadata(code, {
+          fileKey: context.fileKey || fileKey,
+          timeoutMs: Math.max(1, context.remainingMs ?? remainingMs()),
+        }),
+      });
+      return { stdout: formatAssetExportResult(result), stderr: "", code: 0 };
+    },
+  );
+  let attached = assetJobs.attach(key, operation);
+  if (force && !attached.started && attached.job.done) {
+    assetJobs.discard(key, attached.job);
+    attached = assetJobs.attach(key, operation);
   }
+  const { job } = attached;
   let timer;
   await Promise.race([
     job.promise,
@@ -1119,16 +1143,16 @@ async function runAssetExport(plan, label) {
     );
   }
   if (job.error) {
-    assetJobs.delete(key);
-    return errorResult(job.error.stderr || job.error.message || String(job.error));
+    assetJobs.discard(key, job);
+    const out = String(job.error.stdout || "").trim();
+    const err = String(job.error.stderr || "").trim();
+    const fallback = formatPublicError(job.error);
+    return errorResult(
+      [out, err || (!out ? fallback : "")].filter(Boolean).join("\n\n"),
+      { audit: job.error.audit || getAuditStatus() },
+    );
   }
-  if (!job.evictAt) {
-    job.evictAt = Date.now() + ASSET_RESULT_CACHE_MS;
-    const evict = setTimeout(() => {
-      if (assetJobs.get(key) === job) assetJobs.delete(key);
-    }, ASSET_RESULT_CACHE_MS);
-    if (typeof evict.unref === "function") evict.unref();
-  }
+  assetJobs.cacheSuccess(key, job);
   return resultFromCli(job.result);
 }
 
@@ -1431,11 +1455,14 @@ export async function handleTool(name, rawArgs) {
           'Unknown or unsupported Figma Command. Run figma_run with args ["--help"] to list the supported grammar.',
         );
       }
+      if (input.force === true && plan.execution.mode !== "tracked-job") {
+        return errorResult("force is only available for tracked Asset Export commands.");
+      }
       if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
         return previewResult(args);
       }
       if (plan.execution.mode === "tracked-job") {
-        return await runAssetExport(plan, input.label);
+        return await runAssetExport(plan, input.label, { force: input.force === true });
       }
       // Command-specific path rules are owned by the Capability Catalog.
       const normalized = [...plan.argv];

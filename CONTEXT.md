@@ -61,6 +61,10 @@ _Avoid_: fileKey parameter, current window
 The canonical classification of image fills, vector artwork and vector clusters shared by **Design Capture** projections and asset export. Node-side and plugin-side adapters apply the same policy implementation.
 _Avoid_: vector heuristic, exporter rule
 
+**Asset Export**:
+The manifest-last **Command Application** that pins one Figma connection and document revision, collects image/vector identities from one Figma root, fetches each byte payload, plans stable cross-run filenames and publishes workspace files without overwriting unrelated content. Commander and MCP share the same implementation; tracked-job polling remains an MCP Adapter concern, while an output lock serializes manifest merges across processes.
+_Avoid_: export loop, background CLI command
+
 **Design Entity**:
 One durable UI concept that exists in code and Figma under a repository-owned id, such as `ui.button` or `screen.settings`. Code paths, Storybook stories, publish keys and node ids are links to the Design Entity; none of them alone defines its identity.
 _Avoid_: mapped node, remembered component
@@ -130,6 +134,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** Where should I change what counts as one exported SVG?
 >
 > **Domain expert:** Change the Asset Policy. The spec and exporter use the same implementation through different node adapters.
+
+> **Developer:** Does polling `export assets` run the export again?
+>
+> **Domain expert:** No. Equivalent node/flag spellings canonicalize to one tracked-job identity. Polling attaches to the same Asset Export, while revision drift aborts before publication, files are published before `assets.json`, and a total failure leaves the prior manifest unchanged.
 
 > **Developer:** How does an agent know that a selected Figma frame is the same screen as `src/routes/settings.tsx`?
 >

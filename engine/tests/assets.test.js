@@ -5,7 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { assetSlug, isGenericName, effectiveAssetName, assetFileName, imageAssetBase } from '../src/lib/asset-names.js';
-import { assetContentDigest, planAssetExport, publishAssetExportPlan } from '../src/lib/asset-manifest.js';
+import {
+  assertAssetManifestFile,
+  assetContentDigest,
+  planAssetExport,
+  publishAssetExportPlan,
+} from '../src/lib/asset-manifest.js';
 import { assetCollectorCode, imageBytesCode, nodeWalkerCode, svgBytesCode } from '../src/design-extract.js';
 import { paintSeg, specLines, styleFields, bundleKey } from '../src/lib/code-spec.js';
 
@@ -33,6 +38,20 @@ test('IMAGE filename base is stable across layer names and requested roots', () 
   assert.equal(imageAssetBase('HASH-1'), 'image-hash1');
   assert.equal(imageAssetBase('HASH-1'), imageAssetBase('HASH-1'));
   assert.notEqual(imageAssetBase('HASH-1'), imageAssetBase('HASH-2'));
+});
+
+test('manifest filenames are portable basenames, not paths or Windows devices', () => {
+  for (const file of ['hero.png', 'logo.final.svg', 'über-bild.webp']) {
+    assert.equal(assertAssetManifestFile(file), file);
+  }
+  for (const file of [
+    '../secret.svg', 'nested/secret.svg', 'nested\\secret.svg',
+    'CON', 'nul.png', 'COM1.svg', 'LPT9', 'asset:stream',
+    'trailing.', 'trailing ', 'line\nbreak.svg',
+    'assets.json', 'ASSETS.JSON', '.figma-bridge-assets.lock',
+  ]) {
+    assert.throws(() => assertAssetManifestFile(file), /unsafe file path/, file);
+  }
 });
 
 // ---- collector eval (against a stub figma) ----

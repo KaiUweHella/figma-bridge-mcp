@@ -19,14 +19,28 @@ const DESIGN_ENTITY_STORAGE = 'figma-bridge-design-entity';
 // socket a new connectionId, so revision 0 can never revive an older Capture.
 // If this editor does not expose documentchange, null disables caching.
 let documentRevision = 0;
-let documentRevisionAvailable = true;
-try {
-  figma.on('documentchange', () => {
-    if (documentRevision < Number.MAX_SAFE_INTEGER) documentRevision++;
-    else documentRevisionAvailable = false;
-  });
-} catch (e) {
-  documentRevisionAvailable = false;
+let documentRevisionAvailable = false;
+// dynamic-page plugins must load all pages before subscribing to the
+// document-wide event. Initialize it only for Commands that explicitly need
+// a multi-roundtrip revision proof: Figma warns that loading every page can be
+// slow in large files, so ordinary reads/writes must retain dynamic loading.
+let documentRevisionReady = null;
+function ensureDocumentRevisionReady() {
+  if (!documentRevisionReady) {
+    documentRevisionReady = (async () => {
+      try {
+        await figma.loadAllPagesAsync();
+        figma.on('documentchange', () => {
+          if (documentRevision < Number.MAX_SAFE_INTEGER) documentRevision++;
+          else documentRevisionAvailable = false;
+        });
+        documentRevisionAvailable = true;
+      } catch (e) {
+        documentRevisionAvailable = false;
+      }
+    })();
+  }
+  return documentRevisionReady;
 }
 
 function revisionMetadata(before) {
@@ -2249,8 +2263,9 @@ figma.ui.onmessage = async (msg) => {
   // points and mutate shared document state mid-flight. The daemon currently
   // sends strictly serially, but the plugin must not depend on that.
   if (msg.type === 'eval') {
-    const { id, code } = msg;
+    const { id, code, requireDocumentRevision } = msg;
     evalChain = evalChain.then(async () => {
+      if (requireDocumentRevision === true) await ensureDocumentRevisionReady();
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
         const result = await executeCode(code);

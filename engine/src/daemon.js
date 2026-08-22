@@ -358,9 +358,12 @@ async function requestViaPlugin(action, data, fileKey = null) {
 
 // ============ UNIFIED EVAL ============
 
-async function executeEval(code, fileKey = null) {
+async function executeEval(code, fileKey = null, requireDocumentRevision = false) {
   // Plugin handles its own top-level-return wrapping — send code as-is.
-  return requestViaPlugin('eval', { code }, fileKey);
+  return requestViaPlugin('eval', {
+    code,
+    ...(requireDocumentRevision ? { requireDocumentRevision: true } : {}),
+  }, fileKey);
 }
 
 async function executeRenderPlan(plan, fileKey = null) {
@@ -380,6 +383,7 @@ function resultMetadata(ws, raw) {
   return {
     connectionId: conn?.connectionId || null,
     fileKey: conn?.fileKey || null,
+    pluginVersion: conn?.pluginVersion || null,
     documentRevisionBefore: before,
     documentRevisionAfter: after,
   };
@@ -663,7 +667,9 @@ function handleExec(req, res) {
     // exempted only render/render-batch and re-ran evals; that was wrong.
     inFlightExecs++;
     try {
-      const { action, code, plan, plans, options, timeoutMs, fileKey } = payload;
+      const {
+        action, code, plan, plans, options, timeoutMs, fileKey, requireDocumentRevision,
+      } = payload;
       let result;
       let metadata = null;
 
@@ -689,7 +695,10 @@ function handleExec(req, res) {
         // must not be able to disable the timeout entirely).
         case 'eval': {
           const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
-          const execution = await execWithTimeout(() => executeEval(code, fileKey || null), ms);
+          const execution = await execWithTimeout(
+            () => executeEval(code, fileKey || null, requireDocumentRevision === true),
+            ms,
+          );
           result = execution.result;
           metadata = execution.metadata;
           break;

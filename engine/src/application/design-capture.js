@@ -5,6 +5,10 @@
 // participate in the cache key. A Capture is reused only after the plugin has
 // proved that the same connection is still on the same document revision.
 import { nodeWalkerCode } from '../design-extract.js';
+import {
+  sameDocumentRevision,
+  stableDocumentRevision,
+} from '../lib/revision-context.js';
 
 // Bump whenever the canonical walker payload changes. Version 6 adds the
 // depth- and includeHidden-independent hidden-content census.
@@ -21,23 +25,6 @@ function parseEval(value) {
 
 function hasDepthMarker(node) {
   return Boolean(node?.more) || (node?.kids || []).some(hasDepthMarker);
-}
-
-function stableRevision(metadata) {
-  return Boolean(
-    metadata &&
-    typeof metadata.connectionId === 'string' && metadata.connectionId &&
-    Number.isSafeInteger(metadata.documentRevisionBefore) &&
-    metadata.documentRevisionBefore >= 0 &&
-    metadata.documentRevisionBefore === metadata.documentRevisionAfter
-  );
-}
-
-function sameRevision(a, b) {
-  return stableRevision(a) && stableRevision(b) &&
-    a.connectionId === b.connectionId &&
-    (a.fileKey || null) === (b.fileKey || null) &&
-    a.documentRevisionAfter === b.documentRevisionAfter;
 }
 
 function deepFreeze(value) {
@@ -143,7 +130,7 @@ export function createDesignCaptureModule({
   };
 
   const remember = (key, capture) => {
-    if (maxEntries <= 0 || maxBytes <= 0 || !stableRevision(capture.source)) return false;
+    if (maxEntries <= 0 || maxBytes <= 0 || !stableDocumentRevision(capture.source)) return false;
     const bytes = Buffer.byteLength(JSON.stringify(capture.result));
     if (bytes > maxBytes) return false;
     remove(key);
@@ -194,7 +181,7 @@ export function createDesignCaptureModule({
 
       if (cached && typeof adapters.evaluateWithMetadata === 'function') {
         const probe = await adapters.evaluateWithMetadata(PROBE_CODE);
-        if (sameRevision(cached.capture.source, probe?.metadata)) {
+        if (sameDocumentRevision(cached.capture.source, probe?.metadata)) {
           // Map insertion order is the LRU order.
           entries.delete(key);
           entries.set(key, cached);

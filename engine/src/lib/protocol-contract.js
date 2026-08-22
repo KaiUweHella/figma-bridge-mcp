@@ -124,6 +124,10 @@ export function validateExecPayload(value) {
   if (value.fileKey != null && (typeof value.fileKey !== 'string' || byteLength(value.fileKey) > 64)) {
     return 'fileKey must be a string of at most 64 bytes';
   }
+  if (value.requireDocumentRevision != null
+    && (value.action !== 'eval' || typeof value.requireDocumentRevision !== 'boolean')) {
+    return 'requireDocumentRevision must be a boolean on eval requests';
+  }
   if (value.timeoutMs != null && (!Number.isFinite(Number(value.timeoutMs)) || Number(value.timeoutMs) <= 0)) {
     return 'timeoutMs must be a positive finite number';
   }

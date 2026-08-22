@@ -34,18 +34,26 @@ test('daemon client concentrates signed execution and explicit file targeting', 
 });
 
 test('metadata-aware eval preserves daemon-owned Capture freshness facts', async () => {
+  const bodies = [];
   const metadata = {
     connectionId: 'CONN_A', fileKey: 'FILE_A',
     documentRevisionBefore: 7, documentRevisionAfter: 7,
   };
   const client = createDaemonClient({
     readToken: () => 'token', getPort: () => 3456,
-    fetchImpl: async () => response(200, { result: { ok: true }, metadata }),
+    fetchImpl: async (_url, options) => {
+      bodies.push(JSON.parse(options.body));
+      return response(200, { result: { ok: true }, metadata });
+    },
   });
   assert.deepEqual(await client.evaluateWithMetadata('capture()'), {
     value: { ok: true }, metadata,
   });
   assert.deepEqual(await client.evaluate('capture()'), { ok: true }, 'value-only Adapter stays compatible');
+  assert.equal(bodies[0].requireDocumentRevision, true,
+    'metadata-aware reads explicitly pay for the document-wide revision proof');
+  assert.equal(Object.hasOwn(bodies[1], 'requireDocumentRevision'), false,
+    'ordinary eval retains Figma dynamic-page loading');
 });
 
 test('daemon client sends Semantic Render Plans as structured authenticated payloads', async () => {

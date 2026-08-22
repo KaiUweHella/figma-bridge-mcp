@@ -6,6 +6,11 @@
 // without making every Adapter understand the catalog schema.
 import path from 'node:path';
 import { homedir } from 'node:os';
+import {
+  acceptsAssetExportArgv,
+  assetExportArgvFromRequest,
+  parseAssetExportRequest,
+} from '../engine/src/application/asset-export-request.js';
 import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
 import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
 import { resolveFigmaTarget } from './figma-target.js';
@@ -71,7 +76,7 @@ const COMMANDS = Object.freeze({
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'link.inspect', 'link.set',
+  'contract.capture', 'contract.check', 'export.assets', 'link.inspect', 'link.set',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -183,6 +188,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'contract' && !action.help && !acceptsDesignContractArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'export' && args[1] === 'assets' && !action.help && !acceptsAssetExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   const specialized = action.help
@@ -354,6 +362,9 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
   switch (capability.pathPolicy) {
     case 'assets-dir':
       outputPath = outputFlag(args, baseDir, 'assets');
+      // Canonical semantic argv gives equivalent default spellings and option
+      // order one background identity. The output is already absolute here.
+      args.splice(0, args.length, ...assetExportArgvFromRequest(parseAssetExportRequest(args)));
       markWrite(outputPath, 'asset-export-directory', 'directory');
       break;
     case 'export-image':
@@ -646,6 +657,7 @@ export function planFigmaCommand(rawArgs, {
     : resolveFigmaTarget({
       explicitFileKey: fileKey,
       args: argv,
+      figmaUrlArgs: input,
       registryFileKey: capability.available ? registryFileKey : null,
     });
   const outputs = Object.freeze(prepared.outputPath
