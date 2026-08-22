@@ -174,11 +174,66 @@ test('daemon client preserves actionable multi-window target details', async () 
   });
 
   await assert.rejects(() => client.evaluate('x'), (error) => {
-    assert.equal(error.kind, 'response');
+    assert.equal(error.kind, 'targeting');
+    assert.equal(error.phase, 'target-resolution');
+    assert.equal(error.outcome, 'not-dispatched');
+    assert.equal(error.legacy, true);
     assert.match(error.message, /name one with fileKey/);
     assert.match(error.message, /FILE_A  Alpha/);
     assert.match(error.message, /FILE_B  Beta/);
     assert.match(error.message, /no "all files" option/);
+    return true;
+  });
+});
+
+test('daemon client trusts structured execution facts instead of domain prose', async () => {
+  const client = createDaemonClient({
+    readToken: () => 'token',
+    getPort: () => 3456,
+    fetchImpl: async () => response(500, {
+      error: 'Token alias could not be resolved',
+      bridgeError: {
+        schema: 1,
+        kind: 'execution',
+        phase: 'plugin-execution',
+        outcome: 'unknown-after-dispatch',
+        message: 'Token alias could not be resolved',
+      },
+    }),
+  });
+
+  await assert.rejects(() => client.evaluate('x'), (error) => {
+    assert.equal(error.kind, 'execution');
+    assert.equal(error.phase, 'plugin-execution');
+    assert.equal(error.outcome, 'unknown-after-dispatch');
+    assert.equal(error.legacy, false);
+    assert.doesNotMatch(error.message, /Token file:/);
+    return true;
+  });
+});
+
+test('legacy string-only daemon errors stay compatible without token substring auth inference', async () => {
+  const domain = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async () => response(500, { error: 'Token alias could not be resolved' }),
+  });
+  await assert.rejects(() => domain.evaluate('x'), (error) => {
+    assert.equal(error.kind, 'execution');
+    assert.equal(error.outcome, 'unknown-after-dispatch');
+    assert.equal(error.legacy, true);
+    return true;
+  });
+});
+
+test('legacy daemon error bodies are bounded before they become client messages', async () => {
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async () => response(500, 'x'.repeat(40_000)),
+  });
+  await assert.rejects(() => client.evaluate('x'), (error) => {
+    assert.equal(error.kind, 'execution');
+    assert.equal(error.legacy, true);
+    assert.ok(Buffer.byteLength(error.message, 'utf8') <= 16 * 1024);
     return true;
   });
 });

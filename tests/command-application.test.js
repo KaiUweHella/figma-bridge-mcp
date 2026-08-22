@@ -84,14 +84,18 @@ test('in-process command refuses commands outside the existing allowlist before 
   assert.equal(called, false);
 });
 
-test('in-process execution never repeats an ambiguous daemon failure by default', async () => {
+test('in-process mutation never repeats an outcome-unknown daemon failure', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
   let attempts = 0;
   await assert.rejects(
-    () => runInProcessCommand(['node', 'tree', '12:34'], {}, async () => {
+    () => runInProcessCommand(['node', 'set-fill', '12:34', '#ffffff'], {}, async () => {
       attempts++;
-      throw new DaemonClientError('connection dropped', { kind: 'unavailable' });
+      throw new DaemonClientError('connection dropped', {
+        kind: 'unavailable',
+        phase: 'daemon-request',
+        outcome: 'unknown-after-dispatch',
+      });
     }),
     /connection dropped/,
   );

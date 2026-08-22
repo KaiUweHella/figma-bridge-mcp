@@ -7,7 +7,12 @@ test('safe reads retry one transient plugin disconnect after readiness returns',
   let waits = 0;
   const value = await retrySafeRead(async () => {
     attempts++;
-    if (attempts === 1) throw new Error('Plugin disconnected');
+    if (attempts === 1) {
+      throw Object.assign(new Error('Plugin disconnected'), {
+        kind: 'plugin-unavailable',
+        outcome: 'unknown-after-dispatch',
+      });
+    }
     return 'connected result';
   }, {
     waitUntilReady: async () => { waits++; return true; },
@@ -30,13 +35,17 @@ test('safe reads stop when the bridge does not become ready again', async () => 
   let attempts = 0;
   await assert.rejects(() => retrySafeRead(async () => {
     attempts++;
-    throw new Error('Plugin disconnected');
+    throw Object.assign(new Error('Plugin disconnected'), {
+      kind: 'plugin-unavailable',
+      outcome: 'unknown-after-dispatch',
+    });
   }, { waitUntilReady: async () => false }), /Plugin disconnected/);
   assert.equal(attempts, 1);
 });
 
 test('transient classifier recognizes normalized plugin and daemon failures', () => {
   assert.equal(isTransientReadFailure({ kind: 'plugin-unavailable' }), true);
-  assert.equal(isTransientReadFailure(new Error('Plugin execution timeout (25s)')), true);
+  assert.equal(isTransientReadFailure({ kind: 'plugin-timeout', outcome: 'unknown-after-dispatch' }), true);
+  assert.equal(isTransientReadFailure(new Error('Plugin execution timeout (25s)')), false);
   assert.equal(isTransientReadFailure(new Error('Validation failed')), false);
 });

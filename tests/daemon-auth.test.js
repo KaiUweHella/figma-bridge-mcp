@@ -30,6 +30,7 @@ import {
   MAX_PROTOCOL_ERROR_BYTES,
   MAX_PROTOCOL_VALUE_BYTES,
 } from '../engine/src/lib/protocol-contract.js';
+import { BRIDGE_DAEMON_ERROR_SCHEMA } from '../engine/src/lib/daemon-error-envelope.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -52,6 +53,19 @@ function httpHealth(headers = {}) {
 
 function httpHealthV6(headers = {}) {
   return fetch(`http://[::1]:${PORT}/health`, { headers });
+}
+
+function assertBridgeError(payload, expected) {
+  assert.equal(payload.error, payload.bridgeError.message, 'legacy and structured messages must agree');
+  assert.deepEqual(
+    {
+      schema: payload.bridgeError.schema,
+      kind: payload.bridgeError.kind,
+      phase: payload.bridgeError.phase,
+      outcome: payload.bridgeError.outcome,
+    },
+    { schema: BRIDGE_DAEMON_ERROR_SCHEMA, ...expected },
+  );
 }
 
 function waitForListen(timeoutMs = 5000) {
@@ -285,6 +299,41 @@ test('HTTP /exec without signed headers is rejected (403)', async () => {
     body: JSON.stringify({ action: 'eval', code: '1' }),
   });
   assert.equal(res.status, 403);
+  assertBridgeError(await res.json(), {
+    kind: 'authentication',
+    phase: 'request-authentication',
+    outcome: 'not-dispatched',
+  });
+});
+
+test('HTTP /exec validation failures are structured before Plugin dispatch', async () => {
+  const body = JSON.stringify({ action: 'eval', code: '' });
+  const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+    body,
+  });
+  assert.equal(res.status, 400);
+  assertBridgeError(await res.json(), {
+    kind: 'validation',
+    phase: 'request-validation',
+    outcome: 'not-dispatched',
+  });
+});
+
+test('HTTP /exec reports a missing Plugin before dispatch', async () => {
+  const body = JSON.stringify({ action: 'eval', code: '1' });
+  const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+    body,
+  });
+  assert.equal(res.status, 500);
+  assertBridgeError(await res.json(), {
+    kind: 'plugin-unavailable',
+    phase: 'target-resolution',
+    outcome: 'not-dispatched',
+  });
 });
 
 test('oversized chunked HTTP /exec is rejected before authentication or JSON parsing', async () => {
@@ -299,7 +348,13 @@ test('oversized chunked HTTP /exec is rejected before authentication or JSON par
     duplex: 'half',
   });
   assert.equal(res.status, 413);
-  assert.match((await res.json()).error, /payload too large/i);
+  const payload = await res.json();
+  assert.match(payload.error, /payload too large/i);
+  assertBridgeError(payload, {
+    kind: 'validation',
+    phase: 'request-validation',
+    outcome: 'not-dispatched',
+  });
 
   const health = await httpHealth(auth('GET', '/health'));
   assert.equal(health.status, 200, 'oversize rejection must leave the daemon healthy');
@@ -645,7 +700,81 @@ test('/exec rejects a bounded-but-invalid Plugin response without waiting for ti
     await command;
     const response = await responsePromise;
     assert.equal(response.status, 500);
-    assert.match((await response.json()).error, /Plugin protocol error:.*error.*limit/i);
+    const payload = await response.json();
+    assert.match(payload.error, /Plugin protocol error:.*error.*limit/i);
+    assertBridgeError(payload, {
+      kind: 'plugin-protocol',
+      phase: 'plugin-response',
+      outcome: 'unknown-after-dispatch',
+    });
+  });
+});
+
+test('/exec keeps domain token failures as execution errors after Plugin dispatch', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'DOMAIN_ERROR_FILE' });
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route domain-error eval')), 3000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'eval') return;
+        clearTimeout(timer);
+        ws.send(JSON.stringify({
+          type: 'result',
+          id: msg.id,
+          error: 'Token alias could not be resolved',
+        }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({ action: 'eval', code: 'resolveAlias()', fileKey: 'DOMAIN_ERROR_FILE' });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    assertBridgeError(await response.json(), {
+      kind: 'execution',
+      phase: 'plugin-execution',
+      outcome: 'unknown-after-dispatch',
+    });
+  });
+});
+
+test('/exec reports Plugin timeout as outcome unknown after dispatch', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'TIMEOUT_FILE' });
+    const routed = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route timeout eval')), 3000);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.action !== 'eval') return;
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    const body = JSON.stringify({
+      action: 'eval',
+      code: 'slowOperation()',
+      fileKey: 'TIMEOUT_FILE',
+      timeoutMs: 1000,
+    });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await routed;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    assertBridgeError(await response.json(), {
+      kind: 'plugin-timeout',
+      phase: 'plugin-execution',
+      outcome: 'unknown-after-dispatch',
+    });
   });
 });
 
@@ -784,7 +913,13 @@ test('with several windows, /exec must name a file — and there is no "all"', a
       body,
     });
     assert.equal(res.status, 500);
-    const err = (await res.json()).error;
+    const payload = await res.json();
+    assertBridgeError(payload, {
+      kind: 'targeting',
+      phase: 'target-resolution',
+      outcome: 'not-dispatched',
+    });
+    const err = payload.error;
     assert.match(err, /name one with fileKey/);
     // The connected files are listed, so the caller can act on the error.
     assert.match(err, /FILE_A/);
@@ -798,7 +933,13 @@ test('with several windows, /exec must name a file — and there is no "all"', a
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body2) },
       body: body2,
     });
-    assert.match((await res2.json()).error, /No connected Figma window has file key "NOPE"/);
+    const payload2 = await res2.json();
+    assert.match(payload2.error, /No connected Figma window has file key "NOPE"/);
+    assertBridgeError(payload2, {
+      kind: 'targeting',
+      phase: 'target-resolution',
+      outcome: 'not-dispatched',
+    });
   } finally {
     a.close(); b.close();
     await new Promise((r) => setTimeout(r, 100));

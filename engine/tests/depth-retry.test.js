@@ -24,11 +24,16 @@ test('shallow depths (0–3) actually execute instead of returning null', async 
   assert.equal(nodeOnly.depth, 0);
 });
 
-test('payload errors degrade the depth, never below the floor', async () => {
+test('structured capture-capacity failures degrade the depth, never below the floor', async () => {
   const calls = [];
   const { result, depth } = await walkWithDepthRetry(8, async (d) => {
     calls.push(d);
-    if (d > 4) throw new Error('payload too large');
+    if (d > 4) {
+      throw Object.assign(new Error('payload too large'), {
+        kind: 'plugin-protocol',
+        outcome: 'unknown-after-dispatch',
+      });
+    }
     return { frames: ['ok'] };
   });
   assert.deepEqual(calls, [8, 6, 4]);
@@ -41,6 +46,18 @@ test('non-payload errors rethrow immediately', async () => {
     () => walkWithDepthRetry(6, async () => { throw new Error('node not found'); }),
     /node not found/,
   );
+});
+
+test('user-facing timeout prose alone never authorizes a capture retry', async () => {
+  let attempts = 0;
+  await assert.rejects(
+    () => walkWithDepthRetry(8, async () => {
+      attempts++;
+      throw new Error('Plugin execution timeout (25s)');
+    }),
+    /execution timeout/,
+  );
+  assert.equal(attempts, 1);
 });
 
 test('a blank result is retried once, then returned as-is', async () => {

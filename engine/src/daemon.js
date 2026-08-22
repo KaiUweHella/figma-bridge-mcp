@@ -48,6 +48,10 @@ import {
   validatePluginMessage,
 } from './lib/protocol-contract.js';
 import { PLUGIN_BUILD_VERSION, pluginUpdateAvailable } from './lib/plugin-version.js';
+import {
+  BridgeDaemonError,
+  bridgeDaemonErrorBody,
+} from './lib/daemon-error-envelope.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -274,7 +278,10 @@ function connectionList() {
 function resolveTarget(fileKey) {
   const open = openConns();
   if (!open.length) {
-    throw new Error('Plugin not connected. Launch the Figma Bridge plugin in Figma and paste your access key.');
+    throw new BridgeDaemonError(
+      'Plugin not connected. Launch the Figma Bridge plugin in Figma and paste your access key.',
+      { kind: 'plugin-unavailable', phase: 'target-resolution', outcome: 'not-dispatched' },
+    );
   }
   const wanted = fileKey ? String(fileKey) : null;
 
@@ -284,8 +291,9 @@ function resolveTarget(fileKey) {
     const known = connectionList()
       .map((c) => `  ${c.fileKey || '(unidentified)'}  ${c.fileName || ''}`.trimEnd())
       .join('\n');
-    throw new Error(
+    throw new BridgeDaemonError(
       `No connected Figma window has file key "${wanted}". Connected:\n${known}`,
+      { kind: 'targeting', phase: 'target-resolution', outcome: 'not-dispatched' },
     );
   }
 
@@ -294,26 +302,37 @@ function resolveTarget(fileKey) {
   const known = connectionList()
     .map((c) => `  ${c.fileKey || '(unidentified)'}  ${c.fileName || ''}`.trimEnd())
     .join('\n');
-  throw new Error(
+  throw new BridgeDaemonError(
     `${open.length} Figma windows are connected — name one with fileKey. Connected:\n${known}\n`
     + 'There is no "all files" option: each file is targeted explicitly.',
+    { kind: 'targeting', phase: 'target-resolution', outcome: 'not-dispatched' },
   );
 }
 
 async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
   const conn = conns.get(ws);
   if (action === 'render-plan' && !conn?.capabilities?.includes('render-plan-v1')) {
-    throw new Error('Plugin capability missing: render-plan-v1. Reload the installed Figma Bridge plugin to enable structured rendering.');
+    throw new BridgeDaemonError(
+      'Plugin capability missing: render-plan-v1. Reload the installed Figma Bridge plugin to enable structured rendering.',
+      { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+    );
   }
   if (action === 'render-plan-batch' && !conn?.capabilities?.includes('render-plan-batch-v1')) {
-    throw new Error('Plugin capability missing: render-plan-batch-v1. Reload the installed Figma Bridge plugin to enable structured batch rendering.');
+    throw new BridgeDaemonError(
+      'Plugin capability missing: render-plan-batch-v1. Reload the installed Figma Bridge plugin to enable structured batch rendering.',
+      { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+    );
   }
 
   return new Promise((resolve, reject) => {
     const id = ++pluginMsgId;
     const timeout = setTimeout(() => {
       pluginPendingRequests.delete(id);
-      reject(new Error(`Plugin execution timeout (${timeoutMs / 1000}s)`));
+      reject(new BridgeDaemonError(`Plugin execution timeout (${timeoutMs / 1000}s)`, {
+        kind: 'plugin-timeout',
+        phase: 'plugin-execution',
+        outcome: 'unknown-after-dispatch',
+      }));
     }, timeoutMs);
 
     pluginPendingRequests.set(id, { resolve, reject, timeout, ws });
@@ -323,7 +342,12 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
     } catch (sendError) {
       clearTimeout(timeout);
       pluginPendingRequests.delete(id);
-      reject(new Error(`Plugin send error: ${sendError.message}`));
+      reject(new BridgeDaemonError(`Plugin send error: ${sendError.message}`, {
+        kind: 'plugin-unavailable',
+        phase: 'plugin-dispatch',
+        outcome: 'not-dispatched',
+        cause: sendError,
+      }));
     }
   });
 }
@@ -363,6 +387,11 @@ function resultMetadata(ws, raw) {
 
 function getMode() {
   return isPluginConnected() ? 'safe' : 'disconnected';
+}
+
+function writeBridgeError(res, status, error, defaults) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(bridgeDaemonErrorBody(error, defaults)));
 }
 
 // ============ HTTP SERVER ============
@@ -547,13 +576,15 @@ function handleExec(req, res) {
   const rejectTooLarge = () => {
     if (finished) return;
     finished = true;
-    res.writeHead(413, {
-      'Content-Type': 'application/json',
-      'Connection': 'close',
-    });
-    res.end(JSON.stringify({
-      error: `Payload too large: /exec accepts at most ${MAX_EXEC_BODY_BYTES} bytes`,
-    }));
+    res.setHeader('Connection', 'close');
+    writeBridgeError(
+      res,
+      413,
+      new BridgeDaemonError(
+        `Payload too large: /exec accepts at most ${MAX_EXEC_BODY_BYTES} bytes`,
+        { kind: 'validation', phase: 'request-validation', outcome: 'not-dispatched' },
+      ),
+    );
     // Discard the rest without retaining it. This keeps chunked senders from
     // growing memory after the response and allows Node to close cleanly.
     req.resume();
@@ -583,8 +614,15 @@ function handleExec(req, res) {
     // SECURITY: the signature covers the exact body — validate only now.
     const authError = validateRequest(req, rawBody);
     if (authError) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized: ' + authError }));
+      writeBridgeError(
+        res,
+        403,
+        new BridgeDaemonError('Unauthorized: ' + authError, {
+          kind: 'authentication',
+          phase: 'request-authentication',
+          outcome: 'not-dispatched',
+        }),
+      );
       return;
     }
 
@@ -592,14 +630,29 @@ function handleExec(req, res) {
     try {
       payload = JSON.parse(rawBody.toString('utf8'));
     } catch (e) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid JSON body: ' + e.message }));
+      writeBridgeError(
+        res,
+        400,
+        new BridgeDaemonError('Invalid JSON body: ' + e.message, {
+          kind: 'validation',
+          phase: 'request-validation',
+          outcome: 'not-dispatched',
+          cause: e,
+        }),
+      );
       return;
     }
     const payloadError = validateExecPayload(payload);
     if (payloadError) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid execution request: ' + payloadError }));
+      writeBridgeError(
+        res,
+        400,
+        new BridgeDaemonError('Invalid execution request: ' + payloadError, {
+          kind: 'validation',
+          phase: 'request-validation',
+          outcome: 'not-dispatched',
+        }),
+      );
       return;
     }
 
@@ -618,7 +671,11 @@ function handleExec(req, res) {
         return Promise.race([
           fn(),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Execution timeout (${ms / 1000}s)`)), ms)
+            setTimeout(() => reject(new BridgeDaemonError(`Execution timeout (${ms / 1000}s)`, {
+              kind: 'plugin-timeout',
+              phase: 'plugin-execution',
+              outcome: 'unknown-after-dispatch',
+            })), ms)
           )
         ]);
       };
@@ -652,15 +709,22 @@ function handleExec(req, res) {
           break;
         }
         default:
-          throw new Error(`Unknown action: ${action}`);
+          throw new BridgeDaemonError(`Unknown action: ${action}`, {
+            kind: 'validation',
+            phase: 'request-validation',
+            outcome: 'not-dispatched',
+          });
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ result, metadata, mode: getMode() }));
     } catch (error) {
       console.log(`[daemon] /exec failed: ${error.message}`);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message || 'Execution failed' }));
+      writeBridgeError(res, 500, error, {
+        kind: 'execution',
+        phase: 'daemon-response',
+        outcome: 'unknown-after-dispatch',
+      });
     } finally {
       inFlightExecs--;
     }
@@ -785,7 +849,11 @@ function handlePluginSocket(ws) {
         if (pending && pending.ws === ws) {
           clearTimeout(pending.timeout);
           pluginPendingRequests.delete(msg.id);
-          pending.reject(new Error(`Plugin protocol error: ${messageError}`));
+          pending.reject(new BridgeDaemonError(`Plugin protocol error: ${messageError}`, {
+            kind: 'plugin-protocol',
+            phase: 'plugin-response',
+            outcome: 'unknown-after-dispatch',
+          }));
         }
       }
       return;
@@ -864,7 +932,13 @@ function handlePluginSocket(ws) {
         if (conn) conn.lastResponseAt = new Date().toISOString();
         clearTimeout(pending.timeout);
         pluginPendingRequests.delete(msg.id);
-        if (msg.error) pending.reject(new Error(msg.error));
+        if (msg.error) {
+          pending.reject(new BridgeDaemonError(msg.error, {
+            kind: 'execution',
+            phase: 'plugin-execution',
+            outcome: 'unknown-after-dispatch',
+          }));
+        }
         else pending.resolve({ result: msg.result, metadata: resultMetadata(ws, msg.metadata) });
       }
     }
@@ -953,7 +1027,14 @@ function handlePluginSocket(ws) {
             for (const [id, pending] of pluginPendingRequests) {
               if (pending.ws !== other) continue;
               clearTimeout(pending.timeout);
-              pending.reject(new Error('Plugin connection superseded by another Figma window'));
+              pending.reject(new BridgeDaemonError(
+                'Plugin connection superseded by another Figma window',
+                {
+                  kind: 'plugin-unavailable',
+                  phase: 'plugin-execution',
+                  outcome: 'unknown-after-dispatch',
+                },
+              ));
               pluginPendingRequests.delete(id);
             }
             try { other.send(JSON.stringify({ type: 'superseded' })); } catch {}
@@ -977,7 +1058,11 @@ function handlePluginSocket(ws) {
       for (const [id, pending] of pluginPendingRequests) {
         if (pending.ws !== ws) continue;
         clearTimeout(pending.timeout);
-        pending.reject(new Error('Plugin disconnected'));
+        pending.reject(new BridgeDaemonError('Plugin disconnected', {
+          kind: 'plugin-unavailable',
+          phase: 'plugin-execution',
+          outcome: 'unknown-after-dispatch',
+        }));
         pluginPendingRequests.delete(id);
       }
     }

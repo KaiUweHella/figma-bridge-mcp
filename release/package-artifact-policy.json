@@ -82,6 +82,7 @@
     "engine/src/lib/css-tokens.js",
     "engine/src/lib/daemon-auth.js",
     "engine/src/lib/daemon-client.js",
+    "engine/src/lib/daemon-error-envelope.js",
     "engine/src/lib/daemon-port.js",
     "engine/src/lib/design-contract.js",
     "engine/src/lib/design-link-registry.js",

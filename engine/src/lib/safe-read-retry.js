@@ -6,11 +6,7 @@ const TRANSIENT_KINDS = new Set([
 ]);
 
 export function isTransientReadFailure(error) {
-  if (TRANSIENT_KINDS.has(error?.kind)) return true;
-  const message = [error?.message, error?.stderr, error?.stdout]
-    .filter(Boolean)
-    .join('\n');
-  return /Plugin (?:not connected|disconnected)|connection superseded|Plugin execution timeout|Execution timeout|Daemon not reachable/i.test(message);
+  return TRANSIENT_KINDS.has(error?.kind);
 }
 
 /**

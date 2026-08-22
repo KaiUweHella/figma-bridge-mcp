@@ -13,6 +13,7 @@ import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblin
 import { cachedInventoryCode } from '../lib/component-inventory.js';
 import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/design-link-registry.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
+import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js';
 import {
   formatSemanticResizeProbe,
   parseResizeProbeDelta,
@@ -561,7 +562,7 @@ program
           // Compatibility is allowed only after the daemon proves that the
           // structured action was rejected before reaching a capable plugin.
           // Other failures are uncertain writes and must never be retried.
-          const knownPreflightRejection = /Plugin capability missing: render-plan-v1|action must be ["“]eval/i.test(error.message || '');
+          const knownPreflightRejection = permitsCompatibilityRedispatch(error);
           if (!knownPreflightRejection) throw error;
           const code = await client.compileRenderPlan(renderPlan);
           result = await daemonExec('eval', { code, timeoutMs: 90000 });
@@ -684,7 +685,7 @@ program
         try {
           batchResult = await daemonExec('render-plan-batch', { plans: renderPlans, options: { gap, vertical }, timeoutMs: 90000 });
         } catch (error) {
-          const knownPreflightRejection = /Plugin capability missing: render-plan-batch-v1|action must be ["“]eval/i.test(error.message || '');
+          const knownPreflightRejection = permitsCompatibilityRedispatch(error);
           if (!knownPreflightRejection) throw error;
           const code = await client.compileRenderPlans(renderPlans, { gap, vertical });
           batchResult = await daemonExec('eval', { code, timeoutMs: 90000 });

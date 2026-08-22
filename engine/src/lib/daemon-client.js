@@ -4,12 +4,29 @@
 // file targeting, timeouts and daemon/plugin error normalization. CLI and MCP
 // are adapters at this seam; neither needs to know the wire protocol.
 import { signRequest } from './daemon-auth.js';
+import {
+  MAX_BRIDGE_DAEMON_ERROR_BYTES,
+  adaptLegacyDaemonError,
+  parseBridgeDaemonError,
+} from './daemon-error-envelope.js';
 
 export class DaemonClientError extends Error {
-  constructor(message, { kind = 'request', status = null, cause = null } = {}) {
+  constructor(message, {
+    kind = 'request',
+    phase = 'daemon-request',
+    outcome = 'unknown-after-dispatch',
+    status = null,
+    schema = null,
+    legacy = false,
+    cause = null,
+  } = {}) {
     super(message, cause ? { cause } : undefined);
     this.name = 'DaemonClientError';
     this.kind = kind;
+    this.phase = phase;
+    this.outcome = outcome;
+    this.schema = schema;
+    this.legacy = legacy;
     if (status != null) this.status = status;
   }
 }
@@ -17,6 +34,35 @@ export class DaemonClientError extends Error {
 function parsedJson(text) {
   if (!text) return null;
   try { return JSON.parse(text); } catch { return null; }
+}
+
+const MAX_DAEMON_ERROR_BODY_BYTES = (MAX_BRIDGE_DAEMON_ERROR_BYTES * 2) + 4096;
+
+function boundedText(value, limit = MAX_DAEMON_ERROR_BODY_BYTES) {
+  const bytes = Buffer.from(String(value || ''), 'utf8');
+  if (bytes.length <= limit) return bytes.toString('utf8');
+  return 'Daemon error response exceeded the bounded compatibility limit';
+}
+
+async function readErrorText(response) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    return boundedText(await response.text());
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = Buffer.from(value);
+    bytes += chunk.length;
+    if (bytes > MAX_DAEMON_ERROR_BODY_BYTES) {
+      await reader.cancel().catch(() => {});
+      return 'Daemon error response exceeded the bounded compatibility limit';
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, bytes).toString('utf8');
 }
 
 function timeoutError(error) {
@@ -52,7 +98,11 @@ export function createDaemonClient({
     const detail = typeof missingTokenMessage === 'function'
       ? missingTokenMessage()
       : `Daemon token not found at ${tokenFile}`;
-    throw new DaemonClientError(detail, { kind: 'missing-token' });
+    throw new DaemonClientError(detail, {
+      kind: 'missing-token',
+      phase: 'client-authentication',
+      outcome: 'not-dispatched',
+    });
   };
 
   async function request(route, {
@@ -61,6 +111,7 @@ export function createDaemonClient({
     body = '',
     timeoutMs = 3000,
     headers = {},
+    execution = false,
   } = {}) {
     const token = tokenOrThrow();
     const port = getPort();
@@ -81,16 +132,26 @@ export function createDaemonClient({
       if (timeoutError(error)) {
         throw new DaemonClientError(
           `Execution timeout (${timeoutMs / 1000}s). Bring the Figma Desktop window and Figma Bridge plugin to the foreground, then retry; use figma_connect if it stays unresponsive`,
-          { kind: 'timeout', cause: error },
+          {
+            kind: 'timeout',
+            phase: 'daemon-request',
+            outcome: execution ? 'unknown-after-dispatch' : 'not-dispatched',
+            cause: error,
+          },
         );
       }
       throw new DaemonClientError(
         `Daemon not reachable at ${url}: ${error?.message || String(error)}`,
-        { kind: 'unavailable', cause: error },
+        {
+          kind: 'unavailable',
+          phase: 'daemon-request',
+          outcome: execution ? 'unknown-after-dispatch' : 'not-dispatched',
+          cause: error,
+        },
       );
     }
 
-    const text = await response.text();
+    const text = response.ok ? await response.text() : await readErrorText(response);
     return {
       ok: response.ok,
       status: response.status,
@@ -113,30 +174,33 @@ export function createDaemonClient({
       body,
       timeoutMs,
       headers: { 'Content-Type': 'application/json' },
+      execution: true,
     });
 
-    if (!response.ok || response.data?.error) {
-      const raw = response.data?.error || response.text || `HTTP ${response.status}`;
-      // Unknown response errors may carry actionable structured prose after
-      // the first line (notably the connected file list for an ambiguous
-      // Figma Target Context). Preserve it unless a known error kind below
-      // deliberately replaces it with a tailored message.
-      let message = String(raw);
-      let kind = 'response';
-      if (/Unauthorized|token/i.test(raw)) {
-        kind = 'authentication';
-        message = `${raw}\nToken file: ${tokenFile}\nTry: node src/index.js daemon restart`;
-      } else if (/Plugin disconnected|Plugin connection superseded/i.test(raw)) {
-        kind = 'plugin-unavailable';
-        message = 'Plugin disconnected while the request was running. The plugin reconnects automatically; retry this read once it is connected.';
-      } else if (/Plugin not connected/i.test(raw)) {
-        kind = 'plugin-unavailable';
+    if (!response.ok || response.data?.error || response.data?.bridgeError) {
+      const raw = typeof response.data?.error === 'string'
+        ? response.data.error
+        : response.text || `HTTP ${response.status}`;
+      const structured = parseBridgeDaemonError(response.data?.bridgeError);
+      const facts = structured || adaptLegacyDaemonError(raw, { status: response.status });
+      let message = facts.message;
+      if (facts.kind === 'authentication') {
+        message = `${facts.message}\nToken file: ${tokenFile}\nTry: node src/index.js daemon restart`;
+      } else if (facts.kind === 'plugin-unavailable' && facts.outcome === 'not-dispatched') {
         message = 'Plugin not connected.\nIn Figma: Plugins → Development → Figma Bridge (keep that tab open).';
-      } else if (/Plugin execution timeout|Execution timeout/i.test(raw)) {
-        kind = 'plugin-timeout';
-        message = `${String(raw).split('\n')[0]}\nThe socket is open but Figma did not answer. Bring Figma Desktop and the plugin tab to the foreground, then retry; use figma_connect if it persists.`;
+      } else if (facts.kind === 'plugin-unavailable') {
+        message = 'Plugin disconnected while the request was running. The plugin reconnects automatically; retry this read once it is connected.';
+      } else if (facts.kind === 'plugin-timeout') {
+        message = `${facts.message.split('\n')[0]}\nThe socket is open but Figma did not answer. Bring Figma Desktop and the plugin tab to the foreground, then retry; use figma_connect if it persists.`;
       }
-      throw new DaemonClientError(message, { kind, status: response.status });
+      throw new DaemonClientError(message, {
+        kind: facts.kind,
+        phase: facts.phase,
+        outcome: facts.outcome,
+        schema: facts.schema,
+        legacy: structured === null,
+        status: response.status,
+      });
     }
     return {
       value: response.data?.result,

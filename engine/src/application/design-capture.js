@@ -13,6 +13,7 @@ export const DESIGN_CAPTURE_SCHEMA_VERSION = 6;
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
 const PROBE_CODE = '(async () => null)()';
+const DEPTH_RETRY_KINDS = new Set(['timeout', 'plugin-timeout', 'plugin-protocol']);
 
 function parseEval(value) {
   return typeof value === 'string' ? JSON.parse(value) : value;
@@ -72,7 +73,7 @@ export async function walkWithDepthRetry(requested, attempt) {
       if (!result && blankRetries-- > 0) continue;
       return { result, depth };
     } catch (error) {
-      if (/payload|too large|timeout/i.test(error.message) && depth > 4) {
+      if (DEPTH_RETRY_KINDS.has(error?.kind) && depth > 4) {
         depth -= 2;
         continue;
       }

@@ -60,6 +60,10 @@ const EVIDENCE = Object.freeze([
         "engine/tests/protocol-contract.test.js",
         "plugin result, error, metadata, batch, token and selection payloads are bounded",
       ],
+      [
+        "engine/tests/daemon-client.test.js",
+        "legacy daemon error bodies are bounded before they become client messages",
+      ],
     ],
   ],
   [
@@ -122,12 +126,40 @@ const EVIDENCE = Object.freeze([
     "SEC-NO-WRITE-RETRY",
     [
       [
+        "tests/daemon-auth.test.js",
+        "HTTP /exec reports a missing Plugin before dispatch",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "/exec reports Plugin timeout as outcome unknown after dispatch",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "/exec keeps domain token failures as execution errors after Plugin dispatch",
+      ],
+      [
+        "engine/tests/daemon-client.test.js",
+        "daemon client trusts structured execution facts instead of domain prose",
+      ],
+      [
+        "engine/tests/daemon-client.test.js",
+        "legacy string-only daemon errors stay compatible without token substring auth inference",
+      ],
+      [
+        "engine/tests/daemon-error-envelope.test.js",
+        "compatibility redispatch requires a capability rejection before dispatch",
+      ],
+      [
         "tests/command-application.test.js",
-        "in-process execution never repeats an ambiguous daemon failure by default",
+        "in-process mutation never repeats an outcome-unknown daemon failure",
       ],
       [
         "tests/command-application.test.js",
         "safe-read retries share one decreasing deadline budget",
+      ],
+      [
+        "engine/tests/safe-read-retry.test.js",
+        "transient classifier recognizes normalized plugin and daemon failures",
       ],
     ],
   ],
