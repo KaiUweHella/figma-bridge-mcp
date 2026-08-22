@@ -170,6 +170,8 @@ test("REST audit uses endpoint capabilities and never retains token, path, file 
   assert.ok(restLines.length >= 2, "REST calls are audited");
   assert.ok(restLines.some((l) => l.capability === "rest.version-list" && l.operation === "read"));
   assert.ok(restLines.some((l) => l.capability === "rest.comments" && l.operation === "write"));
+  assert.ok(restLines.some((l) => l.effects?.network === "read" && l.effects?.shared === "read"));
+  assert.ok(restLines.some((l) => l.effects?.network === "write" && l.effects?.shared === "read"));
   assert.ok(restLines.some((l) => l.target.kind === "figma-rest-file" && l.target.identity?.sha256));
   assert.ok(restLines.some((l) => l.data.body?.sha256), "REST body is represented only by a digest");
   const doneLines = lines.filter((l) => l.event === "done");

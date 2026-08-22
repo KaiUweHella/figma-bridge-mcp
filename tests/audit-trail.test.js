@@ -38,7 +38,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
   const handle = trail.begin({
     capability: "render",
     operation: "write",
-    effects: { figma: "write", workspace: "read", shared: "none" },
+    effects: { figma: "write", workspace: "read", network: "none", shared: "none" },
     target: { kind: "plugin-file", identity: secrets.fileKey },
     arguments: ["render", secrets.jsx, "--icons", secrets.path],
     label: secrets.label,
@@ -73,7 +73,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
   assert.equal(start.event, "start");
   assert.equal(start.capability, "render");
   assert.equal(start.operation, "write");
-  assert.deepEqual(start.effects, { figma: "write", workspace: "read", shared: "none" });
+  assert.deepEqual(start.effects, { figma: "write", workspace: "read", network: "none", shared: "none" });
   assert.equal(start.target.kind, "plugin-file");
   assert.match(start.target.identity.sha256, /^[a-f0-9]{64}$/);
   assert.equal(start.data.arguments.count, 4);

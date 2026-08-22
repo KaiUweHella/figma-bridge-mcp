@@ -195,7 +195,12 @@ export async function restFetch(path, opts = {}) {
   const auditHandle = auditTrail.begin({
     capability: `rest.${endpoint}`,
     operation: method === "POST" ? "write" : "read",
-    effects: { figma: method === "POST" ? "write" : "read", workspace: "none", shared: "none" },
+    effects: {
+      figma: method === "POST" ? "write" : "read",
+      workspace: "none",
+      network: method === "POST" ? "write" : "read",
+      shared: "read",
+    },
     target: {
       kind: fileKey ? "figma-rest-file" : "figma-rest-account",
       ...(fileKey ? { identity: fileKey } : {}),

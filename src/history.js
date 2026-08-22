@@ -9,6 +9,12 @@ import { AUDIT_LOG_PATH } from "./config.js";
 import { extractNodeIds } from "./engine.js";
 import { AUDIT_SCHEMA_VERSION, summarizeSensitive } from "./audit-trail.js";
 
+const STRUCTURED_AUDIT_SCHEMAS = new Set([2, AUDIT_SCHEMA_VERSION]);
+
+function isStructuredAuditEntry(entry) {
+  return STRUCTURED_AUDIT_SCHEMAS.has(entry?.schema);
+}
+
 /**
  * Parse audit-log JSONL text into entries, silently skipping malformed lines
  * (a truncated last line must never break the whole history).
@@ -52,7 +58,7 @@ export function foldCompletions(entries) {
   return commands.map((e) => {
     const d = e.id ? done.get(e.id) : undefined;
     if (!d) return e;
-    if (d.schema === AUDIT_SCHEMA_VERSION && d.outcome) {
+    if (isStructuredAuditEntry(d) && d.outcome) {
       return {
         ...e,
         ok: d.outcome.ok === true,
@@ -144,7 +150,7 @@ function cell(value, max = 120) {
 
 function designLabel(entry) {
   if (entry.label) return entry.label;
-  if (entry.schema === AUDIT_SCHEMA_VERSION) {
+  if (isStructuredAuditEntry(entry)) {
     const operation = entry.operation && entry.operation !== "none"
       ? ` [${entry.operation}]`
       : "";
@@ -159,7 +165,7 @@ function designLabel(entry) {
 
 function nodesCell(entry) {
   if (entry.source === "code" || entry.source === "figma") return cell(entry.ref || "");
-  if (entry.schema === AUDIT_SCHEMA_VERSION) {
+  if (isStructuredAuditEntry(entry)) {
     const parts = [];
     const nodeCount = Array.isArray(entry.data?.nodeRefs) ? entry.data.nodeRefs.length : 0;
     if (nodeCount) parts.push(`${nodeCount} redacted node${nodeCount === 1 ? "" : "s"}`);

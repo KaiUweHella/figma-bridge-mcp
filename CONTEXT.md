@@ -14,7 +14,7 @@ The value-returning execution of a **Figma Command**, independent of Commander, 
 _Avoid_: handler, command service
 
 **Command Capability**:
-The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma/workspace/shared-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity.
+The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma/workspace/external-network/shared-local-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity. External network excludes the authenticated localhost Bridge transport, which is recorded separately as availability.
 _Avoid_: allowlist entry, command metadata
 
 **Figma Command Grammar**:

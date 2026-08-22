@@ -557,10 +557,35 @@ function backgroundJobIdentity(args, fileKey) {
   return JSON.stringify({ fileKey: fileKey || null, args });
 }
 
+function flagValue(args, flag) {
+  for (let index = 1; index < args.length; index++) {
+    const value = args[index];
+    if (value === flag) return args[index + 1] || null;
+    if (typeof value === 'string' && value.startsWith(`${flag}=`)) return value.slice(flag.length + 1) || null;
+  }
+  return null;
+}
+
+/** External outbound access only; authenticated localhost transport is separate. */
+function networkEffect(args) {
+  if (hasHelp(args)) return 'none';
+  if (args[0] === 'api' && args[1] === 'setup') return 'read';
+  if (args[0] === 'map' && args[1] === 'storybook' && isUrl(args[2] || '')) return 'read';
+  if (args[0] === 'import' && isUrl(args[1] || '')) return 'read';
+  if (args[0] === 'kit' && args[1] === 'init' && isUrl(flagValue(args, '--storybook') || '')) return 'read';
+  return 'none';
+}
+
 function sharedEffect(args) {
-  if (hasHelp(args) || args[0] !== 'history') return 'none';
-  if (args[1] === 'snapshot') return 'write';
-  if (args[1] === 'list' || args[1] === 'diff') return 'read';
+  if (hasHelp(args)) return 'none';
+  if (args[0] === 'api') {
+    if (args[1] === 'setup' || args[1] === 'index' || args[1] === 'context') return 'write';
+    return 'read';
+  }
+  if (args[0] === 'history') {
+    if (args[1] === 'snapshot') return 'write';
+    if (args[1] === 'list' || args[1] === 'diff') return 'read';
+  }
   return 'none';
 }
 
@@ -612,8 +637,9 @@ export function planFigmaCommand(rawArgs, {
   }
   const effects = Object.freeze({
     figma: capability.mutatesDesign ? 'write' : capability.target === 'none' ? 'none' : 'read',
-    workspace: hasHelp(prepared.args) ? 'none' : prepared.workspace,
-    shared: sharedEffect(prepared.args),
+    workspace: capability.help ? 'none' : prepared.workspace,
+    network: capability.help ? 'none' : networkEffect(prepared.args),
+    shared: capability.help ? 'none' : sharedEffect(prepared.args),
   });
   const target = capability.target === 'none'
     ? Object.freeze({ kind: 'none', fileKey: null, source: 'not-applicable' })

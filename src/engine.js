@@ -120,7 +120,35 @@ export function resolveFileTarget(explicitFileKey, args = []) {
   return resolveFigmaTarget({ explicitFileKey, args }).fileKey;
 }
 
+const POST_PLAN_POLICY_KEYS = Object.freeze([
+  "fileKey",
+  "registryFileKey",
+  "timeoutMs",
+  "okExitCodes",
+]);
+
+function rejectPolicyOverrides(opts, { afterPlanning = false } = {}) {
+  const forbidden = afterPlanning
+    ? POST_PLAN_POLICY_KEYS
+    : POST_PLAN_POLICY_KEYS.filter((key) => key !== "fileKey" && key !== "registryFileKey");
+  const key = forbidden.find((candidate) => Object.hasOwn(opts, candidate));
+  if (key) {
+    throw new TypeError(
+      `Command Capability owns ${key}; callers may not override it${afterPlanning ? " after planning" : ""}`,
+    );
+  }
+}
+
+function applicationOptions(opts) {
+  return {
+    ...(opts.label == null ? {} : { label: opts.label }),
+    ...(opts.waitUntilReady == null ? {} : { waitUntilReady: opts.waitUntilReady }),
+    ...(opts.compatibilityFallback == null ? {} : { compatibilityFallback: opts.compatibilityFallback }),
+  };
+}
+
 function createCommandPlan(args, opts = {}) {
+  rejectPolicyOverrides(opts);
   validateArgs(args);
   return planFigmaCommand(args, {
     fileKey: opts.fileKey,
@@ -130,6 +158,7 @@ function createCommandPlan(args, opts = {}) {
 }
 
 function startCommandExecution(plan, opts = {}) {
+  rejectPolicyOverrides(opts, { afterPlanning: true });
   if (!isFigmaCommandPlan(plan)) {
     throw new TypeError("Command Application requires a Command Plan created by the Capability Catalog");
   }
@@ -160,8 +189,7 @@ function startCommandExecution(plan, opts = {}) {
   return Object.freeze({ args: plan.argv, opts, command, plan, targetContext, fileKey, audit });
 }
 
-function executionTimeout(context, opts) {
-  if (opts.timeoutMs != null) return opts.timeoutMs;
+function executionTimeout(context) {
   if (context.plan.execution.timeout === "background") return BACKGROUND_EXEC_TIMEOUT_MS;
   if (context.plan.execution.timeout === "long") return LONG_EXEC_TIMEOUT_MS;
   return EXEC_TIMEOUT_MS;
@@ -189,22 +217,21 @@ function attachAuditStatus(error, audit) {
 /**
  * Run an allowlisted engine command.
  * @param {string[]} args
- * @param {{timeoutMs?: number, label?: string, fileKey?: string, okExitCodes?: number[]}} [opts]
- *   `timeoutMs` overrides the default EXEC_TIMEOUT_MS (long exports need more);
+ * @param {{label?: string, fileKey?: string}} [opts]
  *   `label` is summarized non-reversibly for audit correlation;
- *   `fileKey` targets one of several connected Figma windows;
- *   `okExitCodes` names exit codes that are an ANSWER rather than a failure.
+ *   `fileKey` is a planning input that targets one connected Figma window.
+ *   Timeout classes and accepted outcomes come only from the Command Capability.
  * @returns {Promise<{stdout: string, stderr: string, code: number, audit: object}>}
  */
 export async function runCli(args, opts = {}) {
-  return runCliPlan(createCommandPlan(args, opts), opts);
+  return runCliPlan(createCommandPlan(args, opts), applicationOptions(opts));
 }
 
 /** Execute one already-resolved Command Plan through the child-process Adapter. */
 export async function runCliPlan(plan, opts = {}) {
   const context = startCommandExecution(plan, opts);
   try {
-    const result = await spawnCliAdapter(context.args, opts, context.fileKey, executionTimeout(context, opts), context.plan.execution.okExitCodes);
+    const result = await spawnCliAdapter(context.args, context.fileKey, executionTimeout(context), context.plan.execution.okExitCodes);
     const audit = completeCommandExecution(context, result.code);
     return { ...result, audit };
   } catch (error) {
@@ -212,7 +239,7 @@ export async function runCliPlan(plan, opts = {}) {
   }
 }
 
-async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes = [0]) {
+async function spawnCliAdapter(args, fileKey, timeoutMs, plannedExitCodes = [0]) {
   const { cmd, argv } = buildArgv(args, { fileKey });
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
@@ -230,10 +257,9 @@ async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes 
     const stdout = err.stdout ?? "";
     // Some commands use the exit code as an ANSWER, not as a failure:
     // `history diff` exits 1 when the design changed, so it works as a CI
-    // gate. Callers opt in by naming the codes explicitly — a blanket "ignore
-    // exit codes" would swallow real breakage.
-    const okay = Array.isArray(opts.okExitCodes) ? opts.okExitCodes : plannedExitCodes;
-    if (okay.includes(code)) {
+    // gate. The Command Capability owns those accepted answers; a blanket
+    // "ignore exit codes" would swallow real breakage.
+    if (plannedExitCodes.includes(code)) {
       return { stdout, stderr, code };
     }
     throw publicError(Object.assign(err, { code, stdout, stderr }));
@@ -245,14 +271,14 @@ async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes 
  * preserving the same allowlist, targeting and audit contract as runCli.
  */
 export async function runInProcessCommand(args, opts = {}, operation) {
-  return runInProcessCommandPlan(createCommandPlan(args, opts), opts, operation);
+  return runInProcessCommandPlan(createCommandPlan(args, opts), applicationOptions(opts), operation);
 }
 
 /** Execute one already-resolved Command Plan through an in-process Command Application. */
 export async function runInProcessCommandPlan(plan, opts = {}, operation) {
   if (typeof operation !== "function") throw new TypeError("runInProcessCommand requires an operation");
   const context = startCommandExecution(plan, opts);
-  const timeoutMs = executionTimeout(context, opts);
+  const timeoutMs = executionTimeout(context);
   const deadline = Date.now() + timeoutMs;
   const remaining = () => Math.max(1, deadline - Date.now());
   const invoke = () => operation({
@@ -296,7 +322,7 @@ export async function runInProcessCommandPlan(plan, opts = {}, operation) {
       && context.plan.execution.retry === "safe-read"
       && isDaemonUnavailable(error)) {
       try {
-        const result = await spawnCliAdapter(context.args, opts, context.fileKey, remaining(), context.plan.execution.okExitCodes);
+        const result = await spawnCliAdapter(context.args, context.fileKey, remaining(), context.plan.execution.okExitCodes);
         const audit = completeCommandExecution(context, result.code);
         return { ...result, audit };
       } catch (fallbackError) {
@@ -330,7 +356,7 @@ export async function ensureSafeConnect({ forceRestart = false } = {}) {
   const auditHandle = auditTrail.begin({
     capability: "bridge.connect",
     operation: "write",
-    effects: { figma: "none", workspace: "none", shared: "write" },
+    effects: { figma: "none", workspace: "none", network: "none", shared: "write" },
     target: { kind: "local-bridge" },
     arguments: args,
   });

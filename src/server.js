@@ -1601,7 +1601,8 @@ export async function handleTool(name, rawArgs) {
         if (typeof d.nodeId === "string" && d.nodeId) args.push("--node", d.nodeId);
         if (d.changelog === true) args.push("--changelog");
         // Exit 1 means "the design differs", which is the answer, not an error.
-        const res = await runCli(args, { okExitCodes: [0, 1], fileKey: input.fileKey });
+        // The Command Capability owns that accepted outcome.
+        const res = await runCli(args, { fileKey: input.fileKey });
         return textResult(res.stdout || res.stderr || "No output.");
       }
 

@@ -97,13 +97,13 @@ test('CLI and MCP decide identical policy for the Design Link tracer only', () =
   const cases = [
     {
       argv: ['link', 'inspect', '1:2', '--manifest', '/work/figma-bridge.json'],
-      effects: { figma: 'read', workspace: 'read', shared: 'none' },
+      effects: { figma: 'read', workspace: 'read', network: 'none', shared: 'none' },
       confirmation: 'none',
       retry: 'safe-read',
     },
     {
       argv: ['link', 'set', '1:2', 'ui.button', '--manifest', '/work/figma-bridge.json'],
-      effects: { figma: 'write', workspace: 'write', shared: 'none' },
+      effects: { figma: 'write', workspace: 'write', network: 'none', shared: 'none' },
       confirmation: 'configured',
       retry: 'never',
     },
@@ -164,12 +164,12 @@ test('CLI and MCP decide identical policy and accepted outcomes for Design Contr
   const cases = [
     {
       argv: ['contract', 'capture', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
-      effects: { figma: 'read', workspace: 'write', shared: 'none' },
+      effects: { figma: 'read', workspace: 'write', network: 'none', shared: 'none' },
       okExitCodes: [0],
     },
     {
       argv: ['contract', 'check', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
-      effects: { figma: 'read', workspace: 'read', shared: 'none' },
+      effects: { figma: 'read', workspace: 'read', network: 'none', shared: 'none' },
       okExitCodes: [0, 1],
     },
   ];
@@ -277,31 +277,74 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['export', 'dtcg', '12:34']), ['export', 'dtcg', '12:34']);
 });
 
-test('catalog reports workspace and shared-state effects independently from Figma effects', () => {
+test('catalog reports workspace, network and shared-state effects independently from Figma effects', () => {
   assert.deepEqual(planFigmaCommand(['spec', 'Button', '--file', 'DESIGN.md'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'read', shared: 'none',
+    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], { workspaceDir: '/work' }).effects.workspace, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot']).effects.shared, 'write');
   assert.equal(planFigmaCommand(['history', 'list']).effects.shared, 'read');
+  assert.deepEqual(planFigmaCommand(['api', 'setup']).effects, {
+    figma: 'none', workspace: 'none', network: 'read', shared: 'write',
+  });
+  assert.deepEqual(planFigmaCommand(['api', 'index']).effects, {
+    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+  });
+  assert.deepEqual(planFigmaCommand(['api', 'context']).effects, {
+    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+  });
+  assert.deepEqual(planFigmaCommand(['api', 'SceneNode']).effects, {
+    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+  });
+  assert.deepEqual(planFigmaCommand(['api']).effects, {
+    figma: 'none', workspace: 'none', network: 'none', shared: 'none',
+  });
+  assert.equal(planFigmaCommand(['map', 'storybook', 'http://localhost:6006']).effects.network, 'read');
+  assert.equal(planFigmaCommand(['map', 'storybook', './storybook-static']).effects.network, 'none');
+  assert.equal(planFigmaCommand(['import', 'https://storybook.example.com']).effects.network, 'read');
+  assert.equal(planFigmaCommand(['kit', 'init', '.', '--storybook=https://storybook.example.com']).effects.network, 'read');
   assert.deepEqual(planFigmaCommand(['link', 'set', '1:2', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'write', workspace: 'write', shared: 'none',
+    figma: 'write', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'list'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'read', shared: 'none',
+    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'accept', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'write', shared: 'none',
+    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'context', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'read', shared: 'none',
+    figma: 'read', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'configure', '--tokens', 'tokens.json'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'write', shared: 'none',
+    figma: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['export', 'node-json', '1:2', '-o', 'facts.json'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'write', shared: 'none',
+    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
   });
+});
+
+test('cross-Adapter conformance keeps policy identical while migration exposure stays explicit', () => {
+  const cases = [
+    ['link', 'inspect', '1:2'],
+    ['link', 'set', '1:2', 'ui.button'],
+    ['export', 'assets', '1:2'],
+    ['api', 'setup'],
+    ['future-command', 'anything'],
+  ];
+  for (const argv of cases) {
+    const options = { workspaceDir: '/work', fileKey: 'FILE_A' };
+    const mcp = planFigmaCommand(argv, { ...options, adapter: 'mcp' });
+    const cli = planFigmaCommand(argv, { ...options, adapter: 'cli' });
+    const { adapter: mcpAdapter, allowed: mcpAllowed, ...mcpPolicy } = mcp;
+    const { adapter: cliAdapter, allowed: cliAllowed, ...cliPolicy } = cli;
+    assert.equal(mcpAdapter, 'mcp');
+    assert.equal(cliAdapter, 'cli');
+    assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
+    if (['link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    else assert.equal(cliAllowed, false);
+  }
+  assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
+  assert.equal(planFigmaCommand(['future-command']).allowed, false);
 });
 
 test('each capability supplies a closed audit projection without user payloads or identities', () => {
@@ -314,7 +357,7 @@ test('each capability supplies a closed audit projection without user payloads o
   assert.deepEqual(plan.audit, {
     capability: 'render',
     operation: 'write',
-    effects: { figma: 'write', workspace: 'read', shared: 'none' },
+    effects: { figma: 'write', workspace: 'read', network: 'none', shared: 'none' },
     targetKind: 'plugin-file',
     outputRoles: [],
   });

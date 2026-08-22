@@ -328,7 +328,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   `figma_reference {name:"fidelity"}`.
 - One **Capability Catalog** resolves every Figma Command entering through MCP
   into an immutable plan before either execution adapter runs it. That plan is
-  the single source for exposure, Figma/workspace/shared-state effects, target
+  the single source for exposure, Figma/workspace/external-network/shared-local-state effects, target
   need, confirmation, normalized paths, retry, timeout, accepted exit codes
   and background-job identity. Unknown commands default to denied/write/no-retry.
 - One **Workspace I/O** module confines Command Capability file effects to the

@@ -27,7 +27,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
 
   const entries = readFileSync(auditFile, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(entries.length, 2);
-  assert.equal(entries[0].schema, 2);
+  assert.equal(entries[0].schema, 3);
   assert.equal(entries[0].event, 'start');
   assert.equal(entries[0].capability, 'export.code-spec');
   assert.equal(entries[0].operation, 'read');
@@ -38,7 +38,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
   const serialized = JSON.stringify(entries);
   assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec/);
   assert.deepEqual(entries[1], {
-    schema: 2,
+    schema: 3,
     id: entries[0].id,
     ts: entries[1].ts,
     event: 'done',
@@ -197,13 +197,44 @@ test('in-process results preserve only Command Plan-accepted domain outcome code
   );
 });
 
+test('callers cannot replace timeout, target, or accepted outcomes after planning', async () => {
+  const { runCliPlan, runInProcessCommand, runInProcessCommandPlan } = await import('../src/engine.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const plan = planFigmaCommand(['contract', 'check', 'ui.button'], { fileKey: 'FILE_A' });
+  let called = false;
+  for (const override of [
+    { timeoutMs: 1 },
+    { okExitCodes: [0, 2] },
+    { fileKey: 'FILE_B' },
+    { registryFileKey: 'FILE_B' },
+  ]) {
+    await assert.rejects(
+      () => runInProcessCommandPlan(plan, override, async () => { called = true; }),
+      /Command Capability owns .*after planning/,
+    );
+  }
+  await assert.rejects(
+    () => runCliPlan(plan, { okExitCodes: [0, 2] }),
+    /Command Capability owns okExitCodes; callers may not override it after planning/,
+  );
+  await assert.rejects(
+    () => runInProcessCommand(['inspect', '1:2'], { timeoutMs: 1 }, async () => { called = true; }),
+    /Command Capability owns timeoutMs/,
+  );
+  await assert.rejects(
+    () => runInProcessCommand(['inspect', '1:2'], { okExitCodes: [0, 2] }, async () => { called = true; }),
+    /Command Capability owns okExitCodes/,
+  );
+  assert.equal(called, false);
+});
+
 test('safe-read retries share one decreasing deadline budget', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
   const contexts = [];
   await runInProcessCommand(
     ['export', 'code-spec', '12:34'],
-    { timeoutMs: 100, waitUntilReady: async () => {
+    { waitUntilReady: async () => {
       await new Promise((resolve) => setTimeout(resolve, 15));
       return true;
     } },
@@ -225,7 +256,7 @@ test('missing daemon token does not spend time in readiness wait', async () => {
   await assert.rejects(
     () => runInProcessCommand(
       ['export', 'code-spec', '12:34'],
-      { timeoutMs: 50, waitUntilReady: async () => { waits++; return true; } },
+      { waitUntilReady: async () => { waits++; return true; } },
       async () => { throw new DaemonClientError('token missing', { kind: 'missing-token' }); },
     ),
   );

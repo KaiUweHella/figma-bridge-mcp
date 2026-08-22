@@ -5,6 +5,14 @@ execution. Unknown commands default to denied, mutating and non-retryable so
 adding a command cannot accidentally bypass confirmation, targeting, path
 normalization or audit policy.
 
+Effects use one closed four-axis vocabulary: `figma`, `workspace`, `network`
+and `shared`, each with `none`, `read` or `write`. `network` records external
+outbound access; the authenticated localhost Bridge transport remains an
+availability fact. `shared` records persistent local state outside the
+workspace, including downloaded reference material. Adapters may translate a
+Capability-owned timeout class into deployment milliseconds, but they cannot
+replace that class or the accepted outcome codes after planning.
+
 The Capability Catalog resolves a closed recursive Figma Command Grammar before
 those decisions. Every exposed nested action and documented alias has an
 explicit canonical path; a contract compares that grammar with the real
