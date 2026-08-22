@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
-  designLinkFileKeyFromArgv, designLinkRequestFromArgv, executeDesignLink, formatDesignLinkResult,
+  designLinkArgvFromRequest, designLinkFileKeyFromArgv, designLinkPlanRoute,
+  designLinkRequestFromArgv, designLinkResultRows, executeDesignLink, executeDesignLinkPlan,
+  formatDesignLinkResult,
   inspectDesignEntityCode, setDesignEntityCode,
 } from '../src/application/design-link-command.js';
 
@@ -123,6 +127,105 @@ test('figma_run argv adapter stays thin over the Design Link Command Application
   assert.equal(designLinkFileKeyFromArgv([
     'link', 'context', 'ui.button', '--manifest', targetManifest,
   ]), 'FILE_A');
+});
+
+test('Design Link request Interface rejects Adapter drift before planning', () => {
+  const manifestPath = '/work/figma-bridge.json';
+  assert.deepEqual(designLinkArgvFromRequest({
+    action: 'set', nodeId: '1:2', entityId: 'ui.button', source: 'src/Button.tsx', manifestPath,
+  }), [
+    'link', 'set', '1:2', 'ui.button', '--source', 'src/Button.tsx', '--manifest', manifestPath,
+  ]);
+  assert.deepEqual(designLinkArgvFromRequest({
+    action: 'inspect', nodeId: '1:2', manifestPath,
+  }), ['link', 'inspect', '1:2', '--manifest', manifestPath]);
+
+  for (const args of [
+    ['link', 'inspect', '--future', 'secret'],
+    ['link', 'inspect', '--manifest'],
+    ['link', 'inspect', '1:2', '3:4'],
+    ['link', 'set', '1:2'],
+    ['link', 'set', '1:2', 'ui.button', '--kind'],
+    ['link', 'list', 'unexpected'],
+  ]) {
+    assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+    assert.throws(
+      () => designLinkRequestFromArgv([...args, '--manifest', manifestPath]),
+      /Invalid link|Registry path is required/,
+      args.join(' '),
+    );
+  }
+});
+
+test('only accepted tracer plans cross the Command Application Seam', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'design-link-plan-'));
+  const manifestPath = join(dir, 'figma-bridge.json');
+  const argv = ['link', 'set', '9:9', 'screen.settings', '--kind', 'screen', '--manifest', manifestPath];
+  const mcpPlan = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE' });
+  const cliPlan = planFigmaCommand(argv, { adapter: 'cli', fileKey: 'FILE' });
+  assert.equal(designLinkPlanRoute(mcpPlan), 'command-application');
+  assert.equal(designLinkPlanRoute(cliPlan), 'command-application');
+  assert.equal(designLinkPlanRoute(planFigmaCommand(['link', 'list'])), 'in-process-compatibility');
+  assert.equal(designLinkPlanRoute(planFigmaCommand(['inspect', '9:9'])), 'not-design-link');
+  assert.throws(() => designLinkPlanRoute({ ...mcpPlan }), /requires a Command Plan/);
+
+  const fromMcp = await executeDesignLinkPlan(mcpPlan, { evaluate: async () => figmaResult });
+  const fromCli = await executeDesignLinkPlan(cliPlan, { evaluate: async () => figmaResult });
+  assert.deepEqual(fromCli, fromMcp);
+  await assert.rejects(
+    () => executeDesignLinkPlan(planFigmaCommand(['link', 'list']), {}),
+    /is not owned by the Design Link Command Application/,
+  );
+});
+
+test('link set and inspect keep the established CLI text as a shared output contract', () => {
+  const entity = {
+    id: 'ui.button', kind: 'component',
+    code: { path: 'src/Button.tsx', export: 'Button' },
+    storybook: { storyId: 'components-button--default' },
+    figma: { nodeId: '1:2', componentKey: 'COMPONENT_KEY' },
+  };
+  const setResult = {
+    action: 'set', path: '/work/figma-bridge.json', entity,
+    figma: { id: '1:2', name: 'Button' },
+  };
+  assert.equal(formatDesignLinkResult(setResult), [
+    '✓ Linked ui.button to Button (1:2)',
+    '  Registry: /work/figma-bridge.json',
+    'ui.button  [component]',
+    '  code: src/Button.tsx#Button',
+    '  story: components-button--default',
+    '  figma: 1:2  key COMPONENT_KEY',
+  ].join('\n'));
+  assert.deepEqual(designLinkResultRows(setResult)[0], {
+    tone: 'plain', marker: '✓', markerTone: 'success', text: 'Linked ui.button to Button (1:2)',
+  });
+
+  assert.equal(formatDesignLinkResult({
+    action: 'inspect', figma: { id: '1:2', name: 'Button' },
+    plugin: { id: 'ui.button', kind: 'component' }, entity,
+  }), [
+    'Button (1:2)',
+    '  plugin: ui.button [component]',
+    'ui.button  [component]',
+    '  code: src/Button.tsx#Button',
+    '  story: components-button--default',
+    '  figma: 1:2  key COMPONENT_KEY',
+  ].join('\n'));
+  assert.equal(formatDesignLinkResult({
+    action: 'inspect', figma: { id: '1:2', name: 'Button' }, plugin: null, entity: null,
+  }), 'Button (1:2)\nNo Design Entity link found.');
+});
+
+test('Design Link Command Application has no console, process termination or global argv dependency', () => {
+  for (const relative of [
+    '../src/application/design-link-command.js',
+    '../src/application/design-link-request.js',
+  ]) {
+    const source = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
+    assert.doesNotMatch(source, /\bconsole\s*\./, relative);
+    assert.doesNotMatch(source, /\bprocess\s*\.\s*(?:argv|exit|exitCode)\b/, relative);
+  }
 });
 
 test('status, accept and context share one report-only Round-trip Planner', async () => {

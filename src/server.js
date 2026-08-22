@@ -39,8 +39,10 @@ import { executeInspect } from "../engine/src/application/inspect-command.js";
 import { executeScreenshot } from "../engine/src/application/screenshot-command.js";
 import {
   designLinkFileKeyFromArgv,
+  designLinkPlanRoute,
   designLinkRequestFromArgv,
   executeDesignLink,
+  executeDesignLinkPlan,
   formatDesignLinkResult,
 } from "../engine/src/application/design-link-command.js";
 import { designContractFileKeyFromArgv } from "../engine/src/application/design-contract-command.js";
@@ -1432,13 +1434,20 @@ export async function handleTool(name, rawArgs) {
       }
       // Command-specific path rules are owned by the Capability Catalog.
       const normalized = [...plan.argv];
-      if (normalized[0] === "link") {
-        const res = await runInProcessCommandPlan(plan, { label: input.label },
+      const designLinkRoute = designLinkPlanRoute(plan);
+      if (designLinkRoute !== "not-design-link") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: designLinkRoute === "command-application" ? false : undefined,
+        },
           async ({ fileKey, timeoutMs }) => {
-            const result = await executeDesignLink(designLinkRequestFromArgv(normalized), {
+            const adapters = {
               evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
               workspaceIO: WORKSPACE_IO,
-            });
+            };
+            const result = designLinkRoute === "command-application"
+              ? await executeDesignLinkPlan(plan, adapters)
+              : await executeDesignLink(designLinkRequestFromArgv(normalized), adapters);
             return { stdout: formatDesignLinkResult(result), stderr: "" };
           });
         return resultFromCli(res);

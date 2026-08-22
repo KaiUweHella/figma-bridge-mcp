@@ -17,6 +17,7 @@
     "engine/src/application/design-capture.js",
     "engine/src/application/design-contract-command.js",
     "engine/src/application/design-link-command.js",
+    "engine/src/application/design-link-request.js",
     "engine/src/application/inspect-command.js",
     "engine/src/application/screenshot-command.js",
     "engine/src/code-import/css.js",

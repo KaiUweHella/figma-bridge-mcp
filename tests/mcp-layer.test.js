@@ -296,10 +296,13 @@ test('the live STDIO server advertises the complete tool surface to MCP clients'
   }
 });
 
-test('figma_run keeps Design Link execution in-process', () => {
+test('figma_run routes the accepted Design Link tracer without a family-wide capture', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
-  assert.match(source, /normalized\[0\] === "link"/);
-  assert.match(source, /executeDesignLink\(designLinkRequestFromArgv\(normalized\)/);
+  assert.doesNotMatch(source, /normalized\[0\] === "link"/);
+  assert.match(source, /designLinkPlanRoute\(plan\)/);
+  assert.match(source, /executeDesignLinkPlan\(plan, adapters\)/);
+  assert.match(source, /executeDesignLink\(designLinkRequestFromArgv\(normalized\), adapters\)/);
+  assert.match(source, /compatibilityFallback: designLinkRoute === "command-application" \? false/);
 });
 
 test('figma_run denies an unknown nested command before write confirmation', async () => {
@@ -308,6 +311,21 @@ test('figma_run denies an unknown nested command before write confirmation', asy
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
   assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
+});
+
+test('figma_run rejects malformed Design Link argv before confirmation or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['link', 'inspect', '--future', 'private-value'],
+    ['link', 'inspect', '--manifest'],
+    ['link', 'inspect', '1:2', '3:4'],
+    ['link', 'set', '1:2'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
+  }
 });
 
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {

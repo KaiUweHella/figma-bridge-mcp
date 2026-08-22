@@ -1,9 +1,18 @@
 // Command adapter for the Design Link Registry.
 import chalk from 'chalk';
 import { resolve } from 'node:path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { runInProcessCommandPlan } from '../../../src/engine.js';
 import { program, checkConnection, daemonExec, handleEvalError } from '../lib/cli-core.js';
-import { executeDesignLink } from '../application/design-link-command.js';
+import {
+  designLinkArgvFromRequest,
+  designLinkResultRows,
+  executeDesignLink,
+  executeDesignLinkPlan,
+  formatDesignLinkResult,
+} from '../application/design-link-command.js';
 import { DESIGN_LINK_REGISTRY_FILE } from '../lib/design-link-registry.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 import { formatProjectDesignContext, formatRoundTripPlan } from '../lib/round-trip-planner.js';
 
 const link = program
@@ -23,6 +32,44 @@ function printEntity(entity) {
   if (entity.legacy) console.log(chalk.gray('  source: legacy figma-map.json adapter'));
 }
 
+function renderResultRows(rows) {
+  for (const row of rows) {
+    const text = row.tone === 'strong' ? chalk.bold(row.text)
+      : row.tone === 'muted' ? chalk.gray(row.text)
+        : row.tone === 'warning' ? chalk.yellow(row.text)
+          : row.text;
+    if (row.marker) {
+      const marker = row.markerTone === 'success' ? chalk.green(row.marker) : row.marker;
+      console.log(marker, text);
+    }
+    else console.log(text);
+  }
+}
+
+async function runTracer(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(designLinkArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  let domainResult = null;
+  await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await checkConnection();
+      domainResult = await executeDesignLinkPlan(plan, {
+        workspaceIO: io,
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+      return { stdout: formatDesignLinkResult(domainResult), stderr: '' };
+    });
+  return domainResult;
+}
+
 link
   .command('set <nodeId> <entityId>')
   .description('Attach one repository-owned Design Entity id to a Figma node and figma-bridge.json')
@@ -32,16 +79,13 @@ link
   .option('--story <id>', 'Storybook story id')
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (nodeId, entityId, options) => {
-    await checkConnection();
     try {
-      const result = await executeDesignLink({
+      const result = await runTracer({
         action: 'set', nodeId, entityId, kind: options.kind,
         source: options.source, exportName: options.export, storyId: options.story,
         manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }) });
-      console.log(chalk.green('✓'), `Linked ${result.entity.id} to ${result.figma.name} (${result.figma.id})`);
-      console.log(chalk.gray(`  Registry: ${result.path}`));
-      printEntity(result.entity);
+      });
+      renderResultRows(designLinkResultRows(result));
     } catch (error) {
       handleEvalError(error);
     }
@@ -52,14 +96,11 @@ link
   .description('Resolve a Figma node or current selection through the Design Link Registry')
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (nodeId, options) => {
-    await checkConnection();
     try {
-      const result = await executeDesignLink({
+      const result = await runTracer({
         action: 'inspect', nodeId, manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }) });
-      console.log(chalk.bold(`${result.figma.name} (${result.figma.id})`));
-      if (result.plugin) console.log(`  plugin: ${result.plugin.id} [${result.plugin.kind}]`);
-      printEntity(result.entity);
+      });
+      renderResultRows(designLinkResultRows(result));
     } catch (error) {
       handleEvalError(error);
     }

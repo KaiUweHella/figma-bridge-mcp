@@ -6,6 +6,7 @@
 // without making every Adapter understand the catalog schema.
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
 import { resolveFigmaTarget } from './figma-target.js';
 import { resolveFigmaCommandAction } from './figma-command-grammar.js';
 
@@ -68,6 +69,7 @@ const COMMANDS = Object.freeze({
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
+const CLI_COMMAND_APPLICATIONS = new Set(['link.inspect', 'link.set']);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
   name: 'unknown',
@@ -155,6 +157,7 @@ function specializedPolicy(name, entry, args) {
       pathPolicy = 'node-json-output';
     }
   }
+  if (name === 'link' && sub === 'inspect') retry = 'safe-read';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -172,6 +175,9 @@ function commandCapability(args) {
     return action.reason === 'unknown-option'
       ? Object.freeze({ ...UNKNOWN, name, mutatesDesign: false, target: 'none' })
       : Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'link' && !action.help && !acceptsDesignLinkArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
   }
   const specialized = action.help
     ? { execution: 'foreground', timeoutClass: 'default', pathPolicy: 'none', retry: 'never' }
@@ -404,7 +410,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       if (!supplied) args.push('--manifest', manifest);
       outputPath = manifest;
       if (['set', 'accept', 'configure'].includes(args[1])) markWrite(manifest, 'design-link-manifest');
-      else if (args[1] === 'list') markOptionalRead(manifest, 'design-link-manifest');
+      else if (['inspect', 'list'].includes(args[1])) markOptionalRead(manifest, 'design-link-manifest');
       else markRead(manifest, 'design-link-manifest');
       if (args[1] === 'accept') {
         const compare = pathFlag(args, ['--compare'], baseDir);
@@ -608,7 +614,7 @@ export function planFigmaCommand(rawArgs, {
     : resolveFigmaTarget({
       explicitFileKey: fileKey,
       args: argv,
-      registryFileKey,
+      registryFileKey: capability.available ? registryFileKey : null,
     });
   const outputs = Object.freeze(prepared.outputPath
     ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
@@ -623,7 +629,8 @@ export function planFigmaCommand(rawArgs, {
   const plan = {
     id: capability.actionId || 'unknown',
     adapter,
-    allowed: capability.available && adapter === 'mcp',
+    allowed: capability.available
+      && (adapter === 'mcp' || (adapter === 'cli' && CLI_COMMAND_APPLICATIONS.has(capability.actionId))),
     argv,
     target,
     effects,

@@ -278,10 +278,13 @@ export async function runInProcessCommandPlan(plan, opts = {}, operation) {
       audit,
     };
   } catch (error) {
-    // Read-only vertical slices may explicitly retain CLI self-healing during
-    // migration. This is opt-in because a network failure can be ambiguous;
-    // write commands must never risk repeating an accepted mutation.
-    if (context.plan.execution.retry === "safe-read" && isDaemonUnavailable(error)) {
+    // Existing read-only slices retain Commander self-healing during
+    // migration. A completed Command Application disables that compatibility
+    // path explicitly so recovery repeats the same Implementation only.
+    // Write commands must never risk repeating an accepted mutation.
+    if (opts.compatibilityFallback !== false
+      && context.plan.execution.retry === "safe-read"
+      && isDaemonUnavailable(error)) {
       try {
         const result = await spawnCliAdapter(context.args, opts, context.fileKey, remaining(), context.plan.execution.okExitCodes);
         const audit = completeCommandExecution(context, result.code);

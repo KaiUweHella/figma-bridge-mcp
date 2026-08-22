@@ -135,6 +135,50 @@ test('in-process safe reads retry one normalized plugin disconnect internally', 
   assert.equal(waits, 1);
 });
 
+test('migrated link inspect retries the same Implementation without Commander fallback', async () => {
+  const { runInProcessCommandPlan } = await import('../src/engine.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
+  const plan = planFigmaCommand(['link', 'inspect', '1:2'], { fileKey: 'FILE_A' });
+  let attempts = 0;
+  let waits = 0;
+  await assert.rejects(
+    () => runInProcessCommandPlan(
+      plan,
+      {
+        compatibilityFallback: false,
+        waitUntilReady: async () => { waits++; return true; },
+      },
+      async () => {
+        attempts++;
+        throw new DaemonClientError('Plugin unavailable', { kind: 'plugin-unavailable' });
+      },
+    ),
+    /Plugin unavailable/,
+  );
+  assert.equal(attempts, 2);
+  assert.equal(waits, 1);
+});
+
+test('migrated link set has one attempt and no retry policy', async () => {
+  const { runInProcessCommandPlan } = await import('../src/engine.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
+  const plan = planFigmaCommand(['link', 'set', '1:2', 'ui.button'], { fileKey: 'FILE_A' });
+  let attempts = 0;
+  await assert.rejects(
+    () => runInProcessCommandPlan(plan, { compatibilityFallback: false }, async () => {
+      attempts++;
+      throw new DaemonClientError('Write outcome unknown', {
+        kind: 'unavailable', outcome: 'unknown-after-dispatch',
+      });
+    }),
+    /Write outcome unknown/,
+  );
+  assert.equal(plan.execution.retry, 'never');
+  assert.equal(attempts, 1);
+});
+
 test('safe-read retries share one decreasing deadline budget', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');

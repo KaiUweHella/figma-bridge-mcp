@@ -88,8 +88,76 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['link', 'list']).target.kind, 'none');
   assert.equal(planFigmaCommand(['link', 'configure', '--tokens', 'tokens.json']).target.kind, 'none');
   assert.equal(planFigmaCommand(['link', 'inspect', '1:2']).target.kind, 'plugin-file');
+  assert.equal(planFigmaCommand(['link', 'inspect', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['link', 'context', 'ui.button']).target.kind, 'plugin-file');
   assert.equal(planFigmaCommand(['link', 'set', '1:2', 'ui.button']).availability.feature, 'design-links');
+});
+
+test('CLI and MCP decide identical policy for the Design Link tracer only', () => {
+  const cases = [
+    {
+      argv: ['link', 'inspect', '1:2', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'read', workspace: 'read', shared: 'none' },
+      confirmation: 'none',
+      retry: 'safe-read',
+    },
+    {
+      argv: ['link', 'set', '1:2', 'ui.button', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'write', workspace: 'write', shared: 'none' },
+      confirmation: 'configured',
+      retry: 'never',
+    },
+  ];
+  for (const expected of cases) {
+    const options = { workspaceDir: '/work', fileKey: 'FILE_A' };
+    const mcp = planFigmaCommand(expected.argv, { ...options, adapter: 'mcp' });
+    const cli = planFigmaCommand(expected.argv, { ...options, adapter: 'cli' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(cli.effects, expected.effects);
+    assert.equal(cli.confirmation, expected.confirmation);
+    assert.equal(cli.execution.retry, expected.retry);
+    assert.equal(cli.execution.timeout, mcp.execution.timeout);
+    assert.deepEqual(cli.target, mcp.target);
+    const { adapter: mcpAdapter, ...mcpPolicy } = mcp;
+    const { adapter: cliAdapter, ...cliPolicy } = cli;
+    assert.equal(mcpAdapter, 'mcp');
+    assert.equal(cliAdapter, 'cli');
+    assert.deepEqual(cliPolicy, mcpPolicy);
+  }
+
+  for (const argv of [
+    ['link', 'list'],
+    ['link', 'configure', '--tokens', 'tokens.json'],
+    ['link', 'status', 'ui.button'],
+    ['link', 'accept', 'ui.button'],
+    ['link', 'context', 'ui.button'],
+  ]) assert.equal(planFigmaCommand(argv, { adapter: 'cli' }).allowed, false, argv.join(' '));
+});
+
+test('Design Link planning fails closed on malformed argv and keeps inspect registry reads optional', () => {
+  for (const argv of [
+    ['link', 'inspect', '--future', 'secret'],
+    ['link', 'inspect', '--manifest'],
+    ['link', 'inspect', '1:2', '3:4'],
+    ['link', 'set', '1:2'],
+    ['link', 'set', '1:2', 'ui.button', '--kind'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+
+  const intents = [];
+  const plan = planFigmaCommand(['link', 'inspect', '1:2'], {
+    workspaceDir: '/work',
+    workspaceIO: {
+      authorizePath(path, intent) { intents.push({ path, ...intent }); },
+    },
+  });
+  assert.equal(plan.allowed, true);
+  assert.deepEqual(intents, [{
+    path: '/work/figma-bridge.json',
+    access: 'read-optional',
+    role: 'design-link-manifest',
+    kind: 'file',
+  }]);
 });
 
 test('one Command Plan resolves its Figma Target Context after path normalization', () => {

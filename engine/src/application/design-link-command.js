@@ -8,8 +8,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, resolve as resolvePath } from 'node:path';
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
+import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { buildSnapshotEval, normalizeSnapshot } from '../lib/doc-snapshot.js';
 import { diffImages } from '../lib/image-diff.js';
+import {
+  designLinkArgvFromRequest,
+  parseDesignLinkRequest,
+} from './design-link-request.js';
 import {
   acceptedRoundTripBaseline,
   fingerprintCodeSource,
@@ -31,6 +36,13 @@ import {
   upsertDesignEntity,
   writeDesignLinkRegistry,
 } from '../lib/design-link-registry.js';
+
+export { designLinkArgvFromRequest } from './design-link-request.js';
+
+const DESIGN_LINK_APPLICATION_IDS = new Set(['link.inspect', 'link.set']);
+const DESIGN_LINK_COMPATIBILITY_IDS = new Set([
+  'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
+]);
 
 function nodeExpression(nodeId) {
   return nodeId
@@ -273,60 +285,28 @@ function discoverProjectFiles(projectRoot, project = {}) {
   return found;
 }
 
-function argvOption(args, name) {
-  const direct = args.indexOf(name);
-  if (direct !== -1) return args[direct + 1];
-  const combined = args.find((arg) => arg.startsWith(`${name}=`));
-  return combined ? combined.slice(name.length + 1) : undefined;
-}
-
-const LINK_VALUE_OPTIONS = new Set([
-  '--manifest', '--kind', '--source', '--export', '--story', '--design-doc', '--tokens',
-  '--compare', '--max-diff',
-]);
-function argvPositionals(args) {
-  const values = [];
-  for (let index = 2; index < args.length; index++) {
-    const arg = args[index];
-    if (LINK_VALUE_OPTIONS.has(arg)) { index++; continue; }
-    if (arg.startsWith('-')) continue;
-    values.push(arg);
-  }
-  return values;
-}
-
 /** Adapter helper for the bounded figma_run command surface. */
 export function designLinkRequestFromArgv(args) {
-  if (!Array.isArray(args) || args[0] !== 'link') throw new Error('Expected a link command.');
-  const action = args[1];
-  const manifestPath = argvOption(args, '--manifest');
-  const positional = argvPositionals(args);
-  if (!manifestPath) throw new Error('Design Link Registry path is required.');
-  if (action === 'set') {
-    return {
-      action, nodeId: positional[0], entityId: positional[1], manifestPath,
-      kind: argvOption(args, '--kind'), source: argvOption(args, '--source'),
-      exportName: argvOption(args, '--export'), storyId: argvOption(args, '--story'),
-    };
+  return parseDesignLinkRequest(args);
+}
+
+/** Select the exact execution Seam for one authentic Command Plan. */
+export function designLinkPlanRoute(plan) {
+  if (!isFigmaCommandPlan(plan)) {
+    throw new TypeError('Design Link routing requires a Command Plan created by the Capability Catalog.');
   }
-  if (action === 'inspect') return { action, nodeId: positional[0], manifestPath };
-  if (action === 'list') return { action, manifestPath };
-  if (action === 'configure') {
-    return {
-      action, manifestPath,
-      designDoc: argvOption(args, '--design-doc'), tokens: argvOption(args, '--tokens'),
-    };
+  if (!plan.allowed) return 'not-design-link';
+  if (DESIGN_LINK_APPLICATION_IDS.has(plan.id)) return 'command-application';
+  if (DESIGN_LINK_COMPATIBILITY_IDS.has(plan.id)) return 'in-process-compatibility';
+  return 'not-design-link';
+}
+
+/** Execute only the accepted tracer through the Command Application Seam. */
+export async function executeDesignLinkPlan(plan, adapters = {}) {
+  if (designLinkPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Design Link Command Application.`);
   }
-  if (['status', 'accept', 'context'].includes(action)) {
-    return {
-      action, entityId: positional[0], manifestPath,
-      ...(action === 'accept' ? {
-        comparePath: argvOption(args, '--compare'),
-        maxDiff: argvOption(args, '--max-diff'),
-      } : {}),
-    };
-  }
-  throw new Error(`Unknown Design Link action: ${action || '(missing)'}`);
+  return executeDesignLink(designLinkRequestFromArgv(plan.argv), adapters);
 }
 
 /** Infer the entity's recorded file without widening the Figma Target Context. */
@@ -339,6 +319,44 @@ export function designLinkFileKeyFromArgv(args, { io = null } = {}) {
     ...(io ? { io } : {}),
   });
   return resolveDesignEntity(loaded.registry, { id: request.entityId })?.figma?.fileKey || null;
+}
+
+function designEntityRows(entity) {
+  if (!entity) return [{ tone: 'warning', text: 'No Design Entity link found.' }];
+  return [
+    { tone: 'strong', text: `${entity.id}  [${entity.kind}]` },
+    entity.code?.path
+      ? { tone: 'plain', text: `  code: ${entity.code.path}${entity.code.export ? `#${entity.code.export}` : ''}` }
+      : null,
+    entity.storybook?.storyId ? { tone: 'plain', text: `  story: ${entity.storybook.storyId}` } : null,
+    entity.figma?.nodeId
+      ? { tone: 'plain', text: `  figma: ${entity.figma.nodeId}${entity.figma.componentKey ? `  key ${entity.figma.componentKey}` : ''}` }
+      : null,
+    entity.legacy ? { tone: 'muted', text: '  source: legacy figma-map.json adapter' } : null,
+  ].filter(Boolean);
+}
+
+/** Adapter-neutral presentation rows; Commander may add color without owning content. */
+export function designLinkResultRows(result) {
+  if (result.action === 'set') {
+    return [
+      { tone: 'plain', marker: '✓', markerTone: 'success', text: `Linked ${result.entity.id} to ${result.figma.name} (${result.figma.id})` },
+      { tone: 'muted', text: `  Registry: ${result.path}` },
+      ...designEntityRows(result.entity),
+    ];
+  }
+  if (result.action === 'inspect') {
+    return [
+      { tone: 'strong', text: `${result.figma.name} (${result.figma.id})` },
+      result.plugin ? { tone: 'plain', text: `  plugin: ${result.plugin.id} [${result.plugin.kind}]` } : null,
+      ...designEntityRows(result.entity),
+    ].filter(Boolean);
+  }
+  throw new Error(`Design Link result rows are not defined for ${result.action || '(missing)'}.`);
+}
+
+function formatRows(rows) {
+  return rows.map((row) => row.marker ? `${row.marker} ${row.text}` : row.text).join('\n');
 }
 
 export function formatDesignLinkResult(result) {
@@ -364,14 +382,10 @@ export function formatDesignLinkResult(result) {
       + Object.entries(result.project).map(([key, value]) => `  ${key}: ${value}`).join('\n');
   }
   if (result.action === 'inspect') {
-    return [
-      `${result.figma.name} (${result.figma.id})`,
-      result.plugin ? `plugin: ${result.plugin.id} [${result.plugin.kind}]` : null,
-      result.entity ? `${result.entity.id} [${result.entity.kind}]` : 'No Design Entity link found.',
-    ].filter(Boolean).join('\n');
+    return formatRows(designLinkResultRows(result));
   }
   if (result.action === 'set') {
-    return `Linked ${result.entity.id} to ${result.figma.name} (${result.figma.id})\nRegistry: ${result.path}`;
+    return formatRows(designLinkResultRows(result));
   }
   return JSON.stringify(result, null, 2);
 }
