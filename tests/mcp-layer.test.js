@@ -1,7 +1,7 @@
 // MCP-layer tests: allowlist enforcement, engine-entry resolution, key pairing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -602,9 +602,43 @@ test('oversized exact specs retry once with lossless dedup before refusing', asy
 
 test('asset background jobs include the target file in their identity', async () => {
   const { assetExportJobKey } = await import('../src/server.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
   const args = ['export', 'assets', '1:2', '-o', '/tmp/assets'];
   assert.notEqual(assetExportJobKey(args, 'FILE_A'), assetExportJobKey(args, 'FILE_B'));
   assert.equal(assetExportJobKey(args, 'FILE_A'), assetExportJobKey([...args], 'FILE_A'));
+  const plan = planFigmaCommand(args, { fileKey: 'FILE_A' });
+  assert.equal(JSON.parse(plan.execution.jobKey).fileKey, plan.target.fileKey);
+});
+
+test('figma_run creates one registry-targeted plan for Link and Contract execution', async () => {
+  const { planFigmaRunCommand } = await import('../src/server.js');
+  const { createWorkspaceIO } = await import('../engine/src/lib/workspace-io.js');
+  const dir = mkdtempSync(join(tmpdir(), 'figma-run-target-plan-'));
+  const manifest = join(dir, 'figma-bridge.json');
+  const contractFile = join(dir, 'contract.json');
+  writeFileSync(manifest, JSON.stringify({
+    version: 1,
+    entities: [{
+      id: 'screen.settings',
+      kind: 'screen',
+      figma: { fileKey: 'REGISTRYPLACEHOLDERKEY', nodeId: '1:2' },
+    }],
+  }));
+  writeFileSync(contractFile, '{}');
+  const workspaceIO = createWorkspaceIO({ root: dir });
+
+  const link = planFigmaRunCommand(
+    ['link', 'context', 'screen.settings', '--manifest', manifest],
+    { workspaceDir: dir, workspaceIO },
+  );
+  const contract = planFigmaRunCommand(
+    ['contract', 'check', 'screen.settings', '--manifest', manifest, '--file', contractFile],
+    { workspaceDir: dir, workspaceIO },
+  );
+  for (const plan of [link, contract]) {
+    assert.equal(plan.target.fileKey, 'REGISTRYPLACEHOLDERKEY');
+    assert.equal(plan.target.source, 'design-link-registry');
+  }
 });
 
 test('file target resolver normalizes explicit URLs and infers Figma URLs in argv', async () => {

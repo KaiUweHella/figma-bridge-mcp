@@ -18,6 +18,7 @@ import { publicError } from "./error-projection.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
 import { auditTrail } from "./audit-trail.js";
 import {
+  isFigmaCommandPlan,
   listFigmaCapabilities,
   planFigmaCommand,
 } from "./capability-catalog.js";
@@ -119,24 +120,32 @@ export function resolveFileTarget(explicitFileKey, args = []) {
   return resolveFigmaTarget({ explicitFileKey, args }).fileKey;
 }
 
-function startCommandExecution(args, opts = {}) {
+function createCommandPlan(args, opts = {}) {
   validateArgs(args);
-  const command = args[0];
-  const targetContext = resolveFigmaTarget({ explicitFileKey: opts.fileKey, args });
-  const plan = planFigmaCommand(args, {
-    fileKey: targetContext.fileKey,
+  return planFigmaCommand(args, {
+    fileKey: opts.fileKey,
+    registryFileKey: opts.registryFileKey,
     workspaceIO: WORKSPACE_IO,
   });
+}
+
+function startCommandExecution(plan, opts = {}) {
+  if (!isFigmaCommandPlan(plan)) {
+    throw new TypeError("Command Application requires a Command Plan created by the Capability Catalog");
+  }
+  validateArgs(plan.argv);
+  const command = plan.argv[0];
   if (!plan.allowed) {
-    const rejected = ALLOWED_COMMANDS.has(command) && args[1]
-      ? `${command} ${args[1]}`
+    const rejected = ALLOWED_COMMANDS.has(command) && plan.argv[1]
+      ? `${command} ${plan.argv[1]}`
       : command;
     throw new Error(
       `Command not allowed: ${rejected}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
     );
   }
-  const fileKey = plan.target.fileKey;
-  const nodes = extractNodeIds(args);
+  const targetContext = plan.target;
+  const fileKey = targetFileKey(targetContext);
+  const nodes = extractNodeIds(plan.argv);
   const audit = auditTrail.begin({
     ...plan.audit,
     arguments: plan.argv,
@@ -148,7 +157,7 @@ function startCommandExecution(args, opts = {}) {
       ...(fileKey ? { identity: fileKey } : {}),
     },
   });
-  return { args: plan.argv, opts, command, plan, targetContext, fileKey, audit };
+  return Object.freeze({ args: plan.argv, opts, command, plan, targetContext, fileKey, audit });
 }
 
 function executionTimeout(context, opts) {
@@ -188,7 +197,12 @@ function attachAuditStatus(error, audit) {
  * @returns {Promise<{stdout: string, stderr: string, code: number, audit: object}>}
  */
 export async function runCli(args, opts = {}) {
-  const context = startCommandExecution(args, opts);
+  return runCliPlan(createCommandPlan(args, opts), opts);
+}
+
+/** Execute one already-resolved Command Plan through the child-process Adapter. */
+export async function runCliPlan(plan, opts = {}) {
+  const context = startCommandExecution(plan, opts);
   try {
     const result = await spawnCliAdapter(context.args, opts, context.fileKey, executionTimeout(context, opts), context.plan.execution.okExitCodes);
     const audit = completeCommandExecution(context, result.code);
@@ -231,12 +245,18 @@ async function spawnCliAdapter(args, opts, fileKey, timeoutMs, plannedExitCodes 
  * preserving the same allowlist, targeting and audit contract as runCli.
  */
 export async function runInProcessCommand(args, opts = {}, operation) {
+  return runInProcessCommandPlan(createCommandPlan(args, opts), opts, operation);
+}
+
+/** Execute one already-resolved Command Plan through an in-process Command Application. */
+export async function runInProcessCommandPlan(plan, opts = {}, operation) {
   if (typeof operation !== "function") throw new TypeError("runInProcessCommand requires an operation");
-  const context = startCommandExecution(args, opts);
+  const context = startCommandExecution(plan, opts);
   const timeoutMs = executionTimeout(context, opts);
   const deadline = Date.now() + timeoutMs;
   const remaining = () => Math.max(1, deadline - Date.now());
   const invoke = () => operation({
+    plan: context.plan,
     target: context.targetContext,
     fileKey: context.fileKey,
     timeoutMs: remaining(),

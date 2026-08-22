@@ -73,6 +73,26 @@ const EVIDENCE = Object.freeze([
         "tests/figma-target.test.js",
         "Figma Target Context resolves precedence once and stays immutable",
       ],
+      [
+        "tests/figma-target.test.js",
+        "registry targeting is lazy and stays below explicit and URL-derived targets",
+      ],
+      [
+        "tests/capability-catalog.test.js",
+        "one Command Plan resolves its Figma Target Context after path normalization",
+      ],
+      [
+        "tests/command-application.test.js",
+        "a pre-resolved Command Plan preserves its registry target through the Command Application",
+      ],
+      [
+        "tests/mcp-layer.test.js",
+        "figma_run creates one registry-targeted plan for Link and Contract execution",
+      ],
+      [
+        "tests/mcp-layer.test.js",
+        "asset background jobs include the target file in their identity",
+      ],
     ],
   ],
   [

@@ -92,6 +92,36 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['link', 'set', '1:2', 'ui.button']).availability.feature, 'design-links');
 });
 
+test('one Command Plan resolves its Figma Target Context after path normalization', () => {
+  let targetResolutions = 0;
+  let authorizedPaths = 0;
+  const plan = planFigmaCommand(['link', 'context', 'screen.settings'], {
+    workspaceDir: '/work/project',
+    workspaceIO: {
+      authorizePath(path, intent) {
+        authorizedPaths++;
+        assert.equal(path, '/work/project/figma-bridge.json');
+        assert.equal(intent.role, 'design-link-manifest');
+      },
+    },
+    registryFileKey(argv) {
+      targetResolutions++;
+      assert.deepEqual(argv.slice(-2), ['--manifest', '/work/project/figma-bridge.json']);
+      assert.equal(Object.isFrozen(argv), true);
+      return 'REGISTRYPLACEHOLDERKEY';
+    },
+  });
+
+  assert.equal(targetResolutions, 1);
+  assert.equal(authorizedPaths, 1);
+  assert.deepEqual(plan.target, {
+    kind: 'plugin-file',
+    fileKey: 'REGISTRYPLACEHOLDERKEY',
+    source: 'design-link-registry',
+  });
+  assert.equal(Object.isFrozen(plan.target), true);
+});
+
 test('catalog prepares every known project-relative path policy', () => {
   const base = resolve('work', 'project');
   const inWorkspace = (...parts) => join(base, ...parts);

@@ -13,8 +13,14 @@ function fileKeyFrom(value) {
   return FIGMA_FILE_URL_RE.exec(raw)?.[1] || raw;
 }
 
-/** @param {{explicitFileKey?: unknown, args?: unknown[]}} [options] */
-export function resolveFigmaTarget({ explicitFileKey, args = [] } = {}) {
+/**
+ * Resolve target precedence once. `registryFileKey` is lazy because reading the
+ * Design Link Registry is unnecessary when the caller or a Figma URL already
+ * supplied a stronger target.
+ *
+ * @param {{explicitFileKey?: unknown, args?: readonly unknown[], registryFileKey?: unknown|((args:readonly unknown[])=>unknown)}} [options]
+ */
+export function resolveFigmaTarget({ explicitFileKey, args = [], registryFileKey } = {}) {
   const explicit = fileKeyFrom(explicitFileKey);
   if (explicit) return Object.freeze({ kind: 'plugin-file', fileKey: explicit, source: 'explicit' });
   for (const arg of args || []) {
@@ -22,6 +28,8 @@ export function resolveFigmaTarget({ explicitFileKey, args = [] } = {}) {
     const match = FIGMA_FILE_URL_RE.exec(arg);
     if (match) return Object.freeze({ kind: 'plugin-file', fileKey: match[1], source: 'figma-url' });
   }
+  const registry = fileKeyFrom(typeof registryFileKey === 'function' ? registryFileKey(args) : registryFileKey);
+  if (registry) return Object.freeze({ kind: 'plugin-file', fileKey: registry, source: 'design-link-registry' });
   return Object.freeze({ kind: 'plugin-file', fileKey: null, source: 'implicit-single-window' });
 }
 

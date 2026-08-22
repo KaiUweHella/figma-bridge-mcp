@@ -330,11 +330,14 @@ export function designLinkRequestFromArgv(args) {
 }
 
 /** Infer the entity's recorded file without widening the Figma Target Context. */
-export function designLinkFileKeyFromArgv(args) {
+export function designLinkFileKeyFromArgv(args, { io = null } = {}) {
   if (!Array.isArray(args) || !args[1] || args.includes('--help') || args.includes('-h')) return null;
   const request = designLinkRequestFromArgv(args);
   if (!request.entityId || !['set', 'status', 'accept', 'context'].includes(request.action)) return null;
-  const loaded = readDesignLinkRegistry(dirname(request.manifestPath), { manifestPath: request.manifestPath });
+  const loaded = readDesignLinkRegistry(dirname(request.manifestPath), {
+    manifestPath: request.manifestPath,
+    ...(io ? { io } : {}),
+  });
   return resolveDesignEntity(loaded.registry, { id: request.entityId })?.figma?.fileKey || null;
 }
 

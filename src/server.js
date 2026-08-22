@@ -14,7 +14,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runInProcessCommand, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection, resolveFileTarget } from "./engine.js";
+import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, captureFigmaDesign, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
   listFigmaCapabilities,
@@ -1080,13 +1080,10 @@ const ASSET_RESULT_CACHE_MS = 60 * 1000;
 const assetJobs = new Map(); // canonical-args key → job
 
 export function assetExportJobKey(args, fileKey) {
-  const target = resolveFileTarget(fileKey, args);
-  return planFigmaCommand(args, { fileKey: target }).execution.jobKey;
+  return planFigmaCommand(args, { fileKey }).execution.jobKey;
 }
 
-async function runAssetExport(rawArgs, label, fileKey) {
-  const target = resolveFileTarget(fileKey, rawArgs);
-  const plan = planFigmaCommand(rawArgs, { fileKey: target });
+async function runAssetExport(plan, label) {
   const args = [...plan.argv];
   const outDir = plan.outputs[0]?.path || null;
   const key = plan.execution.jobKey;
@@ -1094,7 +1091,7 @@ async function runAssetExport(rawArgs, label, fileKey) {
   let job = assetJobs.get(key);
   if (!job) {
     job = { startedAt: Date.now(), done: false, result: null, error: null };
-    job.promise = runCli(args, { label, fileKey })
+    job.promise = runCliPlan(plan, { label })
       .then((res) => { job.done = true; job.result = res; })
       .catch((err) => { job.done = true; job.error = err; });
     assetJobs.set(key, job);
@@ -1126,6 +1123,27 @@ async function runAssetExport(rawArgs, label, fileKey) {
     if (typeof evict.unref === "function") evict.unref();
   }
   return resultFromCli(job.result);
+}
+
+/**
+ * Resolve one figma_run Command Plan after path normalization. Registry lookup
+ * stays lazy behind the Figma Target Context precedence rules.
+ */
+export function planFigmaRunCommand(args, {
+  fileKey = null,
+  workspaceDir = process.cwd(),
+  workspaceIO = null,
+} = {}) {
+  return planFigmaCommand(args, {
+    fileKey,
+    workspaceDir,
+    workspaceIO,
+    registryFileKey: (argv) => argv[0] === "link"
+      ? designLinkFileKeyFromArgv([...argv], { io: workspaceIO })
+      : argv[0] === "contract"
+        ? designContractFileKeyFromArgv([...argv], { io: workspaceIO })
+        : null,
+  });
 }
 
 /**
@@ -1394,27 +1412,23 @@ export async function handleTool(name, rawArgs) {
 
     case "figma_run": {
       const args = input.args;
-      if (!Array.isArray(args) || args.length === 0) {
+      if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== "string")) {
         return errorResult("args must be a non-empty array of strings.");
       }
-      const prepared = planFigmaCommand(args, { workspaceIO: WORKSPACE_IO });
-      const inferredLinkFile = prepared.argv[0] === "link"
-        ? designLinkFileKeyFromArgv([...prepared.argv])
-        : prepared.argv[0] === "contract"
-          ? designContractFileKeyFromArgv([...prepared.argv])
-          : null;
-      const target = resolveFileTarget(input.fileKey || inferredLinkFile, args);
-      const plan = planFigmaCommand(args, { fileKey: target, workspaceIO: WORKSPACE_IO });
-      if (WRITE_CONFIRM && plan.effects.figma === "write" && input.confirm !== true) {
+      const plan = planFigmaRunCommand(args, {
+        fileKey: input.fileKey,
+        workspaceIO: WORKSPACE_IO,
+      });
+      if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
         return previewResult(args);
       }
       if (plan.execution.mode === "tracked-job") {
-        return await runAssetExport(args, input.label, input.fileKey);
+        return await runAssetExport(plan, input.label);
       }
       // Command-specific path rules are owned by the Capability Catalog.
       const normalized = [...plan.argv];
       if (normalized[0] === "link") {
-        const res = await runInProcessCommand(normalized, { label: input.label, fileKey: input.fileKey },
+        const res = await runInProcessCommandPlan(plan, { label: input.label },
           async ({ fileKey, timeoutMs }) => {
             const result = await executeDesignLink(designLinkRequestFromArgv(normalized), {
               evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
@@ -1424,13 +1438,13 @@ export async function handleTool(name, rawArgs) {
           });
         return resultFromCli(res);
       }
-      const res = await runCli(normalized, { label: input.label, fileKey: input.fileKey });
+      const res = await runCliPlan(plan, { label: input.label });
       // Library-metadata enrichment (opt-in REST layer): after a successful
       // `map storybook` run, upgrade the written figma-map.json with the
       // published components' description/documentation links — a stronger
       // mapping signal than name matching. Silent no-op without a token.
       if (args[0] === "map" && readRestToken()) {
-        const note = await enrichFigmaMap(normalized, input.fileKey);
+        const note = await enrichFigmaMap(normalized, plan.target.fileKey);
         if (note) res.stdout = (res.stdout || "") + "\n" + note;
       }
       return resultFromCli(res);

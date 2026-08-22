@@ -114,13 +114,16 @@ export function formatDesignContractResult(result) {
   return `${formatDesignContractCheck(result.contract, result.check)}\n\ncontract: ${result.path}`;
 }
 
-export function designContractFileKeyFromArgv(args) {
+export function designContractFileKeyFromArgv(args, { io = null } = {}) {
   if (!Array.isArray(args) || args[0] !== 'contract') return null;
   const entityId = args[2];
   const index = args.indexOf('--manifest');
   const combined = args.find((arg) => arg.startsWith('--manifest='));
   const manifestPath = index >= 0 ? args[index + 1] : combined?.slice('--manifest='.length);
   if (!entityId || !manifestPath) return null;
-  const loaded = readDesignLinkRegistry(dirname(manifestPath), { manifestPath });
+  const loaded = readDesignLinkRegistry(dirname(manifestPath), {
+    manifestPath,
+    ...(io ? { io } : {}),
+  });
   return resolveDesignEntity(loaded.registry, { id: entityId })?.figma?.fileKey || null;
 }

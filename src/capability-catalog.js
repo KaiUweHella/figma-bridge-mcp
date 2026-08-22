@@ -6,6 +6,7 @@
 // without making every Adapter understand the catalog schema.
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { resolveFigmaTarget } from './figma-target.js';
 
 const readGroup = (summary, readSubcommands, extra = {}) => ({
   summary, mutation: 'group', readSubcommands: new Set(readSubcommands), ...extra,
@@ -69,6 +70,7 @@ const COMMANDS = Object.freeze({
 });
 
 const HELP_TOKENS = new Set(['--help', '-h']);
+const COMMAND_PLANS = new WeakSet();
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
   name: 'unknown',
@@ -573,10 +575,12 @@ export function planFigmaCommand(rawArgs, {
   adapter = 'mcp',
   workspaceDir = process.cwd(),
   fileKey = null,
+  registryFileKey = null,
   workspaceIO = null,
 } = {}) {
   const input = Array.isArray(rawArgs) ? rawArgs : [];
   const prepared = prepareCommandArgs(input, workspaceDir);
+  const argv = Object.freeze(prepared.args);
   const capability = prepared.capability;
   if (workspaceIO) {
     for (const intent of prepared.paths) {
@@ -592,11 +596,13 @@ export function planFigmaCommand(rawArgs, {
     workspace: hasHelp(prepared.args) ? 'none' : prepared.workspace,
     shared: sharedEffect(prepared.args),
   });
-  const target = Object.freeze(
-    capability.target === 'none'
-      ? { kind: 'none', fileKey: null }
-      : { kind: 'plugin-file', fileKey: fileKey || null },
-  );
+  const target = capability.target === 'none'
+    ? Object.freeze({ kind: 'none', fileKey: null, source: 'not-applicable' })
+    : resolveFigmaTarget({
+      explicitFileKey: fileKey,
+      args: argv,
+      registryFileKey,
+    });
   const outputs = Object.freeze(prepared.outputPath
     ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
     : []);
@@ -605,13 +611,13 @@ export function planFigmaCommand(rawArgs, {
     : Object.values(effects).includes('read')
       ? 'read'
       : 'none';
-  const jobKey = backgroundJobIdentity(prepared.args, target.fileKey);
+  const jobKey = backgroundJobIdentity(argv, target.fileKey);
   const retry = capability.mutatesDesign ? 'never' : capability.retry;
   const plan = {
     id: capability.name || 'unknown',
     adapter,
     allowed: capability.available && adapter === 'mcp',
-    argv: Object.freeze(prepared.args),
+    argv,
     target,
     effects,
     confirmation: capability.mutatesDesign ? 'configured' : 'none',
@@ -637,7 +643,14 @@ export function planFigmaCommand(rawArgs, {
     }),
     summary: capability.summary,
   };
-  return Object.freeze(plan);
+  const frozen = Object.freeze(plan);
+  COMMAND_PLANS.add(frozen);
+  return frozen;
+}
+
+/** Only plans created by this Module may cross the execution seam. */
+export function isFigmaCommandPlan(value) {
+  return value !== null && typeof value === 'object' && COMMAND_PLANS.has(value);
 }
 
 /** Secondary Interface for help, exposure and generated contract tests. */

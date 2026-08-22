@@ -50,6 +50,30 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
   });
 });
 
+test('a pre-resolved Command Plan preserves its registry target through the Command Application', async () => {
+  const { runInProcessCommandPlan } = await import('../src/engine.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const plan = planFigmaCommand(['link', 'context', 'screen.settings'], {
+    registryFileKey: () => 'REGISTRYPLACEHOLDERKEY',
+  });
+  let applicationContext;
+  const result = await runInProcessCommandPlan(plan, { label: 'registry target' }, async (context) => {
+    applicationContext = context;
+    return { stdout: 'registry result', stderr: '' };
+  });
+
+  assert.equal(result.stdout, 'registry result');
+  assert.equal(applicationContext.plan, plan);
+  assert.equal(applicationContext.target, plan.target);
+  assert.equal(applicationContext.fileKey, 'REGISTRYPLACEHOLDERKEY');
+  assert.equal(applicationContext.target.source, 'design-link-registry');
+
+  await assert.rejects(
+    () => runInProcessCommandPlan({ ...plan }, {}, async () => ({ stdout: '', stderr: '' })),
+    /requires a Command Plan created by the Capability Catalog/,
+  );
+});
+
 test('in-process command refuses commands outside the existing allowlist before execution', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
   let called = false;

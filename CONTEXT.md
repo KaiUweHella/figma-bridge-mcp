@@ -17,6 +17,10 @@ _Avoid_: handler, command service
 The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma/workspace/shared-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity.
 _Avoid_: allowlist entry, command metadata
 
+**Command Plan**:
+The immutable decision produced for one **Figma Command** after path normalization and **Figma Target Context** resolution. It carries the exact argv, effects, confirmation, retry, timeout, output, audit and tracked-job decisions consumed unchanged by the Command Application and its process or in-process Adapter.
+_Avoid_: prepared arguments, execution options, mutable command context
+
 **Design Capture**:
 The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
 _Avoid_: walker output, cache entry
