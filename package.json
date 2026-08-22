@@ -60,6 +60,7 @@
     "check:release": "node scripts/sync-release-version.js --check",
     "check:workflow-evals": "node scripts/validate-workflow-evals.js",
     "check:architecture-latency": "node scripts/check-architecture-latency.js",
+    "accept:runtime-soak": "node scripts/runtime-soak.js",
     "check:public-safety": "node scripts/check-public-safety.js",
     "check:public-safety:staged": "node scripts/check-public-safety.js --staged",
     "check:public-safety:history": "node scripts/check-public-safety.js --history",

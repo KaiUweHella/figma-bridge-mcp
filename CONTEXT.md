@@ -45,6 +45,10 @@ _Avoid_: fetch helper, daemon wrapper
 The bounded, versioned failure facts produced where a **Figma Command** fails across the Bridge Daemon seam. Its kind, phase and execution outcome distinguish work that was not dispatched from work whose result is unknown after dispatch; user-facing prose never authorizes retry or recovery.
 _Avoid_: error string, HTTP failure, retry hint
 
+**Runtime Soak Report**:
+The closed maintainer evidence from a sustained two-file Bridge session. It records bounded latency, recovery outcomes, cross-target mismatches, uncertain-write residue and cleanup state using target aliases only; Figma file keys, document names, node names, argv and error prose never enter the report.
+_Avoid_: debug log, connection dump, live file transcript
+
 **MCP Server Identity**:
 The stable `figma-bridge-mcp` attribution attached to every tool result, with the `figma-bridge` namespace and a server-local failure scope. It lets agents distinguish this Bridge transport from other installed Figma MCPs; one server failure never proves Figma or another server unavailable and never authorizes switching write semantics.
 _Avoid_: tool prefix, Figma availability

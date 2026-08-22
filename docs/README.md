@@ -11,6 +11,8 @@ contributors, and security reviewers:
 - [`slides-roadmap.md`](slides-roadmap.md) separates supported Slides work from
   current public-API limitations.
 - [`releasing.md`](releasing.md) documents the release and provenance process.
+- [`runtime-soak.md`](runtime-soak.md) describes the explicit disposable
+  reconnect, crash, and multi-window maintainer acceptance.
 
 Maintainer backlogs, experiments, completed plans, and detailed live-acceptance
 records are intentionally kept in the ignored `docs-local/` workspace. They
