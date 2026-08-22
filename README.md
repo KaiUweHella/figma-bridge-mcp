@@ -986,6 +986,13 @@ That compatibility does not include Tokens Studio theme semantics or arbitrary
 preprocessors; metadata such as `$themes` is ignored while token sets and
 aliases are read.
 
+Tailwind JS/CJS/MJS/TS configuration is parsed as static data. The importer
+understands ordinary object exports, `theme`, `theme.extend` and typed
+`satisfies Config` forms without resolving imports or executing plugins.
+Dynamic expressions inside token-bearing theme fields stop with instructions
+to import Tailwind v4 `@theme` CSS or resolved W3C JSON instead. Unrelated
+fields such as `content` and `plugins` remain compatible but are discarded.
+
 New FLOAT variables in explicit `spacing/*` or `space/*` namespaces are scoped
 to Figma's `GAP` consumers only. `radius/*` and `radii/*` variables are scoped
 to `CORNER_RADIUS` only. The inference is deliberately namespace-exact:

@@ -23,6 +23,8 @@
     "engine/src/code-import/index.js",
     "engine/src/code-import/storybook.js",
     "engine/src/code-import/tailwind.js",
+    "engine/src/code-import/tailwind-static-parser.js",
+    "engine/src/code-import/tailwind-static-worker.js",
     "engine/src/code-import/w3c-tokens.js",
     "engine/src/commands/a11y.js",
     "engine/src/commands/analyze.js",

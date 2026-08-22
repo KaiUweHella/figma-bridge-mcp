@@ -1,14 +1,99 @@
 /**
  * Tailwind CSS config loader.
- * Loads a tailwind.config.{js,cjs,mjs,ts} via dynamic import (in-process, no
- * child process — configs are trusted local files the user wrote themselves).
- * Merges theme.extend into theme per top-level key, then extracts color,
- * borderRadius, spacing, fontFamily and fontSize tokens.
+ * Reads tailwind.config.{js,cjs,mjs,ts} as data through a bounded static parser.
+ * No selected configuration, import, plugin or expression is executed. The
+ * resulting object merges theme.extend into theme per top-level key, then
+ * extracts color, borderRadius, spacing, fontFamily and fontSize tokens.
  */
 
-import { pathToFileURL } from 'node:url';
 import { resolve, basename, dirname } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { workspaceIO } from '../lib/workspace-io.js';
+
+export const TAILWIND_STATIC_POLICY = Object.freeze({
+  maxBytes: 1024 * 1024,
+  maxDepth: 64,
+  maxEntries: 20_000,
+  timeoutMs: 1_000,
+  maxOldGenerationSizeMb: 32,
+  maxYoungGenerationSizeMb: 8,
+  codeRangeSizeMb: 16,
+  stackSizeMb: 2,
+});
+
+const STATIC_WORKER_URL = new URL('./tailwind-static-worker.js', import.meta.url);
+
+function staticConfigError(reason) {
+  return new Error(
+    `Cannot parse Tailwind configuration as static data: ${reason}. ` +
+      'Dynamic token-bearing theme expressions are not executed. Import a Tailwind v4 CSS file with @theme ' +
+      '(figma_run ["import", "styles.css"]), or export the resolved tokens as W3C JSON.'
+  );
+}
+
+/** Parse source text in a resource-bounded worker without evaluating it. */
+export async function parseStaticTailwindSource(source) {
+  if (typeof source !== 'string') throw staticConfigError('source must be text');
+  const bytes = Buffer.byteLength(source, 'utf8');
+  if (bytes > TAILWIND_STATIC_POLICY.maxBytes) {
+    throw staticConfigError(`source exceeds ${TAILWIND_STATIC_POLICY.maxBytes} bytes`);
+  }
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    const worker = new Worker(STATIC_WORKER_URL, {
+      argv: [],
+      env: {},
+      execArgv: [],
+      resourceLimits: {
+        maxOldGenerationSizeMb: TAILWIND_STATIC_POLICY.maxOldGenerationSizeMb,
+        maxYoungGenerationSizeMb: TAILWIND_STATIC_POLICY.maxYoungGenerationSizeMb,
+        codeRangeSizeMb: TAILWIND_STATIC_POLICY.codeRangeSizeMb,
+        stackSizeMb: TAILWIND_STATIC_POLICY.stackSizeMb,
+      },
+      workerData: {
+        source,
+        limits: {
+          maxDepth: TAILWIND_STATIC_POLICY.maxDepth,
+          maxEntries: TAILWIND_STATIC_POLICY.maxEntries,
+        },
+      },
+    });
+
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      worker.removeAllListeners();
+      void worker.terminate();
+      callback();
+    };
+    const timer = setTimeout(() => {
+      finish(() => rejectPromise(staticConfigError(`parsing exceeds ${TAILWIND_STATIC_POLICY.timeoutMs} milliseconds`)));
+    }, TAILWIND_STATIC_POLICY.timeoutMs);
+
+    worker.once('message', (message) => {
+      if (message?.ok === true) {
+        finish(() => resolvePromise(message.config));
+      } else {
+        const reason = typeof message?.error?.message === 'string' ? message.error.message : 'the static parser rejected the module';
+        finish(() => rejectPromise(staticConfigError(reason)));
+      }
+    });
+    worker.once('error', () => {
+      finish(() => rejectPromise(staticConfigError('the isolated parser stopped unexpectedly')));
+    });
+    worker.once('exit', (code) => {
+      if (!settled) {
+        finish(() =>
+          rejectPromise(
+            staticConfigError(code === 0 ? 'the isolated parser returned no result' : 'the isolated parser exceeded its resource policy')
+          )
+        );
+      }
+    });
+  });
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -19,8 +104,7 @@ const toPx = (v) => {
   return m[2] === 'rem' ? Math.round(parseFloat(m[1]) * 16) : parseFloat(m[1]);
 };
 
-const isColorValue = (v) =>
-  typeof v === 'string' && /^(#[0-9a-fA-F]{3,8}|rgb|hsl)/.test(v.trim());
+const isColorValue = (v) => typeof v === 'string' && /^(#[0-9a-fA-F]{3,8}|rgb|hsl)/.test(v.trim());
 
 const SKIP_COLORS = new Set(['inherit', 'currentColor', 'currentcolor', 'transparent']);
 
@@ -50,27 +134,21 @@ function flattenColors(obj, prefix = '') {
 export async function parseTailwindConfig(configPath) {
   const requested = resolve(configPath);
   let abs;
+  let source;
   try {
     abs = workspaceIO().authorizePath(requested, {
-      access: 'read', role: 'tailwind-config', kind: 'file',
+      access: 'read',
+      role: 'tailwind-config',
+      kind: 'file',
     }).canonical;
+    source = workspaceIO().readText(abs, {
+      role: 'tailwind-config',
+      maxBytes: TAILWIND_STATIC_POLICY.maxBytes,
+    });
   } catch (err) {
-    throw new Error(`Cannot load ${requested}: ${err.message}`);
+    throw new Error(`Cannot load Tailwind configuration: ${err.message}`);
   }
-  const url = pathToFileURL(abs).href;
-
-  let mod;
-  try {
-    mod = await import(url);
-  } catch (err) {
-    throw new Error(
-      `Cannot load ${abs}: ${err.message}. ` +
-      `If this is a Tailwind v4 project, import the CSS file with @theme instead ` +
-      `(figma_run ["import", "styles.css"]), or export your tokens as JSON.`
-    );
-  }
-
-  const config = mod.default ?? mod;
+  const config = await parseStaticTailwindSource(source);
   const theme = config?.theme ?? {};
   const ext = theme.extend ?? {};
 
@@ -87,7 +165,14 @@ export async function parseTailwindConfig(configPath) {
     }
   }
 
-  const tokens = { color: {}, typography: {}, radius: {}, spacing: {}, shadow: {}, fonts: [] };
+  const tokens = {
+    color: {},
+    typography: {},
+    radius: {},
+    spacing: {},
+    shadow: {},
+    fonts: [],
+  };
   const fontsSet = new Set();
   let functionCount = 0;
   let totalValues = 0;
@@ -106,9 +191,15 @@ export async function parseTailwindConfig(configPath) {
   const rawRadius = merged.borderRadius ?? {};
   if (typeof rawRadius !== 'function') {
     for (const [k, v] of Object.entries(rawRadius)) {
-      if (typeof v === 'function') { functionCount++; continue; }
+      if (typeof v === 'function') {
+        functionCount++;
+        continue;
+      }
       const px = toPx(v);
-      if (px != null) { tokens.radius[`radius-${k}`] = px; totalValues++; }
+      if (px != null) {
+        tokens.radius[`radius-${k}`] = px;
+        totalValues++;
+      }
     }
   } else {
     functionCount++;
@@ -118,9 +209,15 @@ export async function parseTailwindConfig(configPath) {
   const rawSpacing = merged.spacing ?? {};
   if (typeof rawSpacing !== 'function') {
     for (const [k, v] of Object.entries(rawSpacing)) {
-      if (typeof v === 'function') { functionCount++; continue; }
+      if (typeof v === 'function') {
+        functionCount++;
+        continue;
+      }
       const px = toPx(v);
-      if (px != null) { tokens.spacing[`spacing-${k}`] = px; totalValues++; }
+      if (px != null) {
+        tokens.spacing[`spacing-${k}`] = px;
+        totalValues++;
+      }
     }
   } else {
     functionCount++;
@@ -130,13 +227,19 @@ export async function parseTailwindConfig(configPath) {
   const rawFontFamily = merged.fontFamily ?? {};
   if (typeof rawFontFamily !== 'function') {
     for (const [, v] of Object.entries(rawFontFamily)) {
-      if (typeof v === 'function') { functionCount++; continue; }
+      if (typeof v === 'function') {
+        functionCount++;
+        continue;
+      }
       // value is array like ['Inter', 'sans-serif'] or just a string
       const first = Array.isArray(v) ? v[0] : v;
       if (typeof first === 'string' && first && !/^(sans-serif|serif|monospace|cursive|fantasy|system-ui)$/.test(first)) {
         // Strip quotes in case the font name is "'Inter'" or '"Inter"'
         const clean = first.replace(/^['"]|['"]$/g, '');
-        if (clean) { fontsSet.add(clean); totalValues++; }
+        if (clean) {
+          fontsSet.add(clean);
+          totalValues++;
+        }
       }
     }
   } else {
@@ -148,13 +251,18 @@ export async function parseTailwindConfig(configPath) {
   const sansFamilies = merged.fontFamily?.sans ?? merged.fontFamily?.['sans'] ?? [];
   const firstSans = Array.isArray(sansFamilies)
     ? (sansFamilies[0] ?? 'Inter').replace(/^['"]|['"]$/g, '')
-    : (typeof sansFamilies === 'string' ? sansFamilies.replace(/^['"]|['"]$/g, '') : 'Inter');
+    : typeof sansFamilies === 'string'
+      ? sansFamilies.replace(/^['"]|['"]$/g, '')
+      : 'Inter';
   const defaultFontFamily = firstSans || 'Inter';
 
   const rawFontSize = merged.fontSize ?? {};
   if (typeof rawFontSize !== 'function') {
     for (const [k, v] of Object.entries(rawFontSize)) {
-      if (typeof v === 'function') { functionCount++; continue; }
+      if (typeof v === 'function') {
+        functionCount++;
+        continue;
+      }
       let sizeStr, lineHeightStr;
       if (Array.isArray(v)) {
         // tuple form: [size, optionsOrLineHeight]
@@ -170,7 +278,11 @@ export async function parseTailwindConfig(configPath) {
       }
       const fontSize = toPx(sizeStr);
       if (fontSize == null) continue;
-      const entry = { fontFamily: defaultFontFamily, fontSize, fontWeight: 400 };
+      const entry = {
+        fontFamily: defaultFontFamily,
+        fontSize,
+        fontWeight: 400,
+      };
       if (lineHeightStr) {
         const lh = toPx(lineHeightStr);
         if (lh != null) entry.lineHeight = lh;
@@ -185,9 +297,9 @@ export async function parseTailwindConfig(configPath) {
   // If everything was functions (typical in some complex configs) warn helpfully
   if (totalValues === 0 && functionCount > 0) {
     throw new Error(
-      `Cannot load ${abs}: all theme values are dynamic functions. ` +
-      `If this is a Tailwind v4 project, import the CSS file with @theme instead ` +
-      `(figma_run ["import", "styles.css"]), or export your tokens as JSON.`
+      'Cannot parse Tailwind configuration as static data: all theme values are dynamic functions. ' +
+        `If this is a Tailwind v4 project, import the CSS file with @theme instead ` +
+        `(figma_run ["import", "styles.css"]), or export your tokens as JSON.`
     );
   }
 

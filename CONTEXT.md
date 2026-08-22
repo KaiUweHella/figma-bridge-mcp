@@ -65,6 +65,10 @@ _Avoid_: sync direction, auto-merge
 A small progressive projection for one **Design Entity**: its Registry links, Round-trip Plan, relevant project design files and exact next reads. It is derived on demand rather than maintained as another source of truth.
 _Avoid_: agent prompt, context dump
 
+**Static Tailwind Configuration Adapter**:
+The data-only projection of a `tailwind.config.*` file into the bounded theme facts used by token import. It recognizes static JS/CJS/MJS/TS object forms without resolving imports or executing plugins, functions or expressions. Irrelevant configuration fields are discarded; executable token-bearing theme values stop with a CSS/W3C migration path.
+_Avoid_: config loader, JavaScript sandbox
+
 **Semantic Render Plan**:
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
 _Avoid_: JSX tree, generated code, render payload

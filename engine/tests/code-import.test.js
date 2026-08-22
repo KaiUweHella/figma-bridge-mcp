@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseW3cTokens } from '../src/code-import/w3c-tokens.js';
@@ -28,7 +29,12 @@ test('w3c: dimensions become numbers (px direct, rem ×16)', () => {
 
 test('w3c: typography tokens keep the full shape', () => {
   const { tokens } = parseW3cTokens(fixture('tokens-style-dictionary.json'));
-  assert.deepEqual(tokens.typography['font-body'], { fontFamily: 'Inter', fontSize: 14, fontWeight: 400, lineHeight: 20 });
+  assert.deepEqual(tokens.typography['font-body'], {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: 400,
+    lineHeight: 20,
+  });
   assert.ok(tokens.fonts.includes('Inter'));
 });
 
@@ -38,7 +44,10 @@ test('w3c: Tokens Studio DTCG export ignores theme metadata and resolves token-s
   assert.equal(tokens.color['global-color-action'], '#0d7c74');
   assert.equal(tokens.spacing['spacing-md'], 16);
   assert.deepEqual(tokens.typography['global-typography-body'], {
-    fontFamily: 'Inter', fontSize: 16, fontWeight: 400, lineHeight: 24,
+    fontFamily: 'Inter',
+    fontSize: 16,
+    fontWeight: 400,
+    lineHeight: 24,
   });
   assert.equal(tokens.color.themes, undefined, 'Tokens Studio $themes metadata is not a token');
 });
@@ -78,20 +87,20 @@ test('css: .dark block values are skipped in v1 (first definition wins)', () => 
 
 test('css: tailwind v4 @theme — color-/radius-/spacing-/font- prefixes', () => {
   const { tokens } = parseCss(fixture('tailwind-v4-theme.css'));
-  assert.match(tokens.color['primary'], /^#[0-9a-f]{6}$/);   // oklch converted
-  assert.equal(tokens.color['surface'], '#f6f8fa');           // rgb() converted
+  assert.match(tokens.color['primary'], /^#[0-9a-f]{6}$/); // oklch converted
+  assert.equal(tokens.color['surface'], '#f6f8fa'); // rgb() converted
   assert.equal(tokens.radius['radius-md'], 6);
   assert.equal(tokens.spacing['spacing-gutter'], 24);
   assert.deepEqual(tokens.fonts, ['Inter']);
 });
 
-import { parseTailwindConfig } from '../src/code-import/tailwind.js';
+import { parseStaticTailwindSource, parseTailwindConfig, TAILWIND_STATIC_POLICY } from '../src/code-import/tailwind.js';
 
 test('tailwind: flattens nested color scales, skips non-colors, merges extend', async () => {
   const { tokens } = await parseTailwindConfig(join(FIX, 'tailwind.config.cjs'));
   assert.equal(tokens.color['blue-500'], '#3b82f6');
   assert.equal(tokens.color['white'], '#ffffff');
-  assert.equal(tokens.color['brand'], '#0969da');       // from extend
+  assert.equal(tokens.color['brand'], '#0969da'); // from extend
   assert.equal(tokens.color['transparent'], undefined); // skipped
 });
 
@@ -106,20 +115,109 @@ test('tailwind: borderRadius/spacing rem→px, fontFamily, fontSize tuples', asy
   assert.equal(tokens.typography['text-base'].fontSize, 16);
 });
 
-test('tailwind: unloadable config throws a helpful error', async () => {
-  await assert.rejects(() => parseTailwindConfig('/nonexistent/tailwind.config.js'), /load|find/i);
+test('tailwind: static ESM and TypeScript configs import without resolving their imports', async () => {
+  const esm = await parseTailwindConfig(join(FIX, 'tailwind.config.mjs'));
+  const ts = await parseTailwindConfig(join(FIX, 'tailwind.config.ts'));
+  assert.equal(esm.tokens.color['esm-brand'], '#123456');
+  assert.equal(ts.tokens.color['ts-brand'], '#654321');
+  assert.equal(ts.tokens.spacing['spacing-safe'], 24);
 });
 
-import {
-  parseStorybookIndex,
-  fetchStorybookIndex,
-  readBoundedResponseText,
-} from '../src/code-import/storybook.js';
+test('tailwind: semicolon-free imports and an exported typed const remain static data', async () => {
+  const config = await parseStaticTailwindSource(`
+    import type { Config } from 'tailwindcss'
+    const config: Config = {
+      plugins: [unknownPlugin()],
+      theme: { colors: { brand: '#2468ac' } },
+    } satisfies Config
+    export default config
+  `);
+  assert.equal(config.theme.colors.brand, '#2468ac');
+});
+
+test('tailwind: ignored plugin code never receives host environment, file, process, or network access', async (t) => {
+  const markerDir = mkdtempSync(join(tmpdir(), 'tailwind-static-marker-'));
+  const marker = join(markerDir, 'executed');
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    requests++;
+    response.end('unexpected');
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+    server.once('error', rejectPromise);
+    server.listen(0, '127.0.0.1', resolvePromise);
+  });
+  t.after(() => new Promise((resolvePromise) => server.close(resolvePromise)));
+  const address = server.address();
+  const url = `http://127.0.0.1:${address.port}/should-not-run`;
+
+  const source = `module.exports = {
+    plugins: [(() => {
+      process.env.FIGMA_BRIDGE_STATIC_TAILWIND_SENTINEL = 'changed';
+      require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');
+      require('node:child_process').execFileSync(process.execPath, ['-e', 'process.exit(9)']);
+      fetch(${JSON.stringify(url)});
+    })()],
+    theme: { colors: { safe: '#abcdef' } },
+  };`;
+
+  const config = await parseStaticTailwindSource(source);
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+  assert.equal(config.theme.colors.safe, '#abcdef');
+  assert.equal(existsSync(marker), false);
+  assert.equal(requests, 0);
+  assert.equal(process.env.FIGMA_BRIDGE_STATIC_TAILWIND_SENTINEL, undefined);
+});
+
+test('tailwind: executable theme values fail with a data-export migration path', async () => {
+  const secret = 'must-not-appear-in-an-error';
+  process.env.FIGMA_BRIDGE_STATIC_TAILWIND_SECRET = secret;
+  try {
+    await assert.rejects(
+      () => parseStaticTailwindSource(`export default { theme: { colors: process.env.FIGMA_BRIDGE_STATIC_TAILWIND_SECRET } }`),
+      (error) => {
+        assert.match(error.message, /static data/i);
+        assert.match(error.message, /CSS|JSON/);
+        assert.doesNotMatch(error.message, new RegExp(secret));
+        return true;
+      }
+    );
+  } finally {
+    delete process.env.FIGMA_BRIDGE_STATIC_TAILWIND_SECRET;
+  }
+});
+
+test('tailwind: source, nesting, collection, time, and memory policies are explicit', async () => {
+  assert.ok(TAILWIND_STATIC_POLICY.maxBytes > 0);
+  assert.ok(TAILWIND_STATIC_POLICY.maxDepth > 0);
+  assert.ok(TAILWIND_STATIC_POLICY.maxEntries > 0);
+  assert.ok(TAILWIND_STATIC_POLICY.timeoutMs > 0);
+  assert.ok(TAILWIND_STATIC_POLICY.maxOldGenerationSizeMb > 0);
+
+  await assert.rejects(() => parseStaticTailwindSource('x'.repeat(TAILWIND_STATIC_POLICY.maxBytes + 1)), /exceeds.*bytes/i);
+  const deep = `module.exports = { theme: { colors: ${'['.repeat(TAILWIND_STATIC_POLICY.maxDepth + 1)}0${']'.repeat(TAILWIND_STATIC_POLICY.maxDepth + 1)} } }`;
+  await assert.rejects(() => parseStaticTailwindSource(deep), /nesting/i);
+  const entries = Array.from({ length: TAILWIND_STATIC_POLICY.maxEntries + 1 }, (_, index) => `k${index}:'#fff'`).join(',');
+  await assert.rejects(() => parseStaticTailwindSource(`module.exports={theme:{colors:{${entries}}}}`), /collection/i);
+});
+
+test('tailwind: unloadable config throws a helpful error', async () => {
+  await assert.rejects(
+    () => parseTailwindConfig('/nonexistent/tailwind.config.js'),
+    (error) => {
+      assert.match(error.message, /Tailwind configuration/i);
+      assert.doesNotMatch(error.message, /nonexistent/);
+      return true;
+    }
+  );
+});
+
+import { parseStorybookIndex, fetchStorybookIndex, readBoundedResponseText } from '../src/code-import/storybook.js';
 
 test('storybook: groups stories by component, skips docs entries', () => {
   const { meta } = parseStorybookIndex(fixture('storybook-index.json'));
   assert.equal(meta.components.length, 2);
-  const button = meta.components.find(c => c.name === 'Button');
+  const button = meta.components.find((c) => c.name === 'Button');
   assert.deepEqual(button.variants, ['Primary', 'Secondary']);
   assert.equal(button.category, 'Components');
 });
@@ -130,9 +228,17 @@ test('storybook: produces empty tokens (index.json has none)', () => {
 });
 
 test('storybook: v6 stories.json shape also parses', () => {
-  const v6 = JSON.stringify({ v: 3, stories: {
-    'button--primary': { id: 'button--primary', title: 'Button', name: 'Primary', kind: 'Button' },
-  } });
+  const v6 = JSON.stringify({
+    v: 3,
+    stories: {
+      'button--primary': {
+        id: 'button--primary',
+        title: 'Button',
+        name: 'Primary',
+        kind: 'Button',
+      },
+    },
+  });
   const { meta } = parseStorybookIndex(v6);
   assert.equal(meta.components[0].name, 'Button');
   // v6 entries carry ids too — the mapping needs them.
@@ -141,24 +247,28 @@ test('storybook: v6 stories.json shape also parses', () => {
 
 test('storybook: keeps story ids, title and importPath (mapping identity)', () => {
   const { meta } = parseStorybookIndex(fixture('storybook-index.json'));
-  const button = meta.components.find(c => c.name === 'Button');
+  const button = meta.components.find((c) => c.name === 'Button');
   assert.equal(button.title, 'Components/Button');
   assert.equal(button.importPath, './src/Button.stories.tsx');
-  assert.deepEqual(button.stories.map(s => s.id),
-    ['components-button--primary', 'components-button--secondary']); // docs entry skipped
+  assert.deepEqual(
+    button.stories.map((s) => s.id),
+    ['components-button--primary', 'components-button--secondary']
+  ); // docs entry skipped
   // Back-compat: variants stays a plain string array (design-md consumers).
   assert.deepEqual(button.variants, ['Primary', 'Secondary']);
 });
 
 test('storybook: remote bodies stop at the byte limit even without Content-Length', async () => {
   const encoder = new TextEncoder();
-  const response = new Response(new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode('123456'));
-      controller.enqueue(encoder.encode('789012'));
-      controller.close();
-    },
-  }));
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('123456'));
+        controller.enqueue(encoder.encode('789012'));
+        controller.close();
+      },
+    })
+  );
   await assert.rejects(() => readBoundedResponseText(response, 10), /exceeds 10 bytes/);
 });
 
@@ -184,7 +294,9 @@ test('convert: every converter designMd output roundtrips through parseDesignMd'
     [join(FIX, 'shadcn-globals.css'), 'css'],
     [join(FIX, 'tailwind.config.cjs'), 'tailwind'],
   ]) {
-    const result = await convert(src, { type: type === 'tokens-studio' ? 'tokens' : type });
+    const result = await convert(src, {
+      type: type === 'tokens-studio' ? 'tokens' : type,
+    });
     const f = join(dir, `out-${type}.md`);
     writeFileSync(f, result.designMd);
     const parsed = parseDesignMd(f);
@@ -193,20 +305,21 @@ test('convert: every converter designMd output roundtrips through parseDesignMd'
 });
 
 test('convert: storybook produces components in designMd and zero tokens', async () => {
-  const result = await convert(join(FIX, 'storybook-index.json'), { type: 'storybook' });
+  const result = await convert(join(FIX, 'storybook-index.json'), {
+    type: 'storybook',
+  });
   assert.match(result.designMd, /### Page: Button/);
   assert.match(result.designMd, /Primary, Secondary/);
   assert.equal(Object.keys(result.tokens.color).length, 0);
 });
 
 test('convert: storybook components survive designMd file roundtrip', async () => {
-  const result = await convert(join(FIX, 'storybook-index.json'), { type: 'storybook' });
+  const result = await convert(join(FIX, 'storybook-index.json'), {
+    type: 'storybook',
+  });
   const dir = mkdtempSync(join(tmpdir(), 'code-import-storybook-'));
   const f = join(dir, 'storybook-design.md');
   writeFileSync(f, result.designMd);
   const parsed = parseDesignMd(f);
-  assert.ok(
-    parsed.meta.components.includes('Button'),
-    `Expected 'Button' in parsed components: ${JSON.stringify(parsed.meta.components)}`
-  );
+  assert.ok(parsed.meta.components.includes('Button'), `Expected 'Button' in parsed components: ${JSON.stringify(parsed.meta.components)}`);
 });
