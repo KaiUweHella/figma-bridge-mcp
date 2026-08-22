@@ -6,6 +6,7 @@
 // without making every Adapter understand the catalog schema.
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
 import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
 import { resolveFigmaTarget } from './figma-target.js';
 import { resolveFigmaCommandAction } from './figma-command-grammar.js';
@@ -69,7 +70,9 @@ const COMMANDS = Object.freeze({
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
-const CLI_COMMAND_APPLICATIONS = new Set(['link.inspect', 'link.set']);
+const CLI_COMMAND_APPLICATIONS = new Set([
+  'contract.capture', 'contract.check', 'link.inspect', 'link.set',
+]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
   name: 'unknown',
@@ -177,6 +180,9 @@ function commandCapability(args) {
       : Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'link' && !action.help && !acceptsDesignLinkArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'contract' && !action.help && !acceptsDesignContractArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   const specialized = action.help

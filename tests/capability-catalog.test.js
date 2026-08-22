@@ -160,6 +160,45 @@ test('Design Link planning fails closed on malformed argv and keeps inspect regi
   }]);
 });
 
+test('CLI and MCP decide identical policy and accepted outcomes for Design Contracts', () => {
+  const cases = [
+    {
+      argv: ['contract', 'capture', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
+      effects: { figma: 'read', workspace: 'write', shared: 'none' },
+      okExitCodes: [0],
+    },
+    {
+      argv: ['contract', 'check', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
+      effects: { figma: 'read', workspace: 'read', shared: 'none' },
+      okExitCodes: [0, 1],
+    },
+  ];
+  for (const expected of cases) {
+    const options = { workspaceDir: '/work', fileKey: 'FILE_A' };
+    const mcp = planFigmaCommand(expected.argv, { ...options, adapter: 'mcp' });
+    const cli = planFigmaCommand(expected.argv, { ...options, adapter: 'cli' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(cli.effects, expected.effects);
+    assert.equal(cli.confirmation, 'none');
+    assert.equal(cli.execution.retry, 'never');
+    assert.deepEqual(cli.execution.okExitCodes, expected.okExitCodes);
+    assert.deepEqual(cli.target, mcp.target);
+    const { adapter: mcpAdapter, ...mcpPolicy } = mcp;
+    const { adapter: cliAdapter, ...cliPolicy } = cli;
+    assert.equal(mcpAdapter, 'mcp');
+    assert.equal(cliAdapter, 'cli');
+    assert.deepEqual(cliPolicy, mcpPolicy);
+  }
+
+  for (const argv of [
+    ['contract', 'capture'],
+    ['contract', 'check', 'ui.button', '--future', 'secret'],
+    ['contract', 'capture', 'ui.button', '--file'],
+    ['contract', 'check', 'ui.button', 'extra'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('one Command Plan resolves its Figma Target Context after path normalization', () => {
   let targetResolutions = 0;
   let authorizedPaths = 0;

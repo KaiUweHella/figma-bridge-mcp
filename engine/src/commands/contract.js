@@ -1,10 +1,16 @@
 import chalk from 'chalk';
 import { resolve } from 'node:path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { runInProcessCommandPlan } from '../../../src/engine.js';
 import { program, checkConnection, daemonExec, handleEvalError } from '../lib/cli-core.js';
 import { DESIGN_LINK_REGISTRY_FILE } from '../lib/design-link-registry.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 import {
-  executeDesignContract,
-  formatDesignContractResult,
+  designContractArgvFromRequest,
+  designContractFileKeyFromArgv,
+  designContractResultRows,
+  executeDesignContractPlan,
+  formatDesignContractAdapterResult,
 } from '../application/design-contract-command.js';
 
 const contract = program
@@ -25,6 +31,42 @@ function optionsFor(entityId, options) {
   };
 }
 
+function renderResultRows(rows) {
+  for (const row of rows) {
+    const marker = row.markerTone === 'success' ? chalk.green(row.marker) : chalk.red(row.marker);
+    console.log(marker, row.text);
+  }
+}
+
+async function runContract(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(designContractArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+    registryFileKey: (argv) => designContractFileKeyFromArgv([...argv], { io }),
+  });
+  let domainResult = null;
+  const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await checkConnection();
+      domainResult = await executeDesignContractPlan(plan, {
+        workspaceIO: io,
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+      return {
+        stdout: formatDesignContractAdapterResult(domainResult),
+        stderr: '',
+        code: domainResult.action === 'check' && !domainResult.check.ok ? 1 : 0,
+      };
+    });
+  return { domainResult, execution };
+}
+
 contract
   .command('capture <entityId>')
   .description('Write the reviewed live Design Capture as a deterministic contract')
@@ -34,16 +76,13 @@ contract
   .option('--include-hidden', 'Include hidden Figma layers')
   .option('--geometry-tolerance <px>', 'Allowed geometry noise in semantic rules', '0.5')
   .action(async (entityId, options) => {
-    await checkConnection();
     try {
       const request = {
         action: 'capture', ...optionsFor(entityId, options),
         geometryTolerance: Number(options.geometryTolerance),
       };
-      const result = await executeDesignContract(request, {
-        evaluate: (code) => daemonExec('eval', { code }),
-      });
-      console.log(chalk.green('✓'), formatDesignContractResult(result));
+      const { domainResult } = await runContract(request);
+      renderResultRows(designContractResultRows(domainResult));
     } catch (error) {
       handleEvalError(error);
     }
@@ -58,14 +97,13 @@ contract
   .option('--include-hidden', 'Include hidden Figma layers')
   .option('--max-diffs <n>', 'Maximum canonical differences to collect', '200')
   .action(async (entityId, options) => {
-    await checkConnection();
     try {
-      const result = await executeDesignContract({
+      const { domainResult, execution } = await runContract({
         action: 'check', ...optionsFor(entityId, options),
         maxDiffs: Number.parseInt(options.maxDiffs, 10),
-      }, { evaluate: (code) => daemonExec('eval', { code }) });
-      console.log(result.check.ok ? chalk.green('✓') : chalk.red('✗'), formatDesignContractResult(result));
-      if (!result.check.ok) process.exitCode = 1;
+      });
+      renderResultRows(designContractResultRows(domainResult));
+      if (execution.code !== 0) process.exitCode = execution.code;
     } catch (error) {
       handleEvalError(error);
     }

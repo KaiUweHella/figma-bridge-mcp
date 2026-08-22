@@ -270,11 +270,21 @@ export async function runInProcessCommandPlan(plan, opts = {}, operation) {
             : () => waitForPluginConnection(remaining()),
         })
       : await invoke();
-    const audit = completeCommandExecution(context);
+    const code = result?.code ?? 0;
+    if (!Number.isInteger(code) || code < 0) {
+      throw new TypeError("Command Application returned an invalid outcome code");
+    }
+    if (!context.plan.execution.okExitCodes.includes(code)) {
+      throw Object.assign(new Error(`Command Application returned unsupported outcome code ${code}`), {
+        code,
+        kind: "command-outcome",
+      });
+    }
+    const audit = completeCommandExecution(context, code);
     return {
       stdout: result?.stdout ?? "",
       stderr: result?.stderr ?? "",
-      code: 0,
+      code,
       audit,
     };
   } catch (error) {

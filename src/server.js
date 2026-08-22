@@ -45,7 +45,12 @@ import {
   executeDesignLinkPlan,
   formatDesignLinkResult,
 } from "../engine/src/application/design-link-command.js";
-import { designContractFileKeyFromArgv } from "../engine/src/application/design-contract-command.js";
+import {
+  designContractFileKeyFromArgv,
+  designContractPlanRoute,
+  executeDesignContractPlan,
+  formatDesignContractAdapterResult,
+} from "../engine/src/application/design-contract-command.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
@@ -1450,6 +1455,24 @@ export async function handleTool(name, rawArgs) {
               : await executeDesignLink(designLinkRequestFromArgv(normalized), adapters);
             return { stdout: formatDesignLinkResult(result), stderr: "" };
           });
+        return resultFromCli(res);
+      }
+      const designContractRoute = designContractPlanRoute(plan);
+      if (designContractRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, timeoutMs }) => {
+          const result = await executeDesignContractPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+            workspaceIO: WORKSPACE_IO,
+          });
+          return {
+            stdout: formatDesignContractAdapterResult(result),
+            stderr: "",
+            code: result.action === "check" && !result.check.ok ? 1 : 0,
+          };
+        });
         return resultFromCli(res);
       }
       const res = await runCliPlan(plan, { label: input.label });

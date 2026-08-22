@@ -305,6 +305,14 @@ test('figma_run routes the accepted Design Link tracer without a family-wide cap
   assert.match(source, /compatibilityFallback: designLinkRoute === "command-application" \? false/);
 });
 
+test('figma_run routes Design Contract capture/check through the shared Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  assert.match(source, /designContractPlanRoute\(plan\)/);
+  assert.match(source, /executeDesignContractPlan\(plan/);
+  assert.match(source, /formatDesignContractAdapterResult\(result\)/);
+  assert.match(source, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
+});
+
 test('figma_run denies an unknown nested command before write confirmation', async () => {
   const { handleTool } = await import('../src/server.js');
   const result = await handleTool('figma_run', { args: ['node', 'future-action', 'private-value'] });
@@ -325,6 +333,21 @@ test('figma_run rejects malformed Design Link argv before confirmation or dispat
     assert.equal(result.isError, true, args.join(' '));
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
+  }
+});
+
+test('figma_run rejects malformed Design Contract argv before dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['contract', 'capture'],
+    ['contract', 'check', 'ui.button', '--future', 'private-value'],
+    ['contract', 'capture', 'ui.button', '--file'],
+    ['contract', 'check', 'ui.button', 'extra'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
   }
 });
 

@@ -179,6 +179,24 @@ test('migrated link set has one attempt and no retry policy', async () => {
   assert.equal(attempts, 1);
 });
 
+test('in-process results preserve only Command Plan-accepted domain outcome codes', async () => {
+  const { runInProcessCommandPlan } = await import('../src/engine.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const plan = planFigmaCommand(['contract', 'check', 'ui.button'], { fileKey: 'FILE_A' });
+  const drift = await runInProcessCommandPlan(plan, { compatibilityFallback: false }, async () => ({
+    stdout: 'canonical drift', stderr: '', code: 1,
+  }));
+  assert.equal(drift.code, 1);
+  assert.equal(drift.stdout, 'canonical drift');
+
+  await assert.rejects(
+    () => runInProcessCommandPlan(plan, { compatibilityFallback: false }, async () => ({
+      stdout: '', stderr: '', code: 2,
+    })),
+    /unsupported outcome code 2/,
+  );
+});
+
 test('safe-read retries share one decreasing deadline budget', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');
