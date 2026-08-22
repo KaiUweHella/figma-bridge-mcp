@@ -29,14 +29,14 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
   assert.equal(entries.length, 2);
   assert.equal(entries[0].schema, 2);
   assert.equal(entries[0].event, 'start');
-  assert.equal(entries[0].capability, 'export');
+  assert.equal(entries[0].capability, 'export.code-spec');
   assert.equal(entries[0].operation, 'read');
   assert.equal(entries[0].target.kind, 'plugin-file');
   assert.equal(entries[0].data.arguments.count, 3);
   assert.equal(entries[0].data.nodeRefs.length, 1);
   assert.equal(entries[0].data.label.bytes, Buffer.byteLength('direct spec'));
   const serialized = JSON.stringify(entries);
-  assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec|code-spec/);
+  assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec/);
   assert.deepEqual(entries[1], {
     schema: 2,
     id: entries[0].id,
@@ -82,6 +82,18 @@ test('in-process command refuses commands outside the existing allowlist before 
     /Command not allowed/,
   );
   assert.equal(called, false);
+});
+
+test('in-process command denies unknown nested actions before audit or Adapter dispatch', async () => {
+  const { runInProcessCommand } = await import('../src/engine.js');
+  const before = readFileSync(auditFile, 'utf8');
+  let called = false;
+  await assert.rejects(
+    () => runInProcessCommand(['node', 'future-action', 'private-value'], {}, async () => { called = true; }),
+    /Command not allowed/,
+  );
+  assert.equal(called, false);
+  assert.equal(readFileSync(auditFile, 'utf8'), before, 'denial must happen before the Audit Trail');
 });
 
 test('in-process mutation never repeats an outcome-unknown daemon failure', async () => {

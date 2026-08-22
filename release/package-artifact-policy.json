@@ -157,6 +157,7 @@
     "src/config.js",
     "src/engine.js",
     "src/error-projection.js",
+    "src/figma-command-grammar.js",
     "src/figma-map.js",
     "src/figma-rest.js",
     "src/figma-target.js",

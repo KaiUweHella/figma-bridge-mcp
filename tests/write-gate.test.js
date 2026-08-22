@@ -142,7 +142,7 @@ test('read-only commands stay ungated', () => {
     ['spec', '1:2'],
     ['verify', '1:2'],
     ['analyze', 'colors'],
-    ['a11y', '1:2'],
+    ['a11y', 'contrast', '1:2'],
     ['api', 'setup'],
   ]) {
     assert.equal(isWrite(args), false, args.join(' '));

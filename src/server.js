@@ -1419,6 +1419,11 @@ export async function handleTool(name, rawArgs) {
         fileKey: input.fileKey,
         workspaceIO: WORKSPACE_IO,
       });
+      if (!plan.allowed) {
+        return errorResult(
+          'Unknown or unsupported Figma Command. Run figma_run with args ["--help"] to list the supported grammar.',
+        );
+      }
       if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
         return previewResult(args);
       }

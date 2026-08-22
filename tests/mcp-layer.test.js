@@ -302,6 +302,14 @@ test('figma_run keeps Design Link execution in-process', () => {
   assert.match(source, /executeDesignLink\(designLinkRequestFromArgv\(normalized\)/);
 });
 
+test('figma_run denies an unknown nested command before write confirmation', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_run', { args: ['node', 'future-action', 'private-value'] });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
+});
+
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {
   // Safe to import since server.js only boots when run as the entry point.
   const { unknownParamError } = await import('../src/server.js');

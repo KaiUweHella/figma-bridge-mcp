@@ -7,6 +7,7 @@
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { resolveFigmaTarget } from './figma-target.js';
+import { resolveFigmaCommandAction } from './figma-command-grammar.js';
 
 const readGroup = (summary, readSubcommands, extra = {}) => ({
   summary, mutation: 'group', readSubcommands: new Set(readSubcommands), ...extra,
@@ -18,10 +19,6 @@ const COMMANDS = Object.freeze({
   create: {
     summary: 'Create typed Figma primitives, optionally inside an existing parent',
     mutation: 'write',
-    allowedSubcommands: new Set([
-      'frame', 'rect', 'rectangle', 'ellipse', 'circle', 'polygon', 'star',
-      'vector', 'slice', 'text', 'line', 'autolayout', 'al',
-    ]),
   },
   combos: { summary: 'Generate component variant combinations', mutation: 'write' },
   sizes: { summary: 'Generate component size variants', mutation: 'write' },
@@ -74,6 +71,8 @@ const COMMAND_PLANS = new WeakSet();
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
   name: 'unknown',
+  actionId: 'unknown',
+  help: false,
   available: false,
   mutatesDesign: true,
   target: 'figma',
@@ -85,6 +84,8 @@ const UNKNOWN = Object.freeze({
 });
 const TOP_LEVEL_HELP = Object.freeze({
   name: '--help',
+  actionId: 'help',
+  help: true,
   available: true,
   mutatesDesign: false,
   target: 'none',
@@ -166,16 +167,22 @@ function commandCapability(args) {
   if (HELP_TOKENS.has(name)) return Object.freeze({ ...TOP_LEVEL_HELP, name });
   const entry = COMMANDS[name];
   if (!entry) return Object.freeze({ ...UNKNOWN, name });
-  const sub = args[1];
-  if (entry.allowedSubcommands && sub && !sub.startsWith('-') && !entry.allowedSubcommands.has(sub)) {
-    return Object.freeze({ ...UNKNOWN, name });
+  const action = resolveFigmaCommandAction(args);
+  if (!action.accepted) {
+    return action.reason === 'unknown-option'
+      ? Object.freeze({ ...UNKNOWN, name, mutatesDesign: false, target: 'none' })
+      : Object.freeze({ ...UNKNOWN, name });
   }
-  const specialized = specializedPolicy(name, entry, args);
+  const specialized = action.help
+    ? { execution: 'foreground', timeoutClass: 'default', pathPolicy: 'none', retry: 'never' }
+    : specializedPolicy(name, entry, args);
   return Object.freeze({
     name,
+    actionId: action.actionId,
+    help: action.help,
     available: true,
-    mutatesDesign: mutatesDesign(entry, args),
-    target: targetPolicy(name, entry, args),
+    mutatesDesign: action.help ? false : mutatesDesign(entry, args),
+    target: action.help ? 'none' : targetPolicy(name, entry, args),
     retry: specialized.retry,
     timeoutClass: specialized.timeoutClass,
     execution: specialized.execution,
@@ -614,7 +621,7 @@ export function planFigmaCommand(rawArgs, {
   const jobKey = backgroundJobIdentity(argv, target.fileKey);
   const retry = capability.mutatesDesign ? 'never' : capability.retry;
   const plan = {
-    id: capability.name || 'unknown',
+    id: capability.actionId || 'unknown',
     adapter,
     allowed: capability.available && adapter === 'mcp',
     argv,
@@ -635,7 +642,7 @@ export function planFigmaCommand(rawArgs, {
     // argv, file keys, paths, labels, and payloads; the writer stores only
     // non-reversible summaries for those values.
     audit: Object.freeze({
-      capability: HELP_TOKENS.has(capability.name) ? 'help' : capability.name || 'unknown',
+      capability: capability.actionId || 'unknown',
       operation,
       effects,
       targetKind: target.kind,
