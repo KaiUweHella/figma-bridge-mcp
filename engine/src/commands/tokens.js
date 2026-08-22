@@ -48,7 +48,7 @@ collections
   .description('List all collections')
   .action(async () => {
     await checkConnection();
-    listCollections();
+    await listCollections();
   });
 
 collections
@@ -56,7 +56,7 @@ collections
   .description('Create a collection')
   .action(async (name) => {
     await checkConnection();
-    createCollection(name);
+    await createCollection(name);
   });
 
 collections.command('show <collection>').action(async (collection) => {
@@ -168,7 +168,7 @@ return 'Created ' + count + ' spacing variables';
 })()`;
 
     try {
-      const result = evalPrint(code, { silent: true });
+      const result = await evalPrint(code, { silent: true });
       spinnerSucceed(spinner, result?.trim() || 'Created spacing scale');
     } catch (error) {
       spinner.fail('Failed to create spacing scale');
@@ -211,7 +211,7 @@ return 'Created ' + count + ' radius variables';
 `;
 
     try {
-      const result = evalPrint(code, { silent: true });
+      const result = await evalPrint(code, { silent: true });
       spinnerSucceed(spinner, result?.trim() || 'Created border radii');
     } catch (error) {
       spinner.fail('Failed to create radii');
@@ -321,7 +321,7 @@ return { message: 'Imported ' + count + ' tokens into ' + collectionName, scopeQ
 })()`;
 
     try {
-      const result = evalPrint(code, { silent: true });
+      const result = await evalPrint(code, { silent: true });
       const payload = parsedEvalPayload(result);
       spinnerSucceed(spinner, payload?.message || result?.trim() || 'Tokens imported');
       printVariableScopeQuestions(payload?.scopeQuestions);
@@ -930,7 +930,7 @@ return { message: 'Created ' + type.toLowerCase() + ' token: ${name}', scopeQues
 })()`;
 
     try {
-      const result = evalPrint(code, { silent: true });
+      const result = await evalPrint(code, { silent: true });
       const payload = parsedEvalPayload(result);
       console.log(chalk.green(payload?.message || result?.trim() || `✓ Created token: ${name}`));
       printVariableScopeQuestions(payload?.scopeQuestions);

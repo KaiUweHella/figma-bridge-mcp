@@ -16,7 +16,7 @@ import chalk from 'chalk';
 import { readdirSync } from 'fs';
 import { join, resolve, relative, basename, extname, dirname } from 'path';
 import { PNG } from 'pngjs';
-import { program, checkConnection, figmaEvalSync } from '../lib/cli-core.js';
+import { program, checkConnection, daemonExec } from '../lib/cli-core.js';
 import { verifyBuild, describeMissing } from '../lib/verify-build.js';
 import { diffImages, describeRegions } from '../lib/image-diff.js';
 import { loadImage } from '../gradient-extractor.js';
@@ -149,7 +149,7 @@ async function fetchDesignReference(nodeId) {
     const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
     return { name: node.name, scale, base64: figma.base64Encode(bytes) };
   })()`;
-  const result = figmaEvalSync(code);
+  const result = await daemonExec('eval', { code }, 60000);
   if (result.error) {
     console.error(chalk.red('✗ ' + result.error));
     process.exit(1);

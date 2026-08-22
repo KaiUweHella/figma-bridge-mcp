@@ -239,5 +239,8 @@ export function createDaemonClient({
       const route = target ? `/reconnect?fileKey=${encodeURIComponent(target)}` : '/reconnect';
       return request(route, { authPath: '/reconnect', timeoutMs: options.timeoutMs || 6500 });
     },
+    shutdown(options = {}) {
+      return request('/shutdown', { timeoutMs: options.timeoutMs || 3000 });
+    },
   };
 }

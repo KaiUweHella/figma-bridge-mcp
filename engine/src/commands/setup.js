@@ -43,7 +43,7 @@ import {
   progress,
   program,
   getDaemonPort,
-  daemonCurl,
+  daemonHealth,
   daemonBuildMatchesCurrent,
   isDaemonRunning,
   spinnerSucceed,
@@ -219,7 +219,7 @@ program.action(async () => {
   // the one human who ever lands on a bare invocation wants the state and the
   // command list, not ASCII art.
   console.log(chalk.white(`  ${pkg.name} ${chalk.gray('v' + pkg.version)}\n`));
-  const running = isDaemonRunning();
+  const running = await isDaemonRunning();
   console.log(running
     ? chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`)
     : chalk.yellow('  \u25cb Daemon not running'));
@@ -241,12 +241,14 @@ program.action(async () => {
 program
   .command('status')
   .description('Report daemon + plugin connection state')
-  .action(() => {
-    const daemonInfo = isDaemonRunning(true);
+  .action(async () => {
+    const daemonInfo = await isDaemonRunning(true);
     if (daemonInfo && daemonInfo.running) {
       console.log(chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`));
       try {
-        const health = JSON.parse(daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]));
+        const healthResponse = await daemonHealth();
+        if (!healthResponse.ok || !healthResponse.data) throw new Error(`HTTP ${healthResponse.status}`);
+        const health = healthResponse.data;
         console.log(health.plugin
           ? chalk.green('  \u2713 Plugin connected') + chalk.gray(` (mode: ${health.mode})`)
           : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 Figma Bridge in Figma'));
@@ -307,9 +309,9 @@ program
       // authenticated Figma plugin socket; Chromium could then keep the panel
       // in its failed-WebSocket retry state for seconds or minutes. Reuse a
       // healthy daemon and reserve destructive restarts for `daemon restart`.
-      const daemonWasRunning = isDaemonRunning(false, true);
-      const daemonWasReusable = daemonWasRunning && daemonBuildMatchesCurrent();
-      startDaemon(options.forceRestart === true, 'plugin', {
+      const daemonWasRunning = await isDaemonRunning(false, true);
+      const daemonWasReusable = daemonWasRunning && await daemonBuildMatchesCurrent();
+      await startDaemon(options.forceRestart === true, 'plugin', {
         running: daemonWasRunning,
         buildMatches: daemonWasReusable,
       });
@@ -317,7 +319,7 @@ program
       let daemonReady = false;
       while (Date.now() < daemonDeadline) {
         await new Promise(r => setTimeout(r, 50));
-        if (isDaemonRunning(false, true)) {
+        if (await isDaemonRunning(false, true)) {
           daemonReady = true;
           break;
         }
@@ -388,8 +390,8 @@ program
       const elapsed = Date.now() - pluginStartedAt;
       await new Promise(r => setTimeout(r, elapsed < 3000 ? 100 : 1000));
       try {
-        const healthRes = daemonCurl('/health', [`http://127.0.0.1:${getDaemonPort()}/health`]);
-        const health = JSON.parse(healthRes);
+        const healthResponse = await daemonHealth();
+        const health = healthResponse.data || {};
         if (health.plugin) {
           spinnerSucceed(pluginSpinner, 'Plugin connected and authenticated!');
           console.log(chalk.green('\n  ✓ Ready! Safe Mode active.\n'));

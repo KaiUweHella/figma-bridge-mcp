@@ -16,9 +16,7 @@ import {
   daemonExec,
   fastEval,
   safeReadEval,
-  figmaEvalSync,
   evalPrint,
-  isDaemonRunning,
   unescapeShell
 } from '../lib/cli-core.js';
 import { assetCollectorCode, imageBytesCode, svgBytesCode, usedVariablesCode } from '../design-extract.js';
@@ -80,7 +78,7 @@ return {
   base64: figma.base64Encode(bytes)
 };
 })()`;
-    const result = figmaEvalSync(code);
+    const result = await daemonExec('eval', { code }, 60000);
     if (result.error) {
       console.error(chalk.red('✗'), result.error);
       process.exit(1);
@@ -119,7 +117,7 @@ return {
   base64: figma.base64Encode(bytes)
 };
 })()`;
-    const result = figmaEvalSync(code);
+    const result = await daemonExec('eval', { code }, 60000);
     if (result.error) {
       console.error(chalk.red('✗'), result.error);
       process.exit(1);
@@ -236,7 +234,7 @@ return JSON.stringify({ file: figma.root.name,
   collections: collections.map(c => ({ id:c.id, name:c.name, defaultModeId:c.defaultModeId, modes:c.modes }))
 });
 })()`;
-    const result = evalPrint(code, { silent: true });
+    const result = await evalPrint(code, { silent: true });
     let parsed;
     try {
       parsed = JSON.parse(result);
@@ -556,7 +554,7 @@ return JSON.stringify({ __file: figma.root.name,
   collections: collections.map(c => ({ id:c.id, name:c.name, defaultModeId:c.defaultModeId, modes:c.modes }))
 });
 })()`;
-    const result = evalPrint(code, { silent: true });
+    const result = await evalPrint(code, { silent: true });
     // Unwrap the { __file, tree } envelope; on parse failure (plugin error
     // text) pass the raw output through unchanged.
     let tokenJson = result;
@@ -688,41 +686,9 @@ program
       return;
     }
 
-    // Always prefer async daemon (more reliable, no shell timeout issues)
-    if (isDaemonRunning()) {
-      try {
-        const result = await daemonExec('eval', { code: jsCode });
-        if (result !== undefined && result !== null) {
-          console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
-        }
-        return;
-      } catch (e) {
-        // Check if this is a connection/daemon error vs user code error
-        const isConnectionError = e.message.includes('ECONNREFUSED') ||
-                                  e.message.includes('fetch failed') ||
-                                  e.message.includes('network') ||
-                                  e.message.includes('timeout') ||
-                                  e.message.includes('disconnected');
-        if (isConnectionError) {
-          // Connection/daemon error - fall back to sync path
-          console.log(chalk.yellow('⚠ Daemon error, trying sync path...'));
-        } else {
-          // User code/targeting error: reject the Commander action so the
-          // top-level CLI handler reports a non-zero exit. Printing and
-          // returning here made failed evals look successful to scripts.
-          throw e;
-        }
-      }
-    }
-
-    // Sync fallback (when daemon not running)
-    try {
-      const result = figmaEvalSync(jsCode);
-      if (result !== undefined && result !== null) {
-        console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
-      }
-    } catch (error) {
-      throw error;
+    const result = await daemonExec('eval', { code: jsCode });
+    if (result !== undefined && result !== null) {
+      console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
     }
   });
 
@@ -738,15 +704,9 @@ program
     }
     const code = readFileSync(file, 'utf8');
     try {
-      // Use async daemon path for better performance with long scripts
-      if (isDaemonRunning()) {
-        const result = await daemonExec('eval', { code });
-        if (result !== undefined) {
-          console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
-        }
-      } else {
-        // Fallback to the sync path (same daemon, no async wrapper)
-        evalPrint(code);
+      const result = await daemonExec('eval', { code });
+      if (result !== undefined) {
+        console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
       }
     } catch (e) {
       console.log(chalk.red('✗ ' + e.message));

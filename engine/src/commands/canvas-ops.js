@@ -48,7 +48,7 @@ if (children.length === 0) {
   }, null, 2);
 }
 })()`;
-    evalPrint(code);
+    await evalPrint(code);
   });
 
 canvas
@@ -168,7 +168,7 @@ if (children.length === 0) {
   `}
 }
 })()`;
-    evalPrint(code);
+    await evalPrint(code);
   });
 
 // (The selection-driven command groups `bind`, `sizing`, `padding`, `gap`,
@@ -354,5 +354,5 @@ function search(node) {
 search(figma.currentPage);
 return results.length === 0 ? 'No nodes found matching "${name}"' : results.slice(0, ${options.limit}).map(r => r.id + ' [' + r.type + '] ' + r.name).join('\\n');
 })()`;
-    evalPrint(code);
+    await evalPrint(code);
   });

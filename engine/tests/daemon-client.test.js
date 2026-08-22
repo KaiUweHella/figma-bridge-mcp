@@ -83,19 +83,31 @@ test('daemon client signs the stable selection path while targeting through the 
 });
 
 test('daemon client requests authenticated plugin self-recovery', async () => {
-  let seen;
+  const seen = [];
   const client = createDaemonClient({
     readToken: () => 'token', getPort: () => 3458,
     fetchImpl: async (url, options) => {
-      seen = { url, options };
+      seen.push({ url, options });
+      if (url.endsWith('/health')) return response(200, { status: 'ok', plugin: true });
+      if (url.endsWith('/shutdown')) return response(200, { ok: true });
       return response(200, { ok: true, hadPlugin: true, reloaded: 1, forcedClosed: 0 });
     },
   });
-  const result = await client.reconnect({ timeoutMs: 6000 });
-  assert.equal(result.data.reloaded, 1);
-  assert.equal(seen.url, 'http://127.0.0.1:3458/reconnect');
-  assert.equal(seen.options.method, 'GET');
-  assert.ok(seen.options.headers['X-Daemon-Auth']);
+  const health = await client.health({ timeoutMs: 1000 });
+  const reconnect = await client.reconnect({ timeoutMs: 6000 });
+  const shutdown = await client.shutdown({ timeoutMs: 1000 });
+  assert.equal(health.data.plugin, true);
+  assert.equal(reconnect.data.reloaded, 1);
+  assert.equal(shutdown.data.ok, true);
+  assert.deepEqual(seen.map(({ url }) => url), [
+    'http://127.0.0.1:3458/health',
+    'http://127.0.0.1:3458/reconnect',
+    'http://127.0.0.1:3458/shutdown',
+  ]);
+  for (const call of seen) {
+    assert.equal(call.options.method, 'GET');
+    assert.ok(call.options.headers['X-Daemon-Auth']);
+  }
 });
 
 test('daemon client exposes stable error kinds for adapter fallback decisions', async () => {

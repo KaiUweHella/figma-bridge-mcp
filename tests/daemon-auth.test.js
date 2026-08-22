@@ -31,6 +31,7 @@ import {
   MAX_PROTOCOL_VALUE_BYTES,
 } from '../engine/src/lib/protocol-contract.js';
 import { BRIDGE_DAEMON_ERROR_SCHEMA } from '../engine/src/lib/daemon-error-envelope.js';
+import { createDaemonClient } from '../engine/src/lib/daemon-client.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -1057,4 +1058,51 @@ test('/reconnect: reloads a responsive plugin UI instead of dropping its socket'
   assert.equal(recovery.body.reloaded, 1);
   assert.equal(recovery.body.forcedClosed, 0);
   assert.equal(recovery.readyState, WebSocket.OPEN);
+});
+
+test('Daemon Client shutdown drains an in-flight execution before closing the Plugin socket', async () => {
+  const exited = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('daemon did not exit after graceful shutdown')), 3000);
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+  await withAuthedWs(async (ws) => {
+    let dispatched;
+    const routed = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route the in-flight eval')), 3000);
+      ws.on('message', (raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.action !== 'eval') return;
+        clearTimeout(timer);
+        dispatched = message;
+        resolve();
+      });
+    });
+    const body = JSON.stringify({ action: 'eval', code: 'longRead()' });
+    const execution = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await routed;
+
+    const client = createDaemonClient({
+      readToken: () => TOKEN,
+      getPort: () => PORT,
+    });
+    const shutdown = await client.shutdown({ timeoutMs: 1000 });
+    assert.equal(shutdown.ok, true);
+    assert.equal(shutdown.data.ok, true);
+    assert.equal(ws.readyState, WebSocket.OPEN,
+      'accepted shutdown must keep the Plugin socket open while execution is in flight');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    ws.send(JSON.stringify({ type: 'result', id: dispatched.id, result: { drained: true } }));
+    const response = await execution;
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).result, { drained: true });
+  });
+  assert.equal(await exited, 0);
 });

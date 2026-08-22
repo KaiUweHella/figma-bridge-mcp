@@ -7,7 +7,6 @@ import {
   checkConnection,
   daemonExec,
   fastEval,
-  figmaEvalSync,
   evalPrint,
   listVariables,
   findVariables,
@@ -33,7 +32,7 @@ variables
   .description('List all variables')
   .action(async () => {
     await checkConnection();
-    listVariables();
+    await listVariables();
   });
 
 variables
@@ -55,7 +54,7 @@ const v = figma.variables.createVariable(${JSON.stringify(name)}, col, ${JSON.st
 ${initialValue === undefined ? '' : `v.setValueForMode(modeId, ${JSON.stringify(initialValue)});`}
 return 'Created ${type.toLowerCase()} variable: ${name}';
 })()`;
-    evalPrint(code);
+    await evalPrint(code);
   });
 
 variables
@@ -63,7 +62,7 @@ variables
   .description('Find variables by name pattern')
   .action(async (pattern) => {
     await checkConnection();
-    findVariables(pattern);
+    await findVariables(pattern);
   });
 
 variables.command('show <variable>')
@@ -361,7 +360,7 @@ for (const v of vars) {
 return 'Created ' + created + ' variables';
 })()`;
 
-    const result = figmaEvalSync(code);
+    const result = await daemonExec('eval', { code }, 60000);
     console.log(chalk.green(result || `✓ Created ${vars.length} variables`));
   });
 
@@ -382,7 +381,7 @@ for (const name of want) {
 }
 return { deleted, missing };
 })()`;
-    const result = figmaEvalSync(code);
+    const result = await daemonExec('eval', { code }, 60000);
     if (result.deleted?.length) console.log(chalk.green('✓'), `Deleted: ${result.deleted.join(', ')}`);
     if (result.missing?.length) console.log(chalk.yellow('⚠'), `Not deleted: ${result.missing.join(', ')}`);
   });
@@ -416,7 +415,7 @@ return 'Deleted ' + deleted + ' variables and ' + cols.length + ' collections';
 })()`;
 
     try {
-      const result = figmaEvalSync(code);
+      const result = await daemonExec('eval', { code }, 60000);
       spinnerSucceed(spinner, result);
     } catch (error) {
       spinner.fail('Failed to delete variables');

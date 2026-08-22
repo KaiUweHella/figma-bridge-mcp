@@ -9,8 +9,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const COMMANDS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
+const LIB_DIR = join(COMMANDS_DIR, '..', 'lib');
 const files = readdirSync(COMMANDS_DIR).filter((f) => f.endsWith('.js'));
 const sources = new Map(files.map((f) => [f, readFileSync(join(COMMANDS_DIR, f), 'utf8')]));
+const cliCoreSource = readFileSync(join(LIB_DIR, 'cli-core.js'), 'utf8');
 
 test('every checkConnection() call is awaited', () => {
   // It is async (it can respawn an idle-shut-down daemon). Un-awaited, the
@@ -57,17 +59,33 @@ test('a11y checks fail loudly (no console.log for execution errors)', () => {
     'the four violation-reporting checks offer --fail-on-issues for CI');
 });
 
-test('eval rejects execution errors instead of printing and returning success', () => {
+test('eval uses the one Daemon Client path and lets execution errors reject', () => {
   const src = sources.get('export-eval.js');
   assert.ok(src, 'export-eval.js exists');
   const start = src.indexOf(".command('eval [code]')");
   const end = src.indexOf('// Run command - alias for eval', start);
   const evalCommand = src.slice(start, end);
 
-  assert.match(evalCommand, /else\s*{[^}]*throw e;\s*}/s,
-    'async daemon errors must reject the Commander action');
-  assert.match(evalCommand, /catch \(error\)\s*{\s*throw error;\s*}/,
-    'sync fallback errors must reject the Commander action');
+  assert.match(evalCommand, /await daemonExec\('eval', \{ code: jsCode \}\)/,
+    'eval must use the shared Daemon Client Implementation');
+  assert.doesNotMatch(evalCommand, /catch\s*\(|figmaEvalSync|sync path|ECONNREFUSED|fetch failed/,
+    'eval must not classify transport errors or select another path itself');
+});
+
+test('supported Figma Commands never implement or spawn a daemon transport', () => {
+  for (const [file, src] of sources) {
+    assert.doesNotMatch(src, /\bdaemonCurl\b|\bfigmaEvalSync\b|\bsignRequest\b|\bfetch\(/,
+      `${file} must cross the Daemon Client seam`);
+  }
+  assert.doesNotMatch(cliCoreSource, /\bdaemonCurl\b|\bfigmaEvalSync\b|\bsignRequest\b|\bfetch\(|execFileSync\s*\(\s*['"]curl['"]/,
+    'CLI lifecycle and execution must not depend on a platform curl binary or duplicate signing');
+  const daemonClientSource = readFileSync(join(LIB_DIR, 'daemon-client.js'), 'utf8');
+  assert.match(daemonClientSource, /signRequest\(/,
+    'request signing belongs to the Daemon Client Implementation');
+  for (const operation of ['health', 'reconnect', 'shutdown', 'execute']) {
+    assert.match(daemonClientSource, new RegExp(`\\b${operation}\\b`),
+      `Daemon Client must expose ${operation}`);
+  }
 });
 
 test('asset export delegates stable identity and publication to Manifest v2', () => {

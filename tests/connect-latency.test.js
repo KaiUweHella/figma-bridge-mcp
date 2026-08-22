@@ -97,6 +97,15 @@ async function waitForHealth(port, tokenFile, timeoutMs = 5000) {
   throw new Error('daemon health timed out');
 }
 
+async function waitForProcessExit(pid, timeoutMs = 3000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try { process.kill(pid, 0); } catch { return; }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`process ${pid} did not exit`);
+}
+
 test('figma_connect returns setup instructions without waiting for the plugin', { timeout: 10_000 }, async () => {
   const state = mkdtempSync(join(tmpdir(), 'figma-bridge-connect-'));
   const pidFile = join(state, 'daemon.pid');
@@ -198,6 +207,47 @@ test('figma_connect reuses a healthy daemon without dropping the authenticated p
     assert.notEqual(Number(readFileSync(pidFile, 'utf8').trim()), firstPid, 'forced restart must replace the daemon');
   } finally {
     try { ws?.close(); } catch {}
+    if (existsSync(pidFile)) {
+      const pid = Number(readFileSync(pidFile, 'utf8').trim());
+      if (Number.isInteger(pid) && pid > 1) {
+        try { process.kill(pid, 'SIGTERM'); } catch {}
+      }
+    }
+    rmSync(state, { recursive: true, force: true });
+  }
+});
+
+test('figma_connect recovers a daemon that exited after its idle timeout', { timeout: 15_000 }, async () => {
+  const state = mkdtempSync(join(tmpdir(), 'figma-bridge-idle-recovery-'));
+  const pidFile = join(state, 'daemon.pid');
+  const port = await freePort();
+  writeFileSync(join(state, 'plugin-key'), 'idle-recovery-plugin-key', { mode: 0o600 });
+  const env = {
+    ...process.env,
+    CONNECT_TIMEOUT_MS: '5000',
+    DAEMON_PORT_RANGE: String(port),
+    DAEMON_PORT_FILE: join(state, 'daemon-port'),
+    DAEMON_PID_FILE: pidFile,
+    DAEMON_TOKEN_FILE: join(state, '.daemon-token'),
+    PLUGIN_KEY_FILE: join(state, 'plugin-key'),
+    REST_TOKEN_FILE: join(state, 'rest-token'),
+    AUDIT_LOG_PATH: join(state, 'audit.log'),
+    PLUGIN_INSTALL_DIR: join(state, 'plugin'),
+    DAEMON_IDLE_TIMEOUT: '250',
+  };
+
+  try {
+    const first = await invokeConnect(env);
+    assert.equal(first.code, 0);
+    const firstPid = Number(readFileSync(pidFile, 'utf8').trim());
+    await waitForProcessExit(firstPid);
+
+    const recovered = await invokeConnect(env);
+    assert.equal(recovered.code, 0);
+    assert.match(recovered.stdout, /Daemon running in Safe Mode/);
+    const secondPid = Number(readFileSync(pidFile, 'utf8').trim());
+    assert.notEqual(secondPid, firstPid, 'idle recovery must spawn a fresh daemon process');
+  } finally {
     if (existsSync(pidFile)) {
       const pid = Number(readFileSync(pidFile, 'utf8').trim());
       if (Number.isInteger(pid) && pid > 1) {

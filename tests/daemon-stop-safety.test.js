@@ -39,7 +39,7 @@ function isAlive(pid) {
 async function stopFromIsolatedCli(state, port) {
   const script = `
     const { stopDaemon } = await import('./engine/src/lib/cli-core.js');
-    stopDaemon();
+    await stopDaemon();
   `;
   await execFileAsync(process.execPath, ['--input-type=module', '-e', script], {
     cwd: ROOT,

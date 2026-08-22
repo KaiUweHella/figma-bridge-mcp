@@ -167,7 +167,7 @@ create
 `;
 
     try {
-      const result = evalPrint(code, { silent: true });
+      const result = await evalPrint(code, { silent: true });
       spinnerSucceed(spinner, 'Image created from URL');
       if (result) console.log(chalk.gray(result.trim()));
     } catch (e) {
@@ -552,7 +552,7 @@ else if (sel.length === 1) {
   'Component created from ' + sel.length + ' elements: ' + comp.name;
 }
 `;
-    evalPrint(code);
+    await evalPrint(code);
   });
 
 create
@@ -571,7 +571,7 @@ else {
   'Grouped ' + sel.length + ' elements';
 }
 `;
-    evalPrint(code);
+    await evalPrint(code);
   });
 
 create

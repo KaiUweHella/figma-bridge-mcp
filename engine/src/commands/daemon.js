@@ -2,13 +2,12 @@
 import chalk from 'chalk';
 import { readFileSync } from 'fs';
 import { getPortPid } from '../platform.js';
-import { signRequest } from '../lib/daemon-auth.js';
 import {
   program,
   DAEMON_PID_FILE,
   getDaemonPort,
   daemonExec,
-  getDaemonToken,
+  daemonReconnect,
   getTokenStatus,
   isDaemonRunning,
   startDaemon,
@@ -25,8 +24,8 @@ daemon
   .command('status')
   .description('Check if daemon is running')
   .option('--debug', 'Show detailed token and connection info')
-  .action((options) => {
-    const details = isDaemonRunning(true);
+  .action(async (options) => {
+    const details = await isDaemonRunning(true);
     const tokenStatus = getTokenStatus();
 
     if (options.debug) {
@@ -91,7 +90,7 @@ daemon
   .description('Start the daemon manually')
   .option('--force', 'Force restart even if already running')
   .action(async (options) => {
-    const details = isDaemonRunning(true);
+    const details = await isDaemonRunning(true);
 
     if (details.running && !options.force) {
       console.log(chalk.green('✓ Daemon already running'));
@@ -104,10 +103,10 @@ daemon
     }
 
     console.log(chalk.blue('Starting daemon...'));
-    startDaemon(options.force, 'auto');
+    await startDaemon(options.force, 'auto');
     await new Promise(r => setTimeout(r, 1500));
 
-    const newDetails = isDaemonRunning(true);
+    const newDetails = await isDaemonRunning(true);
     if (newDetails.running) {
       console.log(chalk.green('✓ Daemon started on port ' + getDaemonPort()));
     } else if (newDetails.authFailed) {
@@ -122,9 +121,9 @@ daemon
 daemon
   .command('stop')
   .description('Stop the daemon')
-  .action(() => {
+  .action(async () => {
     console.log(chalk.blue('Stopping daemon...'));
-    stopDaemon();
+    await stopDaemon();
     console.log(chalk.green('✓ Daemon stopped'));
   });
 
@@ -134,10 +133,10 @@ daemon
   .action(async () => {
     console.log(chalk.blue('Restarting daemon...'));
     // Use forceRestart=true to ensure clean restart with new token
-    startDaemon(true, 'auto');
+    await startDaemon(true, 'auto');
     await new Promise(r => setTimeout(r, 1500));
 
-    const details = isDaemonRunning(true);
+    const details = await isDaemonRunning(true);
     if (details.running) {
       console.log(chalk.green('✓ Daemon restarted with fresh token'));
     } else if (details.authFailed) {
@@ -153,18 +152,16 @@ daemon
   .command('reconnect')
   .description('Reconnect to Figma (use if connection is stale)')
   .action(async () => {
-    if (!isDaemonRunning()) {
+    if (!(await isDaemonRunning())) {
       console.log(chalk.yellow('○ Daemon is not running'));
       console.log(chalk.gray('  Run "node src/index.js connect" first'));
       return;
     }
     console.log(chalk.blue('Reconnecting to Figma...'));
     try {
-      const reconnToken = getDaemonToken();
-      // Signed request — the session token itself never crosses the wire.
-      const reconnHeaders = reconnToken ? signRequest(reconnToken, 'GET', '/reconnect', '') : {};
-      const response = await fetch(`http://127.0.0.1:${getDaemonPort()}/reconnect`, { headers: reconnHeaders });
-      const result = await response.json();
+      const response = await daemonReconnect();
+      const result = response.data || {};
+      if (!response.ok) throw new Error(result.error || `Daemon answered HTTP ${response.status}`);
       if (result.error) {
         console.log(chalk.red('✗ Reconnect failed: ' + result.error));
       } else if (result.hadPlugin) {
@@ -188,7 +185,7 @@ daemon
     console.log(chalk.bold('\n🔍 Daemon Diagnostics\n'));
 
     const tokenStatus = getTokenStatus();
-    const details = isDaemonRunning(true);
+    const details = await isDaemonRunning(true);
 
     // Step 1: Check token file
     console.log(chalk.bold('1. Token File'));
