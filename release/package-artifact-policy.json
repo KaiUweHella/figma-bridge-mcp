@@ -22,6 +22,7 @@
     "engine/src/code-import/css.js",
     "engine/src/code-import/index.js",
     "engine/src/code-import/storybook.js",
+    "engine/src/code-import/storybook-remote.js",
     "engine/src/code-import/tailwind.js",
     "engine/src/code-import/tailwind-static-parser.js",
     "engine/src/code-import/tailwind-static-worker.js",

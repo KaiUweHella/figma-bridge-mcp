@@ -109,7 +109,10 @@ kit
     results.push(inventory);
 
     if (options.storybook) {
-      results.push(await step(`figma-map.json — matched against ${options.storybook}`,
+      const storybookLabel = /^https?:\/\//i.test(options.storybook)
+        ? 'figma-map.json — matched against approved remote Storybook'
+        : 'figma-map.json — matched against local Storybook';
+      results.push(await step(storybookLabel,
         ['map', 'storybook', options.storybook, '-o', mapFile], {
           optional: true, globals, workspaceRoots,
         }));

@@ -69,6 +69,10 @@ _Avoid_: agent prompt, context dump
 The data-only projection of a `tailwind.config.*` file into the bounded theme facts used by token import. It recognizes static JS/CJS/MJS/TS object forms without resolving imports or executing plugins, functions or expressions. Irrelevant configuration fields are discarded; executable token-bearing theme values stop with a CSS/W3C migration path.
 _Avoid_: config loader, JavaScript sandbox
 
+**Remote Storybook Policy**:
+The exact-origin capability that authorizes one Storybook index read before any host network access. It revalidates redirects and every resolved address, pins the connection to an accepted address, preserves the approved HTTP/TLS identity, and owns deadlines plus response limits. Conventional localhost origins work without configuration; other public or private origins require separate explicit policy.
+_Avoid_: URL allowlist, fetch helper, SSRF filter
+
 **Semantic Render Plan**:
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
 _Avoid_: JSX tree, generated code, render payload

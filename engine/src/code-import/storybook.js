@@ -4,6 +4,8 @@
  * (field: `entries`). Groups by `title`, skips docs entries, derives component
  * name from the last `/` segment and category from the rest.
  */
+import { fetchRemoteStorybookIndex, STORYBOOK_REMOTE_LIMITS } from './storybook-remote.js';
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 
 /**
  * parseStorybookIndex(jsonText) → { tokens, meta }
@@ -66,38 +68,21 @@ export function parseStorybookIndex(jsonText) {
 
 /**
  * fetchStorybookIndex(urlOrDir) → Promise<string>
- * URL: fetches /index.json (5s timeout), falls back to /stories.json on 404.
+ * URL: applies the Remote Storybook Policy, fetches /index.json, and falls
+ * back to /stories.json on 404.
  * Directory: reads <dir>/index.json or <dir>/storybook-static/index.json.
  * Returns raw JSON text.
  */
 export async function fetchStorybookIndex(urlOrDir) {
-  if (/^https?:\/\//.test(urlOrDir)) {
-    return fetchFromUrl(urlOrDir);
+  if (/^https?:\/\//i.test(urlOrDir)) {
+    return fetchRemoteStorybookIndex(urlOrDir, {
+      limits: {
+        ...STORYBOOK_REMOTE_LIMITS,
+        maxBytes: workspaceIO().limits.jsonBytes,
+      },
+    });
   }
   return readFromDir(urlOrDir);
-}
-
-async function fetchFromUrl(baseUrl) {
-  const base = baseUrl.replace(/\/$/, '');
-
-  const tryFetch = async (url) => {
-    let res;
-    try {
-      res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    } catch (err) {
-      throw new Error(`Could not reach Storybook at ${baseUrl} — is it running? (${err.message})`);
-    }
-    return res;
-  };
-
-  let res = await tryFetch(`${base}/index.json`);
-  if (res.status === 404) {
-    res = await tryFetch(`${base}/stories.json`);
-  }
-  if (!res.ok) {
-    throw new Error(`Could not reach Storybook at ${baseUrl} — server returned ${res.status}`);
-  }
-  return readBoundedResponseText(res, workspaceIO().limits.jsonBytes);
 }
 
 export async function readBoundedResponseText(res, limit) {
@@ -136,8 +121,7 @@ async function readFromDir(dir) {
   }
 
   throw new Error(
-    `Could not find Storybook index in directory "${dir}". Tried:\n` +
-    candidates.map(c => `  ${c}`).join('\n')
+    'Could not find a Storybook index in the approved directory. ' +
+    'Expected index.json or storybook-static/index.json.',
   );
 }
-import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';

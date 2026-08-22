@@ -190,6 +190,39 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-REMOTE-STORYBOOK",
+    [
+      [
+        "engine/tests/storybook-remote.test.js",
+        "remote Storybook policy keeps conventional localhost zero-config and canonicalizes numeric aliases",
+      ],
+      [
+        "engine/tests/storybook-remote.test.js",
+        "remote Storybook rejects public-origin DNS rebinding and always-forbidden network ranges",
+      ],
+      [
+        "engine/tests/storybook-remote.test.js",
+        "remote Storybook pins the validated address and ignores proxy environment variables",
+      ],
+      [
+        "engine/tests/storybook-remote.test.js",
+        "remote Storybook revalidates every redirect and never contacts an unapproved target",
+      ],
+      [
+        "engine/tests/storybook-remote.test.js",
+        "remote Storybook enforces connect, header, body, and total deadlines",
+      ],
+      [
+        "engine/tests/storybook-remote.test.js",
+        "local Storybook directory imports keep working through Workspace I/O",
+      ],
+      [
+        "tests/capability-catalog.test.js",
+        "each capability supplies a closed audit projection without user payloads or identities",
+      ],
+    ],
+  ],
+  [
     "SEC-PUBLIC-SAFETY",
     [
       [

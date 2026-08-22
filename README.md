@@ -840,6 +840,21 @@ To link them to their code mirror:
 figma_run ["map", "storybook", "http://localhost:6006"]
 ```
 
+The conventional local origins `localhost:6006`, `127.0.0.1:6006`, and
+`[::1]:6006` work without configuration. Approve an exact hosted HTTPS origin
+or an intentional private-network origin before using it:
+
+```bash
+export FIGMA_BRIDGE_STORYBOOK_ORIGINS=https://storybook.example.com
+export FIGMA_BRIDGE_STORYBOOK_PRIVATE_ORIGINS=http://storybook.internal:6006
+```
+
+Configured values are exact origins, not wildcard URLs. A Storybook base path
+such as `https://storybook.example.com/design-system` may then be passed to the
+command. Every redirect must lead to another approved origin. You can also pass
+a local Storybook directory; those reads stay inside the configured workspace
+roots.
+
 This matches the file's components against the Storybook index by normalized
 name and writes **`figma-map.json`** into your project: Figma key ↔ story id /
 import path, with a `confidence` per match plus both unmatched lists. Edit
@@ -1503,9 +1518,9 @@ Node's `crypto` so the two implementations cannot drift apart.
 - **Non-localhost network actions are few and explicit**: `api setup`
   (one-time git clone of the Figma Plugin API docs mirror, for
   `figma_reference`; `api gap` instead measures against the installed official
-  `@figma/plugin-typings` package), the Storybook index fetch of `import`/`map
-storybook`
-  (the URL/directory you pass in), and — only when you opt into the REST
+  `@figma/plugin-typings` package), the explicitly approved Storybook origin
+  used by `import`/`map storybook` (or the local directory you pass), and — only
+  when you opt into the REST
   add-on — calls to `api.figma.com`. Nothing else talks to the network — the
   upstream's iconify/unsplash/remove.bg/screenshot-url integrations were
   removed entirely; `<Icon>` in `figma_render` JSX renders as a named

@@ -22,7 +22,7 @@ import { workspaceIO } from '../lib/workspace-io.js';
  */
 export function detectSourceType(source, contentSample = '') {
   // URLs → storybook
-  if (/^https?:\/\//.test(source)) return 'storybook';
+  if (/^https?:\/\//i.test(source)) return 'storybook';
 
   const base = basename(source);
 
@@ -164,7 +164,7 @@ export async function convert(source, { type } = {}) {
   let resolvedType = type;
   if (!resolvedType) {
     let sample = '';
-    if (!/^https?:\/\//.test(source)) {
+    if (!/^https?:\/\//i.test(source)) {
       try {
         sample = workspaceIO().readText(source, { role: 'import-source' }).slice(0, 2048);
       } catch { /* file not readable — detectSourceType will figure it out */ }
@@ -191,7 +191,7 @@ export async function convert(source, { type } = {}) {
     }
     case 'storybook': {
       let content;
-      if (/^https?:\/\//.test(source)) {
+      if (/^https?:\/\//i.test(source)) {
         content = await fetchStorybookIndex(source);
       } else {
         // Check if it's a directory
