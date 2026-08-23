@@ -11,6 +11,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   Requests now bind one handshake-signed connection epoch, file or draft
   session, expected editor and operation capability through the terminal
   response; Audit and public errors expose only the closed dispatch state.
+- Added bounded, deadline-aware Plugin Write Lanes per resolved document
+  session. Same-file writes no longer dispatch concurrently, different files
+  remain independent, and unknown outcomes stay quarantined across UI
+  reconnect until the exact settlement receipt is replayed.
 
 - Added Safe-Mode Commands for duplicating cloneable canvas nodes (including
   Sections), reparenting nodes with explicit child order, setting instance
@@ -59,6 +63,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   editors before mutation. Reconnected UI results cannot settle newer work,
   multi-window metadata stays pinned to the connection selected at dispatch,
   and Design-only Semantic Render Plans stop in FigJam, Slides and Dev Mode.
+- Queue expiry and HTTP cancellation before Plugin dispatch now produce a
+  proven non-dispatch without reordering other callers. Read-after-write
+  selection can explicitly wait behind prior writes without slowing ordinary
+  inspection or changing existing Code-to-Figma/Figma-to-Code time budgets.
 
 - Mixed-Figma-MCP sessions no longer leave Bridge results ambiguous. Every
   result carries the stable `figma-bridge-mcp` identity, every error states

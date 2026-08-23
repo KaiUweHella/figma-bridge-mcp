@@ -69,6 +69,12 @@ test('plugin protocol has explicit pre-auth and authenticated message contracts'
   assert.equal(validatePluginMessage({
     type: 'result', id: 1, result: 'ok', dispatchReceipt: COMPLETED_RECEIPT,
   }, { authenticated: true }), null);
+  assert.equal(validatePluginMessage({
+    type: 'lane-settled', dispatchReceipt: COMPLETED_RECEIPT,
+  }, { authenticated: true }), null);
+  assert.match(validatePluginMessage({
+    type: 'lane-settled', dispatchReceipt: PREPARED_RECEIPT,
+  }, { authenticated: true }), /terminal state/);
   assert.equal(validatePluginMessage({ type: 'selection', selection: { nodes: [] } }, { authenticated: true }), null);
   assert.match(validatePluginMessage({ type: 'batch-result', id: 1 }, { authenticated: true }), /results/);
   assert.match(validatePluginMessage({ type: 'surprise' }, { authenticated: true }), /unknown/);

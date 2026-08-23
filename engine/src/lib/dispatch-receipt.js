@@ -5,6 +5,7 @@
 // BEGIN DISPATCH RECEIPT RUNTIME
 export const DISPATCH_RECEIPT_SCHEMA = 'figma-bridge/dispatch-receipt';
 export const DISPATCH_RECEIPT_CAPABILITY = 'dispatch-receipt-v1';
+export const PLUGIN_WRITE_LANE_CAPABILITY = 'write-lane-v1';
 export const DISPATCH_OPERATION_CAPABILITIES = Object.freeze({
   eval: 'eval-v1',
   'render-plan': 'render-plan-v1',
@@ -18,6 +19,7 @@ export const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
   'reload-ui-v1',
   'render-plan-batch-v1',
   'render-plan-v1',
+  PLUGIN_WRITE_LANE_CAPABILITY,
 ]);
 
 const DISPATCH_RECEIPT_FIELDS = Object.freeze([

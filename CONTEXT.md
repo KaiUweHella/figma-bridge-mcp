@@ -49,6 +49,10 @@ _Avoid_: error string, HTTP failure, retry hint
 The bounded, versioned proof that one authenticated Plugin execution belongs to one request, connection epoch, file or draft session, expected editor and advertised operation capability. The Bridge Daemon prepares it from the selected connection; the Figma Plugin validates it immediately before execution and echoes the same identity with one terminal state. Receipt identity remains internal; Audit and user projections expose only the closed terminal state.
 _Avoid_: message id, current-file check, socket metadata
 
+**Plugin Write Lane**:
+The bounded, deadline-aware serialization boundary for mutations against one resolved Plugin document session. Queue expiry and cancellation before start are not dispatched; an unknown dispatched outcome quarantines only that target until the exact Dispatch Receipt proves the Plugin operation has stopped or an explicit recovery proves the old runtime stopped. Other document sessions remain independent.
+_Avoid_: global mutex, eval chain, request timeout
+
 **Runtime Soak Report**:
 The closed maintainer evidence from a sustained two-file Bridge session. It records bounded latency, recovery outcomes, cross-target mismatches, uncertain-write residue and cleanup state using target aliases only; Figma file keys, document names, node names, argv and error prose never enter the report.
 _Avoid_: debug log, connection dump, live file transcript

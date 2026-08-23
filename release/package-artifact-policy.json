@@ -118,6 +118,7 @@
     "engine/src/lib/paint-css.js",
     "engine/src/lib/plugin-handshake.js",
     "engine/src/lib/plugin-version.js",
+    "engine/src/lib/plugin-write-lane.js",
     "engine/src/lib/protocol-contract.js",
     "engine/src/lib/prototype-management.js",
     "engine/src/lib/raster-optimize.js",

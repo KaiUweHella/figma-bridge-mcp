@@ -134,6 +134,14 @@ test('execution deadlines cross the UI boundary for every write protocol', () =>
   );
 });
 
+test('Plugin main replays exact lane settlement after an authenticated UI reconnect', () => {
+  assert.match(UI, /'write-lane-v1'/);
+  assert.match(UI, /msg\.type === 'lane-settled'[\s\S]*?ws\.send\(JSON\.stringify\(\{ type: 'lane-settled', dispatchReceipt: msg\.dispatchReceipt \}\)\)/);
+  assert.match(PLUGIN_CODE, /function postLaneSettled\(msg, state, reason = null\)/);
+  assert.match(PLUGIN_CODE, /replayableLaneSettlement = dispatchReceipt/);
+  assert.match(PLUGIN_CODE, /msg\.type === 'connected'[\s\S]*?if \(replayableLaneSettlement\)/);
+});
+
 test('old daemons intentionally retain the bounded 22s Plugin compatibility budget', () => {
   const start = PLUGIN_CODE.indexOf('function remainingExecutionBudget(');
   const end = PLUGIN_CODE.indexOf('// Generated runtime:', start);

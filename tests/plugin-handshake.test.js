@@ -178,6 +178,7 @@ test('plugin advertises structured rendering only after the authenticated hello'
     'reload-ui-v1',
     'render-plan-batch-v1',
     'render-plan-v1',
+    'write-lane-v1',
   ]);
   assert.match(UI, /capabilities: PLUGIN_CAPABILITIES/);
   assert.ok(UI.indexOf('capabilities: PLUGIN_CAPABILITIES') > UI.indexOf("type: 'hello'"));

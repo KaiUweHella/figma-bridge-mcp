@@ -97,9 +97,9 @@ test('daemon client signs the stable selection path while targeting through the 
     readToken: () => 'token', getPort: () => 3457,
     fetchImpl: async (url, options) => { seen = { url, options }; return response(200, { selection: [] }); },
   });
-  const result = await client.selection({ fileKey: 'FILE A' });
+  const result = await client.selection({ fileKey: 'FILE A', readAfterWrite: true });
   assert.equal(result.data.selection.length, 0);
-  assert.equal(seen.url, 'http://127.0.0.1:3457/selection?fileKey=FILE%20A');
+  assert.equal(seen.url, 'http://127.0.0.1:3457/selection?fileKey=FILE+A&consistency=after-write');
   assert.ok(seen.options.headers['X-Daemon-Auth']);
 });
 

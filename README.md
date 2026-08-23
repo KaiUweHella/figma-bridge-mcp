@@ -352,6 +352,12 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   advertised operation capability. The Plugin validates it immediately before
   execution and echoes the same identity with a terminal state; receipt
   identities never enter Audit or user-facing output.
+- One deadline-aware **Plugin Write Lane** serializes conservative writes per
+  resolved document session before dispatch. Different files continue in
+  parallel; queued expiry or caller cancellation never reaches Figma, while an
+  unknown dispatched outcome quarantines only its target until the Plugin main
+  thread replays the exact settlement receipt. Aggregate queue state is visible
+  without exposing file, connection or receipt identities.
 - Runtime protocol validators reject malformed HTTP execution payloads and
   plugin frames at the transport boundary. TypeScript checks the JavaScript
   seams (including the Figma plugin), while deterministic context, payload and
@@ -1510,6 +1516,15 @@ as the other. Five properties follow:
 - **The connection epoch is authenticated.** Every Dispatch Receipt uses the
   epoch signed by the daemon ack, so a result retained by the Plugin main thread
   across an iframe reconnect cannot impersonate a request from the new socket.
+- **Write-lane settlement survives an iframe reconnect.** The Plugin main
+  thread keeps awaiting an uncancellable Figma operation after its caller times
+  out, then sends `lane-settled` with the exact receipt. If the UI socket was
+  disconnected, the same main thread replays that proof after reauthentication.
+  Reconnect alone never releases quarantine; a new runtime lacks the random
+  request identity. If a runtime was forcibly terminated before it could
+  report settlement, recovery requires first stopping that old Plugin runtime,
+  then explicitly restarting the Bridge Daemon—closing only the socket is not
+  sufficient proof.
 
 There is no fallback to an older handshake protocol. `figma_connect` refreshes the installed plugin
 files on every run. Figma may continue using an application-cached plugin

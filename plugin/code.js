@@ -21,6 +21,7 @@ const DESIGN_ENTITY_STORAGE = 'figma-bridge-design-entity';
 let documentRevision = 0;
 let documentRevisionAvailable = false;
 let activeConnectionEpoch = null;
+let replayableLaneSettlement = null;
 // dynamic-page plugins must load all pages before subscribing to the
 // document-wide event. Initialize it only for Commands that explicitly need
 // a multi-roundtrip revision proof: Figma warns that loading every page can be
@@ -56,6 +57,7 @@ function revisionMetadata(before) {
 // BEGIN DISPATCH RECEIPT RUNTIME
 const DISPATCH_RECEIPT_SCHEMA = 'figma-bridge/dispatch-receipt';
 const DISPATCH_RECEIPT_CAPABILITY = 'dispatch-receipt-v1';
+const PLUGIN_WRITE_LANE_CAPABILITY = 'write-lane-v1';
 const DISPATCH_OPERATION_CAPABILITIES = Object.freeze({
   eval: 'eval-v1',
   'render-plan': 'render-plan-v1',
@@ -69,6 +71,7 @@ const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
   'reload-ui-v1',
   'render-plan-batch-v1',
   'render-plan-v1',
+  PLUGIN_WRITE_LANE_CAPABILITY,
 ]);
 
 const DISPATCH_RECEIPT_FIELDS = Object.freeze([
@@ -284,6 +287,14 @@ function postDispatchResult(msg, state, reason, fields = {}) {
   try { dispatchReceipt = terminalDispatchReceipt(msg.dispatchReceipt, state, reason); }
   catch (error) {}
   figma.ui.postMessage({ type: 'result', id: msg.id, ...fields, dispatchReceipt });
+}
+
+function postLaneSettled(msg, state, reason = null) {
+  let dispatchReceipt = msg.dispatchReceipt;
+  try { dispatchReceipt = terminalDispatchReceipt(msg.dispatchReceipt, state, reason); }
+  catch (error) { return; }
+  replayableLaneSettlement = dispatchReceipt;
+  figma.ui.postMessage({ type: 'lane-settled', dispatchReceipt });
 }
 
 // Visible UI: a compact always-on status/kill-switch shell. Setup, activity
@@ -2539,6 +2550,7 @@ figma.ui.onmessage = async (msg) => {
             error: 'Execution deadline elapsed before plugin start',
             metadata: revisionMetadata(revisionBefore),
           });
+          postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
         }
         let timeoutPosted = false;
@@ -2555,11 +2567,17 @@ figma.ui.onmessage = async (msg) => {
             metadata: revisionMetadata(revisionBefore),
           });
         }
+        postLaneSettled(
+          msg,
+          timeoutPosted || execution.timedOut ? 'unknown' : 'completed',
+          timeoutPosted || execution.timedOut ? 'execution-timeout' : null,
+        );
       } catch (error) {
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
           metadata: revisionMetadata(revisionBefore),
         });
+        postLaneSettled(msg, 'failed', 'execution-error');
       }
     });
     return;
@@ -2577,6 +2595,7 @@ figma.ui.onmessage = async (msg) => {
             error: 'Execution deadline elapsed before plugin start',
             metadata: revisionMetadata(revisionBefore),
           });
+          postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
         }
         const result = await executeStructuredRenderPlan(figma, plan);
@@ -2584,11 +2603,13 @@ figma.ui.onmessage = async (msg) => {
           result,
           metadata: revisionMetadata(revisionBefore),
         });
+        postLaneSettled(msg, 'completed');
       } catch (error) {
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
           metadata: revisionMetadata(revisionBefore),
         });
+        postLaneSettled(msg, 'failed', 'execution-error');
       }
     });
     return;
@@ -2606,6 +2627,7 @@ figma.ui.onmessage = async (msg) => {
             error: 'Execution deadline elapsed before plugin start',
             metadata: revisionMetadata(revisionBefore),
           });
+          postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
         }
         const result = await executeStructuredRenderPlanBatch(figma, plans, options || {});
@@ -2613,11 +2635,13 @@ figma.ui.onmessage = async (msg) => {
           result,
           metadata: revisionMetadata(revisionBefore),
         });
+        postLaneSettled(msg, 'completed');
       } catch (error) {
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
           metadata: revisionMetadata(revisionBefore),
         });
+        postLaneSettled(msg, 'failed', 'execution-error');
       }
     });
     return;
@@ -2693,6 +2717,9 @@ figma.ui.onmessage = async (msg) => {
     );
     // Seed the daemon with the current selection right away.
     pushSelection();
+    if (replayableLaneSettlement) {
+      figma.ui.postMessage({ type: 'lane-settled', dispatchReceipt: replayableLaneSettlement });
+    }
   }
 
   if (msg.type === 'disconnected') {

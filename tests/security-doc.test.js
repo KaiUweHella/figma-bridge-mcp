@@ -125,6 +125,39 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-WRITE-LANE",
+    [
+      [
+        "engine/tests/plugin-write-lane.test.js",
+        "same-session writes are ordered while different sessions progress independently",
+      ],
+      [
+        "engine/tests/plugin-write-lane.test.js",
+        "queued deadline and cancellation remove only their own command",
+      ],
+      [
+        "engine/tests/plugin-write-lane.test.js",
+        "unknown dispatch quarantines until the exact settlement token arrives",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "Plugin write lanes order one file while different files progress independently",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "queued deadline and HTTP cancellation never reach the Plugin write boundary",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "unknown write quarantine survives reconnect until the exact lane settlement replays",
+      ],
+      [
+        "tests/plugin-sync.test.js",
+        "Plugin main replays exact lane settlement after an authenticated UI reconnect",
+      ],
+    ],
+  ],
+  [
     "SEC-COMMAND",
     [
       [

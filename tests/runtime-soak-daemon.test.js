@@ -8,7 +8,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createDaemonClient } from "../engine/src/lib/daemon-client.js";
-import { retrySafeRead } from "../engine/src/lib/safe-read-retry.js";
 import {
   HANDSHAKE_PROTO,
   makeNonce,
@@ -29,6 +28,7 @@ const PLUGIN_CAPABILITIES = [
   "reload-ui-v1",
   "render-plan-batch-v1",
   "render-plan-v1",
+  "write-lane-v1",
 ];
 
 async function freePort() {
@@ -118,7 +118,7 @@ async function waitForConnections(client, expected, timeoutMs = 3000) {
 }
 
 test(
-  "real Daemon soak keeps targets isolated and retries only the disconnected read",
+  "real Daemon soak keeps targets isolated and never replays disconnected opaque eval",
   { timeout: 20_000 },
   async () => {
     const state = mkdtempSync(join(tmpdir(), "figma-bridge-runtime-soak-"));
@@ -146,7 +146,10 @@ test(
     });
     const sockets = [];
     let disconnectNextRead = true;
+    let readDispatches = 0;
     let writeMutations = 0;
+    let readSettlement = null;
+    let writeSettlement = null;
 
     const handler = (identity) => (ws, message) => {
       if (
@@ -155,11 +158,22 @@ test(
         disconnectNextRead
       ) {
         disconnectNextRead = false;
+        readDispatches++;
+        readSettlement = terminalDispatchReceipt(
+          message.dispatchReceipt,
+          "unknown",
+          "execution-timeout"
+        );
         ws.close();
         return;
       }
       if (message.code === "write-disconnect" && identity === "B") {
         writeMutations++;
+        writeSettlement = terminalDispatchReceipt(
+          message.dispatchReceipt,
+          "unknown",
+          "execution-timeout"
+        );
         ws.close();
         return;
       }
@@ -206,25 +220,34 @@ test(
         "sustained explicit routing must stay within its request deadline"
       );
 
-      let readAttempts = 0;
-      const recoveredRead = await retrySafeRead(
-        async () => {
-          readAttempts++;
-          return client.evaluate("read-disconnect", {
+      await assert.rejects(
+        () =>
+          client.evaluate("read-disconnect", {
             fileKey: FILE_A,
             timeoutMs: 2000,
             expectedEditor: "figma",
-          });
-        },
-        {
-          waitUntilReady: async () => {
-            sockets.push(await openPlugin(port, key, FILE_A, handler("A")));
-            return waitForConnections(client, [FILE_A, FILE_B]);
-          },
-        }
+          }),
+        (error) =>
+          error.kind === "plugin-unavailable" &&
+          error.outcome === "unknown-after-dispatch"
       );
-      assert.deepEqual(recoveredRead, { identity: "A" });
-      assert.equal(readAttempts, 2, "a known-safe read recovers exactly once");
+      assert.equal(readDispatches, 1, "an opaque eval is never replayed after disconnect");
+      const recoveredA = await openPlugin(port, key, FILE_A, handler("A"));
+      sockets.push(recoveredA);
+      assert.equal(await waitForConnections(client, [FILE_A, FILE_B]), true);
+      recoveredA.send(
+        JSON.stringify({ type: "lane-settled", dispatchReceipt: readSettlement })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.deepEqual(
+        await client.evaluate("read-disconnect", {
+          fileKey: FILE_A,
+          timeoutMs: 2000,
+          expectedEditor: "figma",
+        }),
+        { identity: "A" },
+        "a deliberate new read may run after exact settlement"
+      );
 
       await assert.rejects(
         () =>
@@ -242,8 +265,13 @@ test(
         1,
         "an uncertain write is never automatically repeated"
       );
-      sockets.push(await openPlugin(port, key, FILE_B, handler("B")));
+      const recoveredB = await openPlugin(port, key, FILE_B, handler("B"));
+      sockets.push(recoveredB);
       assert.equal(await waitForConnections(client, [FILE_A, FILE_B]), true);
+      recoveredB.send(
+        JSON.stringify({ type: "lane-settled", dispatchReceipt: writeSettlement })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 25));
       assert.equal(
         await client.evaluate("write-count", {
           fileKey: FILE_B,

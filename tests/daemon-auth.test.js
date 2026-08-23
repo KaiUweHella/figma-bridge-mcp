@@ -113,6 +113,7 @@ const PLUGIN_CAPABILITIES = Object.freeze([
   'reload-ui-v1',
   'render-plan-batch-v1',
   'render-plan-v1',
+  'write-lane-v1',
 ]);
 
 function pluginResult(message, {
@@ -702,6 +703,16 @@ function pushSelection(ws, { fileKey, fileName = 'Test File', page = 'Page 1', n
   return new Promise((r) => setTimeout(r, 150)); // let the daemon process it
 }
 
+function postExec(payload, { signal } = {}) {
+  const body = JSON.stringify(payload);
+  return fetch(`http://127.0.0.1:${PORT}/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+    body,
+    ...(signal ? { signal } : {}),
+  });
+}
+
 test('/exec binds revision metadata to the authenticated daemon connection', async () => {
   await withAuthedWs(async (ws) => {
     await pushSelection(ws, { fileKey: 'REV_FILE' });
@@ -945,7 +956,8 @@ test('/exec refuses a stale Plugin without deadline-aware write-lane capability'
     await handshake(ws, {
       version: '3.3.6',
       capabilities: [
-        'dispatch-receipt-v1', 'eval-v1', 'render-plan-batch-v1', 'render-plan-v1',
+        'dispatch-receipt-v1', 'eval-v1', 'execution-deadline-v1',
+        'render-plan-batch-v1', 'render-plan-v1',
       ],
     });
     await pushSelection(ws, { fileKey: 'STALE_DEADLINE_PLUGIN' });
@@ -969,7 +981,7 @@ test('/exec refuses a stale Plugin without deadline-aware write-lane capability'
       phase: 'plugin-dispatch',
       outcome: 'not-dispatched',
     });
-    assert.match(payload.error, /execution-deadline-v1/);
+    assert.match(payload.error, /write-lane-v1/);
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(dispatched, false);
   } finally {
@@ -1358,6 +1370,191 @@ test('/reconnect: reloads a responsive plugin UI instead of dropping its socket'
   assert.equal(recovery.body.reloaded, 1);
   assert.equal(recovery.body.forcedClosed, 0);
   assert.equal(recovery.readyState, WebSocket.OPEN);
+});
+
+test('Plugin write lanes order one file while different files progress independently', async () => {
+  const wsA = openWs();
+  const wsB = openWs();
+  try {
+    await Promise.all([handshake(wsA), handshake(wsB)]);
+    await Promise.all([
+      pushSelection(wsA, { fileKey: 'LANE_ORDER_A' }),
+      pushSelection(wsB, { fileKey: 'LANE_ORDER_B' }),
+    ]);
+    const events = [];
+    let firstA = null;
+    let secondADispatched = false;
+    let resolveFirstA;
+    let resolveSecondA;
+    let resolveB;
+    const firstASeen = new Promise((resolve) => { resolveFirstA = resolve; });
+    const secondASeen = new Promise((resolve) => { resolveSecondA = resolve; });
+    const bSeen = new Promise((resolve) => { resolveB = resolve; });
+    wsA.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'eval') return;
+      if (message.code === 'laneA1()') {
+        events.push('A1');
+        firstA = message;
+        resolveFirstA();
+      } else if (message.code === 'laneA2()') {
+        events.push('A2');
+        secondADispatched = true;
+        wsA.send(JSON.stringify(pluginResult(message, { result: 'A2' })));
+        resolveSecondA();
+      }
+    });
+    wsB.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'eval' || message.code !== 'laneB1()') return;
+      events.push('B1');
+      wsB.send(JSON.stringify(pluginResult(message, { result: 'B1' })));
+      resolveB();
+    });
+
+    const first = postExec({
+      action: 'eval', code: 'laneA1()', fileKey: 'LANE_ORDER_A', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await firstASeen;
+    const second = postExec({
+      action: 'eval', code: 'laneA2()', fileKey: 'LANE_ORDER_A', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    const other = postExec({
+      action: 'eval', code: 'laneB1()', fileKey: 'LANE_ORDER_B', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await bSeen;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(secondADispatched, false, 'same-file write must remain behind the active dispatch');
+    wsA.send(JSON.stringify(pluginResult(firstA, { result: 'A1' })));
+    await secondASeen;
+    const responses = await Promise.all([first, second, other]);
+    assert.deepEqual(responses.map((response) => response.status), [200, 200, 200]);
+    assert.deepEqual(events, ['A1', 'B1', 'A2']);
+  } finally {
+    try { wsA.close(); } catch {}
+    try { wsB.close(); } catch {}
+  }
+});
+
+test('queued deadline and HTTP cancellation never reach the Plugin write boundary', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'LANE_CANCEL_FILE' });
+    let activeMessage = null;
+    const dispatchedCodes = [];
+    let resolveActive;
+    const activeSeen = new Promise((resolve) => { resolveActive = resolve; });
+    ws.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'eval') return;
+      dispatchedCodes.push(message.code);
+      if (message.code === 'activeWrite()') {
+        activeMessage = message;
+        resolveActive();
+      }
+    });
+
+    const active = postExec({
+      action: 'eval', code: 'activeWrite()', fileKey: 'LANE_CANCEL_FILE', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await activeSeen;
+    let consistentReadSettled = false;
+    const consistentRead = fetch(
+      `http://127.0.0.1:${PORT}/selection?fileKey=LANE_CANCEL_FILE&consistency=after-write`,
+      { headers: auth('GET', '/selection') },
+    ).then((response) => {
+      consistentReadSettled = true;
+      return response;
+    });
+    const expired = postExec({
+      action: 'eval', code: 'expiredWrite()', fileKey: 'LANE_CANCEL_FILE', expectedEditor: 'figma',
+      timeoutMs: 2000, deadlineAt: Date.now() + 40,
+    });
+    const controller = new AbortController();
+    const cancelled = postExec({
+      action: 'eval', code: 'cancelledWrite()', fileKey: 'LANE_CANCEL_FILE', expectedEditor: 'figma', timeoutMs: 2000,
+    }, { signal: controller.signal });
+    const cancelledResult = assert.rejects(cancelled, /abort/i);
+    setTimeout(() => controller.abort(), 20);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(consistentReadSettled, false, 'read-after-write selection must wait behind the active mutation');
+    await cancelledResult;
+    const expiredResponse = await expired;
+    assert.equal(expiredResponse.status, 500);
+    assertBridgeError(await expiredResponse.json(), {
+      kind: 'timeout', phase: 'plugin-dispatch', outcome: 'not-dispatched',
+    });
+    ws.send(JSON.stringify(pluginResult(activeMessage, { result: 'done' })));
+    assert.equal((await active).status, 200);
+    assert.equal((await consistentRead).status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(dispatchedCodes, ['activeWrite()']);
+  });
+});
+
+test('unknown write quarantine survives reconnect until the exact lane settlement replays', async () => {
+  const firstWs = openWs();
+  let unknownReceipt;
+  try {
+    await handshake(firstWs);
+    await pushSelection(firstWs, { fileKey: 'LANE_RECOVERY_FILE' });
+    let resolveFirst;
+    const firstSeen = new Promise((resolve) => { resolveFirst = resolve; });
+    firstWs.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'eval' || message.code !== 'uncertainWrite()') return;
+      unknownReceipt = terminalDispatchReceipt(message.dispatchReceipt, 'unknown', 'execution-timeout');
+      firstWs.send(JSON.stringify({
+        type: 'result', id: message.id, error: 'Execution timeout', dispatchReceipt: unknownReceipt,
+      }));
+      resolveFirst();
+    });
+    const firstResponsePromise = postExec({
+      action: 'eval', code: 'uncertainWrite()', fileKey: 'LANE_RECOVERY_FILE', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await firstSeen;
+    const firstResponse = await firstResponsePromise;
+    assert.equal(firstResponse.status, 500);
+    assert.equal((await firstResponse.json()).bridgeError.dispatchState, 'unknown');
+  } finally {
+    try { firstWs.close(); } catch {}
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const reconnect = openWs();
+  try {
+    await handshake(reconnect);
+    await pushSelection(reconnect, { fileKey: 'LANE_RECOVERY_FILE' });
+    let secondDispatched = false;
+    let resolveSecond;
+    const secondSeen = new Promise((resolve) => { resolveSecond = resolve; });
+    reconnect.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'eval' || message.code !== 'afterRecovery()') return;
+      secondDispatched = true;
+      reconnect.send(JSON.stringify(pluginResult(message, { result: 'recovered' })));
+      resolveSecond();
+    });
+    const secondResponsePromise = postExec({
+      action: 'eval', code: 'afterRecovery()', fileKey: 'LANE_RECOVERY_FILE', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(secondDispatched, false, 'reconnect alone must not clear an uncertain old runtime');
+
+    reconnect.send(JSON.stringify({
+      type: 'lane-settled',
+      dispatchReceipt: { ...unknownReceipt, requestId: '99999999-9999-4999-8999-999999999999' },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(secondDispatched, false, 'a different receipt cannot release quarantine');
+    reconnect.send(JSON.stringify({ type: 'lane-settled', dispatchReceipt: unknownReceipt }));
+    await secondSeen;
+    const secondResponse = await secondResponsePromise;
+    assert.equal(secondResponse.status, 200);
+    assert.equal((await secondResponse.json()).result, 'recovered');
+  } finally {
+    try { reconnect.close(); } catch {}
+  }
 });
 
 test('Daemon Client shutdown drains an in-flight execution before closing the Plugin socket', async () => {

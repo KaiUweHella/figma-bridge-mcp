@@ -52,6 +52,7 @@ import { PLUGIN_BUILD_VERSION, pluginUpdateAvailable } from './lib/plugin-versio
 import {
   DISPATCH_RECEIPT_CAPABILITY,
   KNOWN_PLUGIN_CAPABILITIES,
+  PLUGIN_WRITE_LANE_CAPABILITY,
   createPreparedDispatchReceipt,
   dispatchReceiptIdentityMatches,
   operationCapability,
@@ -60,6 +61,10 @@ import {
   BridgeDaemonError,
   bridgeDaemonErrorBody,
 } from './lib/daemon-error-envelope.js';
+import {
+  PluginWriteLaneError,
+  createPluginWriteLanes,
+} from './lib/plugin-write-lane.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -250,6 +255,9 @@ resetIdleTimer();
 const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, capabilities, pluginVersion, pluginUpdateAvailable, selection, connectedAt, lastResponseAt }
 let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
+const pluginWriteLanes = createPluginWriteLanes({
+  tokenMatches: dispatchReceiptIdentityMatches,
+});
 
 function openConns() {
   return [...conns.entries()].filter(([ws]) => ws.readyState === WebSocket.OPEN);
@@ -317,8 +325,58 @@ function resolveTarget(fileKey) {
   );
 }
 
-async function requestViaSocket(ws, action, data, timeoutMs = 25000, expectedEditor = null) {
+function pluginLaneKey(connection) {
+  if (!connection?.connectionId) throw new Error('Plugin lane identity is unavailable');
+  return connection.fileKey
+    ? `file-key\0${connection.fileKey}`
+    : `connection\0${connection.connectionId}`;
+}
+
+function pluginLaneKeyFromReceipt(receipt) {
+  return receipt?.target?.kind === 'file-key'
+    ? `file-key\0${receipt.target.value}`
+    : `connection\0${receipt?.target?.value || ''}`;
+}
+
+function snapshotPluginConnection(ws, expectedEditor = null) {
   const conn = conns.get(ws);
+  if (!conn) {
+    throw new BridgeDaemonError('Plugin connection is no longer available', {
+      kind: 'plugin-unavailable', phase: 'plugin-dispatch', outcome: 'not-dispatched',
+    });
+  }
+  return Object.freeze({
+    connectionId: conn.connectionId,
+    fileKey: conn.fileKey,
+    editorType: conn.editorType,
+    plannedEditor: expectedEditor || conn.editorType,
+    capabilities: Object.freeze([...(conn.capabilities || [])]),
+    pluginVersion: conn.pluginVersion,
+  });
+}
+
+async function requestViaSocket(
+  ws,
+  action,
+  data,
+  timeoutMs = 25000,
+  expectedEditor = null,
+  { expectedConnection = null, onDispatch = null } = {},
+) {
+  const conn = conns.get(ws);
+  if (!conn || ws.readyState !== WebSocket.OPEN) {
+    throw new BridgeDaemonError('Plugin connection closed before dispatch', {
+      kind: 'plugin-unavailable', phase: 'plugin-dispatch', outcome: 'not-dispatched',
+    });
+  }
+  if (expectedConnection
+      && (conn.connectionId !== expectedConnection.connectionId
+        || conn.fileKey !== expectedConnection.fileKey
+        || conn.editorType !== expectedConnection.editorType)) {
+    throw new BridgeDaemonError('Plugin target or editor changed while waiting in the write queue', {
+      kind: 'targeting', phase: 'plugin-dispatch', outcome: 'not-dispatched',
+    });
+  }
   if (!conn?.capabilities?.includes(DISPATCH_RECEIPT_CAPABILITY)) {
     throw new BridgeDaemonError(
       'Plugin dispatch protocol missing: dispatch-receipt-v1. Reload the installed Figma Bridge plugin before executing commands.',
@@ -328,6 +386,12 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000, expectedEdi
   if (!conn?.capabilities?.includes('execution-deadline-v1')) {
     throw new BridgeDaemonError(
       'Plugin capability missing: execution-deadline-v1. Reload the installed Figma Bridge plugin before executing commands.',
+      { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+    );
+  }
+  if (!conn?.capabilities?.includes(PLUGIN_WRITE_LANE_CAPABILITY)) {
+    throw new BridgeDaemonError(
+      `Plugin capability missing: ${PLUGIN_WRITE_LANE_CAPABILITY}. Reload the installed Figma Bridge plugin before executing commands.`,
       { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
@@ -379,6 +443,7 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000, expectedEdi
 
     try {
       ws.send(JSON.stringify({ action, id, ...data, dispatchReceipt }));
+      if (typeof onDispatch === 'function') onDispatch(dispatchReceipt);
     } catch (sendError) {
       clearTimeout(timeout);
       pluginPendingRequests.delete(id);
@@ -392,10 +457,6 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000, expectedEdi
   });
 }
 
-async function requestViaPlugin(action, data, fileKey = null, timeoutMs = 25000, expectedEditor = null) {
-  return requestViaSocket(resolveTarget(fileKey), action, data, timeoutMs, expectedEditor);
-}
-
 // ============ UNIFIED EVAL ============
 
 function boundedDeadline(timeoutMs, deadlineAt) {
@@ -405,32 +466,16 @@ function boundedDeadline(timeoutMs, deadlineAt) {
     : localDeadline;
 }
 
-async function executeEval(code, fileKey = null, requireDocumentRevision = false, timeoutMs = 25000, deadlineAt = null, expectedEditor = null) {
-  const pluginDeadlineAt = boundedDeadline(timeoutMs, deadlineAt);
-  // Plugin handles its own top-level-return wrapping — send code as-is.
-  return requestViaPlugin('eval', {
-    code,
-    ...(requireDocumentRevision ? { requireDocumentRevision: true } : {}),
-    timeoutMs,
-    deadlineAt: pluginDeadlineAt,
-  }, fileKey, timeoutMs, expectedEditor);
-}
 
-async function executeRenderPlan(plan, fileKey = null, timeoutMs = 25000, deadlineAt = null, expectedEditor = null) {
-  return requestViaPlugin('render-plan', {
-    plan,
-    timeoutMs,
-    deadlineAt: boundedDeadline(timeoutMs, deadlineAt),
-  }, fileKey, timeoutMs, expectedEditor);
-}
-
-async function executeRenderPlanBatch(plans, options, fileKey = null, timeoutMs = 25000, deadlineAt = null, expectedEditor = null) {
-  return requestViaPlugin('render-plan-batch', {
-    plans,
-    options,
-    timeoutMs,
-    deadlineAt: boundedDeadline(timeoutMs, deadlineAt),
-  }, fileKey, timeoutMs, expectedEditor);
+function laneBridgeError(error) {
+  if (!(error instanceof PluginWriteLaneError)) return error;
+  const kind = error.code === 'deadline-elapsed' ? 'timeout' : 'execution';
+  return new BridgeDaemonError(error.message, {
+    kind,
+    phase: 'plugin-dispatch',
+    outcome: 'not-dispatched',
+    cause: error,
+  });
 }
 
 function resultMetadata(pending, raw) {
@@ -453,6 +498,7 @@ function getMode() {
 }
 
 function writeBridgeError(res, status, error, defaults) {
+  if (res.destroyed || res.writableEnded) return;
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(bridgeDaemonErrorBody(error, defaults)));
 }
@@ -556,6 +602,7 @@ async function handleRequest(req, res) {
       // name a fileKey; there is no implicit "all of them".
       connections: connectionList(),
       inFlightExecs,
+      writeLanes: pluginWriteLanes.summary(),
       idleTimeoutMs: IDLE_TIMEOUT_MS
     }));
     return;
@@ -566,17 +613,36 @@ async function handleRequest(req, res) {
   // caller may name one; without a name the single connection wins and
   // anything else is ambiguous rather than arbitrary.
   if (path === '/selection') {
-    const wanted = new URL(req.url, 'http://localhost').searchParams.get('fileKey');
+    const selectionUrl = new URL(req.url, 'http://localhost');
+    const wanted = selectionUrl.searchParams.get('fileKey');
+    const readAfterWrite = selectionUrl.searchParams.get('consistency') === 'after-write';
     const open = openConns();
     let selection = null;
     let ambiguous = false;
+    let selected = null;
     if (wanted) {
       const hit = open.find(([, c]) => c.fileKey === wanted);
+      selected = hit || null;
       selection = hit ? hit[1].selection ?? null : null;
     } else if (open.length === 1) {
+      selected = open[0];
       selection = open[0][1].selection ?? null;
     } else if (open.length > 1) {
       ambiguous = true;
+    }
+    if (readAfterWrite && selected) {
+      try {
+        await pluginWriteLanes.waitForPriorWrites({
+          sessionKey: pluginLaneKey(selected[1]),
+          deadlineAt: Date.now() + 3000,
+        });
+        selection = conns.get(selected[0])?.selection ?? null;
+      } catch (error) {
+        writeBridgeError(res, 409, laneBridgeError(error), {
+          kind: 'timeout', phase: 'plugin-dispatch', outcome: 'not-dispatched',
+        });
+        return;
+      }
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -635,6 +701,10 @@ function handleExec(req, res) {
   const bodyChunks = [];
   let receivedBytes = 0;
   let finished = false;
+  const cancellation = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) cancellation.abort();
+  });
 
   const rejectTooLarge = () => {
     if (finished) return;
@@ -733,24 +803,6 @@ function handleExec(req, res) {
       let result;
       let metadata = null;
 
-      const execWithTimeout = async (fn, ms = 30000) => {
-        let timeout;
-        try {
-          return await Promise.race([
-            fn(),
-            new Promise((_, reject) => {
-              timeout = setTimeout(() => reject(new BridgeDaemonError(`Execution timeout (${ms / 1000}s)`, {
-              kind: 'plugin-timeout',
-              phase: 'plugin-execution',
-              outcome: 'unknown-after-dispatch',
-              })), ms);
-            }),
-          ]);
-        } finally {
-          if (timeout) clearTimeout(timeout);
-        }
-      };
-
       const executionBudget = () => {
         const requested = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
         if (!Number.isFinite(Number(deadlineAt))) return requested;
@@ -765,70 +817,54 @@ function handleExec(req, res) {
         return Math.max(1, Math.min(requested, remaining));
       };
 
-      switch (action) {
-        // `eval` remains the compatibility action. `render-plan` carries the
-        // validated Semantic Render Plan to the plugin's static native
-        // executor; unlike the removed daemon-side JSX render actions it does
-        // not keep a second parser/compiler or lose CLI-side semantic state.
-        // Long renders pass their budget via timeoutMs (clamped: a client
-        // must not be able to disable the timeout entirely).
-        case 'eval': {
+      // Every current /exec action is a conservative write. Opaque eval cannot
+      // bypass the lane merely because a source heuristic labels it "read";
+      // only a future closed typed-read contract may do that. Resolve and
+      // snapshot the exact Plugin target before joining its per-document lane.
+      const selectedWs = resolveTarget(fileKey || null);
+      const selectedConnection = snapshotPluginConnection(selectedWs, expectedEditor);
+      const sessionKey = pluginLaneKey(selectedConnection);
+      const requestedBudget = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
+      const ownerDeadline = boundedDeadline(requestedBudget, deadlineAt);
+      const execution = await pluginWriteLanes.run({
+        sessionKey,
+        deadlineAt: ownerDeadline,
+        signal: cancellation.signal,
+        operation: async ({ markDispatched }) => {
           const ms = executionBudget();
-          const execution = await execWithTimeout(
-            () => executeEval(
+          const common = { timeoutMs: ms, deadlineAt: ownerDeadline };
+          let data;
+          if (action === 'eval') {
+            data = {
               code,
-              fileKey || null,
-              requireDocumentRevision === true,
-              ms,
-              deadlineAt,
-              expectedEditor,
-            ),
-            ms,
-          );
-          result = execution.result;
-          metadata = execution.metadata;
-          break;
-        }
-        case 'render-plan': {
-          const ms = executionBudget();
-          const execution = await execWithTimeout(
-            () => executeRenderPlan(plan, fileKey || null, ms, deadlineAt, expectedEditor),
-            ms,
-          );
-          result = execution.result;
-          metadata = execution.metadata;
-          break;
-        }
-        case 'render-plan-batch': {
-          const ms = executionBudget();
-          const execution = await execWithTimeout(
-            () => executeRenderPlanBatch(
-              plans,
-              options || {},
-              fileKey || null,
-              ms,
-              deadlineAt,
-              expectedEditor,
-            ),
-            ms,
-          );
-          result = execution.result;
-          metadata = execution.metadata;
-          break;
-        }
-        default:
-          throw new BridgeDaemonError(`Unknown action: ${action}`, {
-            kind: 'validation',
-            phase: 'request-validation',
-            outcome: 'not-dispatched',
+              ...(requireDocumentRevision === true ? { requireDocumentRevision: true } : {}),
+              ...common,
+            };
+          } else if (action === 'render-plan') {
+            data = { plan, ...common };
+          } else if (action === 'render-plan-batch') {
+            data = { plans, options: options || {}, ...common };
+          } else {
+            throw new BridgeDaemonError(`Unknown action: ${action}`, {
+              kind: 'validation', phase: 'request-validation', outcome: 'not-dispatched',
+            });
+          }
+          return requestViaSocket(selectedWs, action, data, ms, expectedEditor, {
+            expectedConnection: selectedConnection,
+            onDispatch: markDispatched,
           });
-      }
+        },
+      });
+      result = execution.result;
+      metadata = execution.metadata;
 
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ result, metadata, mode: getMode() }));
+      if (!res.destroyed && !res.writableEnded) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ result, metadata, mode: getMode() }));
+      }
     } catch (error) {
       console.log(`[daemon] /exec failed: ${error.message}`);
-      writeBridgeError(res, 500, error, {
+      writeBridgeError(res, 500, laneBridgeError(error), {
         kind: 'execution',
         phase: 'daemon-response',
         outcome: 'unknown-after-dispatch',
@@ -839,6 +875,7 @@ function handleExec(req, res) {
   });
   req.on('aborted', () => {
     finished = true;
+    cancellation.abort();
   });
 }
 
@@ -1077,6 +1114,19 @@ function handlePluginSocket(ws) {
         }
         else pending.resolve({ result: msg.result, metadata: resultMetadata(pending, msg.metadata) });
       }
+    }
+
+    if (msg.type === 'lane-settled') {
+      // The Plugin main thread can outlive its UI WebSocket. It therefore
+      // replays this exact receipt after UI reconnect if settlement happened
+      // while disconnected. A new runtime does not know the random request id
+      // and cannot release an older runtime's quarantine by merely reconnecting.
+      setImmediate(() => {
+        pluginWriteLanes.settle(
+          pluginLaneKeyFromReceipt(msg.dispatchReceipt),
+          msg.dispatchReceipt,
+        );
+      });
     }
 
     if (msg.type === 'batch-result') {

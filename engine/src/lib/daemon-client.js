@@ -249,7 +249,10 @@ export function createDaemonClient({
     },
     selection(options = {}) {
       const target = options.fileKey || null;
-      const route = target ? `/selection?fileKey=${encodeURIComponent(target)}` : '/selection';
+      const query = new URLSearchParams();
+      if (target) query.set('fileKey', target);
+      if (options.readAfterWrite === true) query.set('consistency', 'after-write');
+      const route = query.size ? `/selection?${query}` : '/selection';
       return request(route, { authPath: '/selection', timeoutMs: options.timeoutMs || 3000 });
     },
     reconnect(options = {}) {

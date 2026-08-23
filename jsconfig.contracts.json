@@ -18,6 +18,7 @@
     "engine/src/lib/asset-output-lock.js",
     "engine/src/lib/daemon-client.js",
     "engine/src/lib/dispatch-receipt.js",
+    "engine/src/lib/plugin-write-lane.js",
     "engine/src/lib/protocol-contract.js",
     "engine/src/lib/revision-context.js",
     "engine/src/lib/spec-format.js",

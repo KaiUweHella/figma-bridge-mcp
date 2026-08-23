@@ -186,6 +186,10 @@ export function validatePluginMessage(value, { authenticated = false } = {}) {
       if (idError) return `result ${idError}`;
       return resultFieldsError(value, 'result', { dispatchReceipt: true });
     }
+    case 'lane-settled': {
+      const receiptError = dispatchReceiptValidationError(value.dispatchReceipt, { terminal: true });
+      return receiptError ? `lane-settled ${receiptError}` : null;
+    }
     case 'batch-result':
       {
         const idError = messageIdError(value.id);
