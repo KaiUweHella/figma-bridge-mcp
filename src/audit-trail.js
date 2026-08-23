@@ -18,6 +18,7 @@ const PRIVATE_FILE_MODE = 0o600;
 const MAX_AUDIT_ENTRY_BYTES = 16 * 1024;
 const SAFE_TOKEN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const EFFECT_VALUES = new Set(["none", "read", "write"]);
+const DISPATCH_STATES = new Set(["not-dispatched", "completed", "failed", "unknown"]);
 
 function safeToken(value, fallback = "unknown") {
   return typeof value === "string" && SAFE_TOKEN.test(value) ? value : fallback;
@@ -198,6 +199,9 @@ function completionRecord(handle, outcome) {
       ...(code === undefined ? {} : { code }),
       ...(outcome?.errorKind
         ? { errorKind: safeToken(outcome.errorKind, "request") }
+        : {}),
+      ...(DISPATCH_STATES.has(outcome?.dispatchState)
+        ? { dispatchState: outcome.dispatchState }
         : {}),
     }),
   });

@@ -33,6 +33,11 @@ const OUTCOMES = new Set([
   'not-dispatched',
   'unknown-after-dispatch',
 ]);
+const DISPATCH_STATES = new Set([
+  'not-dispatched',
+  'failed',
+  'unknown',
+]);
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -60,17 +65,23 @@ function validFacts({ kind, phase, outcome }) {
 export class BridgeDaemonError extends Error {
   /**
    * @param {string} message
-   * @param {{kind?:BridgeDaemonErrorKind,phase?:BridgeDaemonErrorPhase,outcome?:BridgeDaemonErrorOutcome,cause?:unknown}} [options]
+   * @param {{kind?:BridgeDaemonErrorKind,phase?:BridgeDaemonErrorPhase,outcome?:BridgeDaemonErrorOutcome,dispatchState?:'not-dispatched'|'failed'|'unknown',cause?:unknown}} [options]
    */
-  constructor(message, { kind, phase, outcome, cause = null } = {}) {
+  constructor(message, { kind, phase, outcome, dispatchState = null, cause = null } = {}) {
     if (!validFacts({ kind, phase, outcome })) {
       throw new TypeError('BridgeDaemonError requires a known kind, phase, and outcome');
+    }
+    const normalizedDispatchState = dispatchState
+      || (outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown');
+    if (!DISPATCH_STATES.has(normalizedDispatchState)) {
+      throw new TypeError('BridgeDaemonError requires a known dispatch state');
     }
     super(boundedMessage(message), cause ? { cause } : undefined);
     this.name = 'BridgeDaemonError';
     this.kind = kind;
     this.phase = phase;
     this.outcome = outcome;
+    this.dispatchState = normalizedDispatchState;
   }
 }
 
@@ -93,6 +104,7 @@ export function bridgeDaemonErrorBody(error, {
     kind: normalized.kind,
     phase: normalized.phase,
     outcome: normalized.outcome,
+    dispatchState: normalized.dispatchState,
     message: normalized.message,
   });
   return Object.freeze({ error: bridgeError.message, bridgeError });
@@ -102,6 +114,7 @@ export function bridgeDaemonErrorBody(error, {
 export function parseBridgeDaemonError(value) {
   if (!isRecord(value) || value.schema !== BRIDGE_DAEMON_ERROR_SCHEMA) return null;
   if (!validFacts(value)) return null;
+  if (value.dispatchState != null && !DISPATCH_STATES.has(value.dispatchState)) return null;
   if (typeof value.message !== 'string' || !value.message) return null;
   if (Buffer.byteLength(value.message, 'utf8') > MAX_BRIDGE_DAEMON_ERROR_BYTES) return null;
   return Object.freeze({
@@ -109,6 +122,9 @@ export function parseBridgeDaemonError(value) {
     kind: value.kind,
     phase: value.phase,
     outcome: value.outcome,
+    dispatchState: DISPATCH_STATES.has(value.dispatchState)
+      ? value.dispatchState
+      : value.outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown',
     message: value.message,
   });
 }
@@ -163,6 +179,7 @@ export function adaptLegacyDaemonError(value, { status = null } = {}) {
     kind,
     phase,
     outcome,
+    dispatchState: outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown',
     message,
     legacy: true,
   });

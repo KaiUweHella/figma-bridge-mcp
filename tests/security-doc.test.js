@@ -100,6 +100,31 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-DISPATCH",
+    [
+      [
+        "engine/tests/dispatch-receipt.test.js",
+        "Plugin preflight rejects stale connection, target, editor, and capability before execution",
+      ],
+      [
+        "tests/plugin-sync.test.js",
+        "expired queued writes never begin and timed-out evals quarantine the Plugin lane",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "a terminal response from an old connection epoch cannot settle a newer execution",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "/exec treats a valid but target-mismatched terminal receipt as outcome unknown",
+      ],
+      [
+        "tests/error-projection.test.js",
+        "public errors expose only the closed Dispatch Receipt state",
+      ],
+    ],
+  ],
+  [
     "SEC-COMMAND",
     [
       [

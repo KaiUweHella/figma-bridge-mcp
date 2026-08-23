@@ -141,6 +141,23 @@ async function isDaemonRunning(returnDetails = false, force = false) {
 
 let _daemonClient = null;
 
+function expectedEditorForCommand() {
+  const configured = process.env.FIGMA_BRIDGE_EXPECTED_EDITOR;
+  if (['figma', 'figjam', 'slides', 'dev'].includes(configured)) return configured;
+  const cliArgs = process.argv.slice(2);
+  let command = null;
+  for (let index = 0; index < cliArgs.length; index++) {
+    const value = cliArgs[index];
+    if (value === '--figma-file') { index++; continue; }
+    if (value.startsWith('--figma-file=')) continue;
+    if (!value.startsWith('-')) { command = value; break; }
+  }
+  if (command === 'jam') return 'figjam';
+  if (command === 'slides') return 'slides';
+  if (command === 'measure') return 'dev';
+  return 'figma';
+}
+
 function daemonClient() {
   if (_daemonClient) return _daemonClient;
   _daemonClient = createDaemonClient({
@@ -161,14 +178,20 @@ function daemonClient() {
 // Send command through the shared daemon transport Module. Explicit fileKey
 // in data wins; otherwise the CLI adapter supplies its global target.
 async function daemonExec(action, data = {}, timeoutMs = 90000) {
-  return daemonClient().execute(action, data, { timeoutMs });
+  return daemonClient().execute(action, data, {
+    timeoutMs,
+    expectedEditor: expectedEditorForCommand(),
+  });
 }
 
 async function daemonExecWithMetadata(action, data = {}, timeoutMs = 90000) {
   return daemonClient().executeWithMetadata(action, {
     ...data,
     ...(action === 'eval' ? { requireDocumentRevision: true } : {}),
-  }, { timeoutMs });
+  }, {
+    timeoutMs,
+    expectedEditor: expectedEditorForCommand(),
+  });
 }
 
 async function daemonHealth(timeoutMs = 3000) {
@@ -465,7 +488,10 @@ function spinnerSucceed(spinner, text) {
 
 /** Eval `code` in Figma and print the result (unless silent). */
 async function evalPrint(code, { silent = false } = {}) {
-  const result = await daemonClient().evaluate(code.trim(), { timeoutMs: 60000 });
+  const result = await daemonClient().evaluate(code.trim(), {
+    timeoutMs: 60000,
+    expectedEditor: expectedEditorForCommand(),
+  });
   if (!silent && result !== undefined) {
     console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
   }
@@ -477,7 +503,7 @@ async function selectNode(nodeId) {
   await daemonClient().evaluate(`(async () => {
     const node = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (node) figma.currentPage.selection = [node];
-  })()`);
+  })()`, { expectedEditor: expectedEditorForCommand() });
   return 'Selected';
 }
 
@@ -486,7 +512,7 @@ async function listVariables({ silent = false } = {}) {
   const result = await daemonClient().evaluate(`(async () => {
     const vars = await figma.variables.getLocalVariablesAsync();
     return vars.map(v => v.name + ' (' + v.resolvedType + ')').join('\\n');
-  })()`);
+  })()`, { expectedEditor: expectedEditorForCommand() });
   if (!silent) console.log(result);
   return result;
 }
@@ -498,7 +524,7 @@ async function findVariables(pattern, { silent = false } = {}) {
     const re = new RegExp(pattern, 'i');
     const vars = await figma.variables.getLocalVariablesAsync();
     return vars.filter(v => re.test(v.name)).map(v => v.name).join('\\n');
-  })()`);
+  })()`, { expectedEditor: expectedEditorForCommand() });
   if (!silent) console.log(result);
   return result;
 }
@@ -508,7 +534,7 @@ async function listCollections({ silent = false } = {}) {
   const result = await daemonClient().evaluate(`(async () => {
     const cols = await figma.variables.getLocalVariableCollectionsAsync();
     return cols.map(c => c.name + ' (' + c.variableIds.length + ' vars)').join('\\n');
-  })()`);
+  })()`, { expectedEditor: expectedEditorForCommand() });
   if (!silent) console.log(result);
   return result;
 }
@@ -518,7 +544,7 @@ async function createCollection(name, { silent = false } = {}) {
   const result = await daemonClient().evaluate(`(() => {
     const col = figma.variables.createVariableCollection(${JSON.stringify(String(name))});
     return col.id;
-  })()`);
+  })()`, { expectedEditor: expectedEditorForCommand() });
   if (!silent) console.log(chalk.green('\u2713 Created collection: ' + name));
   return result;
 }

@@ -5,6 +5,11 @@ const firstUsefulLine = (value) => String(value || '')
   .split('\n')
   .map((line) => line.trim())
   .find(Boolean) || '';
+const DISPATCH_STATES = new Set(['not-dispatched', 'completed', 'failed', 'unknown']);
+
+function dispatchState(value) {
+  return DISPATCH_STATES.has(value) ? value : null;
+}
 
 export function projectPublicError(error, { fallback = 'The Figma operation failed.' } = {}) {
   const child = error && (
@@ -22,7 +27,12 @@ export function projectPublicError(error, { fallback = 'The Figma operation fail
     return { kind, message };
   }
   const kind = typeof error?.kind === 'string' && error.kind ? error.kind : 'request';
-  return { kind, message: firstUsefulLine(error?.message) || fallback };
+  const state = dispatchState(error?.dispatchState);
+  return {
+    kind,
+    message: firstUsefulLine(error?.message) || fallback,
+    ...(state ? { dispatchState: state } : {}),
+  };
 }
 
 export function publicError(error, options) {
@@ -30,11 +40,13 @@ export function publicError(error, options) {
   const wrapped = new Error(projected.message, error ? { cause: error } : undefined);
   wrapped.name = 'PublicBridgeError';
   wrapped.kind = projected.kind;
+  if (projected.dispatchState) wrapped.dispatchState = projected.dispatchState;
   if (typeof error?.code === 'number') wrapped.code = error.code;
   return wrapped;
 }
 
 export function formatPublicError(error, options) {
   const projected = projectPublicError(error, options);
-  return `[${projected.kind}] ${projected.message}`;
+  const dispatch = projected.dispatchState ? ` [dispatch:${projected.dispatchState}]` : '';
+  return `[${projected.kind}]${dispatch} ${projected.message}`;
 }

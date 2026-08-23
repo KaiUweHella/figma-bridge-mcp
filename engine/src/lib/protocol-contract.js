@@ -5,6 +5,7 @@
 // daemon interprets any caller-controlled value.
 
 import { assertSemanticRenderPlan } from './semantic-render-plan.js';
+import { dispatchReceiptValidationError } from './dispatch-receipt.js';
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -51,7 +52,17 @@ function messageIdError(value) {
   return Number.isSafeInteger(value) && value >= 0 ? null : 'message id must be a non-negative safe integer';
 }
 
-function resultFieldsError(value, label = 'result') {
+function resultFieldsError(value, label = 'result', { dispatchReceipt = false } = {}) {
+  if (dispatchReceipt) {
+    const receiptError = dispatchReceiptValidationError(value.dispatchReceipt, { terminal: true });
+    if (receiptError) return `${label} ${receiptError}`;
+    if (value.dispatchReceipt.state === 'completed' && value.error != null) {
+      return `${label} completed Dispatch Receipt must not include an error`;
+    }
+    if (value.dispatchReceipt.state !== 'completed' && value.error == null) {
+      return `${label} non-completed Dispatch Receipt must include an error`;
+    }
+  }
   if (value.error != null) {
     const error = stringLimitError(`${label} error`, value.error, MAX_PROTOCOL_ERROR_BYTES, 'error size');
     if (error) return error;
@@ -124,6 +135,9 @@ export function validateExecPayload(value) {
   if (value.fileKey != null && (typeof value.fileKey !== 'string' || byteLength(value.fileKey) > 64)) {
     return 'fileKey must be a string of at most 64 bytes';
   }
+  if (!['figma', 'figjam', 'slides', 'dev'].includes(value.expectedEditor)) {
+    return 'expectedEditor must be "figma", "figjam", "slides", or "dev"';
+  }
   if (value.requireDocumentRevision != null
     && (value.action !== 'eval' || typeof value.requireDocumentRevision !== 'boolean')) {
     return 'requireDocumentRevision must be a boolean on eval requests';
@@ -170,7 +184,7 @@ export function validatePluginMessage(value, { authenticated = false } = {}) {
     case 'result': {
       const idError = messageIdError(value.id);
       if (idError) return `result ${idError}`;
-      return resultFieldsError(value);
+      return resultFieldsError(value, 'result', { dispatchReceipt: true });
     }
     case 'batch-result':
       {

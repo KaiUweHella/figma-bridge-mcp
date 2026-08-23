@@ -47,10 +47,10 @@ switched off through the MCP layer.
 **Bridge authentication secrets are never transmitted.** Two separate
 credentials protect two separate channels, and neither crosses the wire:
 
-| Channel                      | Credential              | How it is used                                                                                                                             |
-| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| HTTP (`/health`, `/exec`, …) | session token, 0600     | per-request HMAC over timestamp, nonce, method, path and body-hash; the daemon keeps a nonce cache, so captured headers cannot be replayed |
-| WebSocket (`/plugin`)        | plugin access key, 0600 | mutual challenge-response; both sides prove possession by HMAC over both nonces, the bound port and the plugin version                     |
+| Channel                      | Credential              | How it is used                                                                                                                              |
+| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP (`/health`, `/exec`, …) | session token, 0600     | per-request HMAC over timestamp, nonce, method, path and body-hash; the daemon keeps a nonce cache, so captured headers cannot be replayed  |
+| WebSocket (`/plugin`)        | plugin access key, 0600 | mutual challenge-response; both sides prove possession by HMAC over both nonces, the bound port, plugin version and daemon connection epoch |
 
 A process that binds a port in 3456–3460 before the daemon and records
 everything learns no reusable secret. Because the bound **port** is inside the
@@ -61,7 +61,8 @@ across two ports fails to verify.
 **The daemon must prove itself too.** The plugin panel rejects every command —
 `eval`, batches, even a keepalive reply — until the daemon's ack verifies under
 the access key. Without this, anything answering on a local port could drive
-your document without knowing the key at all.
+your document without knowing the key at all. The ack also signs a new random
+connection epoch used by every Dispatch Receipt.
 
 **The plugin cannot reach external network domains.** `plugin/manifest.json`
 restricts `networkAccess.allowedDomains` to the exact HTTP/WebSocket localhost
@@ -75,7 +76,11 @@ tests fail if a non-loopback entry is added. See Figma's
 holds one connection per Figma window in which _you_ started the plugin — the
 consent is physical, not configured. With several connected, a command must
 name its target; there is no "all files" switch and no fan-out, so one mistaken
-command cannot sweep a library. The optional REST add-on can explicitly read
+command cannot sweep a library. Every authenticated action also carries a
+Dispatch Receipt bound to the signed connection epoch, selected file or draft
+session, expected editor and operation capability. The Plugin validates it
+immediately before execution; stale connections and target/editor mismatches
+return `not-dispatched` without mutation. The optional REST add-on can explicitly read
 allowed metadata/history from another named file, but the REST API cannot write
 its document content.
 
@@ -127,7 +132,8 @@ own version history. Audit records use a closed, versioned schema and private
 `0700` directory/`0600` file permissions. They retain capability, read/write
 classification, redacted target/data summaries, outcome, and duration — never
 raw argv, JSX, labels, paths, file keys, REST bodies, credentials, or error
-messages. Logging remains availability-safe: a storage failure does not block
+messages. A terminal Dispatch Receipt contributes only its closed state, never
+its request, connection or document identity. Logging remains availability-safe: a storage failure does not block
 normal Figma work, but every MCP result carries a visible warning and structured
 degraded state until a complete audit lifecycle succeeds.
 
@@ -241,6 +247,7 @@ to the named regression test.
 | `SEC-DATA-AS-DATA`     | Representative generated-code, Markdown, and structured-plan inputs cannot break their data boundary.                                                                                                                                                                            | `engine/tests/add-variant.test.js` — `a quoted payload cannot break out of the eval`; `tests/history.test.js` — `formatHistory sanitizes hostile labels/refs`; `engine/tests/structured-render-executor.test.js` — `preflights the whole plan and rejects unsupported facts without writes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `SEC-PUBLIC-SAFETY`    | Public source/history gates detect supported credential and private-data shapes without echoing them.                                                                                                                                                                            | `tests/public-safety.test.js` — `public-safety rejects provider tokens without printing their value`, `public-safety history parser scans additions with their real line`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `SEC-PACKAGE`          | Published paths and executable bits are explicitly reviewed; two packs must be byte-identical before registry-style pairing and authenticated startup smoke. The fresh production graph has exact registry integrity, no install scripts, and satisfies the declared Node floor. | `tests/package-artifact.test.js` — `release artifact is allowlisted and byte-reproducible`, `artifact policy rejects an unreviewed executable even when it is regular`; `tests/installed-dependency-evidence.test.js` — `installed dependency evidence is exact, deterministic, and path-sanitized`, `installed dependency evidence rejects executable lifecycle hooks`; `tests/packaging.test.js` — `published runtime keeps the declared Node floor after consumer resolution`; `tests/release-integrity.test.js` — `release workflows pin every third-party Action to an immutable commit`, `publish workflow releases the verified tarball and retains all evidence`; `scripts/smoke-mcp-server.js` — installed-package MCP, pairing, authenticated startup, status, and cleanup smoke                                                                            |
+| `SEC-DISPATCH`         | Every Plugin execution is bound to one signed connection epoch, target/session, expected editor and capability; mismatches stop before mutation, and stale terminal responses cannot settle newer work.                                                                          | `engine/tests/dispatch-receipt.test.js` — `Plugin preflight rejects stale connection, target, editor, and capability before execution`; `tests/plugin-sync.test.js` — `expired queued writes never begin and timed-out evals quarantine the Plugin lane`; `tests/daemon-auth.test.js` — `a terminal response from an old connection epoch cannot settle a newer execution`, `/exec treats a valid but target-mismatched terminal receipt as outcome unknown`; `tests/error-projection.test.js` — `public errors expose only the closed Dispatch Receipt state`                                                                                                                                                                                                                                                                                                        |
 
 The model must be reviewed whenever a transport, remote domain/dependency,
 credential, Plugin permission, Figma/workspace write surface, or public security

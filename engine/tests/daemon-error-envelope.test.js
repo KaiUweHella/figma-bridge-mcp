@@ -22,6 +22,7 @@ test('Bridge Daemon errors expose one bounded versioned envelope plus the legacy
     kind: 'plugin-unavailable',
     phase: 'target-resolution',
     outcome: 'not-dispatched',
+    dispatchState: 'not-dispatched',
     message: 'Plugin not connected',
   });
   assert.deepEqual(parseBridgeDaemonError(body.bridgeError), body.bridgeError);
@@ -33,10 +34,12 @@ test('Bridge Daemon error parser rejects malformed or unknown structured facts',
     kind: 'execution',
     phase: 'plugin-execution',
     outcome: 'unknown-after-dispatch',
+    dispatchState: 'failed',
     message: 'Domain operation failed',
   };
   assert.equal(parseBridgeDaemonError({ ...valid, schema: 999 }), null);
   assert.equal(parseBridgeDaemonError({ ...valid, kind: 'made-up' }), null);
+  assert.equal(parseBridgeDaemonError({ ...valid, dispatchState: 'made-up' }), null);
   assert.equal(parseBridgeDaemonError({ ...valid, message: 'x'.repeat(20_000) }), null);
 });
 
@@ -45,6 +48,7 @@ test('bounded legacy adapter never treats a domain token error as authentication
   assert.equal(domain.kind, 'execution');
   assert.equal(domain.phase, 'daemon-response');
   assert.equal(domain.outcome, 'unknown-after-dispatch');
+  assert.equal(domain.dispatchState, 'unknown');
 
   const auth = adaptLegacyDaemonError('Unauthorized: invalid request signature', { status: 403 });
   assert.equal(auth.kind, 'authentication');

@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Added versioned Dispatch Receipts for every authenticated Plugin execution.
+  Requests now bind one handshake-signed connection epoch, file or draft
+  session, expected editor and operation capability through the terminal
+  response; Audit and public errors expose only the closed dispatch state.
+
 - Added Safe-Mode Commands for duplicating cloneable canvas nodes (including
   Sections), reparenting nodes with explicit child order, setting instance
   component properties, and applying editable gradients directly to fills or
@@ -49,6 +54,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   unauthored `clamp()` semantics.
 
 ### Fixed
+
+- Plugin execution now rejects stale connections, wrong files and wrong
+  editors before mutation. Reconnected UI results cannot settle newer work,
+  multi-window metadata stays pinned to the connection selected at dispatch,
+  and Design-only Semantic Render Plans stop in FigJam, Slides and Dev Mode.
 
 - Mixed-Figma-MCP sessions no longer leave Bridge results ambiguous. Every
   result carries the stable `figma-bridge-mcp` identity, every error states

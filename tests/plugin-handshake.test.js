@@ -53,6 +53,7 @@ function loadPluginCrypto() {
     proofEquals,
     canonicalPluginCapabilities,
     pluginHandshakeTranscript,
+    daemonHandshakeTranscript,
     PLUGIN_CAPABILITIES,
   };`);
   return factory();
@@ -79,7 +80,7 @@ test('plugin HMAC matches Node crypto across sizes and key lengths', () => {
   const cases = [
     ['k', ''],
     ['short-key', 'hello'],
-    ['test-access-key-0123456789', '["figma-bridge-mcp/handshake/v3","plugin","abc","def",3456,"3.0.0",[]]'],
+    ['test-access-key-0123456789', '["figma-bridge-mcp/handshake/v4","plugin","abc","def",3456,"3.0.0",[]]'],
     // Key longer than the 64-byte block, which HMAC must hash down first.
     ['x'.repeat(200), 'y'.repeat(500)],
     // Message spanning several SHA-256 blocks, incl. a length near a boundary.
@@ -138,33 +139,45 @@ test('plugin builds the exact transcripts the daemon verifies', () => {
   const capabilities = ['render-plan-v1', 'execution-deadline-v1', 'render-plan-batch-v1'];
   const canonicalCapabilities = canonicalPluginCapabilities(capabilities);
   const KEY = 'the-access-key';
+  const connectionEpoch = '33333333-3333-4333-8333-333333333333';
 
   // Rebuild the strings exactly as ui.html concatenates them.
   const prefix = JSON.parse(pluginTranscript({ daemonNonce: 'D', pluginNonce: 'P', port: 1, version: 'V' }))[0];
   const asPlugin = JSON.stringify([
     prefix, 'plugin', daemonNonce, pluginNonce, port, version, canonicalCapabilities,
   ]);
-  const asDaemon = `${prefix}|daemon|${pluginNonce}|${daemonNonce}|${port}`;
+  const asDaemon = JSON.stringify([
+    prefix, 'daemon', pluginNonce, daemonNonce, port, connectionEpoch,
+  ]);
 
   assert.equal(asPlugin, pluginTranscript({ daemonNonce, pluginNonce, port, version, capabilities }));
   assert.equal(
     plugin.pluginHandshakeTranscript(daemonNonce, pluginNonce, port, version, capabilities),
     asPlugin,
   );
-  assert.equal(asDaemon, daemonTranscript({ daemonNonce, pluginNonce, port }));
+  assert.equal(
+    plugin.daemonHandshakeTranscript(daemonNonce, pluginNonce, port, connectionEpoch),
+    asDaemon,
+  );
+  assert.equal(asDaemon, daemonTranscript({ daemonNonce, pluginNonce, port, connectionEpoch }));
 
   // And the proof the panel would send verifies with the daemon's checker.
   const proof = plugin.hmacSha256Hex(KEY, asPlugin);
   assert.ok(verify(KEY, pluginTranscript({ daemonNonce, pluginNonce, port, version, capabilities }), proof));
 
   // The daemon's ack verifies with the panel's checker.
-  const ack = sign(KEY, daemonTranscript({ daemonNonce, pluginNonce, port }));
+  const ack = sign(KEY, daemonTranscript({ daemonNonce, pluginNonce, port, connectionEpoch }));
   assert.ok(plugin.proofEquals(plugin.hmacSha256Hex(KEY, asDaemon), ack));
 });
 
 test('plugin advertises structured rendering only after the authenticated hello', () => {
   assert.deepEqual(plugin.PLUGIN_CAPABILITIES, [
-    'execution-deadline-v1', 'render-plan-batch-v1', 'render-plan-v1',
+    'dispatch-receipt-v1',
+    'eval-v1',
+    'execution-deadline-v1',
+    'reload-ui-v1',
+    'render-plan-batch-v1',
+    'render-plan-v1',
   ]);
   assert.match(UI, /capabilities: PLUGIN_CAPABILITIES/);
   assert.ok(UI.indexOf('capabilities: PLUGIN_CAPABILITIES') > UI.indexOf("type: 'hello'"));
@@ -199,7 +212,7 @@ test('plugin transcript fields remain unambiguous when claims contain delimiters
     capabilities: ['cap|one', 'cap,"two"'],
   });
   assert.deepEqual(JSON.parse(transcript), [
-    'figma-bridge-mcp/handshake/v3',
+    'figma-bridge-mcp/handshake/v4',
     'plugin',
     'D',
     'P',
@@ -213,10 +226,11 @@ test('the two transcripts are not interchangeable', () => {
   const daemonNonce = makeNonce();
   const pluginNonce = makeNonce();
   const KEY = 'k';
+  const connectionEpoch = '44444444-4444-4444-8444-444444444444';
   const p = sign(KEY, pluginTranscript({ daemonNonce, pluginNonce, port: 3456, version: 'v' }));
   // A harvested plugin proof must not pass as a daemon proof (nonce order and
   // role label differ) — otherwise a squatter could echo it back and be trusted.
-  assert.equal(verify(KEY, daemonTranscript({ daemonNonce, pluginNonce, port: 3456 }), p), false);
+  assert.equal(verify(KEY, daemonTranscript({ daemonNonce, pluginNonce, port: 3456, connectionEpoch }), p), false);
 });
 
 test('the port is bound into the proof, which is what kills a relaying squatter', () => {
@@ -372,7 +386,12 @@ test('Capture revision metadata crosses both plugin threads', () => {
 });
 
 test('verify rejects malformed proofs instead of throwing', () => {
-  const t = daemonTranscript({ daemonNonce: 'a', pluginNonce: 'b', port: 1 });
+  const t = daemonTranscript({
+    daemonNonce: 'a',
+    pluginNonce: 'b',
+    port: 1,
+    connectionEpoch: '55555555-5555-4555-8555-555555555555',
+  });
   assert.equal(verify('k', t, undefined), false);
   assert.equal(verify('k', t, 'not-hex'), false);
   assert.equal(verify('k', t, 'ab'), false);
@@ -472,7 +491,7 @@ test('daemon recovery can reload only the Figma plugin iframe', () => {
   );
   assert.match(
     PLUGIN_CODE,
-    /msg\.type === 'reload-ui'[\s\S]*?figma\.ui\.postMessage\(\{\s*type:\s*'result'[\s\S]*?figma\.showUI\(__html__/,
-    'the main thread must acknowledge the request before replacing the iframe',
+    /msg\.type === 'reload-ui'[\s\S]*?preflightPluginDispatch\(msg, 'reload-ui'\)[\s\S]*?postDispatchResult\(msg, 'completed'[\s\S]*?figma\.showUI\(__html__/,
+    'the main thread must validate and acknowledge the exact Dispatch Receipt before replacing the iframe',
   );
 });

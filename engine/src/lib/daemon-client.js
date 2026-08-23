@@ -18,6 +18,7 @@ export class DaemonClientError extends Error {
     status = null,
     schema = null,
     legacy = false,
+    dispatchState = null,
     cause = null,
   } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -27,6 +28,7 @@ export class DaemonClientError extends Error {
     this.outcome = outcome;
     this.schema = schema;
     this.legacy = legacy;
+    if (dispatchState != null) this.dispatchState = dispatchState;
     if (status != null) this.status = status;
   }
 }
@@ -102,6 +104,7 @@ export function createDaemonClient({
       kind: 'missing-token',
       phase: 'client-authentication',
       outcome: 'not-dispatched',
+      dispatchState: 'not-dispatched',
     });
   };
 
@@ -138,6 +141,7 @@ export function createDaemonClient({
             kind: 'timeout',
             phase: 'daemon-request',
             outcome: execution ? 'unknown-after-dispatch' : 'not-dispatched',
+            ...(execution ? { dispatchState: 'unknown' } : {}),
             cause: error,
           },
         );
@@ -148,6 +152,7 @@ export function createDaemonClient({
           kind: 'unavailable',
           phase: 'daemon-request',
           outcome: execution ? 'unknown-after-dispatch' : 'not-dispatched',
+          ...(execution ? { dispatchState: 'unknown' } : {}),
           cause: error,
         },
       );
@@ -163,12 +168,15 @@ export function createDaemonClient({
     };
   }
 
-  /** @param {string} action @param {Record<string, any>} [data] @param {{timeoutMs?:number,fileKey?:string|null}} [options] */
-  async function executeWithMetadata(action, data = {}, { timeoutMs = 90000, fileKey } = {}) {
+  /** @param {string} action @param {Record<string, any>} [data] @param {{timeoutMs?:number,fileKey?:string|null,expectedEditor?:'figma'|'figjam'|'slides'|'dev'}} [options] */
+  async function executeWithMetadata(action, data = {}, { timeoutMs = 90000, fileKey, expectedEditor } = {}) {
+    if (!['figma', 'figjam', 'slides', 'dev'].includes(expectedEditor)) {
+      throw new TypeError('Daemon Client execution requires expectedEditor from the Command Plan');
+    }
     const explicitTarget = data.fileKey ?? fileKey;
     const target = explicitTarget ?? defaultFileKey();
     /** @type {Record<string, any>} */
-    const payload = { action, ...data };
+    const payload = { action, ...data, expectedEditor };
     if (target) payload.fileKey = target;
     // The same deadline must govern both legs of execution. Without this wire
     // field the HTTP client could wait for the owning Command Plan while the
@@ -206,6 +214,8 @@ export function createDaemonClient({
         outcome: facts.outcome,
         schema: facts.schema,
         legacy: structured === null,
+        dispatchState: facts.dispatchState
+          || (facts.outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown'),
         status: response.status,
       });
     }

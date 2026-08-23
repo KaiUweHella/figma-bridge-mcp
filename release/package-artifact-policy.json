@@ -93,6 +93,7 @@
     "engine/src/lib/daemon-client.js",
     "engine/src/lib/daemon-error-envelope.js",
     "engine/src/lib/daemon-port.js",
+    "engine/src/lib/dispatch-receipt.js",
     "engine/src/lib/design-contract.js",
     "engine/src/lib/design-link-registry.js",
     "engine/src/lib/design-md-locate.js",

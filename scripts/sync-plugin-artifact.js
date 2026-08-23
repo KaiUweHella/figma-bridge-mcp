@@ -11,47 +11,78 @@ const CANONICAL_PATH = join(
   "lib",
   "structured-render-executor.js"
 );
+const DISPATCH_CANONICAL_PATH = join(
+  ROOT,
+  "engine",
+  "src",
+  "lib",
+  "dispatch-receipt.js"
+);
 const ARTIFACT_PATH = join(ROOT, "plugin", "code.js");
 const BEGIN = "// BEGIN STRUCTURED RENDER RUNTIME";
 const END = "// END STRUCTURED RENDER RUNTIME";
+const DISPATCH_BEGIN = "// BEGIN DISPATCH RECEIPT RUNTIME";
+const DISPATCH_END = "// END DISPATCH RECEIPT RUNTIME";
 
 function normalizeLf(source) {
   return String(source).replace(/\r\n?/g, "\n");
 }
 
-function markedRuntime(source, label) {
+function markedRuntime(source, label, begin = BEGIN, end = END) {
   const normalized = normalizeLf(source);
-  const beginCount = normalized.split(BEGIN).length - 1;
-  const endCount = normalized.split(END).length - 1;
+  const beginCount = normalized.split(begin).length - 1;
+  const endCount = normalized.split(end).length - 1;
+  const markerName = begin === BEGIN
+    ? "structured-runtime"
+    : "Dispatch Receipt runtime";
   if (beginCount !== 1 || endCount !== 1) {
     throw new Error(
-      `${label} must contain exactly one structured-runtime marker pair`
+      `${label} must contain exactly one ${markerName} marker pair`
     );
   }
-  const pattern = new RegExp(
-    `${BEGIN.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")}\\n([\\s\\S]+?)${END.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")}`
-  );
-  const match = normalized.match(pattern);
-  if (!match)
-    throw new Error(`${label} has malformed structured-runtime markers`);
-  const start = match.index + BEGIN.length + 1;
-  return { content: match[1], start, end: start + match[1].length };
+  const beginAt = normalized.indexOf(begin);
+  const start = beginAt + begin.length + 1;
+  const endAt = normalized.indexOf(end, start);
+  if (beginAt < 0 || normalized[beginAt + begin.length] !== "\n" || endAt < start)
+    throw new Error(`${label} has malformed ${markerName} markers`);
+  return { content: normalized.slice(start, endAt), start, end: endAt };
+}
+
+function replaceMarkedRuntime(canonicalSource, pluginSource, {
+  begin = BEGIN,
+  end = END,
+  canonicalLabel = "canonical executor",
+  artifactLabel = "plugin artifact",
+} = {}) {
+  const canonical = markedRuntime(
+    canonicalSource,
+    canonicalLabel,
+    begin,
+    end
+  ).content.replace(/^export /gm, "");
+  const plugin = normalizeLf(pluginSource);
+  const current = markedRuntime(plugin, artifactLabel, begin, end);
+  return plugin.slice(0, current.start) + canonical + plugin.slice(current.end);
 }
 
 export function renderPluginArtifact(canonicalSource, pluginSource) {
-  const canonical = markedRuntime(
-    canonicalSource,
-    "canonical executor"
-  ).content.replace(/^export /gm, "");
-  const plugin = normalizeLf(pluginSource);
-  const current = markedRuntime(plugin, "plugin artifact");
-  return plugin.slice(0, current.start) + canonical + plugin.slice(current.end);
+  return replaceMarkedRuntime(canonicalSource, pluginSource);
+}
+
+export function renderPluginDispatchArtifact(canonicalSource, pluginSource) {
+  return replaceMarkedRuntime(canonicalSource, pluginSource, {
+    begin: DISPATCH_BEGIN,
+    end: DISPATCH_END,
+    canonicalLabel: "canonical Dispatch Receipt",
+  });
 }
 
 export function syncPluginArtifact({ check = false } = {}) {
   const canonical = readFileSync(CANONICAL_PATH, "utf8");
+  const dispatchCanonical = readFileSync(DISPATCH_CANONICAL_PATH, "utf8");
   const current = readFileSync(ARTIFACT_PATH, "utf8");
-  const expected = renderPluginArtifact(canonical, current);
+  const structured = renderPluginArtifact(canonical, current);
+  const expected = renderPluginDispatchArtifact(dispatchCanonical, structured);
   const normalizedCurrent = normalizeLf(current);
   if (normalizedCurrent === expected)
     return { changed: false, path: ARTIFACT_PATH };

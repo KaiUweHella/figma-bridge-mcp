@@ -1142,7 +1142,7 @@ async function runAssetExport(plan, label, { force = false } = {}) {
   const operation = () => runInProcessCommandPlan(
     plan,
     { label, compatibilityFallback: false },
-    async ({ fileKey, deadline }) => {
+    async ({ fileKey, expectedEditor, deadline }) => {
       const remainingMs = () => Math.max(0, deadline - Date.now());
       await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
       const result = await executeAssetExportPlan(plan, {
@@ -1151,6 +1151,7 @@ async function runAssetExport(plan, label, { force = false } = {}) {
         yieldControl: () => new Promise((resolveYield) => setImmediate(resolveYield)),
         evaluate: (code, context = {}) => evaluateFigmaWithMetadata(code, {
           fileKey: context.fileKey || fileKey,
+          expectedEditor,
           timeoutMs: Math.max(1, context.remainingMs ?? remainingMs()),
         }),
       });
@@ -1196,20 +1197,23 @@ async function runSemanticRenderApplication(plan, label, prepared) {
   const res = await runInProcessCommandPlan(plan, {
     label,
     compatibilityFallback: false,
-  }, async ({ fileKey, deadline }) => {
+  }, async ({ fileKey, expectedEditor, deadline }) => {
     const remainingMs = () => Math.max(1, deadline - Date.now());
     await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
     const result = await executePreparedSemanticRender(prepared, {
       renderPlan: (renderPlan) => renderFigmaPlan(renderPlan, {
         fileKey,
+        expectedEditor,
         timeoutMs: remainingMs(),
       }),
       evaluate: (code) => evaluateFigma(code, {
         fileKey,
+        expectedEditor,
         timeoutMs: remainingMs(),
       }),
       inspectInventory: (code) => evaluateFigma(code, {
         fileKey,
+        expectedEditor,
         timeoutMs: remainingMs(),
       }),
     });
@@ -1372,7 +1376,11 @@ export async function handleTool(name, rawArgs) {
       const current = await health();
       const connections = Array.isArray(current.raw?.connections) ? current.raw.connections : [];
       if (current.plugin && connections.length === 1 && Number(current.raw?.inFlightExecs || 0) === 0) {
-        const probe = await probePluginResponsiveness(connections[0].fileKey, 3000);
+        const probe = await probePluginResponsiveness(
+          connections[0].fileKey,
+          3000,
+          connections[0].editorType || 'figma',
+        );
         if (!probe.responsive) {
           try {
             const recovery = await recoverPluginConnection(connections[0].fileKey, 6500);
@@ -1468,7 +1476,11 @@ export async function handleTool(name, rawArgs) {
           } else {
             const results = await Promise.all(targets.map(async (connection) => ({
               connection,
-              probe: await probePluginResponsiveness(connection.fileKey),
+              probe: await probePluginResponsiveness(
+                connection.fileKey,
+                4000,
+                connection.editorType || 'figma',
+              ),
             })));
             for (const { connection, probe } of results) {
               const label = `${connection.fileName || "(unnamed)"} (${connection.fileKey})`;
@@ -1484,7 +1496,14 @@ export async function handleTool(name, rawArgs) {
             }
           }
         } else {
-          const probe = await probePluginResponsiveness(input.fileKey);
+          const targetConnection = input.fileKey
+            ? conns.find((connection) => connection.fileKey === input.fileKey)
+            : conns.length === 1 ? conns[0] : null;
+          const probe = await probePluginResponsiveness(
+            input.fileKey,
+            4000,
+            targetConnection?.editorType || 'figma',
+          );
           if (probe.responsive) {
             lines.push(`plugin responsive: yes (${probe.latencyMs}ms round-trip)`);
           } else {
@@ -1581,9 +1600,9 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: designLinkRoute === "command-application" ? false : undefined,
         },
-          async ({ fileKey, timeoutMs }) => {
+          async ({ fileKey, expectedEditor, timeoutMs }) => {
             const adapters = {
-              evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+              evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
               workspaceIO: WORKSPACE_IO,
             };
             const result = designLinkRoute === "command-application"
@@ -1598,9 +1617,9 @@ export async function handleTool(name, rawArgs) {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
           compatibilityFallback: false,
-        }, async ({ fileKey, timeoutMs }) => {
+        }, async ({ fileKey, expectedEditor, timeoutMs }) => {
           const result = await executeDesignContractPlan(plan, {
-            evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+            evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
             workspaceIO: WORKSPACE_IO,
           });
           return {
@@ -1616,11 +1635,12 @@ export async function handleTool(name, rawArgs) {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
           compatibilityFallback: false,
-        }, async ({ fileKey, deadline }) => {
+        }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           const result = await executeNodeTextPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
+              expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
             }),
           });
@@ -1925,8 +1945,8 @@ export async function handleTool(name, rawArgs) {
       }
       const args = ["inspect", nodeId, "--format", "yaml"];
       const res = await runInProcessCommand(args, { fileKey: input.fileKey },
-        ({ fileKey, timeoutMs }) => executeInspect({ nodeId, format: "yaml" }, {
-          evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+        ({ fileKey, expectedEditor, timeoutMs }) => executeInspect({ nodeId, format: "yaml" }, {
+          evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
         }));
       return resultFromCli(res);
     }
@@ -1991,12 +2011,12 @@ export async function handleTool(name, rawArgs) {
       );
       args.push("--save", savePath);
       const res = await runInProcessCommand(args, { fileKey: input.fileKey },
-        ({ fileKey, timeoutMs }) => executeScreenshot({
+        ({ fileKey, expectedEditor, timeoutMs }) => executeScreenshot({
           nodeId: input.nodeId,
           scale: input.scale,
           savePath,
         }, {
-          evaluate: (code) => evaluateFigma(code, { fileKey, timeoutMs }),
+          evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
           save: (file, bytes) => writeFileSync(file, bytes),
         }));
       return textResult(
@@ -2052,7 +2072,7 @@ export async function handleTool(name, rawArgs) {
       const runSpec = (useDedup) => runInProcessCommand(
         useDedup ? args.filter((arg) => arg !== "--no-dedup") : args,
         { fileKey: input.fileKey },
-        async ({ fileKey, deadline }) => executeCodeSpec({
+        async ({ fileKey, expectedEditor, deadline }) => executeCodeSpec({
             nodeId,
             phase: input.phase,
             depth: input.depth,
@@ -2063,10 +2083,12 @@ export async function handleTool(name, rawArgs) {
           }, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
+              expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
             }),
             captureDesign: (request) => captureFigmaDesign(request, {
               fileKey,
+              expectedEditor,
               deadline,
             }),
           }),

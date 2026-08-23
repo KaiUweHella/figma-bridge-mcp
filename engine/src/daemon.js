@@ -50,6 +50,13 @@ import {
 } from './lib/protocol-contract.js';
 import { PLUGIN_BUILD_VERSION, pluginUpdateAvailable } from './lib/plugin-version.js';
 import {
+  DISPATCH_RECEIPT_CAPABILITY,
+  KNOWN_PLUGIN_CAPABILITIES,
+  createPreparedDispatchReceipt,
+  dispatchReceiptIdentityMatches,
+  operationCapability,
+} from './lib/dispatch-receipt.js';
+import {
   BridgeDaemonError,
   bridgeDaemonErrorBody,
 } from './lib/daemon-error-envelope.js';
@@ -310,29 +317,44 @@ function resolveTarget(fileKey) {
   );
 }
 
-async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
+async function requestViaSocket(ws, action, data, timeoutMs = 25000, expectedEditor = null) {
   const conn = conns.get(ws);
+  if (!conn?.capabilities?.includes(DISPATCH_RECEIPT_CAPABILITY)) {
+    throw new BridgeDaemonError(
+      'Plugin dispatch protocol missing: dispatch-receipt-v1. Reload the installed Figma Bridge plugin before executing commands.',
+      { kind: 'plugin-protocol', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+    );
+  }
   if (!conn?.capabilities?.includes('execution-deadline-v1')) {
     throw new BridgeDaemonError(
       'Plugin capability missing: execution-deadline-v1. Reload the installed Figma Bridge plugin before executing commands.',
       { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
-  if (action === 'render-plan' && !conn?.capabilities?.includes('render-plan-v1')) {
+  const capability = operationCapability(action);
+  if (!conn?.capabilities?.includes(capability)) {
     throw new BridgeDaemonError(
-      'Plugin capability missing: render-plan-v1. Reload the installed Figma Bridge plugin to enable structured rendering.',
+      `Plugin capability missing: ${capability}. Reload the installed Figma Bridge plugin before executing this operation.`,
       { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
-  if (action === 'render-plan-batch' && !conn?.capabilities?.includes('render-plan-batch-v1')) {
+  const plannedEditor = expectedEditor || conn?.editorType;
+  if (!conn || !['figma', 'figjam', 'slides', 'dev'].includes(plannedEditor)) {
     throw new BridgeDaemonError(
-      'Plugin capability missing: render-plan-batch-v1. Reload the installed Figma Bridge plugin to enable structured batch rendering.',
-      { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+      'Plugin document/editor identity is not ready. Keep the Plugin open until its connection details appear, then retry.',
+      { kind: 'targeting', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
 
   return new Promise((resolve, reject) => {
     const id = ++pluginMsgId;
+    const dispatchReceipt = createPreparedDispatchReceipt({
+      requestId: randomUUID(),
+      connectionEpoch: conn.connectionId,
+      fileKey: conn.fileKey,
+      editorType: plannedEditor,
+      action,
+    });
     const timeout = setTimeout(() => {
       pluginPendingRequests.delete(id);
       reject(new BridgeDaemonError(`Plugin execution timeout (${timeoutMs / 1000}s)`, {
@@ -342,10 +364,21 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
       }));
     }, timeoutMs);
 
-    pluginPendingRequests.set(id, { resolve, reject, timeout, ws });
+    pluginPendingRequests.set(id, {
+      resolve,
+      reject,
+      timeout,
+      ws,
+      dispatchReceipt,
+      metadata: {
+        connectionId: conn.connectionId,
+        fileKey: conn.fileKey,
+        pluginVersion: conn.pluginVersion,
+      },
+    });
 
     try {
-      ws.send(JSON.stringify({ action, id, ...data }));
+      ws.send(JSON.stringify({ action, id, ...data, dispatchReceipt }));
     } catch (sendError) {
       clearTimeout(timeout);
       pluginPendingRequests.delete(id);
@@ -359,8 +392,8 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
   });
 }
 
-async function requestViaPlugin(action, data, fileKey = null, timeoutMs = 25000) {
-  return requestViaSocket(resolveTarget(fileKey), action, data, timeoutMs);
+async function requestViaPlugin(action, data, fileKey = null, timeoutMs = 25000, expectedEditor = null) {
+  return requestViaSocket(resolveTarget(fileKey), action, data, timeoutMs, expectedEditor);
 }
 
 // ============ UNIFIED EVAL ============
@@ -372,7 +405,7 @@ function boundedDeadline(timeoutMs, deadlineAt) {
     : localDeadline;
 }
 
-async function executeEval(code, fileKey = null, requireDocumentRevision = false, timeoutMs = 25000, deadlineAt = null) {
+async function executeEval(code, fileKey = null, requireDocumentRevision = false, timeoutMs = 25000, deadlineAt = null, expectedEditor = null) {
   const pluginDeadlineAt = boundedDeadline(timeoutMs, deadlineAt);
   // Plugin handles its own top-level-return wrapping — send code as-is.
   return requestViaPlugin('eval', {
@@ -380,36 +413,36 @@ async function executeEval(code, fileKey = null, requireDocumentRevision = false
     ...(requireDocumentRevision ? { requireDocumentRevision: true } : {}),
     timeoutMs,
     deadlineAt: pluginDeadlineAt,
-  }, fileKey, timeoutMs);
+  }, fileKey, timeoutMs, expectedEditor);
 }
 
-async function executeRenderPlan(plan, fileKey = null, timeoutMs = 25000, deadlineAt = null) {
+async function executeRenderPlan(plan, fileKey = null, timeoutMs = 25000, deadlineAt = null, expectedEditor = null) {
   return requestViaPlugin('render-plan', {
     plan,
     timeoutMs,
     deadlineAt: boundedDeadline(timeoutMs, deadlineAt),
-  }, fileKey, timeoutMs);
+  }, fileKey, timeoutMs, expectedEditor);
 }
 
-async function executeRenderPlanBatch(plans, options, fileKey = null, timeoutMs = 25000, deadlineAt = null) {
+async function executeRenderPlanBatch(plans, options, fileKey = null, timeoutMs = 25000, deadlineAt = null, expectedEditor = null) {
   return requestViaPlugin('render-plan-batch', {
     plans,
     options,
     timeoutMs,
     deadlineAt: boundedDeadline(timeoutMs, deadlineAt),
-  }, fileKey, timeoutMs);
+  }, fileKey, timeoutMs, expectedEditor);
 }
 
-function resultMetadata(ws, raw) {
-  const conn = conns.get(ws);
+function resultMetadata(pending, raw) {
   const before = Number.isSafeInteger(raw?.documentRevisionBefore) && raw.documentRevisionBefore >= 0
     ? raw.documentRevisionBefore : null;
   const after = Number.isSafeInteger(raw?.documentRevisionAfter) && raw.documentRevisionAfter >= 0
     ? raw.documentRevisionAfter : null;
   return {
-    connectionId: conn?.connectionId || null,
-    fileKey: conn?.fileKey || null,
-    pluginVersion: conn?.pluginVersion || null,
+    connectionId: pending?.metadata?.connectionId || null,
+    fileKey: pending?.metadata?.fileKey || null,
+    pluginVersion: pending?.metadata?.pluginVersion || null,
+    dispatchState: 'completed',
     documentRevisionBefore: before,
     documentRevisionAfter: after,
   };
@@ -694,7 +727,8 @@ function handleExec(req, res) {
     inFlightExecs++;
     try {
       const {
-        action, code, plan, plans, options, timeoutMs, deadlineAt, fileKey, requireDocumentRevision,
+        action, code, plan, plans, options, timeoutMs, deadlineAt, fileKey, expectedEditor,
+        requireDocumentRevision,
       } = payload;
       let result;
       let metadata = null;
@@ -741,7 +775,14 @@ function handleExec(req, res) {
         case 'eval': {
           const ms = executionBudget();
           const execution = await execWithTimeout(
-            () => executeEval(code, fileKey || null, requireDocumentRevision === true, ms, deadlineAt),
+            () => executeEval(
+              code,
+              fileKey || null,
+              requireDocumentRevision === true,
+              ms,
+              deadlineAt,
+              expectedEditor,
+            ),
             ms,
           );
           result = execution.result;
@@ -750,14 +791,27 @@ function handleExec(req, res) {
         }
         case 'render-plan': {
           const ms = executionBudget();
-          const execution = await execWithTimeout(() => executeRenderPlan(plan, fileKey || null, ms, deadlineAt), ms);
+          const execution = await execWithTimeout(
+            () => executeRenderPlan(plan, fileKey || null, ms, deadlineAt, expectedEditor),
+            ms,
+          );
           result = execution.result;
           metadata = execution.metadata;
           break;
         }
         case 'render-plan-batch': {
           const ms = executionBudget();
-          const execution = await execWithTimeout(() => executeRenderPlanBatch(plans, options || {}, fileKey || null, ms, deadlineAt), ms);
+          const execution = await execWithTimeout(
+            () => executeRenderPlanBatch(
+              plans,
+              options || {},
+              fileKey || null,
+              ms,
+              deadlineAt,
+              expectedEditor,
+            ),
+            ms,
+          );
           result = execution.result;
           metadata = execution.metadata;
           break;
@@ -874,7 +928,7 @@ function handlePluginSocket(ws) {
       return;
     }
 
-    // Classify a stale pre-auth hello before the strict proto-3 shape check.
+    // Classify a stale pre-auth hello before the strict proto-4 shape check.
     // Proto 1 sent the raw key and therefore lacks the nonce/proof fields that
     // validatePluginMessage intentionally requires. If validation ran first,
     // the actionable re-import signal would be collapsed into "protocol".
@@ -951,12 +1005,11 @@ function handlePluginSocket(ws) {
       // connected.
       authenticated = true;
       clearTimeout(authTimer);
+      const connectionEpoch = randomUUID();
       conns.set(ws, {
-        connectionId: randomUUID(),
+        connectionId: connectionEpoch,
         fileKey: null, fileName: null, editorType: null,
-        capabilities: capabilities.filter((item) => [
-          'execution-deadline-v1', 'render-plan-v1', 'render-plan-batch-v1',
-        ].includes(item)),
+        capabilities: capabilities.filter((item) => KNOWN_PLUGIN_CAPABILITIES.includes(item)),
         pluginVersion: version,
         pluginUpdateAvailable: updateAvailable,
         selection: null, connectedAt: new Date().toISOString(), lastResponseAt: null,
@@ -971,7 +1024,9 @@ function handlePluginSocket(ws) {
             daemonNonce,
             pluginNonce: msg.nonce,
             port: boundPort,
+            connectionEpoch,
           })),
+          connectionEpoch,
           restTokenConfigured: restTokenConfigured(),
           pluginVersion: version,
           bundledPluginVersion: PLUGIN_BUILD_VERSION,
@@ -985,24 +1040,48 @@ function handlePluginSocket(ws) {
     if (msg.type === 'result') {
       const pending = pluginPendingRequests.get(msg.id);
       if (pending && pending.ws === ws) {
+        // A late main-thread result can arrive through a freshly reconnected UI
+        // whose daemon has reused the same numeric message id. Its random
+        // request identity belongs to no current execution, so ignore it; it
+        // must never complete or fail the newer request.
+        if (msg.dispatchReceipt.requestId !== pending.dispatchReceipt.requestId) return;
         const conn = conns.get(ws);
         if (conn) conn.lastResponseAt = new Date().toISOString();
         clearTimeout(pending.timeout);
         pluginPendingRequests.delete(msg.id);
-        if (msg.error) {
-          pending.reject(new BridgeDaemonError(msg.error, {
-            kind: 'execution',
-            phase: 'plugin-execution',
+        if (!dispatchReceiptIdentityMatches(pending.dispatchReceipt, msg.dispatchReceipt)) {
+          pending.reject(new BridgeDaemonError('Plugin Dispatch Receipt did not match the selected request, target, editor, or connection', {
+            kind: 'plugin-protocol',
+            phase: 'plugin-response',
             outcome: 'unknown-after-dispatch',
           }));
+        } else if (msg.dispatchReceipt.state === 'not-dispatched') {
+          const reason = msg.dispatchReceipt.reason;
+          const kind = ['target-mismatch', 'editor-mismatch'].includes(reason)
+            ? 'targeting'
+            : reason === 'deadline-elapsed'
+              ? 'timeout'
+              : 'plugin-protocol';
+          pending.reject(new BridgeDaemonError(msg.error, {
+            kind,
+            phase: 'plugin-dispatch',
+            outcome: 'not-dispatched',
+          }));
+        } else if (msg.dispatchReceipt.state !== 'completed') {
+          pending.reject(new BridgeDaemonError(msg.error, {
+            kind: msg.dispatchReceipt.state === 'unknown' ? 'plugin-timeout' : 'execution',
+            phase: 'plugin-execution',
+            outcome: 'unknown-after-dispatch',
+            dispatchState: msg.dispatchReceipt.state,
+          }));
         }
-        else pending.resolve({ result: msg.result, metadata: resultMetadata(ws, msg.metadata) });
+        else pending.resolve({ result: msg.result, metadata: resultMetadata(pending, msg.metadata) });
       }
     }
 
     if (msg.type === 'batch-result') {
       const pending = pluginPendingRequests.get(msg.id);
-      if (pending) {
+      if (pending && pending.ws === ws) {
         const conn = conns.get(ws);
         if (conn) conn.lastResponseAt = new Date().toISOString();
         clearTimeout(pending.timeout);

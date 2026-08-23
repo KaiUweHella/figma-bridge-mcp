@@ -32,6 +32,7 @@ import {
 } from '../engine/src/lib/protocol-contract.js';
 import { BRIDGE_DAEMON_ERROR_SCHEMA } from '../engine/src/lib/daemon-error-envelope.js';
 import { createDaemonClient } from '../engine/src/lib/daemon-client.js';
+import { terminalDispatchReceipt } from '../engine/src/lib/dispatch-receipt.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAEMON = join(HERE, '..', 'engine', 'src', 'daemon.js');
@@ -106,11 +107,33 @@ function openWs(origin) {
 
 const PLUGIN_VERSION = PLUGIN_BUILD_VERSION;
 const PLUGIN_CAPABILITIES = Object.freeze([
-  'execution-deadline-v1', 'render-plan-batch-v1', 'render-plan-v1',
+  'dispatch-receipt-v1',
+  'eval-v1',
+  'execution-deadline-v1',
+  'reload-ui-v1',
+  'render-plan-batch-v1',
+  'render-plan-v1',
 ]);
 
+function pluginResult(message, {
+  result,
+  error = null,
+  metadata = null,
+  state = error == null ? 'completed' : 'failed',
+  reason = error == null ? null : 'execution-error',
+} = {}) {
+  return {
+    type: 'result',
+    id: message.id,
+    ...(result === undefined ? {} : { result }),
+    ...(error == null ? {} : { error }),
+    ...(metadata == null ? {} : { metadata }),
+    dispatchReceipt: terminalDispatchReceipt(message.dispatchReceipt, state, reason),
+  };
+}
+
 /**
- * Play the plugin's side of the proto-3 handshake: wait for the daemon's
+ * Play the plugin's side of the proto-4 handshake: wait for the daemon's
  * challenge, answer with a proof, and return everything both sides exchanged.
  * `mutate` gets the outgoing hello and may sabotage any field — that is how the
  * negative tests below forge protos, nonces, ports and proofs.
@@ -291,7 +314,7 @@ test('a signed request at the supported value limit keeps exact-body authenticat
         if (msg.action !== 'eval') return;
         clearTimeout(timer);
         assert.equal(Buffer.byteLength(msg.code, 'utf8'), MAX_PROTOCOL_VALUE_BYTES);
-        ws.send(JSON.stringify({ type: 'result', id: msg.id, result: 'accepted-at-limit' }));
+        ws.send(JSON.stringify(pluginResult(msg, { result: 'accepted-at-limit' })));
         resolve();
       });
     });
@@ -299,6 +322,7 @@ test('a signed request at the supported value limit keeps exact-body authenticat
       action: 'eval',
       code: 'x'.repeat(MAX_PROTOCOL_VALUE_BYTES),
       fileKey: 'MAX_BODY_FILE',
+      expectedEditor: 'figma',
     });
     assert.ok(Buffer.byteLength(body, 'utf8') <= MAX_EXEC_BODY_BYTES);
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
@@ -343,7 +367,7 @@ test('HTTP /exec validation failures are structured before Plugin dispatch', asy
 });
 
 test('HTTP /exec reports a missing Plugin before dispatch', async () => {
-  const body = JSON.stringify({ action: 'eval', code: '1' });
+  const body = JSON.stringify({ action: 'eval', code: '1', expectedEditor: 'figma' });
   const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
@@ -438,9 +462,11 @@ test('WS challenge-response authenticates and the daemon proves itself back', as
       daemonNonce: challenge.nonce,
       pluginNonce,
       port: PORT,
+      connectionEpoch: ack.connectionEpoch,
     }), ack.proof),
     'daemon proof must verify under the shared key',
   );
+  assert.match(ack.connectionEpoch, /^[0-9a-f-]{36}$/i);
   assert.equal(ack.bundledPluginVersion, PLUGIN_BUILD_VERSION);
   assert.equal(ack.pluginVersion, PLUGIN_BUILD_VERSION);
   assert.equal(ack.pluginUpdateAvailable, false);
@@ -495,7 +521,7 @@ test('the handshake exposes a cached older Figma plugin build', async () => {
 });
 
 test('the access key never appears on the wire', async () => {
-  // The whole point of proto 3: a squatter that records every frame of a
+  // The key-secrecy property retained by proto 4: a squatter that records every frame of a
   // successful handshake still cannot connect afterwards.
   const ws = openWs();
   const sent = [];
@@ -688,18 +714,25 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
         assert.equal(msg.requireDocumentRevision, true,
           'the authenticated daemon must preserve the explicit revision-proof request');
         ws.send(JSON.stringify({
-          type: 'result', id: msg.id, result: { captured: true },
+          type: 'selection',
+          selection: {
+            page: 'Moved', total: 0, nodes: [], fileKey: 'REV_FILE_MOVED',
+            fileName: 'Moved after dispatch', editorType: 'figma',
+          },
+        }));
+        ws.send(JSON.stringify(pluginResult(msg, {
+          result: { captured: true },
           metadata: {
             connectionId: 'FORGED_BY_PLUGIN',
             documentRevisionBefore: 9,
             documentRevisionAfter: 9,
           },
-        }));
+        })));
         resolve();
       });
     });
     const body = JSON.stringify({
-      action: 'eval', code: 'capture()', fileKey: 'REV_FILE', requireDocumentRevision: true,
+      action: 'eval', code: 'capture()', fileKey: 'REV_FILE', expectedEditor: 'figma', requireDocumentRevision: true,
     });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
@@ -718,7 +751,7 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     assert.equal(payload.metadata.documentRevisionBefore, 9);
     assert.equal(payload.metadata.documentRevisionAfter, 9);
     const health = await (await httpHealth(auth('GET', '/health'))).json();
-    const connection = health.connections.find((item) => item.fileKey === 'REV_FILE');
+    const connection = health.connections.find((item) => item.fileKey === 'REV_FILE_MOVED');
     assert.match(connection.lastResponseAt, /^\d{4}-\d{2}-\d{2}T/,
       'health must distinguish a merely open socket from a plugin that has answered');
   });
@@ -737,11 +770,14 @@ test('/exec rejects a bounded-but-invalid Plugin response without waiting for ti
           type: 'result',
           id: msg.id,
           error: 'x'.repeat(MAX_PROTOCOL_ERROR_BYTES + 1),
+          dispatchReceipt: terminalDispatchReceipt(msg.dispatchReceipt, 'failed', 'execution-error'),
         }));
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'eval', code: 'capture()', fileKey: 'INVALID_RESPONSE_FILE' });
+    const body = JSON.stringify({
+      action: 'eval', code: 'capture()', fileKey: 'INVALID_RESPONSE_FILE', expectedEditor: 'figma',
+    });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
@@ -760,6 +796,47 @@ test('/exec rejects a bounded-but-invalid Plugin response without waiting for ti
   });
 });
 
+test('/exec treats a valid but target-mismatched terminal receipt as outcome unknown', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'MISMATCHED_RECEIPT_FILE' });
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route receipt mismatch eval')), 3000);
+      ws.on('message', (data) => {
+        const message = JSON.parse(data.toString());
+        if (message.action !== 'eval') return;
+        clearTimeout(timer);
+        const completed = terminalDispatchReceipt(message.dispatchReceipt, 'completed');
+        ws.send(JSON.stringify({
+          type: 'result',
+          id: message.id,
+          result: 'must-not-settle',
+          dispatchReceipt: {
+            ...completed,
+            target: { kind: 'file-key', value: 'OTHER_FILE' },
+          },
+        }));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({
+      action: 'eval', code: 'capture()', fileKey: 'MISMATCHED_RECEIPT_FILE', expectedEditor: 'figma',
+    });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    assertBridgeError(await response.json(), {
+      kind: 'plugin-protocol',
+      phase: 'plugin-response',
+      outcome: 'unknown-after-dispatch',
+    });
+  });
+});
+
 test('/exec keeps domain token failures as execution errors after Plugin dispatch', async () => {
   await withAuthedWs(async (ws) => {
     await pushSelection(ws, { fileKey: 'DOMAIN_ERROR_FILE' });
@@ -769,15 +846,15 @@ test('/exec keeps domain token failures as execution errors after Plugin dispatc
         const msg = JSON.parse(data.toString());
         if (msg.action !== 'eval') return;
         clearTimeout(timer);
-        ws.send(JSON.stringify({
-          type: 'result',
-          id: msg.id,
+        ws.send(JSON.stringify(pluginResult(msg, {
           error: 'Token alias could not be resolved',
-        }));
+        })));
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'eval', code: 'resolveAlias()', fileKey: 'DOMAIN_ERROR_FILE' });
+    const body = JSON.stringify({
+      action: 'eval', code: 'resolveAlias()', fileKey: 'DOMAIN_ERROR_FILE', expectedEditor: 'figma',
+    });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
@@ -811,6 +888,7 @@ test('/exec reports Plugin timeout as outcome unknown after dispatch', async () 
       action: 'eval',
       code: 'slowOperation()',
       fileKey: 'TIMEOUT_FILE',
+      expectedEditor: 'figma',
       timeoutMs: 1000,
     });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
@@ -841,6 +919,7 @@ test('/exec reports an elapsed client deadline as not dispatched', async () => {
       action: 'eval',
       code: 'mustNotRun()',
       fileKey: 'ELAPSED_DEADLINE_FILE',
+      expectedEditor: 'figma',
       timeoutMs: 1000,
       deadlineAt: Date.now() - 1,
     });
@@ -865,7 +944,9 @@ test('/exec refuses a stale Plugin without deadline-aware write-lane capability'
   try {
     await handshake(ws, {
       version: '3.3.6',
-      capabilities: ['render-plan-batch-v1', 'render-plan-v1'],
+      capabilities: [
+        'dispatch-receipt-v1', 'eval-v1', 'render-plan-batch-v1', 'render-plan-v1',
+      ],
     });
     await pushSelection(ws, { fileKey: 'STALE_DEADLINE_PLUGIN' });
     let dispatched = false;
@@ -874,7 +955,7 @@ test('/exec refuses a stale Plugin without deadline-aware write-lane capability'
       if (msg.action === 'eval') dispatched = true;
     });
     const body = JSON.stringify({
-      action: 'eval', code: 'mustNotRun()', fileKey: 'STALE_DEADLINE_PLUGIN', timeoutMs: 1000,
+      action: 'eval', code: 'mustNotRun()', fileKey: 'STALE_DEADLINE_PLUGIN', expectedEditor: 'figma', timeoutMs: 1000,
     });
     const response = await fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
@@ -912,11 +993,15 @@ test('/exec routes a validated Semantic Render Plan through the authenticated pl
         clearTimeout(timer);
         assert.deepEqual(msg.plan, plan);
         assertForwardedDeadline(msg, 4321);
-        ws.send(JSON.stringify({ type: 'result', id: msg.id, result: { id: '9:9', executor: 'structured-v1' } }));
+        ws.send(JSON.stringify(pluginResult(msg, {
+          result: { id: '9:9', executor: 'structured-v1' },
+        })));
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'render-plan', plan, fileKey: 'PLAN_FILE', timeoutMs: 4321 });
+    const body = JSON.stringify({
+      action: 'render-plan', plan, fileKey: 'PLAN_FILE', expectedEditor: 'figma', timeoutMs: 4321,
+    });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) }, body,
     });
@@ -945,7 +1030,9 @@ test('/exec routes a validated Semantic Render Plan batch without generated code
         assert.deepEqual(msg.options, { gap: 24, vertical: true });
         assertForwardedDeadline(msg, 5432);
         assert.equal('code' in msg, false);
-        ws.send(JSON.stringify({ type: 'result', id: msg.id, result: { frames: [{ id: '9:10' }], executor: 'structured-batch-v1' } }));
+        ws.send(JSON.stringify(pluginResult(msg, {
+          result: { frames: [{ id: '9:10' }], executor: 'structured-batch-v1' },
+        })));
         resolve();
       });
     });
@@ -954,6 +1041,7 @@ test('/exec routes a validated Semantic Render Plan batch without generated code
       plans: [plan, plan],
       options: { gap: 24, vertical: true },
       fileKey: 'BATCH_FILE',
+      expectedEditor: 'figma',
       timeoutMs: 5432,
     });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
@@ -1032,7 +1120,7 @@ test('with several windows, /exec must name a file — and there is no "all"', a
     await pushSelection(a, { fileKey: 'FILE_A' });
     await pushSelection(b, { fileKey: 'FILE_B' });
 
-    const body = JSON.stringify({ action: 'eval', code: '1' });
+    const body = JSON.stringify({ action: 'eval', code: '1', expectedEditor: 'figma' });
     const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
@@ -1053,7 +1141,9 @@ test('with several windows, /exec must name a file — and there is no "all"', a
     assert.match(err, /no "all files" option/);
 
     // An unknown key is rejected the same way rather than falling back.
-    const body2 = JSON.stringify({ action: 'eval', code: '1', fileKey: 'NOPE' });
+    const body2 = JSON.stringify({
+      action: 'eval', code: '1', fileKey: 'NOPE', expectedEditor: 'figma',
+    });
     const res2 = await fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body2) },
@@ -1076,16 +1166,29 @@ test('a single window still needs no fileKey', async () => {
   // The common case must not get harder just because the daemon can hold more.
   await withAuthedWs(async (ws) => {
     await pushSelection(ws, { fileKey: 'ONLY_ONE' });
-    const body = JSON.stringify({ action: 'eval', code: '1' });
+    const routed = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('implicit target was not routed')), 3000);
+      ws.on('message', (raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.action !== 'eval') return;
+        clearTimeout(timer);
+        assert.equal(message.dispatchReceipt.target.kind, 'file-key');
+        assert.equal(message.dispatchReceipt.target.value, 'ONLY_ONE');
+        ws.send(JSON.stringify(pluginResult(message, { result: 1 })));
+        resolve();
+      });
+    });
+    const body = JSON.stringify({
+      action: 'eval', code: '1', expectedEditor: 'figma', timeoutMs: 3000,
+    });
     const res = await fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
       body,
     });
-    // The stub socket never answers the eval, so this times out rather than
-    // succeeding — what matters is that it was ROUTED, not rejected.
-    const err = (await res.json()).error || '';
-    assert.doesNotMatch(err, /name one with fileKey/);
+    await routed;
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).result, 1);
   });
 });
 
@@ -1149,6 +1252,77 @@ test('/selection: plugin push is served with auth, per connection', async () => 
   assert.equal(noAuth.status, 403);
 });
 
+test('a terminal response from an old connection epoch cannot settle a newer execution', async () => {
+  const oldSocket = openWs();
+  const oldHandshake = await handshake(oldSocket);
+  await pushSelection(oldSocket, { fileKey: 'EPOCH_FILE' });
+  let oldReceipt;
+  const oldRouted = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('old epoch request was not routed')), 3000);
+    oldSocket.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'eval') return;
+      clearTimeout(timer);
+      oldReceipt = message.dispatchReceipt;
+      oldSocket.send(JSON.stringify(pluginResult(message, { result: 'old-complete' })));
+      resolve();
+    });
+  });
+  const oldBody = JSON.stringify({
+    action: 'eval', code: 'old()', fileKey: 'EPOCH_FILE', expectedEditor: 'figma', timeoutMs: 3000,
+  });
+  const oldResponse = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', oldBody) },
+    body: oldBody,
+  });
+  await oldRouted;
+  assert.equal(oldResponse.status, 200);
+  oldSocket.close();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const newSocket = openWs();
+  try {
+    const newHandshake = await handshake(newSocket);
+    assert.notEqual(newHandshake.ack.connectionEpoch, oldHandshake.ack.connectionEpoch);
+    await pushSelection(newSocket, { fileKey: 'EPOCH_FILE' });
+    let staleCouldSettle = true;
+    const newRouted = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('new epoch request was not routed')), 3000);
+      newSocket.on('message', (raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.action !== 'eval') return;
+        clearTimeout(timer);
+        newSocket.send(JSON.stringify({
+          type: 'result',
+          id: message.id,
+          result: 'stale-result',
+          dispatchReceipt: terminalDispatchReceipt(oldReceipt, 'completed'),
+        }));
+        setTimeout(() => {
+          staleCouldSettle = false;
+          newSocket.send(JSON.stringify(pluginResult(message, { result: 'new-complete' })));
+          resolve();
+        }, 50);
+      });
+    });
+    const newBody = JSON.stringify({
+      action: 'eval', code: 'new()', fileKey: 'EPOCH_FILE', expectedEditor: 'figma', timeoutMs: 3000,
+    });
+    const newResponse = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', newBody) },
+      body: newBody,
+    });
+    await newRouted;
+    assert.equal(staleCouldSettle, false, 'the stale receipt must remain pending until the exact new receipt answers');
+    assert.equal(newResponse.status, 200);
+    assert.equal((await newResponse.json()).result, 'new-complete');
+  } finally {
+    newSocket.close();
+  }
+});
+
 test('/reconnect: reloads a responsive plugin UI instead of dropping its socket', async () => {
   // Without a plugin: ok:true, hadPlugin:false.
   const idle = await (await fetch(`http://127.0.0.1:${PORT}/reconnect`, {
@@ -1161,13 +1335,14 @@ test('/reconnect: reloads a responsive plugin UI instead of dropping its socket'
   // only the iframe. This preserves the Figma plugin runtime and lets the new
   // iframe run a clean discovery/authentication cycle.
   const recovery = await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'RECONNECT_FILE' });
     const reload = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('daemon did not request UI reload')), 3000);
       ws.on('message', (raw) => {
         const message = JSON.parse(String(raw));
         if (message.action !== 'reload-ui') return;
         clearTimeout(timer);
-        ws.send(JSON.stringify({ type: 'result', id: message.id, result: { reloading: true } }));
+        ws.send(JSON.stringify(pluginResult(message, { result: { reloading: true } })));
         resolve(message);
       });
     });
@@ -1205,7 +1380,7 @@ test('Daemon Client shutdown drains an in-flight execution before closing the Pl
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'eval', code: 'longRead()' });
+    const body = JSON.stringify({ action: 'eval', code: 'longRead()', expectedEditor: 'figma' });
     const execution = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
@@ -1224,7 +1399,7 @@ test('Daemon Client shutdown drains an in-flight execution before closing the Pl
       'accepted shutdown must keep the Plugin socket open while execution is in flight');
 
     await new Promise((resolve) => setTimeout(resolve, 200));
-    ws.send(JSON.stringify({ type: 'result', id: dispatched.id, result: { drained: true } }));
+    ws.send(JSON.stringify(pluginResult(dispatched, { result: { drained: true } })));
     const response = await execution;
     assert.equal(response.status, 200);
     assert.deepEqual((await response.json()).result, { drained: true });

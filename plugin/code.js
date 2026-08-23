@@ -20,6 +20,7 @@ const DESIGN_ENTITY_STORAGE = 'figma-bridge-design-entity';
 // If this editor does not expose documentchange, null disables caching.
 let documentRevision = 0;
 let documentRevisionAvailable = false;
+let activeConnectionEpoch = null;
 // dynamic-page plugins must load all pages before subscribing to the
 // document-wide event. Initialize it only for Commands that explicitly need
 // a multi-roundtrip revision proof: Figma warns that loading every page can be
@@ -48,6 +49,241 @@ function revisionMetadata(before) {
     documentRevisionBefore: before,
     documentRevisionAfter: documentRevisionAvailable ? documentRevision : null,
   };
+}
+
+// Generated runtime: npm run sync:plugin. Edit the canonical module at
+// engine/src/lib/dispatch-receipt.js, never this marked block.
+// BEGIN DISPATCH RECEIPT RUNTIME
+const DISPATCH_RECEIPT_SCHEMA = 'figma-bridge/dispatch-receipt';
+const DISPATCH_RECEIPT_CAPABILITY = 'dispatch-receipt-v1';
+const DISPATCH_OPERATION_CAPABILITIES = Object.freeze({
+  eval: 'eval-v1',
+  'render-plan': 'render-plan-v1',
+  'render-plan-batch': 'render-plan-batch-v1',
+  'reload-ui': 'reload-ui-v1',
+});
+const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
+  DISPATCH_RECEIPT_CAPABILITY,
+  'eval-v1',
+  'execution-deadline-v1',
+  'reload-ui-v1',
+  'render-plan-batch-v1',
+  'render-plan-v1',
+]);
+
+const DISPATCH_RECEIPT_FIELDS = Object.freeze([
+  'capability',
+  'connectionEpoch',
+  'editorType',
+  'reason',
+  'requestId',
+  'schema',
+  'state',
+  'target',
+  'version',
+]);
+const DISPATCH_EDITOR_TYPES = Object.freeze(['figma', 'figjam', 'slides', 'dev']);
+const DISPATCH_TERMINAL_REASONS = Object.freeze({
+  'not-dispatched': Object.freeze([
+    'capability-mismatch',
+    'connection-mismatch',
+    'deadline-elapsed',
+    'editor-mismatch',
+    'paused',
+    'target-mismatch',
+  ]),
+  failed: Object.freeze(['execution-error']),
+  unknown: Object.freeze(['execution-timeout']),
+});
+const DISPATCH_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function dispatchRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function operationCapability(action) {
+  const capability = DISPATCH_OPERATION_CAPABILITIES[action];
+  if (!capability) throw new Error(`unsupported Plugin action for Dispatch Receipt: ${String(action)}`);
+  return capability;
+}
+
+function dispatchReceiptValidationError(receipt, { terminal = null } = {}) {
+  if (!dispatchRecord(receipt)) return 'Dispatch Receipt must be an object';
+  for (const field of Object.keys(receipt)) {
+    if (!DISPATCH_RECEIPT_FIELDS.includes(field)) return `Dispatch Receipt has unknown field: ${field}`;
+  }
+  for (const field of ['schema', 'version', 'requestId', 'connectionEpoch', 'target', 'editorType', 'capability', 'state']) {
+    if (!Object.hasOwn(receipt, field)) return `Dispatch Receipt is missing ${field}`;
+  }
+  if (receipt.schema !== DISPATCH_RECEIPT_SCHEMA || receipt.version !== 1) {
+    return 'Dispatch Receipt schema/version is unsupported';
+  }
+  if (typeof receipt.requestId !== 'string' || !DISPATCH_UUID_RE.test(receipt.requestId)) {
+    return 'Dispatch Receipt requestId must be a UUID';
+  }
+  if (typeof receipt.connectionEpoch !== 'string' || !DISPATCH_UUID_RE.test(receipt.connectionEpoch)) {
+    return 'Dispatch Receipt connectionEpoch must be a UUID';
+  }
+  if (!dispatchRecord(receipt.target)) return 'Dispatch Receipt target must be an object';
+  const targetFields = Object.keys(receipt.target).sort();
+  if (targetFields.length !== 2 || targetFields[0] !== 'kind' || targetFields[1] !== 'value') {
+    return 'Dispatch Receipt target must contain only kind and value';
+  }
+  if (!['file-key', 'connection'].includes(receipt.target.kind)) {
+    return 'Dispatch Receipt target kind is unsupported';
+  }
+  if (typeof receipt.target.value !== 'string' || !receipt.target.value || receipt.target.value.length > 64) {
+    return 'Dispatch Receipt target value must contain 1-64 characters';
+  }
+  if (receipt.target.kind === 'connection' && receipt.target.value !== receipt.connectionEpoch) {
+    return 'Dispatch Receipt connection target must equal its connectionEpoch';
+  }
+  if (!DISPATCH_EDITOR_TYPES.includes(receipt.editorType)) {
+    return 'Dispatch Receipt editorType is unsupported';
+  }
+  if (!Object.values(DISPATCH_OPERATION_CAPABILITIES).includes(receipt.capability)) {
+    return 'Dispatch Receipt capability is unsupported';
+  }
+
+  const isTerminal = ['completed', 'not-dispatched', 'failed', 'unknown'].includes(receipt.state);
+  if (terminal === false && receipt.state !== 'prepared') return 'Dispatch Receipt must be prepared';
+  if (terminal === true && !isTerminal) return 'Dispatch Receipt must have a terminal state';
+  if (terminal === null && receipt.state !== 'prepared' && !isTerminal) {
+    return 'Dispatch Receipt state is unsupported';
+  }
+
+  if (receipt.state === 'prepared' || receipt.state === 'completed') {
+    if (Object.hasOwn(receipt, 'reason')) return `Dispatch Receipt ${receipt.state} state must not have a reason`;
+  } else if (isTerminal) {
+    const reasons = DISPATCH_TERMINAL_REASONS[receipt.state];
+    if (!reasons?.includes(receipt.reason)) return `Dispatch Receipt ${receipt.state} state has an invalid reason`;
+  }
+  return null;
+}
+
+function createPreparedDispatchReceipt({
+  requestId,
+  connectionEpoch,
+  fileKey = null,
+  editorType,
+  action,
+}) {
+  const receipt = {
+    schema: DISPATCH_RECEIPT_SCHEMA,
+    version: 1,
+    requestId,
+    connectionEpoch,
+    target: fileKey
+      ? { kind: 'file-key', value: fileKey }
+      : { kind: 'connection', value: connectionEpoch },
+    editorType,
+    capability: operationCapability(action),
+    state: 'prepared',
+  };
+  const error = dispatchReceiptValidationError(receipt, { terminal: false });
+  if (error) throw new Error(error);
+  return receipt;
+}
+
+function terminalDispatchReceipt(receipt, state, reason = null) {
+  const preparedError = dispatchReceiptValidationError(receipt, { terminal: false });
+  if (preparedError) throw new Error(preparedError);
+  const terminal = {
+    ...receipt,
+    state,
+    ...(reason == null ? {} : { reason }),
+  };
+  const terminalError = dispatchReceiptValidationError(terminal, { terminal: true });
+  if (terminalError) throw new Error(terminalError);
+  return terminal;
+}
+
+function dispatchReceiptIdentityMatches(prepared, terminal) {
+  if (dispatchReceiptValidationError(prepared, { terminal: false })) return false;
+  if (dispatchReceiptValidationError(terminal, { terminal: true })) return false;
+  return prepared.schema === terminal.schema
+    && prepared.version === terminal.version
+    && prepared.requestId === terminal.requestId
+    && prepared.connectionEpoch === terminal.connectionEpoch
+    && prepared.target.kind === terminal.target.kind
+    && prepared.target.value === terminal.target.value
+    && prepared.editorType === terminal.editorType
+    && prepared.capability === terminal.capability;
+}
+
+function dispatchContextFailure(reason, message) {
+  return { ok: false, reason, message };
+}
+
+function validatePreparedDispatchContext(receipt, {
+  action,
+  connectionEpoch,
+  fileKey = null,
+  editorType,
+}) {
+  const receiptError = dispatchReceiptValidationError(receipt, { terminal: false });
+  if (receiptError) return dispatchContextFailure('malformed-receipt', receiptError);
+  if (receipt.connectionEpoch !== connectionEpoch) {
+    return dispatchContextFailure('connection-mismatch', 'Dispatch Receipt connection epoch is stale');
+  }
+  let expectedCapability;
+  try { expectedCapability = operationCapability(action); }
+  catch (error) { return dispatchContextFailure('capability-mismatch', error.message); }
+  if (receipt.capability !== expectedCapability) {
+    return dispatchContextFailure('capability-mismatch', 'Dispatch Receipt operation capability does not match the request');
+  }
+  if (receipt.editorType !== editorType) {
+    return dispatchContextFailure('editor-mismatch', 'Dispatch Receipt editor does not match the active Figma editor');
+  }
+  if (['render-plan', 'render-plan-batch'].includes(action) && editorType !== 'figma') {
+    return dispatchContextFailure('editor-mismatch', 'Semantic Render Plans require Figma Design');
+  }
+  if (fileKey) {
+    if (receipt.target.kind !== 'file-key' || receipt.target.value !== fileKey) {
+      return dispatchContextFailure('target-mismatch', 'Dispatch Receipt file does not match the active Figma file');
+    }
+  } else if (receipt.target.kind !== 'connection' || receipt.target.value !== connectionEpoch) {
+    return dispatchContextFailure('target-mismatch', 'Dispatch Receipt draft session does not match the active Figma connection');
+  }
+  return { ok: true };
+}
+// END DISPATCH RECEIPT RUNTIME
+
+function currentDispatchContext(action) {
+  return {
+    action,
+    connectionEpoch: activeConnectionEpoch,
+    fileKey: (typeof figma.fileKey === 'string' && figma.fileKey) || null,
+    editorType: figma.editorType || null,
+  };
+}
+
+function dispatchReceiptForFailure(receipt, reason) {
+  if (reason === 'malformed-receipt') return receipt;
+  try { return terminalDispatchReceipt(receipt, 'not-dispatched', reason); }
+  catch (error) { return receipt; }
+}
+
+function preflightPluginDispatch(msg, action) {
+  const validation = validatePreparedDispatchContext(
+    msg.dispatchReceipt,
+    currentDispatchContext(action),
+  );
+  if (validation.ok) return msg.dispatchReceipt;
+  figma.ui.postMessage({
+    type: 'result',
+    id: msg.id,
+    error: validation.message,
+    dispatchReceipt: dispatchReceiptForFailure(msg.dispatchReceipt, validation.reason),
+  });
+  return null;
+}
+
+function postDispatchResult(msg, state, reason, fields = {}) {
+  let dispatchReceipt = msg.dispatchReceipt;
+  try { dispatchReceipt = terminalDispatchReceipt(msg.dispatchReceipt, state, reason); }
+  catch (error) {}
+  figma.ui.postMessage({ type: 'result', id: msg.id, ...fields, dispatchReceipt });
 }
 
 // Visible UI: a compact always-on status/kill-switch shell. Setup, activity
@@ -2276,7 +2512,8 @@ figma.ui.onmessage = async (msg) => {
   // reruns quiet HTTP discovery and mutual-HMAC authentication.
   if (msg.type === 'reload-ui') {
     const { id } = msg;
-    figma.ui.postMessage({ type: 'result', id, result: { reloading: true } });
+    if (!preflightPluginDispatch(msg, 'reload-ui')) return;
+    postDispatchResult(msg, 'completed', null, { result: { reloading: true } });
     setTimeout(() => {
       figma.showUI(__html__, COMPACT_UI_SIZE);
     }, 100);
@@ -2289,74 +2526,98 @@ figma.ui.onmessage = async (msg) => {
   // points and mutate shared document state mid-flight. The daemon currently
   // sends strictly serially, but the plugin must not depend on that.
   if (msg.type === 'eval') {
-    const { id, code, requireDocumentRevision, timeoutMs, deadlineAt } = msg;
+    const { code, requireDocumentRevision, timeoutMs, deadlineAt } = msg;
     const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
+      if (!preflightPluginDispatch(msg, 'eval')) return;
       if (requireDocumentRevision === true) await ensureDocumentRevisionReady();
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
         const remainingMs = remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt);
-        if (remainingMs <= 0) throw new Error('Execution deadline elapsed before plugin start');
+        if (remainingMs <= 0) {
+          postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {
+            error: 'Execution deadline elapsed before plugin start',
+            metadata: revisionMetadata(revisionBefore),
+          });
+          return;
+        }
         let timeoutPosted = false;
         const execution = await executeCode(code, remainingMs, (timeoutError) => {
           timeoutPosted = true;
-          figma.ui.postMessage({ type: 'result', id, error: errorMessage(timeoutError), metadata: revisionMetadata(revisionBefore) });
+          postDispatchResult(msg, 'unknown', 'execution-timeout', {
+            error: errorMessage(timeoutError),
+            metadata: revisionMetadata(revisionBefore),
+          });
         });
         if (!timeoutPosted && !execution.timedOut) {
-          figma.ui.postMessage({ type: 'result', id, result: execution.result, metadata: revisionMetadata(revisionBefore) });
+          postDispatchResult(msg, 'completed', null, {
+            result: execution.result,
+            metadata: revisionMetadata(revisionBefore),
+          });
         }
       } catch (error) {
-        figma.ui.postMessage({ type: 'result', id, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
+        postDispatchResult(msg, 'failed', 'execution-error', {
+          error: errorMessage(error),
+          metadata: revisionMetadata(revisionBefore),
+        });
       }
     });
     return;
   }
 
   if (msg.type === 'render-plan') {
-    const { id, plan, timeoutMs, deadlineAt } = msg;
-    if (figma.editorType === 'dev') {
-      figma.ui.postMessage({
-        type: 'result', id,
-        error: 'Figma Dev Mode is read-only. Switch this file to Design mode and open Figma Bridge there to render or edit nodes.',
-      });
-      return;
-    }
+    const { plan, timeoutMs, deadlineAt } = msg;
     const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
+      if (!preflightPluginDispatch(msg, 'render-plan')) return;
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
         if (remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) <= 0) {
-          throw new Error('Execution deadline elapsed before plugin start');
+          postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {
+            error: 'Execution deadline elapsed before plugin start',
+            metadata: revisionMetadata(revisionBefore),
+          });
+          return;
         }
         const result = await executeStructuredRenderPlan(figma, plan);
-        figma.ui.postMessage({ type: 'result', id, result, metadata: revisionMetadata(revisionBefore) });
+        postDispatchResult(msg, 'completed', null, {
+          result,
+          metadata: revisionMetadata(revisionBefore),
+        });
       } catch (error) {
-        figma.ui.postMessage({ type: 'result', id, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
+        postDispatchResult(msg, 'failed', 'execution-error', {
+          error: errorMessage(error),
+          metadata: revisionMetadata(revisionBefore),
+        });
       }
     });
     return;
   }
 
   if (msg.type === 'render-plan-batch') {
-    const { id, plans, options, timeoutMs, deadlineAt } = msg;
-    if (figma.editorType === 'dev') {
-      figma.ui.postMessage({
-        type: 'result', id,
-        error: 'Figma Dev Mode is read-only. Switch this file to Design mode and open Figma Bridge there to render or edit nodes.',
-      });
-      return;
-    }
+    const { plans, options, timeoutMs, deadlineAt } = msg;
     const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
+      if (!preflightPluginDispatch(msg, 'render-plan-batch')) return;
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
         if (remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) <= 0) {
-          throw new Error('Execution deadline elapsed before plugin start');
+          postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {
+            error: 'Execution deadline elapsed before plugin start',
+            metadata: revisionMetadata(revisionBefore),
+          });
+          return;
         }
         const result = await executeStructuredRenderPlanBatch(figma, plans, options || {});
-        figma.ui.postMessage({ type: 'result', id, result, metadata: revisionMetadata(revisionBefore) });
+        postDispatchResult(msg, 'completed', null, {
+          result,
+          metadata: revisionMetadata(revisionBefore),
+        });
       } catch (error) {
-        figma.ui.postMessage({ type: 'result', id, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
+        postDispatchResult(msg, 'failed', 'execution-error', {
+          error: errorMessage(error),
+          metadata: revisionMetadata(revisionBefore),
+        });
       }
     });
     return;
@@ -2423,6 +2684,7 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'connected') {
+    activeConnectionEpoch = typeof msg.connectionEpoch === 'string' ? msg.connectionEpoch : null;
     figma.notify(
       figma.editorType === 'dev'
         ? '✓ Figma Bridge connected in Dev Mode (read-only)'
@@ -2434,12 +2696,18 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'disconnected') {
+    activeConnectionEpoch = null;
     figma.notify('Figma Bridge disconnected', { timeout: 2000 });
   }
 
-  // Another Figma window's plugin authenticated after us — the daemon routes
-  // all evals there now. The UI shows the state; this is just the toast.
+  if (msg.type === 'connection-epoch') {
+    activeConnectionEpoch = typeof msg.connectionEpoch === 'string' ? msg.connectionEpoch : null;
+  }
+
+  // Another plugin instance for this same file superseded this connection.
+  // Other files remain independently routable; the UI owns the visible state.
   if (msg.type === 'superseded') {
+    activeConnectionEpoch = null;
     figma.notify('Figma Bridge: another Figma window took over the connection', { timeout: 4000 });
   }
 

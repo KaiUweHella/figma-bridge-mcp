@@ -32,6 +32,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     label: "customer requested private hero",
     path: "/workspace/private-project/source.tsx",
     fileKey: "SENSITIVEFIGMAFILEKEY",
+    connectionEpoch: "11111111-1111-4111-8111-111111111111",
     body: { message: "private review comment" },
   };
 
@@ -50,6 +51,8 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     ok: false,
     code: 1,
     errorKind: "engine-exit",
+    dispatchState: "failed",
+    connectionEpoch: secrets.connectionEpoch,
   });
 
   assert.deepEqual(status, { status: "healthy" });
@@ -62,6 +65,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     secrets.label,
     secrets.path,
     secrets.fileKey,
+    secrets.connectionEpoch,
     secrets.body.message,
     "12:34",
   ]) {
@@ -85,6 +89,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     durationMs: done.outcome.durationMs,
     code: 1,
     errorKind: "engine-exit",
+    dispatchState: "failed",
   });
 });
 

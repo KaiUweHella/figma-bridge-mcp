@@ -6,11 +6,12 @@
 // README documented. Proto 2 removed that: the key is only ever used as an
 // HMAC secret, and both sides prove possession of it. Proto 3 closes the
 // remaining relay gap by requiring the plugin to verify the port it really
-// connected to and by authenticating its canonical capability claim.
+// connected to and by authenticating its canonical capability claim. Proto 4
+// also signs the daemon-generated connection epoch used by Dispatch Receipts.
 //
-//   daemon → plugin   {type:'challenge', proto:3, nonce:<dNonce>, port:<bound>}
-//   plugin → daemon   {type:'hello', proto:3, nonce:<pNonce>, version, capabilities, proof}
-//   daemon → plugin   {type:'hello-ack', proof, restTokenConfigured}
+//   daemon → plugin   {type:'challenge', proto:4, nonce:<dNonce>, port:<bound>}
+//   plugin → daemon   {type:'hello', proto:4, nonce:<pNonce>, version, capabilities, proof}
+//   daemon → plugin   {type:'hello-ack', connectionEpoch, proof, restTokenConfigured}
 //
 // Four properties fall out of the transcript below:
 //
@@ -24,17 +25,19 @@
 //      That kills a transparent relay between two approved range ports.
 //   4. The canonical capability list is inside the plugin proof. A relay cannot
 //      add a security-sensitive capability to an older plugin's hello.
+//   5. The connection epoch is inside the daemon proof. A stale UI/main-thread
+//      result cannot claim a new authenticated socket after reconnect.
 //
 // Both ends ship in this repo and are installed together by figma_connect, so
 // there is no older-protocol fallback — a stale plugin gets a named error
 // telling it to re-import, not a silently weaker handshake.
 import { createHmac, timingSafeEqual, randomBytes } from 'crypto';
 
-export const HANDSHAKE_PROTO = 3;
+export const HANDSHAKE_PROTO = 4;
 
 // Domain separator. Keeps these HMACs from ever colliding with the request
 // signatures in daemon-auth.js, which are keyed with a different secret.
-const PREFIX = 'figma-bridge-mcp/handshake/v3';
+const PREFIX = 'figma-bridge-mcp/handshake/v4';
 
 /** 32 random bytes, hex. Same shape both sides must validate. */
 export function makeNonce() {
@@ -84,8 +87,15 @@ export function pluginTranscript({ daemonNonce, pluginNonce, port, version, capa
  * Transcript the DAEMON signs. Nonces in the opposite order so a plugin proof
  * can never be replayed back as a daemon proof.
  */
-export function daemonTranscript({ daemonNonce, pluginNonce, port }) {
-  return `${PREFIX}|daemon|${pluginNonce}|${daemonNonce}|${port}`;
+export function daemonTranscript({ daemonNonce, pluginNonce, port, connectionEpoch }) {
+  return JSON.stringify([
+    PREFIX,
+    'daemon',
+    pluginNonce,
+    daemonNonce,
+    port,
+    connectionEpoch,
+  ]);
 }
 
 /** HMAC-SHA256(key, transcript) as hex. */

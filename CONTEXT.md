@@ -45,6 +45,10 @@ _Avoid_: fetch helper, daemon wrapper
 The bounded, versioned failure facts produced where a **Figma Command** fails across the Bridge Daemon seam. Its kind, phase and execution outcome distinguish work that was not dispatched from work whose result is unknown after dispatch; user-facing prose never authorizes retry or recovery.
 _Avoid_: error string, HTTP failure, retry hint
 
+**Dispatch Receipt**:
+The bounded, versioned proof that one authenticated Plugin execution belongs to one request, connection epoch, file or draft session, expected editor and advertised operation capability. The Bridge Daemon prepares it from the selected connection; the Figma Plugin validates it immediately before execution and echoes the same identity with one terminal state. Receipt identity remains internal; Audit and user projections expose only the closed terminal state.
+_Avoid_: message id, current-file check, socket metadata
+
 **Runtime Soak Report**:
 The closed maintainer evidence from a sustained two-file Bridge session. It records bounded latency, recovery outcomes, cross-target mismatches, uncertain-write residue and cleanup state using target aliases only; Figma file keys, document names, node names, argv and error prose never enter the report.
 _Avoid_: debug log, connection dump, live file transcript
@@ -161,7 +165,7 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 
 > **Developer:** Can a command silently switch to another open file?
 >
-> **Domain expert:** No. Its Figma Target Context resolves once, then accompanies the Command Capability, audit entry, job identity and Daemon Client call.
+> **Domain expert:** No. Its Figma Target Context resolves once, then accompanies the Command Capability, audit entry, job identity and Daemon Client call. At the Plugin boundary a Dispatch Receipt binds that target and expected editor to the exact authenticated connection before mutation.
 
 > **Developer:** Does the renderer need to parse JSX again after structural validation?
 >

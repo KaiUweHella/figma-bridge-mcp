@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { createContext, Script } from 'node:vm';
 import { PORT_RANGE, DEFAULT_PORT } from '../engine/src/lib/daemon-port.js';
 import { DESIGN_ENTITY_PLUGIN_DATA_KEY } from '../engine/src/lib/design-link-registry.js';
+import { randomUUID } from 'node:crypto';
+import { createPreparedDispatchReceipt } from '../engine/src/lib/dispatch-receipt.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
@@ -85,7 +87,7 @@ test('Dev Mode exposes a connectable read-only Inspect adapter', () => {
   assert.equal(devManifest.id, 'figma-bridge-mcp-dev');
   assert.deepEqual(devManifest.networkAccess.allowedDomains, manifest.networkAccess.allowedDomains);
   assert.deepEqual(devManifest.networkAccess.devAllowedDomains, manifest.networkAccess.devAllowedDomains);
-  assert.match(PLUGIN_CODE, /Figma Dev Mode is read-only\. Switch this file to Design mode/);
+  assert.match(PLUGIN_CODE, /Figma Dev Mode is read-only\. Switch to Design mode/);
 });
 
 test('selection snapshots expose the shared Design Entity identity', () => {
@@ -187,6 +189,17 @@ test('expired queued writes never begin and timed-out evals quarantine the Plugi
   new Script(PLUGIN_CODE, { filename: 'plugin/code.js' }).runInContext(context);
   assert.equal(typeof context.figma.ui.onmessage, 'function');
 
+  const connectionEpoch = randomUUID();
+  const receipt = (action, overrides = {}) => createPreparedDispatchReceipt({
+    requestId: randomUUID(),
+    connectionEpoch,
+    fileKey: 'DEADLINE_FILE',
+    editorType: 'figma',
+    action,
+    ...overrides,
+  });
+  await context.figma.ui.onmessage({ type: 'connected', connectionEpoch });
+
   const plan = {
     kind: 'figma-bridge/semantic-render-plan',
     version: 1,
@@ -202,14 +215,21 @@ test('expired queued writes never begin and timed-out evals quarantine the Plugi
 
   // Hold the serialized Plugin queue, enqueue all three write protocols with
   // a short owning deadline, then let that deadline elapse before releasing it.
-  await context.figma.ui.onmessage({ type: 'eval', id: 1, code: 'blocker', timeoutMs: 2_000 });
+  await context.figma.ui.onmessage({
+    type: 'eval', id: 1, code: 'blocker', timeoutMs: 2_000, dispatchReceipt: receipt('eval'),
+  });
   const deadlineAt = Date.now() + 40;
   await context.figma.ui.onmessage({
     type: 'eval', id: 2, code: '(writeExecutions += 1)', timeoutMs: 2_000, deadlineAt,
+    dispatchReceipt: receipt('eval'),
   });
-  await context.figma.ui.onmessage({ type: 'render-plan', id: 3, plan, timeoutMs: 2_000, deadlineAt });
+  await context.figma.ui.onmessage({
+    type: 'render-plan', id: 3, plan, timeoutMs: 2_000, deadlineAt,
+    dispatchReceipt: receipt('render-plan'),
+  });
   await context.figma.ui.onmessage({
     type: 'render-plan-batch', id: 4, plans: [plan], options: {}, timeoutMs: 2_000, deadlineAt,
+    dispatchReceipt: receipt('render-plan-batch'),
   });
   await new Promise((resolve) => hostSetTimeout(resolve, 80));
   releaseBlocker('released');
@@ -227,6 +247,8 @@ test('expired queued writes never begin and timed-out evals quarantine the Plugi
       results.find((message) => message.id === id)?.error || '',
       /Execution deadline elapsed before plugin start/,
     );
+    assert.equal(results.find((message) => message.id === id)?.dispatchReceipt?.state, 'not-dispatched');
+    assert.equal(results.find((message) => message.id === id)?.dispatchReceipt?.reason, 'deadline-elapsed');
   }
   assert.equal(context.writeExecutions, 0, 'expired eval code must not execute');
   assert.equal(createdFrames, 0, 'expired render plans must not create canvas nodes');
@@ -236,15 +258,18 @@ test('expired queued writes never begin and timed-out evals quarantine the Plugi
   const slowDeadlineAt = Date.now() + 90;
   await context.figma.ui.onmessage({
     type: 'eval', id: 5, code: 'slowEval', timeoutMs: 1_000, deadlineAt: slowDeadlineAt,
+    dispatchReceipt: receipt('eval'),
   });
   await context.figma.ui.onmessage({
     type: 'eval', id: 6, code: '(writeExecutions += 1)', timeoutMs: 1_000, deadlineAt: Date.now() + 1_000,
+    dispatchReceipt: receipt('eval'),
   });
   const timeoutWait = Date.now() + 500;
   while (!posted.find((message) => message.id === 5) && Date.now() < timeoutWait) {
     await new Promise((resolve) => hostSetTimeout(resolve, 5));
   }
   assert.match(posted.find((message) => message.id === 5)?.error || '', /Execution timeout/);
+  assert.equal(posted.find((message) => message.id === 5)?.dispatchReceipt?.state, 'unknown');
   assert.equal(context.writeExecutions, 0, 'the next write must stay quarantined behind the timed-out eval');
   assert.equal(posted.some((message) => message.id === 6), false, 'the next write must not answer before the underlying eval settles');
 
@@ -254,4 +279,60 @@ test('expired queued writes never begin and timed-out evals quarantine the Plugi
     await new Promise((resolve) => hostSetTimeout(resolve, 5));
   }
   assert.equal(context.writeExecutions, 1, 'the next write may start only after the uncertain eval has actually settled');
+
+  await context.figma.ui.onmessage({
+    type: 'eval', id: 7, code: '(writeExecutions += 100)', timeoutMs: 1_000,
+    dispatchReceipt: receipt('eval', { editorType: 'figjam' }),
+  });
+  await context.figma.ui.onmessage({
+    type: 'eval', id: 8, code: '(writeExecutions += 1000)', timeoutMs: 1_000,
+    dispatchReceipt: receipt('eval', { fileKey: 'OTHER_FILE' }),
+  });
+  const mismatchWait = Date.now() + 500;
+  while ((!posted.find((message) => message.id === 7)
+      || !posted.find((message) => message.id === 8))
+    && Date.now() < mismatchWait) {
+    await new Promise((resolve) => hostSetTimeout(resolve, 5));
+  }
+  assert.equal(context.writeExecutions, 1, 'editor and target mismatches must fail before eval mutation');
+  assert.deepEqual(
+    [7, 8].map((id) => posted.find((message) => message.id === id)?.dispatchReceipt?.state),
+    ['not-dispatched', 'not-dispatched'],
+  );
+  assert.deepEqual(
+    [7, 8].map((id) => posted.find((message) => message.id === id)?.dispatchReceipt?.reason),
+    ['editor-mismatch', 'target-mismatch'],
+  );
+
+  const waitForResult = async (id) => {
+    const limit = Date.now() + 500;
+    while (!posted.find((message) => message.id === id) && Date.now() < limit) {
+      await new Promise((resolve) => hostSetTimeout(resolve, 5));
+    }
+    return posted.find((message) => message.id === id);
+  };
+  let editorMessageId = 20;
+  for (const editorType of ['figjam', 'slides', 'dev']) {
+    context.figma.editorType = editorType;
+    const evalId = editorMessageId++;
+    await context.figma.ui.onmessage({
+      type: 'eval', id: evalId, code: 'figma.editorType', timeoutMs: 1_000,
+      dispatchReceipt: receipt('eval', { editorType }),
+    });
+    const editorResult = await waitForResult(evalId);
+    assert.equal(editorResult?.result, editorType, `${editorType} eval workflow remains reachable`);
+    assert.equal(editorResult?.dispatchReceipt?.state, 'completed');
+
+    const renderId = editorMessageId++;
+    await context.figma.ui.onmessage({
+      type: 'render-plan', id: renderId, plan, timeoutMs: 1_000,
+      dispatchReceipt: receipt('render-plan', { editorType }),
+    });
+    const renderResult = await waitForResult(renderId);
+    assert.equal(renderResult?.dispatchReceipt?.state, 'not-dispatched');
+    assert.equal(renderResult?.dispatchReceipt?.reason, 'editor-mismatch');
+    assert.match(renderResult?.error || '', /Semantic Render Plans require Figma Design/);
+  }
+  context.figma.editorType = 'figma';
+  assert.equal(createdFrames, 0, 'Design-only Render Plans must not mutate any non-Design editor');
 });

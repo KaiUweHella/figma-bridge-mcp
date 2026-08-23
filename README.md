@@ -347,6 +347,11 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   accompanies planning, audit, job identity and daemon execution. One shared
   **Asset Policy** classifies image fills, vector art and vector clusters for
   both Design Capture projections and export.
+- One versioned **Dispatch Receipt** binds every authenticated Plugin action to
+  the selected connection epoch, file or draft session, expected editor and
+  advertised operation capability. The Plugin validates it immediately before
+  execution and echoes the same identity with a terminal state; receipt
+  identities never enter Audit or user-facing output.
 - Runtime protocol validators reject malformed HTTP execution payloads and
   plugin frames at the transport boundary. TypeScript checks the JavaScript
   seams (including the Figma plugin), while deterministic context, payload and
@@ -939,8 +944,9 @@ and launched the plugin there — not because a flag widened the scope.
 There is deliberately **no "all files" option**. Every write names one file, so
 a mistaken command cannot fan out across a library. Two windows on the _same_
 file are indistinguishable for routing, so the newer one takes over and the
-older is told it lost the bridge. Audit entries carry the file key, so
-`figma_history` stays readable when several files are in play.
+older is told it lost the bridge. Audit entries carry only a redacted target
+summary, so multi-file operations remain correlatable without retaining a raw
+file key.
 
 Reaching files you have _not_ opened is out of scope: Figma's REST API cannot
 write document content, so a bulk rename across thirty library files is not
@@ -1421,6 +1427,11 @@ rather than a generic API failure.
   the Capability Catalog; `connect` is _not_ exposed, so Safe-Mode-only
   connection is enforced. The same resolved plan drives the write-confirm gate,
   target requirement and retry policy, preventing adapter drift.
+- **Target/editor-bound dispatch** — every Plugin action carries a Dispatch
+  Receipt derived from the resolved connection. Stale epochs, wrong files,
+  wrong editors and missing capabilities fail before mutation; malformed or
+  mismatched terminal receipts are outcome-unknown and never authorize a write
+  retry.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
 - **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
   (per-request HMAC over method/path/body, keyed with the session token, nonce
@@ -1466,20 +1477,20 @@ Figma-enforced and cannot reach them.
 
 ### Handshake
 
-The plugin socket runs a mutual challenge-response (proto 3,
+The plugin socket runs a mutual challenge-response (proto 4,
 `engine/src/lib/plugin-handshake.js`):
 
 ```
-daemon → plugin   {type:'challenge', proto:3, nonce:<dNonce>, port:<bound>}
-plugin → daemon   {type:'hello', proto:3, nonce:<pNonce>, version, capabilities, proof}
-daemon → plugin   {type:'hello-ack', proof, restTokenConfigured}
+daemon → plugin   {type:'challenge', proto:4, nonce:<dNonce>, port:<bound>}
+plugin → daemon   {type:'hello', proto:4, nonce:<pNonce>, version, capabilities, proof}
+daemon → plugin   {type:'hello-ack', connectionEpoch, proof, restTokenConfigured}
 ```
 
 where `proof = HMAC-SHA256(access key, transcript)`. The plugin proof binds both
 nonces, the bound port, the plugin version and its canonical capability list;
-the daemon proof binds both nonces and the port with a distinct role label and
-nonce ordering, so neither proof can be replayed as the other. Four properties
-follow:
+the daemon proof binds both nonces, the port and its random connection epoch
+with a distinct role label and nonce ordering, so neither proof can be replayed
+as the other. Five properties follow:
 
 - **The key never crosses the wire.** A process that binds a range port before
   the daemon and records the whole exchange learns one HMAC over nonces it will
@@ -1496,6 +1507,9 @@ follow:
 - **Capabilities are authenticated.** The daemon verifies the exact canonical
   capability claim the plugin signed, so a relay cannot add a newer write-lane
   safety capability to a stale plugin.
+- **The connection epoch is authenticated.** Every Dispatch Receipt uses the
+  epoch signed by the daemon ack, so a result retained by the Plugin main thread
+  across an iframe reconnect cannot impersonate a request from the new socket.
 
 There is no fallback to an older handshake protocol. `figma_connect` refreshes the installed plugin
 files on every run. Figma may continue using an application-cached plugin

@@ -307,13 +307,16 @@
     // gated on secure-context inheritance we do not control. A silent fallback
     // to a weaker scheme would be the worst outcome for an auth handshake, so
     // the primitive ships with us and always behaves the same.
-    const HANDSHAKE_PROTO = 3;
-    const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v3';
+    const HANDSHAKE_PROTO = 4;
+    const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.8';
+    const PLUGIN_VERSION = '3.3.9';
     const PLUGIN_CAPABILITIES = Object.freeze([
+      'dispatch-receipt-v1',
+      'eval-v1',
       'execution-deadline-v1',
+      'reload-ui-v1',
       'render-plan-batch-v1',
       'render-plan-v1',
     ]);
@@ -432,6 +435,17 @@
       ]);
     }
 
+    function daemonHandshakeTranscript(daemonNonce, pluginNonce, port, epoch) {
+      return JSON.stringify([
+        HANDSHAKE_PREFIX,
+        'daemon',
+        pluginNonce,
+        daemonNonce,
+        port,
+        epoch,
+      ]);
+    }
+
     const PORTS = [3456, 3457, 3458, 3459, 3460];
     let ws = null;
     let reconnectTimer = null;
@@ -443,6 +457,7 @@
     let lastPingSent = 0;
     let latencyMs = null;
     let connectedPort = null;
+    let connectionEpoch = null;
     let KEY = null;              // access key, once known — never sent, only used as an HMAC secret
     let authed = false;          // BOTH sides proved themselves on the current socket
     let pendingNonce = null;     // our nonce for the in-flight handshake
@@ -644,6 +659,10 @@
 
     // ============ Pause / kill switch (feature B) ============
     let paused = false;
+    function uiTerminalDispatchReceipt(receipt, state, reason) {
+      if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return receipt;
+      return { ...receipt, state, ...(reason ? { reason } : {}) };
+    }
     pauseBtn.onclick = () => {
       paused = !paused;
       pauseBtn.textContent = paused ? 'Resume' : 'Pause';
@@ -658,21 +677,23 @@
     };
     function rejectPaused(msg) {
       const error = 'Paused by user in the Figma Bridge plugin UI — press Resume there to continue.';
+      let dispatchReceipt = msg.dispatchReceipt;
+      try {
+        dispatchReceipt = uiTerminalDispatchReceipt(msg.dispatchReceipt, 'not-dispatched', 'paused');
+      } catch (e) {}
       const reply = msg.action === 'eval-batch'
         ? { type: 'batch-result', id: msg.id, results: (msg.codes || []).map(() => ({ success: false, error })) }
-        : { type: 'result', id: msg.id, error };
+        : { type: 'result', id: msg.id, error, dispatchReceipt };
       try { ws.send(JSON.stringify(reply)); } catch (e) {}
       addLog({ id: msg.id, t0: Date.now(), label: 'rejected (paused)', kind: 'meta', status: 'err', ms: 0 });
       errCount++; renderStats();
     }
 
     // ============ Superseded state ============
-    // Two Figma windows, last hello wins: the daemon keeps ONE plugin socket.
-    // When another window takes over, it notifies this one (message + close
-    // 4409). Without this state the displaced window stayed green while every
-    // eval silently went elsewhere. No auto-reconnect — that would just
-    // supersede the other window back in an endless tug-of-war; the user
-    // decides via the button.
+    // Two plugin instances for the SAME file are indistinguishable for target
+    // routing, so the newer one supersedes the older instance (message + close
+    // 4409). Different files remain connected concurrently. No auto-reconnect
+    // here: that would make same-file windows displace each other forever.
     let superseded = false;
     function onSuperseded() {
       if (superseded) return;
@@ -812,6 +833,10 @@
         ws = null;
       }
       authed = false;
+      if (connectionEpoch) {
+        parent.postMessage({ pluginMessage: { type: 'connection-epoch', connectionEpoch: null } }, '*');
+      }
+      connectionEpoch = null;
       pendingNonce = null;
       pendingChallenge = null;
       connectedPort = null;
@@ -1124,9 +1149,15 @@
         // port". Accepting eval frames from it was the inverse of the key-leak
         // gap: a fake daemon could drive the document without knowing the key.
         if (!pendingChallenge || !pendingNonce) { onAuthFailure('daemon-proof'); return; }
-        const want = hmacSha256Hex(KEY, HANDSHAKE_PREFIX + '|daemon|' + pendingNonce + '|'
-          + pendingChallenge.nonce + '|' + pendingChallenge.port);
+        if (typeof msg.connectionEpoch !== 'string'
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(msg.connectionEpoch)) {
+          onAuthFailure('daemon-proof'); return;
+        }
+        const want = hmacSha256Hex(KEY, daemonHandshakeTranscript(
+          pendingChallenge.nonce, pendingNonce, pendingChallenge.port, msg.connectionEpoch,
+        ));
         if (!proofEquals(want, msg.proof || '')) { onAuthFailure('daemon-proof'); return; }
+        connectionEpoch = msg.connectionEpoch;
         pendingNonce = null;
         pendingChallenge = null;
 
@@ -1140,7 +1171,7 @@
         hintEl.classList.remove('warn');
         restConfigured = !!msg.restTokenConfigured;
         renderRestStatus();
-        parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
+        parent.postMessage({ pluginMessage: { type: 'connected', connectionEpoch } }, '*');
         startKeepalive();
         return;
       }
@@ -1174,19 +1205,20 @@
           timeoutMs: msg.timeoutMs,
           deadlineAt: msg.deadlineAt,
           requireDocumentRevision: msg.requireDocumentRevision === true,
+          dispatchReceipt: msg.dispatchReceipt,
         } }, '*');
       }
       if (msg.action === 'render-plan') {
         if (paused) { rejectPaused(msg); return; }
         const name = msg.plan && msg.plan.root && msg.plan.root.name ? msg.plan.root.name : 'Frame';
         addLog({ id: msg.id, t0: Date.now(), label: 'render plan · ' + name, kind: 'write' });
-        parent.postMessage({ pluginMessage: { type: 'render-plan', id: msg.id, plan: msg.plan, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt } }, '*');
+        parent.postMessage({ pluginMessage: { type: 'render-plan', id: msg.id, plan: msg.plan, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt, dispatchReceipt: msg.dispatchReceipt } }, '*');
       }
       if (msg.action === 'render-plan-batch') {
         if (paused) { rejectPaused(msg); return; }
         const n = (msg.plans || []).length;
         addLog({ id: msg.id, t0: Date.now(), label: 'render plan batch · ' + n + ' frame' + (n !== 1 ? 's' : ''), kind: 'write' });
-        parent.postMessage({ pluginMessage: { type: 'render-plan-batch', id: msg.id, plans: msg.plans, options: msg.options || {}, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt } }, '*');
+        parent.postMessage({ pluginMessage: { type: 'render-plan-batch', id: msg.id, plans: msg.plans, options: msg.options || {}, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt, dispatchReceipt: msg.dispatchReceipt } }, '*');
       }
       if (msg.action === 'eval-batch') {
         if (paused) { rejectPaused(msg); return; }
@@ -1198,7 +1230,7 @@
         // The long-lived plugin main thread owns figma.showUI(). Forward the
         // authenticated recovery request there; it acknowledges through the
         // normal result channel before replacing this iframe.
-        parent.postMessage({ pluginMessage: { type: 'reload-ui', id: msg.id } }, '*');
+        parent.postMessage({ pluginMessage: { type: 'reload-ui', id: msg.id, dispatchReceipt: msg.dispatchReceipt } }, '*');
       }
       if (msg.action === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', id: msg.id }));
@@ -1281,7 +1313,7 @@
       if (msg.type === 'result') {
         finishLog(msg.id, msg.error);
         if (ws && ws.readyState === WebSocket.OPEN && authed) {
-          ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error, metadata: msg.metadata }));
+          ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error, metadata: msg.metadata, dispatchReceipt: msg.dispatchReceipt }));
         }
       }
       if (msg.type === 'batch-result') {

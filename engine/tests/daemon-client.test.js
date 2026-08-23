@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDaemonClient, DaemonClientError } from '../src/lib/daemon-client.js';
 
+const FIGMA = Object.freeze({ expectedEditor: 'figma' });
+
 function response(status, value) {
   return {
     ok: status >= 200 && status < 300,
@@ -22,14 +24,16 @@ test('daemon client concentrates signed execution and explicit file targeting', 
     },
   });
 
-  assert.equal(await client.evaluate('1 + 1', { fileKey: 'EXPLICIT_FILE', timeoutMs: 54321 }), 'ok');
+  assert.equal(await client.evaluate('1 + 1', {
+    fileKey: 'EXPLICIT_FILE', timeoutMs: 54321, expectedEditor: 'figma',
+  }), 'ok');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://127.0.0.1:3456/exec');
   const executionBody = JSON.parse(calls[0].options.body);
   assert.ok(executionBody.deadlineAt > Date.now());
   delete executionBody.deadlineAt;
   assert.deepEqual(executionBody, {
-    action: 'eval', code: '1 + 1', fileKey: 'EXPLICIT_FILE', timeoutMs: 54321,
+    action: 'eval', code: '1 + 1', expectedEditor: 'figma', fileKey: 'EXPLICIT_FILE', timeoutMs: 54321,
   });
   assert.equal(calls[0].options.headers['Content-Type'], 'application/json');
   assert.ok(calls[0].options.headers['X-Daemon-Auth']);
@@ -49,10 +53,10 @@ test('metadata-aware eval preserves daemon-owned Capture freshness facts', async
       return response(200, { result: { ok: true }, metadata });
     },
   });
-  assert.deepEqual(await client.evaluateWithMetadata('capture()'), {
+  assert.deepEqual(await client.evaluateWithMetadata('capture()', FIGMA), {
     value: { ok: true }, metadata,
   });
-  assert.deepEqual(await client.evaluate('capture()'), { ok: true }, 'value-only Adapter stays compatible');
+  assert.deepEqual(await client.evaluate('capture()', FIGMA), { ok: true }, 'value-only Adapter stays compatible');
   assert.equal(bodies[0].requireDocumentRevision, true,
     'metadata-aware reads explicitly pay for the document-wide revision proof');
   assert.equal(Object.hasOwn(bodies[1], 'requireDocumentRevision'), false,
@@ -66,10 +70,10 @@ test('daemon client sends Semantic Render Plans as structured authenticated payl
     fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return response(200, { result: { id: '1:2' } }); },
   });
   const plan = { kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx', root: {}, diagnostics: {} };
-  assert.deepEqual(await client.renderPlan(plan), { id: '1:2' });
+  assert.deepEqual(await client.renderPlan(plan, FIGMA), { id: '1:2' });
   assert.ok(body.deadlineAt > Date.now());
   delete body.deadlineAt;
-  assert.deepEqual(body, { action: 'render-plan', plan, timeoutMs: 90000 });
+  assert.deepEqual(body, { action: 'render-plan', plan, expectedEditor: 'figma', timeoutMs: 90000 });
 });
 
 test('daemon client sends native Semantic Render Plan batches without JavaScript code', async () => {
@@ -79,11 +83,11 @@ test('daemon client sends native Semantic Render Plan batches without JavaScript
     fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return response(200, { result: { frames: [] } }); },
   });
   const plans = [{ kind: 'figma-bridge/semantic-render-plan', version: 1 }];
-  assert.deepEqual(await client.renderPlanBatch(plans, { gap: 20, vertical: false }), { frames: [] });
+  assert.deepEqual(await client.renderPlanBatch(plans, { gap: 20, vertical: false }, FIGMA), { frames: [] });
   assert.ok(body.deadlineAt > Date.now());
   delete body.deadlineAt;
   assert.deepEqual(body, {
-    action: 'render-plan-batch', plans, options: { gap: 20, vertical: false }, timeoutMs: 90000,
+    action: 'render-plan-batch', plans, options: { gap: 20, vertical: false }, expectedEditor: 'figma', timeoutMs: 90000,
   });
 });
 
@@ -129,7 +133,7 @@ test('daemon client requests authenticated plugin self-recovery', async () => {
 
 test('daemon client exposes stable error kinds for adapter fallback decisions', async () => {
   const missing = createDaemonClient({ readToken: () => null, getPort: () => 3456, fetchImpl: async () => response(200, {}) });
-  await assert.rejects(() => missing.evaluate('x'), (error) => {
+  await assert.rejects(() => missing.evaluate('x', FIGMA), (error) => {
     assert.ok(error instanceof DaemonClientError);
     assert.equal(error.kind, 'missing-token');
     return true;
@@ -140,7 +144,7 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     readToken: () => 'token', getPort: () => 3456,
     fetchImpl: async () => { unavailableCalls++; throw new TypeError('fetch failed'); },
   });
-  await assert.rejects(() => unavailable.evaluate('x'), (error) => {
+  await assert.rejects(() => unavailable.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'unavailable');
     assert.match(error.message, /Daemon not reachable/);
     return true;
@@ -151,7 +155,7 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     readToken: () => 'token', getPort: () => 3456,
     fetchImpl: async () => response(503, { error: 'Plugin not connected' }),
   });
-  await assert.rejects(() => pluginDown.evaluate('x'), (error) => {
+  await assert.rejects(() => pluginDown.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'plugin-unavailable');
     assert.match(error.message, /Plugins → Development/);
     return true;
@@ -161,7 +165,7 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     readToken: () => 'token', getPort: () => 3456,
     fetchImpl: async () => response(503, { error: 'Plugin disconnected' }),
   });
-  await assert.rejects(() => pluginDropped.evaluate('x'), (error) => {
+  await assert.rejects(() => pluginDropped.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'plugin-unavailable');
     assert.match(error.message, /reconnect/i);
     assert.match(error.message, /may have completed/);
@@ -174,7 +178,7 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     readToken: () => 'token', getPort: () => 3456,
     fetchImpl: async () => response(503, { error: 'Plugin execution timeout (25s)' }),
   });
-  await assert.rejects(() => pluginStalled.evaluate('x'), (error) => {
+  await assert.rejects(() => pluginStalled.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'plugin-timeout');
     assert.match(error.message, /foreground/i);
     assert.match(error.message, /socket is open/i);
@@ -188,7 +192,7 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     readToken: () => 'token', getPort: () => 3456, tokenFile: '/state/.daemon-token',
     fetchImpl: async () => response(403, { error: 'Unauthorized request token' }),
   });
-  await assert.rejects(() => authFailure.evaluate('x'), (error) => {
+  await assert.rejects(() => authFailure.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'authentication');
     assert.equal(error.status, 403);
     assert.match(error.message, /Token file: \/state\/\.daemon-token/);
@@ -208,7 +212,7 @@ test('daemon client preserves actionable multi-window target details', async () 
     }),
   });
 
-  await assert.rejects(() => client.evaluate('x'), (error) => {
+  await assert.rejects(() => client.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'targeting');
     assert.equal(error.phase, 'target-resolution');
     assert.equal(error.outcome, 'not-dispatched');
@@ -232,15 +236,17 @@ test('daemon client trusts structured execution facts instead of domain prose', 
         kind: 'execution',
         phase: 'plugin-execution',
         outcome: 'unknown-after-dispatch',
+        dispatchState: 'failed',
         message: 'Token alias could not be resolved',
       },
     }),
   });
 
-  await assert.rejects(() => client.evaluate('x'), (error) => {
+  await assert.rejects(() => client.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'execution');
     assert.equal(error.phase, 'plugin-execution');
     assert.equal(error.outcome, 'unknown-after-dispatch');
+    assert.equal(error.dispatchState, 'failed');
     assert.equal(error.legacy, false);
     assert.doesNotMatch(error.message, /Token file:/);
     return true;
@@ -252,7 +258,7 @@ test('legacy string-only daemon errors stay compatible without token substring a
     readToken: () => 'token', getPort: () => 3456,
     fetchImpl: async () => response(500, { error: 'Token alias could not be resolved' }),
   });
-  await assert.rejects(() => domain.evaluate('x'), (error) => {
+  await assert.rejects(() => domain.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'execution');
     assert.equal(error.outcome, 'unknown-after-dispatch');
     assert.equal(error.legacy, true);
@@ -265,10 +271,21 @@ test('legacy daemon error bodies are bounded before they become client messages'
     readToken: () => 'token', getPort: () => 3456,
     fetchImpl: async () => response(500, 'x'.repeat(40_000)),
   });
-  await assert.rejects(() => client.evaluate('x'), (error) => {
+  await assert.rejects(() => client.evaluate('x', FIGMA), (error) => {
     assert.equal(error.kind, 'execution');
     assert.equal(error.legacy, true);
     assert.ok(Buffer.byteLength(error.message, 'utf8') <= 16 * 1024);
     return true;
   });
+});
+
+test('daemon client refuses execution without the Command Plan editor identity', async () => {
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async () => assert.fail('invalid execution must not reach the daemon'),
+  });
+  await assert.rejects(
+    () => client.evaluate('x'),
+    /requires expectedEditor from the Command Plan/,
+  );
 });

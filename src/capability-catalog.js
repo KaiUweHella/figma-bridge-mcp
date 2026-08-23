@@ -670,7 +670,10 @@ function availabilityFor(args, capability) {
   }
   return {
     transport: 'plugin',
-    editor: args[0] === 'jam' ? 'figjam' : args[0] === 'slides' ? 'slides' : 'figma',
+    editor: args[0] === 'jam' ? 'figjam'
+      : args[0] === 'slides' ? 'slides'
+        : args[0] === 'measure' ? 'dev'
+          : 'figma',
     feature: args[0] === 'motion' ? 'motion-beta'
       : args[0] === 'slides' ? 'slides-beta'
         : args[0] === 'map' ? 'storybook'

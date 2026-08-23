@@ -16,13 +16,17 @@ import {
   sign,
 } from "../engine/src/lib/plugin-handshake.js";
 import { PLUGIN_BUILD_VERSION } from "../engine/src/lib/plugin-version.js";
+import { terminalDispatchReceipt } from "../engine/src/lib/dispatch-receipt.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DAEMON = join(ROOT, "engine", "src", "daemon.js");
 const FILE_A = "SOAKFILEA01";
 const FILE_B = "SOAKFILEB02";
 const PLUGIN_CAPABILITIES = [
+  "dispatch-receipt-v1",
+  "eval-v1",
   "execution-deadline-v1",
+  "reload-ui-v1",
   "render-plan-batch-v1",
   "render-plan-v1",
 ];
@@ -161,7 +165,12 @@ test(
       }
       const result =
         message.code === "write-count" ? writeMutations : { identity };
-      ws.send(JSON.stringify({ type: "result", id: message.id, result }));
+      ws.send(JSON.stringify({
+        type: "result",
+        id: message.id,
+        result,
+        dispatchReceipt: terminalDispatchReceipt(message.dispatchReceipt, "completed"),
+      }));
     };
 
     try {
@@ -183,6 +192,7 @@ test(
         const result = await client.evaluate("identity", {
           fileKey,
           timeoutMs: 2000,
+          expectedEditor: "figma",
         });
         latencies.push(performance.now() - startedAt);
         assert.deepEqual(
@@ -203,6 +213,7 @@ test(
           return client.evaluate("read-disconnect", {
             fileKey: FILE_A,
             timeoutMs: 2000,
+            expectedEditor: "figma",
           });
         },
         {
@@ -220,6 +231,7 @@ test(
           client.evaluate("write-disconnect", {
             fileKey: FILE_B,
             timeoutMs: 2000,
+            expectedEditor: "figma",
           }),
         (error) =>
           error.kind === "plugin-unavailable" &&
@@ -236,6 +248,7 @@ test(
         await client.evaluate("write-count", {
           fileKey: FILE_B,
           timeoutMs: 2000,
+          expectedEditor: "figma",
         }),
         1
       );

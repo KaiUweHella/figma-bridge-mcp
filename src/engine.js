@@ -206,6 +206,7 @@ function failCommandExecution(context, error) {
     ok: false,
     ...(typeof error?.code === "number" ? { code: error.code } : {}),
     errorKind: error?.kind || (typeof error?.code === "number" ? "engine-exit" : "request"),
+    ...(error?.dispatchState ? { dispatchState: error.dispatchState } : {}),
   });
 }
 
@@ -233,7 +234,13 @@ export async function runCli(args, opts = {}) {
 export async function runCliPlan(plan, opts = {}) {
   const context = startCommandExecution(plan, opts);
   try {
-    const result = await spawnCliAdapter(context.args, context.fileKey, executionTimeout(context), context.plan.execution.okExitCodes);
+    const result = await spawnCliAdapter(
+      context.args,
+      context.fileKey,
+      context.plan.availability.editor,
+      executionTimeout(context),
+      context.plan.execution.okExitCodes,
+    );
     const audit = completeCommandExecution(context, result.code);
     return { ...result, audit };
   } catch (error) {
@@ -241,13 +248,13 @@ export async function runCliPlan(plan, opts = {}) {
   }
 }
 
-async function spawnCliAdapter(args, fileKey, timeoutMs, plannedExitCodes = [0]) {
+async function spawnCliAdapter(args, fileKey, expectedEditor, timeoutMs, plannedExitCodes = [0]) {
   const { cmd, argv } = buildArgv(args, { fileKey });
   try {
     const { stdout, stderr } = await execFileAsync(cmd, argv, {
       timeout: timeoutMs,
       cwd: ENGINE_CWD,
-      env: engineEnv,
+      env: { ...engineEnv, FIGMA_BRIDGE_EXPECTED_EDITOR: expectedEditor },
       maxBuffer: MAX_BUFFER,
       shell: false,
     });
@@ -287,6 +294,7 @@ export async function runInProcessCommandPlan(plan, opts = {}, operation) {
     plan: context.plan,
     target: context.targetContext,
     fileKey: context.fileKey,
+    expectedEditor: context.plan.availability.editor,
     timeoutMs: remaining(),
     deadline,
   });
@@ -324,7 +332,13 @@ export async function runInProcessCommandPlan(plan, opts = {}, operation) {
       && context.plan.execution.retry === "safe-read"
       && isDaemonUnavailable(error)) {
       try {
-        const result = await spawnCliAdapter(context.args, context.fileKey, remaining(), context.plan.execution.okExitCodes);
+        const result = await spawnCliAdapter(
+          context.args,
+          context.fileKey,
+          context.plan.availability.editor,
+          remaining(),
+          context.plan.execution.okExitCodes,
+        );
         const audit = completeCommandExecution(context, result.code);
         return { ...result, audit };
       } catch (fallbackError) {
@@ -535,18 +549,30 @@ function daemonClient() {
 
 /** Evaluate code through the authenticated Safe-Mode daemon without spawning
  * the CLI/Commander process. The caller supplies file targeting explicitly. */
-export async function evaluateFigma(code, { target, fileKey, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
+export async function evaluateFigma(code, {
+  target,
+  fileKey,
+  expectedEditor,
+  timeoutMs = EXEC_TIMEOUT_MS,
+} = {}) {
   return daemonClient().evaluate(code, {
     fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    expectedEditor,
     timeoutMs,
   });
 }
 
 /** Metadata-aware eval for freshness-sensitive read Modules. Ordinary command
  * callers keep the value-only evaluateFigma Interface. */
-export async function evaluateFigmaWithMetadata(code, { target, fileKey, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
+export async function evaluateFigmaWithMetadata(code, {
+  target,
+  fileKey,
+  expectedEditor,
+  timeoutMs = EXEC_TIMEOUT_MS,
+} = {}) {
   return daemonClient().evaluateWithMetadata(code, {
     fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    expectedEditor,
     timeoutMs,
   });
 }
@@ -554,9 +580,15 @@ export async function evaluateFigmaWithMetadata(code, { target, fileKey, timeout
 /** Execute a validated Semantic Render Plan through the authenticated native
  * Plugin action. Adapter selection and result validation stay in the owning
  * Semantic Render Command Application. */
-export async function renderFigmaPlan(plan, { target, fileKey, timeoutMs = LONG_EXEC_TIMEOUT_MS } = {}) {
+export async function renderFigmaPlan(plan, {
+  target,
+  fileKey,
+  expectedEditor,
+  timeoutMs = LONG_EXEC_TIMEOUT_MS,
+} = {}) {
   return daemonClient().renderPlan(plan, {
     fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    expectedEditor,
     timeoutMs,
   });
 }
@@ -568,7 +600,12 @@ const designCaptureModule = createDesignCaptureModule({
 
 /** Capture one explicit Figma node, reusing it only when the plugin proves the
  * connection and document revision are unchanged. */
-export function captureFigmaDesign(request, { fileKey, deadline, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
+export function captureFigmaDesign(request, {
+  fileKey,
+  expectedEditor,
+  deadline,
+  timeoutMs = EXEC_TIMEOUT_MS,
+} = {}) {
   const target = resolveFileTarget(fileKey, []);
   const remaining = () => deadline == null
     ? timeoutMs
@@ -576,6 +613,7 @@ export function captureFigmaDesign(request, { fileKey, deadline, timeoutMs = EXE
   return designCaptureModule.capture({ ...request, fileKey: target }, {
     evaluateWithMetadata: (code) => daemonClient().evaluateWithMetadata(code, {
       fileKey: target,
+      expectedEditor,
       timeoutMs: remaining(),
     }),
   });
@@ -707,14 +745,14 @@ export async function health({ timeoutMs = 3000 } = {}) {
 /** A real read-only plugin round trip. A WebSocket can remain OPEN while a
  * backgrounded Figma/plugin runtime no longer services eval messages, so
  * socket state alone is not a useful readiness signal. */
-export async function probePluginResponsiveness(fileKey, timeoutMs = 4000) {
+export async function probePluginResponsiveness(fileKey, timeoutMs = 4000, expectedEditor = 'figma') {
   const target = resolveFileTarget(fileKey, []);
   const started = Date.now();
   try {
     await daemonClient().execute('eval', {
       code: '(async () => ({ ok: true }))()',
       timeoutMs: Math.max(1000, timeoutMs - 500),
-    }, { fileKey: target, timeoutMs });
+    }, { fileKey: target, timeoutMs, expectedEditor });
     return { responsive: true, latencyMs: Date.now() - started, error: null };
   } catch (error) {
     return {
