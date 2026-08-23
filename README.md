@@ -1466,18 +1466,19 @@ Figma-enforced and cannot reach them.
 
 ### Handshake
 
-The plugin socket runs a mutual challenge-response (proto 2,
+The plugin socket runs a mutual challenge-response (proto 3,
 `engine/src/lib/plugin-handshake.js`):
 
 ```
-daemon → plugin   {type:'challenge', proto:2, nonce:<dNonce>, port:<bound>}
-plugin → daemon   {type:'hello', proto:2, nonce:<pNonce>, version, proof}
+daemon → plugin   {type:'challenge', proto:3, nonce:<dNonce>, port:<bound>}
+plugin → daemon   {type:'hello', proto:3, nonce:<pNonce>, version, capabilities, proof}
 daemon → plugin   {type:'hello-ack', proof, restTokenConfigured}
 ```
 
-where `proof = HMAC-SHA256(access key, transcript)` over both nonces, the bound
-port and the plugin version — with distinct role labels and nonce ordering per
-direction, so neither proof can be replayed as the other. Three properties
+where `proof = HMAC-SHA256(access key, transcript)`. The plugin proof binds both
+nonces, the bound port, the plugin version and its canonical capability list;
+the daemon proof binds both nonces and the port with a distinct role label and
+nonce ordering, so neither proof can be replayed as the other. Four properties
 follow:
 
 - **The key never crosses the wire.** A process that binds a range port before
@@ -1488,11 +1489,15 @@ follow:
   answered and would run any `eval` it was sent — impersonating the daemon
   needed no key at all. The panel now refuses every command until the ack
   verifies.
-- **The bound port is inside the transcript.** A squatter on 3456 that forwards
-  to the real daemon on 3457 makes the plugin sign 3456 while the daemon
-  verifies 3457, so the relay collapses.
+- **The bound port is inside the transcript and checked against the actual
+  socket.** A squatter on 3456 that forwards a challenge from the real daemon
+  on 3457 is rejected before the plugin sends a proof. Rewriting the challenge
+  to 3456 instead makes the daemon's verification fail.
+- **Capabilities are authenticated.** The daemon verifies the exact canonical
+  capability claim the plugin signed, so a relay cannot add a newer write-lane
+  safety capability to a stale plugin.
 
-There is no proto-1 fallback. `figma_connect` refreshes the installed plugin
+There is no fallback to an older handshake protocol. `figma_connect` refreshes the installed plugin
 files on every run. Figma may continue using an application-cached plugin
 build, so the authenticated handshake reports the imported build separately
 from the bundled build. `figma_status` then gives an explicit re-import path

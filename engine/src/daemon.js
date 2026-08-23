@@ -34,6 +34,7 @@ import {
   HANDSHAKE_PROTO,
   makeNonce,
   isNonce,
+  canonicalPluginCapabilities,
   pluginTranscript,
   daemonTranscript,
   sign as signHandshake,
@@ -311,6 +312,12 @@ function resolveTarget(fileKey) {
 
 async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
   const conn = conns.get(ws);
+  if (!conn?.capabilities?.includes('execution-deadline-v1')) {
+    throw new BridgeDaemonError(
+      'Plugin capability missing: execution-deadline-v1. Reload the installed Figma Bridge plugin before executing commands.',
+      { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+    );
+  }
   if (action === 'render-plan' && !conn?.capabilities?.includes('render-plan-v1')) {
     throw new BridgeDaemonError(
       'Plugin capability missing: render-plan-v1. Reload the installed Figma Bridge plugin to enable structured rendering.',
@@ -352,26 +359,45 @@ async function requestViaSocket(ws, action, data, timeoutMs = 25000) {
   });
 }
 
-async function requestViaPlugin(action, data, fileKey = null) {
-  return requestViaSocket(resolveTarget(fileKey), action, data);
+async function requestViaPlugin(action, data, fileKey = null, timeoutMs = 25000) {
+  return requestViaSocket(resolveTarget(fileKey), action, data, timeoutMs);
 }
 
 // ============ UNIFIED EVAL ============
 
-async function executeEval(code, fileKey = null, requireDocumentRevision = false) {
+function boundedDeadline(timeoutMs, deadlineAt) {
+  const localDeadline = Date.now() + timeoutMs;
+  return deadlineAt != null && Number.isFinite(Number(deadlineAt))
+    ? Math.min(localDeadline, Number(deadlineAt))
+    : localDeadline;
+}
+
+async function executeEval(code, fileKey = null, requireDocumentRevision = false, timeoutMs = 25000, deadlineAt = null) {
+  const pluginDeadlineAt = boundedDeadline(timeoutMs, deadlineAt);
   // Plugin handles its own top-level-return wrapping — send code as-is.
   return requestViaPlugin('eval', {
     code,
     ...(requireDocumentRevision ? { requireDocumentRevision: true } : {}),
-  }, fileKey);
+    timeoutMs,
+    deadlineAt: pluginDeadlineAt,
+  }, fileKey, timeoutMs);
 }
 
-async function executeRenderPlan(plan, fileKey = null) {
-  return requestViaPlugin('render-plan', { plan }, fileKey);
+async function executeRenderPlan(plan, fileKey = null, timeoutMs = 25000, deadlineAt = null) {
+  return requestViaPlugin('render-plan', {
+    plan,
+    timeoutMs,
+    deadlineAt: boundedDeadline(timeoutMs, deadlineAt),
+  }, fileKey, timeoutMs);
 }
 
-async function executeRenderPlanBatch(plans, options, fileKey = null) {
-  return requestViaPlugin('render-plan-batch', { plans, options }, fileKey);
+async function executeRenderPlanBatch(plans, options, fileKey = null, timeoutMs = 25000, deadlineAt = null) {
+  return requestViaPlugin('render-plan-batch', {
+    plans,
+    options,
+    timeoutMs,
+    deadlineAt: boundedDeadline(timeoutMs, deadlineAt),
+  }, fileKey, timeoutMs);
 }
 
 function resultMetadata(ws, raw) {
@@ -668,22 +694,41 @@ function handleExec(req, res) {
     inFlightExecs++;
     try {
       const {
-        action, code, plan, plans, options, timeoutMs, fileKey, requireDocumentRevision,
+        action, code, plan, plans, options, timeoutMs, deadlineAt, fileKey, requireDocumentRevision,
       } = payload;
       let result;
       let metadata = null;
 
       const execWithTimeout = async (fn, ms = 30000) => {
-        return Promise.race([
-          fn(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new BridgeDaemonError(`Execution timeout (${ms / 1000}s)`, {
+        let timeout;
+        try {
+          return await Promise.race([
+            fn(),
+            new Promise((_, reject) => {
+              timeout = setTimeout(() => reject(new BridgeDaemonError(`Execution timeout (${ms / 1000}s)`, {
               kind: 'plugin-timeout',
               phase: 'plugin-execution',
               outcome: 'unknown-after-dispatch',
-            })), ms)
-          )
-        ]);
+              })), ms);
+            }),
+          ]);
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
+      };
+
+      const executionBudget = () => {
+        const requested = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
+        if (!Number.isFinite(Number(deadlineAt))) return requested;
+        const remaining = Math.floor(Number(deadlineAt) - Date.now());
+        if (remaining <= 0) {
+          throw new BridgeDaemonError('Execution deadline elapsed before Plugin dispatch', {
+            kind: 'timeout',
+            phase: 'plugin-dispatch',
+            outcome: 'not-dispatched',
+          });
+        }
+        return Math.max(1, Math.min(requested, remaining));
       };
 
       switch (action) {
@@ -694,9 +739,9 @@ function handleExec(req, res) {
         // Long renders pass their budget via timeoutMs (clamped: a client
         // must not be able to disable the timeout entirely).
         case 'eval': {
-          const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
+          const ms = executionBudget();
           const execution = await execWithTimeout(
-            () => executeEval(code, fileKey || null, requireDocumentRevision === true),
+            () => executeEval(code, fileKey || null, requireDocumentRevision === true, ms, deadlineAt),
             ms,
           );
           result = execution.result;
@@ -704,15 +749,15 @@ function handleExec(req, res) {
           break;
         }
         case 'render-plan': {
-          const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
-          const execution = await execWithTimeout(() => executeRenderPlan(plan, fileKey || null), ms);
+          const ms = executionBudget();
+          const execution = await execWithTimeout(() => executeRenderPlan(plan, fileKey || null, ms, deadlineAt), ms);
           result = execution.result;
           metadata = execution.metadata;
           break;
         }
         case 'render-plan-batch': {
-          const ms = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
-          const execution = await execWithTimeout(() => executeRenderPlanBatch(plans, options || {}, fileKey || null), ms);
+          const ms = executionBudget();
+          const execution = await execWithTimeout(() => executeRenderPlanBatch(plans, options || {}, fileKey || null, ms, deadlineAt), ms);
           result = execution.result;
           metadata = execution.metadata;
           break;
@@ -790,9 +835,9 @@ const AUTH_TIMEOUT_MS = 5000;
 function handlePluginSocket(ws) {
   // Each socket starts unauthenticated. The daemon speaks first with a random
   // challenge; the FIRST message back must be a {type:'hello'} carrying a proof
-  // over (our nonce, their nonce, our bound port, their version). Until that
-  // verifies, the socket is not registered in `conns` and cannot drive any
-  // eval. See lib/plugin-handshake.js for why the port is in the transcript.
+  // over (our nonce, their nonce, our bound port, their version, their canonical
+  // capabilities). Until that verifies, the socket is not registered in
+  // `conns` and cannot drive any eval. See lib/plugin-handshake.js.
   let authenticated = false;
 
   // If no key is configured on the daemon, we can never authenticate — reject.
@@ -829,7 +874,7 @@ function handlePluginSocket(ws) {
       return;
     }
 
-    // Classify a stale pre-auth hello before the strict proto-2 shape check.
+    // Classify a stale pre-auth hello before the strict proto-3 shape check.
     // Proto 1 sent the raw key and therefore lacks the nonce/proof fields that
     // validatePluginMessage intentionally requires. If validation ran first,
     // the actionable re-import signal would be collapsed into "protocol".
@@ -889,11 +934,13 @@ function handlePluginSocket(ws) {
       }
       const version = String(msg.version || 'unknown');
       const updateAvailable = pluginUpdateAvailable(version);
+      const capabilities = canonicalPluginCapabilities(msg.capabilities || []);
       const expected = pluginTranscript({
         daemonNonce,
         pluginNonce: msg.nonce,
         port: boundPort,
         version,
+        capabilities,
       });
       if (!verifyHandshake(PLUGIN_KEY, expected, msg.proof)) {
         return reject('invalid-key', 'Invalid access key');
@@ -907,8 +954,9 @@ function handlePluginSocket(ws) {
       conns.set(ws, {
         connectionId: randomUUID(),
         fileKey: null, fileName: null, editorType: null,
-        capabilities: Array.isArray(msg.capabilities)
-          ? msg.capabilities.filter((item) => ['render-plan-v1', 'render-plan-batch-v1'].includes(item)) : [],
+        capabilities: capabilities.filter((item) => [
+          'execution-deadline-v1', 'render-plan-v1', 'render-plan-batch-v1',
+        ].includes(item)),
         pluginVersion: version,
         pluginUpdateAvailable: updateAvailable,
         selection: null, connectedAt: new Date().toISOString(), lastResponseAt: null,

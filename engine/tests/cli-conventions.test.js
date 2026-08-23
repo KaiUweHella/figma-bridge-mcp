@@ -8,6 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { detectWrapperSplit } from '../src/lib/jsx-split.js';
 
 const COMMANDS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
 const LIB_DIR = join(COMMANDS_DIR, '..', 'lib');
@@ -142,6 +143,71 @@ test('node set-text delegates one non-retrying Command Application', () => {
     application.indexOf('await Promise.all(fonts.map') < application.indexOf('node.characters ='),
     'font preflight must precede the only mutation',
   );
+});
+
+test('simple render delegates one non-retrying Semantic Render Application', () => {
+  const adapter = sources.get('render.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'semantic-render-command.js'), 'utf8');
+  assert.ok(adapter, 'render.js exists');
+  const commandStart = adapter.indexOf(".command('render [jsx]')");
+  const commandEnd = adapter.indexOf(".command('render-batch')", commandStart);
+  const action = adapter.slice(commandStart, commandEnd);
+  const helperStart = adapter.indexOf('async function runSimpleSemanticRender');
+  const helper = adapter.slice(helperStart, commandStart);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /const originalArgv = rawRenderArgv\(\)/);
+  assert.match(action, /semanticRenderArgvRoute\(originalArgv\)/);
+  assert.match(action, /runSimpleSemanticRender\(simpleArgv\)/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.match(helper, /planFigmaCommand\(argv/);
+  assert.match(helper, /prepareSemanticRenderPlan\(plan/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(helper, /executePreparedSemanticRender\(prepared/);
+  assert.match(helper, /daemonExec\('render-plan'/);
+  assert.match(application, /permitsCompatibilityRedispatch/);
+});
+
+test('render rejects duplicate and malformed raw options before compatibility can run', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  const cases = [
+    ['render', '<Frame name="NoWrite" />', '--collection', 'A', '--collection', 'B', '--structural-gate'],
+    ['render', '<Frame name="NoWrite" />', '--preset', 'desktop', '--preset', 'iphone-se', '--structural-gate'],
+    ['render', '<Frame name="NoWrite" />', '--structural-gate', '--resize-probe=bogus'],
+  ];
+  for (const argv of cases) {
+    const result = spawnSync(process.execPath, [entry, ...argv], { encoding: 'utf8' });
+    assert.equal(result.status, 1, argv.join(' '));
+    assert.match(`${result.stdout}\n${result.stderr}`, /Invalid render command/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Plugin not connected|figma_connect|structural audit: PASS/,
+      'raw request rejection must happen before either compatibility Adapter');
+  }
+});
+
+test('structural gate never auto-splits an outer wrapper into a writing render-batch', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  const jsx = '<Frame flex="row"><Frame name="Card 1"><Text>One</Text></Frame><Frame name="Card 2"><Text>Two</Text></Frame></Frame>';
+  assert.equal(detectWrapperSplit(jsx)?.children.length, 2, 'fixture must exercise auto-split');
+  const result = spawnSync(process.execPath, [entry, 'render', jsx, '--structural-gate'], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /Structural gate: PASS/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`,
+    /outer flex wrapper detected|Rendered:|Plugin not connected|figma_connect/,
+    'audit-only requests must never redispatch the mutating render-batch Adapter');
+});
+
+test('browser capture ignores unused render project inputs without touching the workspace', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  const result = spawnSync(process.execPath, [
+    entry, 'render', '--print-browser-capture', '--icons', '/outside-workspace',
+    '--dom-capture', '/also-unused',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /getComputedStyle|querySelector/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`,
+    /Icon directory not found|Could not read DOM capture|Workspace render-icons rejected/);
 });
 
 test('node set-text rejects excess CLI positionals before Plugin readiness', () => {

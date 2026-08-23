@@ -174,6 +174,7 @@ export function createDaemonClient({
     // field the HTTP client could wait for the owning Command Plan while the
     // Daemon silently cut the Plugin leg off at its 30-second default.
     payload.timeoutMs = timeoutMs;
+    payload.deadlineAt = Date.now() + timeoutMs;
     const body = JSON.stringify(payload);
     const response = await request('/exec', {
       method: 'POST',

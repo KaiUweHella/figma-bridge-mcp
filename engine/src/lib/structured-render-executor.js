@@ -1467,7 +1467,10 @@ function auditStructuredCreatedNodes(records) {
     ellipse: 'ELLIPSE', icon: 'FRAME', instance: 'INSTANCE',
   };
   const mismatch = (semanticNode, fact, expected, actual) => mismatches.push({
-    path: semanticNode.path, fact, expected, actual,
+    path: String(semanticNode.path || ''),
+    fact: String(fact),
+    expected: expected == null ? '(none)' : String(expected),
+    actual: actual == null ? '(none)' : String(actual),
   });
   for (let index = 0; index < records.length; index++) {
     const { semanticNode, created, parent } = records[index];

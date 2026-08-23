@@ -14,6 +14,7 @@ import fs from "node:fs";
 import { createDaemonClient, DaemonClientError } from "../engine/src/lib/daemon-client.js";
 import { createDesignCaptureModule } from "../engine/src/application/design-capture.js";
 import { retrySafeRead } from "../engine/src/lib/safe-read-retry.js";
+import { PLUGIN_BUILD_VERSION } from "../engine/src/lib/plugin-version.js";
 import { publicError } from "./error-projection.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
 import { auditTrail } from "./audit-trail.js";
@@ -440,11 +441,12 @@ export async function ensurePluginReadiness({
     } catch {
       current = { ok: false, plugin: false, raw: null };
     }
-    if (current?.ok && current.plugin) return { restarted: restartAttempted };
+    const daemonBuildCurrent = current?.raw?.bridgeBuildVersion === PLUGIN_BUILD_VERSION;
+    if (current?.ok && current.plugin && daemonBuildCurrent) return { restarted: restartAttempted };
     const remainingAfterProbe = stopAt - now();
     if (remainingAfterProbe <= 0) break;
 
-    const daemonUnavailable = current?.raw == null;
+    const daemonUnavailable = current?.raw == null || !daemonBuildCurrent;
     if (daemonUnavailable && !restartAttempted) {
       if (!hasPriorSetup()) break;
       restartAttempted = true;
@@ -544,6 +546,16 @@ export async function evaluateFigma(code, { target, fileKey, timeoutMs = EXEC_TI
  * callers keep the value-only evaluateFigma Interface. */
 export async function evaluateFigmaWithMetadata(code, { target, fileKey, timeoutMs = EXEC_TIMEOUT_MS } = {}) {
   return daemonClient().evaluateWithMetadata(code, {
+    fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    timeoutMs,
+  });
+}
+
+/** Execute a validated Semantic Render Plan through the authenticated native
+ * Plugin action. Adapter selection and result validation stay in the owning
+ * Semantic Render Command Application. */
+export async function renderFigmaPlan(plan, { target, fileKey, timeoutMs = LONG_EXEC_TIMEOUT_MS } = {}) {
+  return daemonClient().renderPlan(plan, {
     fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
     timeoutMs,
   });

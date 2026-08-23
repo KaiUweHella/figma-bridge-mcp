@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createContext, Script } from 'node:vm';
 import { PORT_RANGE, DEFAULT_PORT } from '../engine/src/lib/daemon-port.js';
 import { DESIGN_ENTITY_PLUGIN_DATA_KEY } from '../engine/src/lib/design-link-registry.js';
 
@@ -100,4 +101,157 @@ test('Semantic Render Plans cross UI and main plugin threads without becoming co
   assert.match(PLUGIN_CODE, /msg\.type === 'render-plan'/);
   assert.match(PLUGIN_CODE, /executeStructuredRenderPlan\(figma, plan\)/);
   assert.doesNotMatch(UI, /type: 'render-plan'[^\n]+code:/);
+});
+
+test('execution deadlines cross the UI boundary for every write protocol', () => {
+  assert.match(UI, /const PLUGIN_CAPABILITIES = Object\.freeze\(\[[\s\S]*?'execution-deadline-v1'[\s\S]*?'render-plan-batch-v1'[\s\S]*?'render-plan-v1'[\s\S]*?\]\)/);
+  assert.match(UI, /capabilities: PLUGIN_CAPABILITIES/);
+  assert.match(
+    UI,
+    /type: 'eval', id: msg\.id, code: msg\.code,[\s\S]*?timeoutMs: msg\.timeoutMs,[\s\S]*?deadlineAt: msg\.deadlineAt,[\s\S]*?requireDocumentRevision/,
+  );
+  assert.match(
+    UI,
+    /type: 'render-plan', id: msg\.id, plan: msg\.plan, timeoutMs: msg\.timeoutMs, deadlineAt: msg\.deadlineAt/,
+  );
+  assert.match(
+    UI,
+    /type: 'render-plan-batch', id: msg\.id, plans: msg\.plans, options: msg\.options \|\| \{\}, timeoutMs: msg\.timeoutMs, deadlineAt: msg\.deadlineAt/,
+  );
+  assert.match(
+    PLUGIN_CODE,
+    /msg\.type === 'eval'[\s\S]*?remainingExecutionBudget\(timeoutMs, queuedAt, deadlineAt\)[\s\S]*?executeCode\(code, remainingMs,/,
+  );
+  assert.match(
+    PLUGIN_CODE,
+    /msg\.type === 'render-plan'[\s\S]*?remainingExecutionBudget\(timeoutMs, queuedAt, deadlineAt\)[\s\S]*?executeStructuredRenderPlan\(figma, plan\)/,
+  );
+  assert.match(
+    PLUGIN_CODE,
+    /msg\.type === 'render-plan-batch'[\s\S]*?remainingExecutionBudget\(timeoutMs, queuedAt, deadlineAt\)[\s\S]*?executeStructuredRenderPlanBatch\(figma, plans, options \|\| \{\}\)/,
+  );
+});
+
+test('old daemons intentionally retain the bounded 22s Plugin compatibility budget', () => {
+  const start = PLUGIN_CODE.indexOf('function remainingExecutionBudget(');
+  const end = PLUGIN_CODE.indexOf('// Generated runtime:', start);
+  assert.ok(start > 0 && end > start, 'Plugin deadline helper must stay before the generated runtime');
+  const source = PLUGIN_CODE.slice(start, end);
+  const remainingExecutionBudget = new Function(
+    'Date',
+    `${source}; return remainingExecutionBudget;`,
+  )({ now: () => 1_000 });
+
+  // 22,000ms total minus its 1% response margin. `undefined` is what an older
+  // daemon sends when it does not know the deadline field yet.
+  assert.equal(remainingExecutionBudget(undefined, 1_000), 21_780);
+  assert.match(PLUGIN_CODE, /async function executeCode\(code, timeoutMs = 22000, onTimeout = null\)/);
+});
+
+test('expired queued writes never begin and timed-out evals quarantine the Plugin lane', async () => {
+  const posted = [];
+  let createdFrames = 0;
+  let releaseBlocker;
+  const blocker = new Promise((resolve) => { releaseBlocker = resolve; });
+  const hostSetTimeout = globalThis.setTimeout;
+  const context = createContext({
+    __html__: '',
+    blocker,
+    writeExecutions: 0,
+    console: { log() {}, error() {} },
+    clearTimeout: globalThis.clearTimeout,
+    setTimeout(fn, delay, ...args) {
+      const timer = hostSetTimeout(fn, delay, ...args);
+      // A failed assertion must not leave a long Plugin safety timer keeping
+      // the regression process alive after the useful failure is reported.
+      if (delay > 100 && typeof timer.unref === 'function') timer.unref();
+      return timer;
+    },
+    figma: {
+      editorType: 'figma',
+      fileKey: 'DEADLINE_FILE',
+      root: { name: 'Deadline Test' },
+      currentPage: { name: 'Page 1', selection: [] },
+      showUI() {},
+      on() {},
+      createFrame() { createdFrames++; return {}; },
+      notify() {},
+      clientStorage: { async getAsync() { return ''; }, async setAsync() {} },
+      ui: {
+        onmessage: null,
+        postMessage(message) { posted.push(message); },
+        resize() {},
+      },
+    },
+  });
+  new Script(PLUGIN_CODE, { filename: 'plugin/code.js' }).runInContext(context);
+  assert.equal(typeof context.figma.ui.onmessage, 'function');
+
+  const plan = {
+    kind: 'figma-bridge/semantic-render-plan',
+    version: 1,
+    adapter: 'jsx',
+    root: {
+      path: 'root',
+      name: 'Should not render',
+      source: { kind: 'jsx', type: 'frame', props: { name: 'Should not render' } },
+      children: [],
+    },
+    diagnostics: {},
+  };
+
+  // Hold the serialized Plugin queue, enqueue all three write protocols with
+  // a short owning deadline, then let that deadline elapse before releasing it.
+  await context.figma.ui.onmessage({ type: 'eval', id: 1, code: 'blocker', timeoutMs: 2_000 });
+  const deadlineAt = Date.now() + 40;
+  await context.figma.ui.onmessage({
+    type: 'eval', id: 2, code: '(writeExecutions += 1)', timeoutMs: 2_000, deadlineAt,
+  });
+  await context.figma.ui.onmessage({ type: 'render-plan', id: 3, plan, timeoutMs: 2_000, deadlineAt });
+  await context.figma.ui.onmessage({
+    type: 'render-plan-batch', id: 4, plans: [plan], options: {}, timeoutMs: 2_000, deadlineAt,
+  });
+  await new Promise((resolve) => hostSetTimeout(resolve, 80));
+  releaseBlocker('released');
+
+  const deadline = Date.now() + 1_000;
+  while (posted.filter((message) => message.type === 'result').length < 4 && Date.now() < deadline) {
+    await new Promise((resolve) => hostSetTimeout(resolve, 5));
+  }
+
+  const results = posted.filter((message) => message.type === 'result');
+  assert.equal(results.length, 4);
+  assert.equal(results.find((message) => message.id === 1)?.result, 'released');
+  for (const id of [2, 3, 4]) {
+    assert.match(
+      results.find((message) => message.id === id)?.error || '',
+      /Execution deadline elapsed before plugin start/,
+    );
+  }
+  assert.equal(context.writeExecutions, 0, 'expired eval code must not execute');
+  assert.equal(createdFrames, 0, 'expired render plans must not create canvas nodes');
+
+  let releaseSlowEval;
+  context.slowEval = new Promise((resolve) => { releaseSlowEval = resolve; });
+  const slowDeadlineAt = Date.now() + 90;
+  await context.figma.ui.onmessage({
+    type: 'eval', id: 5, code: 'slowEval', timeoutMs: 1_000, deadlineAt: slowDeadlineAt,
+  });
+  await context.figma.ui.onmessage({
+    type: 'eval', id: 6, code: '(writeExecutions += 1)', timeoutMs: 1_000, deadlineAt: Date.now() + 1_000,
+  });
+  const timeoutWait = Date.now() + 500;
+  while (!posted.find((message) => message.id === 5) && Date.now() < timeoutWait) {
+    await new Promise((resolve) => hostSetTimeout(resolve, 5));
+  }
+  assert.match(posted.find((message) => message.id === 5)?.error || '', /Execution timeout/);
+  assert.equal(context.writeExecutions, 0, 'the next write must stay quarantined behind the timed-out eval');
+  assert.equal(posted.some((message) => message.id === 6), false, 'the next write must not answer before the underlying eval settles');
+
+  releaseSlowEval('late result');
+  const releaseWait = Date.now() + 500;
+  while (!posted.find((message) => message.id === 6) && Date.now() < releaseWait) {
+    await new Promise((resolve) => hostSetTimeout(resolve, 5));
+  }
+  assert.equal(context.writeExecutions, 1, 'the next write may start only after the uncertain eval has actually settled');
 });

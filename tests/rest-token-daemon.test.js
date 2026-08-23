@@ -85,14 +85,15 @@ function withWs(authenticate, fn) {
     ws.on('open', async () => {
       try {
         if (authenticate) {
-          // Proto 2: the daemon challenges first, we answer with a proof.
+          // Proto 3: the daemon challenges first, we answer with a proof.
           await waitFor(() => messages.some((m) => m.type === 'challenge'));
           const challenge = messages.find((m) => m.type === 'challenge');
           const nonce = makeNonce();
           ws.send(JSON.stringify({
-            type: 'hello', proto: HANDSHAKE_PROTO, mode: 'plugin', version: 'test', nonce,
+            type: 'hello', proto: HANDSHAKE_PROTO, mode: 'plugin', version: 'test', capabilities: [], nonce,
             proof: signHandshake(KEY, pluginTranscript({
               daemonNonce: challenge.nonce, pluginNonce: nonce, port: challenge.port, version: 'test',
+              capabilities: [],
             })),
           }));
           await waitFor(() => messages.some((m) => m.type === 'hello-ack'));

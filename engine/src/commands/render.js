@@ -15,6 +15,25 @@ import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/desig
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js';
 import {
+  executePreparedSemanticRender,
+  formatSemanticRenderResult,
+  prepareSemanticRenderPlan,
+  semanticRenderOutcomeCode,
+  semanticRenderPlanRoute,
+  semanticRenderResultRows,
+} from '../application/semantic-render-command.js';
+import {
+  SEMANTIC_RENDER_DEVICE_PRESETS,
+  semanticRenderArgvFromRequest,
+  semanticRenderArgvRoute,
+  semanticRenderRequestFromArgv,
+} from '../application/semantic-render-request.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import {
+  ensurePluginReadiness,
+  runInProcessCommandPlan,
+} from '../../../src/engine.js';
+import {
   formatSemanticResizeProbe,
   parseResizeProbeDelta,
   semanticRootResizeProbeCode,
@@ -201,26 +220,14 @@ function printOverflow(result) {
 
 // Device presets: default w/h for the ROOT frame when the JSX doesn't set
 // them. Keeps the "match the reference frame's format" decision explicit.
-const DEVICE_PRESETS = {
-  'macbook-14': [1512, 982],
-  'macbook-16': [1728, 1117],
-  'desktop': [1440, 1024],
-  'desktop-hd': [1920, 1080],
-  'iphone-15': [393, 852],
-  'iphone-15-pro-max': [430, 932],
-  'iphone-se': [375, 667],
-  'android': [360, 800],
-  'ipad-11': [834, 1194],
-  'ipad-13': [1024, 1366],
-};
+const DEVICE_PRESETS = SEMANTIC_RENDER_DEVICE_PRESETS;
 
 // Inject preset w/h into the first <Frame ...> when missing. Explicit w/h in
 // the JSX always wins (with a note when it disagrees with the preset).
 function applyDevicePreset(jsx, presetName) {
   const preset = DEVICE_PRESETS[presetName];
   if (!preset) {
-    console.error(chalk.red('\u2717'), `Unknown preset "${presetName}". Available: ${Object.keys(DEVICE_PRESETS).join(', ')}`);
-    process.exit(1);
+    throw new Error(`Unknown preset "${presetName}". Available: ${Object.keys(DEVICE_PRESETS).join(', ')}`);
   }
   const [pw, ph] = preset;
   const m = jsx.match(/<Frame\b([^>]*)>/);
@@ -235,6 +242,103 @@ function applyDevicePreset(jsx, presetName) {
   const inject = `${hasW ? '' : ` w="${pw}"`}${hasH ? '' : ` h="${ph}"`}`;
   console.log(chalk.gray(`\u21b3 preset ${presetName}: root frame ${pw}\u00d7${ph}`));
   return jsx.replace(/<Frame\b/, `<Frame${inject} `);
+}
+
+function rawRenderArgv(rawProcessArgv = program.rawArgs) {
+  const tokens = [...rawProcessArgv].slice(2);
+  let commandIndex = -1;
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index] === '--figma-file') { index++; continue; }
+    if (tokens[index].startsWith('--figma-file=')) continue;
+    if (!tokens[index].startsWith('-')) { commandIndex = index; break; }
+  }
+  if (commandIndex === -1 || tokens[commandIndex] !== 'render') {
+    throw new Error('Could not recover the raw render request.');
+  }
+  const args = ['render'];
+  let literal = false;
+  for (let index = commandIndex + 1; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (!literal && token === '--') {
+      literal = true;
+      args.push(token);
+      continue;
+    }
+    if (!literal && token === '--figma-file') { index++; continue; }
+    if (!literal && token.startsWith('--figma-file=')) continue;
+    args.push(token);
+  }
+  return args;
+}
+
+function printSemanticRenderRows(rows) {
+  for (const row of rows) {
+    const render = row.tone === 'success' ? chalk.green
+      : row.tone === 'warning' ? chalk.yellow
+        : row.tone === 'error' ? chalk.red
+          : row.tone === 'muted' ? chalk.gray
+            : (text) => text;
+    const marker = row.marker
+      ? `${row.markerTone === 'success' ? chalk.green(row.marker) : row.marker} `
+      : '';
+    console.log(`${marker}${render(row.text)}`);
+  }
+}
+
+function printRenderErrorHints(message) {
+  const msg = String(message || '');
+  if (msg.includes('FILL can only be set on children of auto-layout')) {
+    console.log(chalk.yellow('  💡 Hint: w="fill" requires the parent Frame to have flex="row" or flex="col"'));
+  }
+  if (msg.includes('Cannot read properties of null')) {
+    console.log(chalk.yellow('  💡 Hint: A variable binding (var:name) may not exist. Check with: var list'));
+  }
+  if (msg.includes('not found on set')) {
+    console.log(chalk.yellow('  💡 The error above lists the existing axes/values and the add-variant command that creates the missing one.'));
+  }
+}
+
+async function runSimpleSemanticRender(argv) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  if (!plan.allowed) throw new Error('Semantic Render request was denied by the Capability Catalog.');
+  if (semanticRenderPlanRoute(plan) !== 'command-application') return null;
+
+  // Parse JSX, resolve the optional registry and select the native/compatibility
+  // Adapter before daemon readiness. Invalid input therefore never reaches the
+  // Plugin or opens an uncertain write window.
+  const prepared = prepareSemanticRenderPlan(plan, { workspaceIO: io });
+  let domainResult = null;
+  const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      const remainingMs = () => Math.max(1, deadline - Date.now());
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      domainResult = await executePreparedSemanticRender(prepared, {
+        renderPlan: (renderPlan) => daemonExec('render-plan', {
+          plan: renderPlan,
+          ...(fileKey ? { fileKey } : {}),
+        }, remainingMs()),
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, remainingMs()),
+        inspectInventory: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, remainingMs()),
+      });
+      return {
+        stdout: formatSemanticRenderResult(domainResult),
+        stderr: '',
+        code: semanticRenderOutcomeCode(domainResult),
+      };
+    });
+  return { domainResult, execution };
 }
 
 // ---- local image + icon-dir loading (Code2Figma: real files into Figma) ----
@@ -356,6 +460,7 @@ async function verifyRendered(nodeId) {
 program
   .command('render [jsx]')
   .description('Render JSX or a measured browser DOM capture to Figma')
+  .allowExcessArguments(false)
   .option('-x <n>', 'X position')
   .option('-y <n>', 'Y position')
   .option('--no-smart-position', 'Disable auto-positioning')
@@ -373,6 +478,31 @@ program
   .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this render/audit')
   .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
   .action(async (rawJsx, options) => {
+    try {
+      // Commander intentionally presents convenient collapsed option values.
+      // Security policy must instead validate the original argv so duplicate
+      // aliases and malformed optional values cannot disappear before the
+      // closed Render request Interface sees them.
+      const originalArgv = rawRenderArgv();
+      const originalRoute = semanticRenderArgvRoute(originalArgv);
+      if (originalRoute.kind === 'simple') {
+        const request = semanticRenderRequestFromArgv(originalArgv);
+        const simpleArgv = semanticRenderArgvFromRequest({
+          ...request,
+          jsx: unescapeShell(request.jsx),
+        });
+        const simple = await runSimpleSemanticRender(simpleArgv);
+        printSemanticRenderRows(semanticRenderResultRows(simple.domainResult));
+        if (simple.execution.code !== 0) process.exitCode = simple.execution.code;
+        return;
+      }
+    } catch (error) {
+      const message = error?.message || String(error);
+      console.error(chalk.red('✗'), message);
+      printRenderErrorHints(message);
+      process.exitCode = 1;
+      return;
+    }
     if (options.printBrowserCapture !== undefined) {
       const selector = typeof options.printBrowserCapture === 'string' ? options.printBrowserCapture : 'body';
       console.log(browserDomCaptureScript(selector, { serialized: true }));
@@ -390,6 +520,7 @@ program
       );
     } catch (error) {
       console.error(chalk.red('✗'), `Could not read component Design Links: ${error.message}`);
+      process.exitCode = 1;
       return;
     }
     if (options.domCapture) {
@@ -399,6 +530,7 @@ program
         capture = parseBoundedJson(text, { role: 'dom-capture', limits: workspaceIO().limits });
       } catch (error) {
         console.error(chalk.red('✗'), `Could not read DOM capture ${options.domCapture}: ${error.message}`);
+        process.exitCode = 1;
         return;
       }
       try {
@@ -417,6 +549,7 @@ program
           if (d.semantic.unclassifiedFallbacks.length) {
             console.error(chalk.red('✗'), `Semantic capture has ${d.semantic.unclassifiedFallbacks.length} unclassified layout fallback(s); refusing a silently flattened render.`);
             for (const finding of d.semantic.unclassifiedFallbacks.slice(0, 10)) console.error(chalk.red(`  ${finding.path}: ${finding.fact}`));
+            process.exitCode = 1;
             return;
           }
           if (d.semantic.classifiedFallbacks.length) {
@@ -429,12 +562,14 @@ program
         }
       } catch (error) {
         console.error(chalk.red('✗'), `Invalid DOM capture: ${error.message}`);
+        process.exitCode = 1;
         return;
       }
     } else if (rawJsx) {
       jsx = unescapeShell(rawJsx);
     } else {
       console.error(chalk.red('✗'), 'Pass JSX or --dom-capture <file>.');
+      process.exitCode = 1;
       return;
     }
     // Auto-split: if the caller passed a layout-only outer Frame with N child
@@ -444,7 +579,10 @@ program
     // belong to the path that actually renders, and render-batch re-does
     // them per child (an imgref: rewritten here would arrive in the batch
     // without its bytes).
-    if (!options.keepWrapper && !options.domCapture) {
+    // Structural Gate is audit-only by policy. Keep the wrapper intact so its
+    // semantic model is inspected locally; auto-splitting would otherwise
+    // redispatch render-batch and turn a no-write request into Figma writes.
+    if (!options.structuralGate && !options.keepWrapper && !options.domCapture) {
       const split = detectWrapperSplit(jsx);
       if (split) {
         console.log(chalk.gray(`↳ outer flex wrapper detected — splitting to ${split.children.length} standalone items (--keep-wrapper to opt out)`));
@@ -512,8 +650,7 @@ program
         if (v === undefined) return undefined;
         const n = Number(v);
         if (!Number.isFinite(n)) {
-          console.error(chalk.red('✗'), `${flag} must be a number, got "${v}"`);
-          process.exit(1);
+          throw new Error(`${flag} must be a number, got "${v}"`);
         }
         return n;
       };
@@ -551,7 +688,10 @@ program
         return;
       }
       const semanticApprovals = String(options.approveFallback || '').split(',').map((item) => item.trim()).filter(Boolean);
-      if (!printSemanticAnalysis(semanticModel, options.domCapture ? 'DOM capture' : 'JSX', semanticApprovals)) return;
+      if (!printSemanticAnalysis(semanticModel, options.domCapture ? 'DOM capture' : 'JSX', semanticApprovals)) {
+        process.exitCode = 1;
+        return;
+      }
       await checkConnection();
       const structuredSupport = inspectStructuredRenderPlan(renderPlan);
       let result;
@@ -573,6 +713,7 @@ program
       }
       if (!result || !result.id) {
         console.log(chalk.red('✗ Render returned no node — daemon/plugin answered without a result.'));
+        process.exitCode = 1;
         return;
       }
 
@@ -625,15 +766,8 @@ program
         console.log(chalk.red('✗ Render failed: ' + msg));
       }
       // Hint for common errors
-      if (msg.includes('FILL can only be set on children of auto-layout')) {
-        console.log(chalk.yellow('  💡 Hint: w="fill" requires the parent Frame to have flex="row" or flex="col"'));
-      }
-      if (msg.includes('Cannot read properties of null')) {
-        console.log(chalk.yellow('  💡 Hint: A variable binding (var:name) may not exist. Check with: var list'));
-      }
-      if (msg.includes('not found on set')) {
-        console.log(chalk.yellow('  💡 The error above lists the existing axes/values and the add-variant command that creates the missing one.'));
-      }
+      printRenderErrorHints(msg);
+      process.exitCode = 1;
     }
   });
 
@@ -676,7 +810,10 @@ program
       if (customIcons) client.setIcons(customIcons);
       const renderPlans = jsxArray.map((jsx) => client.planJSX(jsx));
       for (let index = 0; index < renderPlans.length; index++) {
-        if (!printSemanticAnalysis(renderPlans[index], `JSX ${index + 1}`)) return;
+        if (!printSemanticAnalysis(renderPlans[index], `JSX ${index + 1}`)) {
+          process.exitCode = 1;
+          return;
+        }
       }
       await checkConnection();
       const structuredSupport = renderPlans.map((plan) => inspectStructuredRenderPlan(plan));
@@ -762,10 +899,12 @@ program
           }
         }
       } else {
-        console.log(chalk.green('✓ Rendered'));
+        console.log(chalk.red('✗ Batch render returned no frame results.'));
+        process.exitCode = 1;
       }
     } catch (e) {
       console.log(chalk.red('✗ Batch render failed: ' + (e.stderr || e.message)));
+      process.exitCode = 1;
     }
   });
 

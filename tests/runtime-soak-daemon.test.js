@@ -21,6 +21,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DAEMON = join(ROOT, "engine", "src", "daemon.js");
 const FILE_A = "SOAKFILEA01";
 const FILE_B = "SOAKFILEB02";
+const PLUGIN_CAPABILITIES = [
+  "execution-deadline-v1",
+  "render-plan-batch-v1",
+  "render-plan-v1",
+];
 
 async function freePort() {
   const server = createServer();
@@ -56,7 +61,7 @@ function openPlugin(port, key, fileKey, onEval) {
             proto: HANDSHAKE_PROTO,
             nonce,
             version: PLUGIN_BUILD_VERSION,
-            capabilities: [],
+            capabilities: PLUGIN_CAPABILITIES,
             proof: sign(
               key,
               pluginTranscript({
@@ -64,6 +69,7 @@ function openPlugin(port, key, fileKey, onEval) {
                 pluginNonce: nonce,
                 port: message.port,
                 version: PLUGIN_BUILD_VERSION,
+                capabilities: PLUGIN_CAPABILITIES,
               })
             ),
           })

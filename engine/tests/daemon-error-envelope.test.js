@@ -55,7 +55,10 @@ test('bounded legacy adapter never treats a domain token error as authentication
     { status: 400 },
   );
   assert.equal(oldAction.kind, 'plugin-capability');
+  assert.equal(oldAction.phase, 'request-validation');
   assert.equal(oldAction.outcome, 'not-dispatched');
+  assert.equal(permitsCompatibilityRedispatch(oldAction), true,
+    'an older daemon can safely fall back after rejecting the unknown action before dispatch');
 
   const oversized = adaptLegacyDaemonError('x'.repeat(20_000), { status: 500 });
   assert.ok(Buffer.byteLength(oversized.message, 'utf8') <= 16 * 1024);
@@ -64,14 +67,35 @@ test('bounded legacy adapter never treats a domain token error as authentication
 test('compatibility redispatch requires a capability rejection before dispatch', () => {
   assert.equal(permitsCompatibilityRedispatch({
     kind: 'plugin-capability',
+    phase: 'plugin-dispatch',
     outcome: 'not-dispatched',
   }), true);
   assert.equal(permitsCompatibilityRedispatch({
     kind: 'plugin-capability',
+    phase: 'plugin-dispatch',
     outcome: 'unknown-after-dispatch',
   }), false);
   assert.equal(permitsCompatibilityRedispatch({
     kind: 'execution',
+    phase: 'plugin-dispatch',
     outcome: 'not-dispatched',
   }), false);
+  assert.equal(permitsCompatibilityRedispatch({
+    kind: 'plugin-capability',
+    phase: 'request-validation',
+    outcome: 'not-dispatched',
+  }), true);
+  assert.equal(permitsCompatibilityRedispatch({
+    kind: 'validation',
+    phase: 'request-validation',
+    outcome: 'not-dispatched',
+  }), false);
+});
+
+test('a deadline elapsed before Plugin dispatch is a closed structured timeout', () => {
+  const body = bridgeDaemonErrorBody(new BridgeDaemonError(
+    'Execution deadline elapsed before Plugin dispatch',
+    { kind: 'timeout', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+  ));
+  assert.deepEqual(parseBridgeDaemonError(body.bridgeError), body.bridgeError);
 });

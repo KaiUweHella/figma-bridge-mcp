@@ -51,6 +51,7 @@ async function waitForAuthenticatedPlugin(port, key) {
             pluginNonce: nonce,
             port: message.port,
             version: PLUGIN_BUILD_VERSION,
+            capabilities: [],
           })),
         }));
       } else if (message.type === 'hello-ack') {

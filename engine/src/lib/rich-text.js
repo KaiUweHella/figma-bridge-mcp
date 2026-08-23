@@ -23,7 +23,7 @@ function sameStyle(a, b) {
  * Supported tags: b/strong, i/em, u, span/Span and a. Offsets are half-open
  * UTF-16 indexes, matching Figma's setRange* APIs and JavaScript string length.
  */
-export function parseRichTextContent(inner, parseProps = () => ({})) {
+export function parseRichTextContent(inner, parseProps = (_source) => ({})) {
   const source = String(inner ?? '');
   const stack = [];
   const runs = [];

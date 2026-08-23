@@ -19,6 +19,13 @@ import {
   nodeTextArgvFromRequest,
   parseNodeTextRequest,
 } from '../engine/src/application/node-text-request.js';
+import {
+  acceptsSemanticRenderArgv,
+  semanticRenderArgvFromRequest,
+  semanticRenderArgvRoute,
+  semanticRenderPolicyFromArgv,
+  semanticRenderRequestFromArgv,
+} from '../engine/src/application/semantic-render-request.js';
 import { resolveFigmaTarget } from './figma-target.js';
 import { resolveFigmaCommandAction } from './figma-command-grammar.js';
 
@@ -82,7 +89,7 @@ const COMMANDS = Object.freeze({
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'link.inspect', 'link.set', 'node.set-text',
+  'contract.capture', 'contract.check', 'export.assets', 'link.inspect', 'link.set', 'node.set-text', 'render',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -116,7 +123,7 @@ function mutatesDesign(entry, args) {
   if (!args.length) return false;
   const sub = args[1];
   if (entry.mutation === 'write') return true;
-  if (entry.mutation === 'render') return !args.includes('--print-browser-capture') && !args.includes('--structural-gate');
+  if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
   if (entry.mutation === 'read') return false;
   if (entry.mutation === 'gradient') {
     return sub !== 'extract' || args.includes('--apply-to');
@@ -139,7 +146,7 @@ function targetPolicy(name, entry, args) {
   if (name === 'verify-build') return args.includes('--node') ? 'figma' : 'none';
   if (name === 'gradient') return args[1] === 'extract' && !args.includes('--apply-to') ? 'none' : 'figma';
   if (name === 'link') return ['list', 'configure'].includes(args[1]) ? 'none' : 'figma';
-  if (name === 'render') return args.includes('--print-browser-capture') || args.includes('--structural-gate') ? 'none' : 'figma';
+  if (name === 'render') return semanticRenderPolicyFromArgv(args).target;
   return 'figma';
 }
 
@@ -197,6 +204,9 @@ function commandCapability(args) {
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'render' && !acceptsSemanticRenderArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   const specialized = action.help
     ? { execution: 'foreground', timeoutClass: 'default', pathPolicy: 'none', retry: 'never' }
     : specializedPolicy(name, entry, args);
@@ -229,7 +239,10 @@ function acceptedExitCodes(args) {
   // Exit 1 is a valid verify report containing findings, not a transport
   // failure. MCP callers need the report in order to fix those findings.
   if (args?.[0] === 'verify-build') return [0, 1];
-  if (args?.[0] === 'render' && args.includes('--structural-gate')) return [0, 1];
+  if (args?.[0] === 'render' && acceptsSemanticRenderArgv(args)) {
+    const route = semanticRenderArgvRoute(args);
+    if (route.kind === 'simple' || route.reason === 'structural-gate') return [0, 1];
+  }
   return [0];
 }
 
@@ -258,6 +271,7 @@ function pathFlag(args, flags, baseDir) {
   const names = new Set(flags);
   for (let index = 1; index < args.length; index++) {
     const arg = args[index];
+    if (arg === '--') break;
     const combined = arg.match(/^(--?[a-z-]+)=(.*)$/i);
     if (combined && names.has(combined[1]) && combined[2]) {
       const value = localPath(baseDir, combined[2]);
@@ -470,15 +484,41 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       break;
     }
     case 'render-inputs': {
-      const icons = pathFlag(args, ['--icons'], baseDir);
-      if (icons) markRead(icons.value, 'render-icons', 'directory');
-      const capture = pathFlag(args, ['--dom-capture'], baseDir);
-      if (capture) markRead(capture.value, 'dom-capture');
       if (args[0] === 'render') {
-        const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
-        const manifest = suppliedManifest?.value || absolute(baseDir, 'figma-bridge.json');
-        if (!suppliedManifest) args.push('--manifest', manifest);
-        markOptionalRead(manifest, 'render-manifest');
+        figmaUrlArgs = [];
+        const initialRoute = semanticRenderArgvRoute(args);
+        // Browser-capture expression generation returns before every project
+        // input in Commander. Keep its Plan honest: unused paths are neither
+        // authorized nor reported as effects.
+        if (initialRoute.reason === 'browser-capture-expression') break;
+        const icons = pathFlag(args, ['--icons'], baseDir);
+        if (icons) markRead(icons.value, 'render-icons', 'directory');
+        const capture = pathFlag(args, ['--dom-capture'], baseDir);
+        if (capture) markRead(capture.value, 'dom-capture');
+        if (initialRoute.kind === 'simple') {
+          const request = semanticRenderRequestFromArgv(args);
+          const manifest = request.manifest
+            ? localPath(baseDir, request.manifest)
+            : absolute(baseDir, 'figma-bridge.json');
+          markOptionalRead(manifest, 'render-manifest');
+          markOptionalRead(path.join(path.dirname(manifest), 'figma-map.json'), 'legacy-component-map');
+          args.splice(0, args.length, ...semanticRenderArgvFromRequest({ ...request, manifest }));
+        } else {
+          const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
+          const manifest = suppliedManifest?.value || absolute(baseDir, 'figma-bridge.json');
+          if (!suppliedManifest) {
+            const terminator = args.indexOf('--');
+            args.splice(terminator === -1 ? args.length : terminator, 0, '--manifest', manifest);
+          }
+          markOptionalRead(manifest, 'render-manifest');
+          markOptionalRead(path.join(path.dirname(manifest), 'figma-map.json'), 'legacy-component-map');
+        }
+        semanticRenderArgvRoute(args);
+      } else {
+        const icons = pathFlag(args, ['--icons'], baseDir);
+        if (icons) markRead(icons.value, 'render-icons', 'directory');
+        const capture = pathFlag(args, ['--dom-capture'], baseDir);
+        if (capture) markRead(capture.value, 'dom-capture');
       }
       break;
     }

@@ -384,18 +384,20 @@ the plugin window. The panel will tell you if you forget.
 ### Security
 
 - **The plugin access key no longer crosses the wire.** The plugin WebSocket now
-  runs a mutual challenge-response handshake (proto 2): the daemon challenges
-  with a random nonce, the plugin answers with an HMAC over both nonces, the
-  bound port and its version, and the daemon proves itself back before the panel
-  will accept a single command. This retires the residual risk earlier versions
-  documented, where a process squatting a range port could read the raw key out
-  of the plugin's first frame.
+  runs a mutual challenge-response handshake (proto 3): the daemon challenges
+  with a random nonce, the plugin verifies that the challenge names the socket
+  it actually opened, and answers with an HMAC over both nonces, that port, its
+  version and its canonical capability list. The daemon proves itself back
+  before the panel will accept a single command. This retires the residual risk
+  earlier versions documented, where a process squatting a range port could
+  read the raw key out of the plugin's first frame or relay capability claims.
 - **The daemon must now authenticate to the plugin.** Previously the panel ran
   any `eval` it was sent, so impersonating the daemon needed no key at all.
-- **Relay defence.** The bound port is part of the signed transcript, so a
-  squatter that forwards frames between the plugin and the real daemon on a
-  different port fails verification.
-- There is no proto-1 fallback. After upgrading, run `figma_connect` and reopen
+- **Relay defence.** The plugin checks the challenge port against its actual
+  socket, and the bound port plus canonical capability claim are part of the
+  signed transcript. A squatter cannot transparently forward or elevate an
+  older plugin's safety capabilities.
+- There is no older-protocol fallback. After upgrading, run `figma_connect` and reopen
   the plugin window; a stale panel says exactly that instead of silently
   negotiating something weaker.
 

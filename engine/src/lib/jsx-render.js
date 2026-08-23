@@ -320,15 +320,133 @@ export class FigmaClient {
    * validation and plugin-code generation. */
   parseJSXTree(jsx) {
     const source = String(jsx || '');
+    this.validateJSXStructure(source);
     const openMatch = source.match(/<Frame(?:\s+([^>]*?))?>/);
     if (!openMatch) throw new Error('Invalid JSX: must start with <Frame>');
     if (openMatch.index !== source.search(/\S/)) throw new Error('Invalid JSX: root element must be <Frame>');
-    const content = this.extractContent(source.slice(openMatch.index + openMatch[0].length), 'Frame');
+    const rootTail = source.slice(openMatch.index + openMatch[0].length);
+    const selfClosing = /\/\s*>$/.test(openMatch[0]);
+    let content = '';
+    if (selfClosing) {
+      if (rootTail.trim()) throw new Error('Invalid JSX: exactly one root <Frame> is required');
+    } else {
+      content = this.extractContent(rootTail, 'Frame');
+      const closingAndTail = rootTail.slice(content.length);
+      if (!closingAndTail.startsWith('</Frame>')) {
+        throw new Error('Invalid JSX: root <Frame> is not closed');
+      }
+      if (closingAndTail.slice('</Frame>'.length).trim()) {
+        throw new Error('Invalid JSX: exactly one root <Frame> is required');
+      }
+    }
     return {
       props: this.parseProps(openMatch[1] || ''),
       content,
       children: this.parseChildren(content),
     };
+  }
+
+  /** Validate the complete closed JSX dialect before any parser projection.
+   * Regex projections below are retained for compatibility, but this stack
+   * prevents malformed or unsupported descendants from disappearing into a
+   * partial render plan. */
+  validateJSXStructure(source) {
+    const maxDepth = 200;
+    const maxElements = 20_000;
+    const containers = new Set(['Frame', 'Slot']);
+    const textTag = 'Text';
+    const leaves = new Set(['Rect', 'Rectangle', 'Ellipse', 'Circle', 'Image', 'Icon', 'Instance']);
+    const rich = new Set(['b', 'strong', 'em', 'i', 'u', 'span', 'a']);
+    const stack = [];
+    const tagPattern = /<[^>]*>/g;
+    let cursor = 0;
+    let elements = 0;
+    let textOpen = false;
+    let match;
+    const attributes = (value, tag) => {
+      const input = String(value || '');
+      const seen = new Set();
+      const prop = /([\w:.-]+)=(?:"[^"]*"|{[^}]*})/y;
+      let index = 0;
+      while (index < input.length) {
+        while (/\s/.test(input[index] || '')) index++;
+        if (index >= input.length) break;
+        prop.lastIndex = index;
+        const found = prop.exec(input);
+        if (!found) throw new Error(`Invalid JSX: malformed attribute syntax on <${tag}>`);
+        if (seen.has(found[1])) throw new Error(`Invalid JSX: duplicate attribute ${found[1]} on <${tag}>`);
+        seen.add(found[1]);
+        index = prop.lastIndex;
+      }
+    };
+    const textBetween = (value) => {
+      if (value.trim() && !textOpen) {
+        throw new Error('Invalid JSX: text content must be inside <Text>');
+      }
+    };
+
+    while ((match = tagPattern.exec(source)) !== null) {
+      textBetween(source.slice(cursor, match.index));
+      cursor = match.index + match[0].length;
+      // The self-closing slash must touch `>`. Downstream projections support
+      // `<Rect />`, not the non-JSX `<Rect / >`; accepting the latter here
+      // would validate a child that the projection silently omits.
+      const parsed = /^<(\/?)([A-Za-z][A-Za-z0-9]*)([\s\S]*?)(\/?)>$/.exec(match[0]);
+      if (!parsed) throw new Error('Invalid JSX: malformed tag syntax');
+      const closing = parsed[1] === '/';
+      const name = parsed[2];
+      const selfClosing = parsed[4] === '/';
+      const richName = name.toLowerCase();
+
+      if (closing) {
+        if (selfClosing || parsed[3] !== '') throw new Error(`Invalid JSX: malformed closing </${name}> tag`);
+        const top = stack.at(-1);
+        const expected = top?.kind === 'rich' ? top.name.toLowerCase() : top?.name;
+        const actual = top?.kind === 'rich' ? richName : name;
+        if (!top || expected !== actual) {
+          throw new Error(`Invalid JSX: closing </${name}> does not match ${top ? `<${top.name}>` : 'an open tag'}`);
+        }
+        stack.pop();
+        if (top.kind === 'text') textOpen = false;
+        continue;
+      }
+
+      elements++;
+      if (elements > maxElements) throw new Error(`Invalid JSX: exceeds ${maxElements.toLocaleString('en-US')} elements`);
+      attributes(parsed[3], name);
+      if (textOpen) {
+        if (!rich.has(richName)) throw new Error(`Invalid JSX: <${name}> is not supported inside <Text>`);
+        if (selfClosing) throw new Error(`Invalid JSX: rich-text <${name}> must have a closing tag`);
+        if (stack.length >= maxDepth) throw new Error(`Invalid JSX: nesting exceeds ${maxDepth} levels`);
+        stack.push({ name, kind: 'rich' });
+        continue;
+      }
+
+      if (stack.length === 0 && name !== 'Frame') {
+        throw new Error('Invalid JSX: root element must be <Frame>');
+      }
+      if (stack.length > 0 && !containers.has(stack.at(-1).name)) {
+        throw new Error(`Invalid JSX: <${name}> cannot be nested inside <${stack.at(-1).name}>`);
+      }
+      if (containers.has(name)) {
+        if (!selfClosing) {
+          if (stack.length >= maxDepth) throw new Error(`Invalid JSX: nesting exceeds ${maxDepth} levels`);
+          stack.push({ name, kind: 'container' });
+        }
+      } else if (name === textTag) {
+        if (!selfClosing) {
+          if (stack.length >= maxDepth) throw new Error(`Invalid JSX: nesting exceeds ${maxDepth} levels`);
+          stack.push({ name, kind: 'text' });
+          textOpen = true;
+        }
+      } else if (!leaves.has(name)) {
+        throw new Error(`Invalid JSX: unsupported <${name}> element`);
+      } else if (!selfClosing) {
+        throw new Error(`Invalid JSX: <${name}> must be self-closing`);
+      }
+    }
+    textBetween(source.slice(cursor));
+    if (stack.length) throw new Error(`Invalid JSX: <${stack.at(-1).name}> is not closed`);
   }
 
   semanticModelForTree(tree) {
@@ -387,6 +505,8 @@ export class FigmaClient {
     let depth = 1;
     let i = 0;
     const closeTag = `</${tagName}>`;
+    const openPrefix = `<${tagName}`;
+    const selfClosingTag = new RegExp(`^<${tagName}(?:\\s[^>]*?)?\\s*\\/>`);
 
     while (i < str.length && depth > 0) {
       const remaining = str.slice(i);
@@ -397,9 +517,12 @@ export class FigmaClient {
           return str.slice(0, i);
         }
         i += closeTag.length;
-      } else if (remaining.startsWith(`<${tagName} `) || remaining.startsWith(`<${tagName}>`)) {
+      } else if (remaining.startsWith(openPrefix)
+        && (remaining[openPrefix.length] === '>'
+          || remaining[openPrefix.length] === '/'
+          || /\s/.test(remaining[openPrefix.length] || ''))) {
         // Check if this is a self-closing tag (e.g. <Frame ... />)
-        const selfCloseCheck = remaining.match(new RegExp(`^<${tagName}(?:\\s[^>]*?)?\\s*\\/>`));
+        const selfCloseCheck = remaining.match(selfClosingTag);
         if (selfCloseCheck) {
           // Self-closing: skip entirely, don't change depth
           i += selfCloseCheck[0].length;
@@ -544,96 +667,38 @@ export class FigmaClient {
     const children = [];
     const frameRanges = [];
 
-    // First: find all open/close Frame elements (recursive, handles nesting)
-    const frameOpenRegex = /<Frame(?:\s+([^>]*?))?>/g;
+    // Parse the outermost Frame/Slot containers together, in source order.
+    // Separate global passes made a Frame inside a Slot appear once as a root
+    // sibling and again inside its Slot.
+    const containerOpenRegex = /<(Frame|Slot)(?:\s+([^>]*?))?>/g;
     let match;
-
-    while ((match = frameOpenRegex.exec(childrenStr)) !== null) {
-      // Skip self-closing frames (regex matches /> because > is part of />)
+    while ((match = containerOpenRegex.exec(childrenStr)) !== null) {
       if (match[0].endsWith('/>')) continue;
+      if (frameRanges.some((range) => match.index >= range.start && match.index < range.end)) continue;
 
-      const frameProps = this.parseProps(match[1] || '');
-      frameProps._type = 'frame';
-      frameProps._index = match.index;
-
-      // Get content between opening and matching closing tag
+      const tag = match[1];
+      const props = this.parseProps(match[2] || '');
+      props._type = tag === 'Frame' ? 'frame' : 'slot';
+      props._index = match.index;
       const afterOpen = childrenStr.slice(match.index + match[0].length);
-      const innerContent = this.extractContent(afterOpen, 'Frame');
-
-      // Calculate full frame length
-      const fullLength = match[0].length + innerContent.length + '</Frame>'.length;
-
-      // Recursively parse children of nested frame
-      frameProps._children = this.parseChildren(innerContent);
-      children.push(frameProps);
-
-      // Mark this range as consumed
+      const innerContent = this.extractContent(afterOpen, tag);
+      const fullLength = match[0].length + innerContent.length + `</${tag}>`.length;
+      props._children = this.parseChildren(innerContent);
+      children.push(props);
       frameRanges.push({ start: match.index, end: match.index + fullLength });
-
-      // Move regex past this frame to avoid re-matching nested frames
-      frameOpenRegex.lastIndex = match.index + fullLength;
+      containerOpenRegex.lastIndex = match.index + fullLength;
     }
 
-    // Then: parse self-closing Frame elements NOT inside open/close frames
-    const frameSelfCloseRegex = /<Frame(?:\s+([^>]*?))?\s*\/>/g;
-
-    while ((match = frameSelfCloseRegex.exec(childrenStr)) !== null) {
-      // Skip if inside an already-consumed open/close frame
+    const containerSelfCloseRegex = /<(Frame|Slot)(?:\s+([^>]*?))?\s*\/>/g;
+    while ((match = containerSelfCloseRegex.exec(childrenStr)) !== null) {
       const insideFrame = frameRanges.some(r => match.index >= r.start && match.index < r.end);
       if (insideFrame) continue;
-
-      const frameProps = this.parseProps(match[1] || '');
-      frameProps._type = 'frame';
-      frameProps._index = match.index;
-      frameProps._children = [];
-      children.push(frameProps);
+      const props = this.parseProps(match[2] || '');
+      props._type = match[1] === 'Frame' ? 'frame' : 'slot';
+      props._index = match.index;
+      props._children = [];
+      children.push(props);
       frameRanges.push({ start: match.index, end: match.index + match[0].length });
-    }
-
-    // Parse Slot elements (with children) - must be before Text parsing
-    // Slots can have children (default content)
-    const slotOpenRegex = /<Slot(?:\s+([^>]*?))?>/g;
-    while ((match = slotOpenRegex.exec(childrenStr)) !== null) {
-      const idx = match.index;
-      const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
-      if (!insideFrame) {
-        const slotProps = this.parseProps(match[1] || '');
-        slotProps._type = 'slot';
-        slotProps._index = idx;
-
-        // Get content between opening and matching closing tag
-        const afterOpen = childrenStr.slice(match.index + match[0].length);
-        const innerContent = this.extractContent(afterOpen, 'Slot');
-        const fullLength = match[0].length + innerContent.length + '</Slot>'.length;
-
-        // Recursively parse children of slot (default content)
-        slotProps._children = this.parseChildren(innerContent);
-        children.push(slotProps);
-
-        // Mark this range as consumed (so text/other elements inside are skipped)
-        frameRanges.push({ start: idx, end: idx + fullLength });
-        slotOpenRegex.lastIndex = idx + fullLength;
-      }
-    }
-
-    // Parse self-closing Slot elements.
-    // NOTE (all self-closing regexes below): the attribute section must be
-    // matched with [^>] — NOT [^/] — because attribute values legitimately
-    // contain slashes (var:green/600, image URLs). [^/] silently dropped the
-    // whole element as soon as a value had a "/" in it.
-    const slotSelfCloseRegex = /<Slot(?:\s+([^>]*?))?\s*\/>/g;
-    while ((match = slotSelfCloseRegex.exec(childrenStr)) !== null) {
-      const idx = match.index;
-      const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
-      if (!insideFrame) {
-        const slotProps = this.parseProps(match[1] || '');
-        slotProps._type = 'slot';
-        slotProps._index = idx;
-        slotProps._children = [];
-        children.push(slotProps);
-        // Mark as consumed
-        frameRanges.push({ start: idx, end: idx + match[0].length });
-      }
     }
 
     // Parse Text elements, but skip those inside nested Frames/Slots
@@ -649,6 +714,20 @@ export class FigmaClient {
         const richText = parseRichTextContent(match[2], (value) => this.parseProps(value));
         textProps.content = richText.text;
         if (richText.runs.some((run) => Object.keys(run.style).length)) textProps.runs = richText.runs;
+        textProps._index = idx;
+        children.push(textProps);
+      }
+    }
+
+    // Empty self-closing Text is valid and remains an editable text layer.
+    const textSelfCloseRegex = /<Text(?:\s+([^>]*?))?\s*\/>/g;
+    while ((match = textSelfCloseRegex.exec(childrenStr)) !== null) {
+      const idx = match.index;
+      const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
+      if (!insideFrame) {
+        const textProps = this.parseProps(match[1] || '');
+        textProps._type = 'text';
+        textProps.content = '';
         textProps._index = idx;
         children.push(textProps);
       }

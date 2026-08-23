@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ensurePluginReadiness } from '../src/engine.js';
+import { PLUGIN_BUILD_VERSION } from '../engine/src/lib/plugin-version.js';
+
+const CURRENT_DAEMON = Object.freeze({ status: 'ok', bridgeBuildVersion: PLUGIN_BUILD_VERSION });
 
 test('plugin readiness restarts one previously configured idle daemon inside the Plan budget', async () => {
   let currentTime = 100;
@@ -16,7 +19,7 @@ test('plugin readiness restarts one previously configured idle daemon inside the
         healthCalls += 1;
         return healthCalls === 1
           ? { ok: false, plugin: false, raw: null }
-          : { ok: true, plugin: true, raw: { status: 'ok' } };
+          : { ok: true, plugin: true, raw: CURRENT_DAEMON };
       },
       hasPriorSetup: () => true,
       restart: async ({ timeoutMs }) => {
@@ -69,7 +72,7 @@ test('plugin readiness never waits beyond the owning Command Plan deadline', asy
     maxWaitMs: 8_000,
     adapters: {
       now: () => currentTime,
-      health: async () => ({ ok: true, plugin: false, raw: { status: 'ok' } }),
+      health: async () => ({ ok: true, plugin: false, raw: CURRENT_DAEMON }),
       hasPriorSetup: () => true,
       restart: async () => assert.fail('a running daemon must not be restarted'),
       wait: async (delayMs) => {
@@ -135,7 +138,7 @@ test('plugin readiness tolerates a timed-out launcher when the detached daemon b
         healthCalls += 1;
         return healthCalls === 1
           ? { ok: false, plugin: false, raw: null }
-          : { ok: true, plugin: true, raw: { status: 'ok' } };
+          : { ok: true, plugin: true, raw: CURRENT_DAEMON };
       },
       hasPriorSetup: () => true,
       restart: async () => {
@@ -146,6 +149,29 @@ test('plugin readiness tolerates a timed-out launcher when the detached daemon b
     },
   });
 
+  assert.deepEqual(result, { restarted: true });
+  assert.equal(restartCalls, 1);
+  assert.equal(healthCalls, 2);
+});
+
+test('plugin readiness replaces a stale daemon before accepting its Plugin socket', async () => {
+  let healthCalls = 0;
+  let restartCalls = 0;
+  const result = await ensurePluginReadiness({
+    deadline: 1_000,
+    adapters: {
+      now: () => 0,
+      health: async () => {
+        healthCalls++;
+        return healthCalls === 1
+          ? { ok: true, plugin: true, raw: { status: 'ok', bridgeBuildVersion: '3.3.6' } }
+          : { ok: true, plugin: true, raw: CURRENT_DAEMON };
+      },
+      hasPriorSetup: () => true,
+      restart: async () => { restartCalls++; },
+      wait: async () => {},
+    },
+  });
   assert.deepEqual(result, { restarted: true });
   assert.equal(restartCalls, 1);
   assert.equal(healthCalls, 2);

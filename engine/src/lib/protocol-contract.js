@@ -131,6 +131,9 @@ export function validateExecPayload(value) {
   if (value.timeoutMs != null && (!Number.isFinite(Number(value.timeoutMs)) || Number(value.timeoutMs) <= 0)) {
     return 'timeoutMs must be a positive finite number';
   }
+  if (value.deadlineAt != null && (!Number.isFinite(Number(value.deadlineAt)) || Number(value.deadlineAt) <= 0)) {
+    return 'deadlineAt must be a positive finite timestamp';
+  }
   return null;
 }
 

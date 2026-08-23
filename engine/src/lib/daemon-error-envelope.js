@@ -15,6 +15,7 @@ const KINDS = new Set([
   'plugin-capability',
   'plugin-protocol',
   'plugin-timeout',
+  'timeout',
   'execution',
 ]);
 
@@ -35,7 +36,7 @@ const OUTCOMES = new Set([
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** @typedef {'authentication'|'validation'|'targeting'|'plugin-unavailable'|'plugin-capability'|'plugin-protocol'|'plugin-timeout'|'execution'} BridgeDaemonErrorKind */
+/** @typedef {'authentication'|'validation'|'targeting'|'plugin-unavailable'|'plugin-capability'|'plugin-protocol'|'plugin-timeout'|'timeout'|'execution'} BridgeDaemonErrorKind */
 /** @typedef {'request-authentication'|'request-validation'|'target-resolution'|'plugin-dispatch'|'plugin-execution'|'plugin-response'|'daemon-response'} BridgeDaemonErrorPhase */
 /** @typedef {'not-dispatched'|'unknown-after-dispatch'} BridgeDaemonErrorOutcome */
 
@@ -169,5 +170,7 @@ export function adaptLegacyDaemonError(value, { status = null } = {}) {
 
 /** A write may switch Adapters only when the first capability never dispatched. */
 export function permitsCompatibilityRedispatch(error) {
-  return error?.kind === 'plugin-capability' && error?.outcome === 'not-dispatched';
+  return error?.kind === 'plugin-capability'
+    && (error?.phase === 'request-validation' || error?.phase === 'plugin-dispatch')
+    && error?.outcome === 'not-dispatched';
 }

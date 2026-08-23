@@ -55,7 +55,7 @@ function revisionMetadata(before) {
 const COMPACT_UI_SIZE = { width: 320, height: 132 };
 figma.showUI(__html__, COMPACT_UI_SIZE);
 
-// Execute code with auto-return and timeout protection.
+// Execute code with auto-return and deadline notification.
 //
 // REPL pattern: first try the code as a single EXPRESSION — `return (code)`.
 // If that throws a SyntaxError, the throw happens at PARSE time, before any
@@ -65,11 +65,11 @@ figma.showUI(__html__, COMPACT_UI_SIZE);
 // `for (…) { … }` block, or multi-statement code without semicolons, became a
 // SyntaxError. Statement code now returns undefined unless it ends with an
 // explicit `return` — which is what every engine call site already does.
-// 22s, deliberately BELOW the daemon's 25s eval timeout: with both at 25s the
-// daemon always fired first and the plugin's more precise error message
-// (naming the actual slow API call) never reached anyone. Note the timeout
-// only rejects the promise — the sandboxed eval itself keeps running.
-async function executeCode(code, timeoutMs = 22000) {
+// The underlying QuickJS evaluation cannot be cancelled. When its deadline is
+// reached we notify the caller immediately but deliberately keep awaiting the
+// actual promise. This quarantines the write lane until the uncertain mutation
+// has really stopped and prevents a later command from interleaving with it.
+async function executeCode(code, timeoutMs = 22000, onTimeout = null) {
   const trimmed = code.trim();
 
   let execPromise;
@@ -85,11 +85,34 @@ async function executeCode(code, timeoutMs = 22000) {
     }
   }
 
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Execution timeout (${timeoutMs / 1000}s)`)), timeoutMs)
-  );
+  let timedOut = false;
+  const timeoutError = new Error(`Execution timeout (${timeoutMs / 1000}s)`);
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    if (typeof onTimeout === 'function') onTimeout(timeoutError);
+  }, timeoutMs);
+  try {
+    const result = await execPromise;
+    return { result, timedOut, timeoutError };
+  } catch (error) {
+    if (timedOut) return { result: undefined, timedOut: true, timeoutError };
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
-  return Promise.race([execPromise, timeoutPromise]);
+function remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) {
+  const requested = Number(timeoutMs);
+  const total = Number.isFinite(requested)
+    ? Math.min(120000, Math.max(1, requested))
+    : 22000;
+  const responseMargin = Math.min(1000, Math.max(25, Math.round(total * 0.01)));
+  const absolute = Number(deadlineAt);
+  const remaining = Number.isFinite(absolute)
+    ? absolute - Date.now()
+    : total - Math.max(0, Date.now() - queuedAt);
+  return Math.floor(remaining - responseMargin);
 }
 
 // Generated runtime: npm run sync:plugin. Edit the canonical module at
@@ -1555,7 +1578,10 @@ function auditStructuredCreatedNodes(records) {
     ellipse: 'ELLIPSE', icon: 'FRAME', instance: 'INSTANCE',
   };
   const mismatch = (semanticNode, fact, expected, actual) => mismatches.push({
-    path: semanticNode.path, fact, expected, actual,
+    path: String(semanticNode.path || ''),
+    fact: String(fact),
+    expected: expected == null ? '(none)' : String(expected),
+    actual: actual == null ? '(none)' : String(actual),
   });
   for (let index = 0; index < records.length; index++) {
     const { semanticNode, created, parent } = records[index];
@@ -2263,13 +2289,22 @@ figma.ui.onmessage = async (msg) => {
   // points and mutate shared document state mid-flight. The daemon currently
   // sends strictly serially, but the plugin must not depend on that.
   if (msg.type === 'eval') {
-    const { id, code, requireDocumentRevision } = msg;
+    const { id, code, requireDocumentRevision, timeoutMs, deadlineAt } = msg;
+    const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
       if (requireDocumentRevision === true) await ensureDocumentRevisionReady();
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
-        const result = await executeCode(code);
-        figma.ui.postMessage({ type: 'result', id, result, metadata: revisionMetadata(revisionBefore) });
+        const remainingMs = remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt);
+        if (remainingMs <= 0) throw new Error('Execution deadline elapsed before plugin start');
+        let timeoutPosted = false;
+        const execution = await executeCode(code, remainingMs, (timeoutError) => {
+          timeoutPosted = true;
+          figma.ui.postMessage({ type: 'result', id, error: errorMessage(timeoutError), metadata: revisionMetadata(revisionBefore) });
+        });
+        if (!timeoutPosted && !execution.timedOut) {
+          figma.ui.postMessage({ type: 'result', id, result: execution.result, metadata: revisionMetadata(revisionBefore) });
+        }
       } catch (error) {
         figma.ui.postMessage({ type: 'result', id, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
       }
@@ -2278,7 +2313,7 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'render-plan') {
-    const { id, plan } = msg;
+    const { id, plan, timeoutMs, deadlineAt } = msg;
     if (figma.editorType === 'dev') {
       figma.ui.postMessage({
         type: 'result', id,
@@ -2286,9 +2321,13 @@ figma.ui.onmessage = async (msg) => {
       });
       return;
     }
+    const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
+        if (remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) <= 0) {
+          throw new Error('Execution deadline elapsed before plugin start');
+        }
         const result = await executeStructuredRenderPlan(figma, plan);
         figma.ui.postMessage({ type: 'result', id, result, metadata: revisionMetadata(revisionBefore) });
       } catch (error) {
@@ -2299,7 +2338,7 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'render-plan-batch') {
-    const { id, plans, options } = msg;
+    const { id, plans, options, timeoutMs, deadlineAt } = msg;
     if (figma.editorType === 'dev') {
       figma.ui.postMessage({
         type: 'result', id,
@@ -2307,9 +2346,13 @@ figma.ui.onmessage = async (msg) => {
       });
       return;
     }
+    const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
       try {
+        if (remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) <= 0) {
+          throw new Error('Execution deadline elapsed before plugin start');
+        }
         const result = await executeStructuredRenderPlanBatch(figma, plans, options || {});
         figma.ui.postMessage({ type: 'result', id, result, metadata: revisionMetadata(revisionBefore) });
       } catch (error) {
@@ -2327,8 +2370,10 @@ figma.ui.onmessage = async (msg) => {
       for (const code of codes) {
         const revisionBefore = documentRevisionAvailable ? documentRevision : null;
         try {
-          const result = await executeCode(code);
-          results.push({ success: true, result, metadata: revisionMetadata(revisionBefore) });
+          const execution = await executeCode(code);
+          results.push(execution.timedOut
+            ? { success: false, error: errorMessage(execution.timeoutError), metadata: revisionMetadata(revisionBefore) }
+            : { success: true, result: execution.result, metadata: revisionMetadata(revisionBefore) });
         } catch (error) {
           results.push({ success: false, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
         }

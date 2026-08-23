@@ -13,6 +13,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const testState = mkdtempSync(join(tmpdir(), 'figma-bridge-mcp-layer-'));
 process.env.PLUGIN_KEY_FILE = join(testState, 'plugin-key');
 process.env.AUDIT_LOG_PATH = join(testState, 'audit.log');
+process.env.FIGMA_WRITE_CONFIRM = '1';
 
 test('buildArgv resolves to the vendored engine entry with the current node', async () => {
   const { buildArgv, ENGINE_ENTRY } = await import('../src/config.js');
@@ -334,6 +335,107 @@ test('figma_run routes Node Text through the shared non-retrying Application', (
   assert.match(slice, /executeNodeTextPlan\(plan/);
   assert.match(slice, /formatNodeTextResult\(result\)/);
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Text must not re-enter Commander');
+});
+
+test('figma_run and figma_render share one non-retrying Semantic Render Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const helperStart = source.indexOf('async function runSemanticRenderApplication');
+  const helperEnd = source.indexOf('/**\n * Resolve one figma_run Command Plan', helperStart);
+  const helper = source.slice(helperStart, helperEnd);
+  assert.match(helper, /runInProcessCommandPlan\(plan/);
+  assert.match(helper, /compatibilityFallback: false/);
+  assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(helper, /executePreparedSemanticRender\(prepared/);
+  assert.match(helper, /renderFigmaPlan\(renderPlan/);
+  assert.match(helper, /formatSemanticRenderResult\(result\)/);
+  assert.doesNotMatch(helper, /runCliPlan\(|runCli\(/);
+
+  assert.match(source, /semanticRenderRoute === "command-application"[\s\S]*?runSemanticRenderApplication\(plan, input\.label, preparedSemanticRender\)/);
+  const dedicatedStart = source.indexOf('case "figma_render"');
+  const dedicatedEnd = source.indexOf('case "figma_selection"', dedicatedStart);
+  const dedicated = source.slice(dedicatedStart, dedicatedEnd);
+  assert.match(dedicated, /prepareSemanticRenderPlan\(plan/);
+  assert.match(dedicated, /semanticRenderToolArgv\(input\)/);
+  assert.match(dedicated, /runSemanticRenderApplication\(plan, input\.label, prepared\)/);
+  assert.doesNotMatch(dedicated, /runCli\(/, 'simple dedicated Render must not re-enter Commander');
+});
+
+test('figma_render exposes the complete typed simple-render request', async () => {
+  const { TOOLS, handleTool } = await import('../src/server.js');
+  const schema = TOOLS.find((tool) => tool.name === 'figma_render').inputSchema.properties;
+  for (const field of [
+    'jsx', 'keepWrapper', 'collection', 'preset', 'manifest',
+    'approvedFallbacks', 'allowedFreePaths', 'confirm', 'label', 'fileKey',
+  ]) assert.ok(schema[field], `figma_render schema misses ${field}`);
+
+  const preview = await handleTool('figma_render', {
+    jsx: '<Frame name="Typed dedicated render" flex="col"><Text>Hello</Text></Frame>',
+    keepWrapper: true,
+    collection: 'Brand',
+    preset: 'desktop',
+    approvedFallbacks: ['font.named-faces'],
+    allowedFreePaths: ['root.free'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+
+  const malformed = await handleTool('figma_render', {
+    jsx: '<Frame />', approvedFallbacks: [false],
+  });
+  assert.equal(malformed.isError, true);
+  assert.match(malformed.content[0].text, /approvedFallbacks/);
+
+  const excessive = await handleTool('figma_render', {
+    jsx: '<Frame />',
+    approvedFallbacks: Array.from({ length: 101 }, (_, index) => `fallback-${index}`),
+  });
+  assert.equal(excessive.isError, true);
+  assert.match(excessive.content[0].text, /at most 100/);
+
+  for (const jsx of ['--help', '--print-browser-capture']) {
+    const literal = await handleTool('figma_render', { jsx });
+    assert.equal(literal.isError, true);
+    assert.match(literal.content[0].text, /Invalid JSX/);
+    assert.doesNotMatch(literal.content[0].text, /Usage:|querySelector|getComputedStyle/);
+  }
+
+  for (const jsx of [
+    '<Frame flex="row"><Frame name="Card 1"><Text>One</Text></Frame><Frame name="Card 2"><Text>Two</Text></Frame></Frame>',
+    '<Frame><Image src="photo.png" /></Frame>',
+  ]) {
+    const compatibility = await handleTool('figma_render', { jsx });
+    assert.equal(compatibility.isError, undefined, jsx);
+    assert.match(compatibility.content[0].text, /Write-confirm mode is on/);
+    assert.doesNotMatch(compatibility.content[0].text, /Invalid JSX|Usage:|getComputedStyle/);
+  }
+});
+
+test('malformed Render argv and JSX fail before confirmation or Plugin readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const bypass = await handleTool('figma_run', {
+    args: ['render', '<Frame name="Safe" />', '--', '--structural-gate'],
+  });
+  assert.equal(bypass.isError, true);
+  assert.match(bypass.content[0].text, /Unknown or unsupported Figma Command/);
+
+  const unclosed = await handleTool('figma_render', { jsx: '<Frame name="Never dispatched">' });
+  assert.equal(unclosed.isError, true);
+  assert.match(unclosed.content[0].text, /not closed|closing tag|complete root/i);
+});
+
+test('figma_run preserves an option-terminated Semantic Render payload through planning', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', {
+    args: ['render', '--', '<Frame name="Literal boundary" />'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  assert.match(preview.content[0].text, /render/);
+
+  const literalHelp = await handleTool('figma_run', { args: ['render', '--', '--help'] });
+  assert.equal(literalHelp.isError, true);
+  assert.doesNotMatch(literalHelp.content[0].text, /Unknown or unsupported Figma Command/);
+  assert.match(literalHelp.content[0].text, /Invalid JSX/i);
 });
 
 test('figma_run keeps Asset Export polling around the shared in-process Application', () => {

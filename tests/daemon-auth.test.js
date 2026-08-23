@@ -42,6 +42,7 @@ const KEY = 'test-access-key-0123456789';
 
 let tmp;
 let child;
+let childStderr = '';
 
 // Fresh signed headers per call — nonces are single-use by design.
 function auth(method, path, body = '', token = TOKEN) {
@@ -69,6 +70,16 @@ function assertBridgeError(payload, expected) {
   );
 }
 
+function assertForwardedDeadline(message, timeoutMs) {
+  assert.equal(message.timeoutMs, timeoutMs,
+    'the normalized HTTP budget must reach the authenticated Plugin socket');
+  assert.equal(Number.isFinite(message.deadlineAt), true,
+    'the Plugin socket message must carry an absolute deadline');
+  const remainingMs = message.deadlineAt - Date.now();
+  assert.ok(remainingMs > 0 && remainingMs <= timeoutMs,
+    `forwarded deadline must retain at most its ${timeoutMs}ms owning budget (got ${remainingMs}ms)`);
+}
+
 function waitForListen(timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -77,7 +88,10 @@ function waitForListen(timeoutMs = 5000) {
         const res = await httpHealth(auth('GET', '/health'));
         if (res.ok) return resolve();
       } catch {}
-      if (Date.now() - start > timeoutMs) return reject(new Error('daemon did not start'));
+      if (Date.now() - start > timeoutMs) {
+        const detail = childStderr.trim();
+        return reject(new Error(`daemon did not start${detail ? `: ${detail}` : ''}`));
+      }
       setTimeout(tick, 100);
     };
     tick();
@@ -91,9 +105,12 @@ function openWs(origin) {
 }
 
 const PLUGIN_VERSION = PLUGIN_BUILD_VERSION;
+const PLUGIN_CAPABILITIES = Object.freeze([
+  'execution-deadline-v1', 'render-plan-batch-v1', 'render-plan-v1',
+]);
 
 /**
- * Play the plugin's side of the proto-2 handshake: wait for the daemon's
+ * Play the plugin's side of the proto-3 handshake: wait for the daemon's
  * challenge, answer with a proof, and return everything both sides exchanged.
  * `mutate` gets the outgoing hello and may sabotage any field — that is how the
  * negative tests below forge protos, nonces, ports and proofs.
@@ -103,6 +120,7 @@ function handshake(ws, {
   key = KEY,
   timeoutMs = 3000,
   version = PLUGIN_VERSION,
+  capabilities = PLUGIN_CAPABILITIES,
 } = {}) {
   return new Promise((resolve, reject) => {
     const seen = [];
@@ -118,13 +136,14 @@ function handshake(ws, {
           type: 'hello',
           proto: HANDSHAKE_PROTO,
           version,
-          capabilities: ['render-plan-v1', 'render-plan-batch-v1'],
+          capabilities,
           nonce: pluginNonce,
           proof: signHandshake(key, pluginTranscript({
             daemonNonce: m.nonce,
             pluginNonce,
             port: m.port,
             version,
+            capabilities,
           })),
         };
         ws.send(JSON.stringify(mutate(hello, m)));
@@ -177,8 +196,9 @@ before(async () => {
       PLUGIN_KEY_FILE: keyFile,
       DAEMON_IDLE_TIMEOUT: '600000',
     },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  child.stderr.on('data', (chunk) => { childStderr += chunk.toString(); });
   await waitForListen();
 });
 
@@ -475,7 +495,7 @@ test('the handshake exposes a cached older Figma plugin build', async () => {
 });
 
 test('the access key never appears on the wire', async () => {
-  // The whole point of proto 2: a squatter that records every frame of a
+  // The whole point of proto 3: a squatter that records every frame of a
   // successful handshake still cannot connect afterwards.
   const ws = openWs();
   const sent = [];
@@ -505,6 +525,15 @@ test('a proto-1 hello (raw key, no proof) is rejected by name', async () => {
   assert.equal(reason, 'proto-mismatch');
 });
 
+test('a proto-2 proof is rejected after the channel-binding protocol bump', async () => {
+  const ws = openWs();
+  const { code, reason } = await expectRejection(ws, {
+    mutate: (hello) => ({ ...hello, proto: 2 }),
+  });
+  assert.equal(code, 4401);
+  assert.equal(reason, 'proto-mismatch');
+});
+
 test('a proof for a DIFFERENT port is rejected (relay defence)', async () => {
   // A squatter on another range port that forwards frames to the real daemon
   // makes the plugin sign the port it reached — which is not the port the
@@ -518,6 +547,7 @@ test('a proof for a DIFFERENT port is rejected (relay defence)', async () => {
         pluginNonce: hello.nonce,
         port: challenge.port + 1, // reached us via a relay on a neighbouring port
         version: PLUGIN_VERSION,
+        capabilities: hello.capabilities,
       })),
     }),
   });
@@ -531,6 +561,18 @@ test('a proof for a different version is rejected', async () => {
     mutate: (hello) => ({ ...hello, version: 'spoofed' }), // proof still covers 't'
   });
   assert.equal(code, 4401);
+});
+
+test('a capability claim changed after signing is rejected', async () => {
+  const ws = openWs();
+  const { code, reason } = await expectRejection(ws, {
+    mutate: (hello) => ({
+      ...hello,
+      capabilities: [...hello.capabilities, 'forged-write-capability'],
+    }),
+  });
+  assert.equal(code, 4401);
+  assert.equal(reason, 'invalid-key');
 });
 
 test('a malformed or reused nonce is rejected', async () => {
@@ -555,6 +597,7 @@ test('a malformed or reused nonce is rejected', async () => {
         pluginNonce,
         port: challenge.port,
         version: PLUGIN_VERSION,
+        capabilities: hello.capabilities,
       })),
     }),
   });
@@ -569,6 +612,7 @@ test('a plugin proof cannot be replayed back as a daemon proof', async () => {
   const { challenge, pluginNonce, ack } = await handshake(ws);
   const pluginProof = signHandshake(KEY, pluginTranscript({
     daemonNonce: challenge.nonce, pluginNonce, port: challenge.port, version: PLUGIN_VERSION,
+    capabilities: PLUGIN_CAPABILITIES,
   }));
   assert.notEqual(ack.proof, pluginProof);
   ws.close();
@@ -759,6 +803,7 @@ test('/exec reports Plugin timeout as outcome unknown after dispatch', async () 
         const msg = JSON.parse(data.toString());
         if (msg.action !== 'eval') return;
         clearTimeout(timer);
+        assertForwardedDeadline(msg, 1000);
         resolve();
       });
     });
@@ -784,6 +829,73 @@ test('/exec reports Plugin timeout as outcome unknown after dispatch', async () 
   });
 });
 
+test('/exec reports an elapsed client deadline as not dispatched', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'ELAPSED_DEADLINE_FILE' });
+    let dispatched = false;
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.action === 'eval') dispatched = true;
+    });
+    const body = JSON.stringify({
+      action: 'eval',
+      code: 'mustNotRun()',
+      fileKey: 'ELAPSED_DEADLINE_FILE',
+      timeoutMs: 1000,
+      deadlineAt: Date.now() - 1,
+    });
+    const response = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    assert.equal(response.status, 500);
+    assertBridgeError(await response.json(), {
+      kind: 'timeout',
+      phase: 'plugin-dispatch',
+      outcome: 'not-dispatched',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(dispatched, false);
+  });
+});
+
+test('/exec refuses a stale Plugin without deadline-aware write-lane capability', async () => {
+  const ws = openWs();
+  try {
+    await handshake(ws, {
+      version: '3.3.6',
+      capabilities: ['render-plan-batch-v1', 'render-plan-v1'],
+    });
+    await pushSelection(ws, { fileKey: 'STALE_DEADLINE_PLUGIN' });
+    let dispatched = false;
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.action === 'eval') dispatched = true;
+    });
+    const body = JSON.stringify({
+      action: 'eval', code: 'mustNotRun()', fileKey: 'STALE_DEADLINE_PLUGIN', timeoutMs: 1000,
+    });
+    const response = await fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    assert.equal(response.status, 500);
+    const payload = await response.json();
+    assertBridgeError(payload, {
+      kind: 'plugin-capability',
+      phase: 'plugin-dispatch',
+      outcome: 'not-dispatched',
+    });
+    assert.match(payload.error, /execution-deadline-v1/);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(dispatched, false);
+  } finally {
+    try { ws.close(); } catch {}
+  }
+});
+
 test('/exec routes a validated Semantic Render Plan through the authenticated plugin socket', async () => {
   await withAuthedWs(async (ws) => {
     await pushSelection(ws, { fileKey: 'PLAN_FILE' });
@@ -799,11 +911,12 @@ test('/exec routes a validated Semantic Render Plan through the authenticated pl
         if (msg.action !== 'render-plan') return;
         clearTimeout(timer);
         assert.deepEqual(msg.plan, plan);
+        assertForwardedDeadline(msg, 4321);
         ws.send(JSON.stringify({ type: 'result', id: msg.id, result: { id: '9:9', executor: 'structured-v1' } }));
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'render-plan', plan, fileKey: 'PLAN_FILE' });
+    const body = JSON.stringify({ action: 'render-plan', plan, fileKey: 'PLAN_FILE', timeoutMs: 4321 });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) }, body,
     });
@@ -830,12 +943,19 @@ test('/exec routes a validated Semantic Render Plan batch without generated code
         clearTimeout(timer);
         assert.deepEqual(msg.plans, [plan, plan]);
         assert.deepEqual(msg.options, { gap: 24, vertical: true });
+        assertForwardedDeadline(msg, 5432);
         assert.equal('code' in msg, false);
         ws.send(JSON.stringify({ type: 'result', id: msg.id, result: { frames: [{ id: '9:10' }], executor: 'structured-batch-v1' } }));
         resolve();
       });
     });
-    const body = JSON.stringify({ action: 'render-plan-batch', plans: [plan, plan], options: { gap: 24, vertical: true }, fileKey: 'BATCH_FILE' });
+    const body = JSON.stringify({
+      action: 'render-plan-batch',
+      plans: [plan, plan],
+      options: { gap: 24, vertical: true },
+      fileKey: 'BATCH_FILE',
+      timeoutMs: 5432,
+    });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) }, body,
     });

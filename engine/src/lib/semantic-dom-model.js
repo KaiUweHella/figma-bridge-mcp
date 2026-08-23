@@ -399,8 +399,8 @@ function placeGridChildren(model) {
 }
 
 export function domCaptureToSemanticModel(capture, {
-  resolveProjectIcon = () => null,
-  resolveComponent = () => null,
+  resolveProjectIcon = (_iconRole) => null,
+  resolveComponent = (_componentEntityId, _sourceIdentity) => null,
 } = {}) {
   if (!capture || typeof capture !== 'object' || !capture.root?.rect || !capture.root?.style) {
     throw new Error('Invalid DOM capture: expected { root: { rect, style, children } }');
@@ -531,7 +531,7 @@ function jsxColorIntent(props) {
  * contract used by browser capture. This runs before any Figma connection or
  * write so unsupported structure cannot degrade silently in the renderer. */
 export function jsxTreeToSemanticModel(rootProps, children, {
-  isIconResolved = () => true,
+  isIconResolved = (_name) => Boolean(true),
   resolveIconAsset = null,
   resolveImageAsset = null,
 } = {}) {

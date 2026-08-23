@@ -14,7 +14,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
+import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, renderFigmaPlan, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
   listFigmaCapabilities,
@@ -60,6 +60,20 @@ import {
   formatNodeTextResult,
   nodeTextPlanRoute,
 } from "../engine/src/application/node-text-command.js";
+import {
+  executePreparedSemanticRender,
+  formatSemanticRenderResult,
+  prepareSemanticRenderPlan,
+  semanticRenderArgvFromRequest,
+  semanticRenderOutcomeCode,
+  semanticRenderPlanRoute,
+} from "../engine/src/application/semantic-render-command.js";
+import {
+  MAX_SEMANTIC_RENDER_LIST_ITEMS,
+  SEMANTIC_RENDER_DEVICE_PRESETS,
+  semanticRenderArgvRoute,
+  semanticRenderRequestFromArgv,
+} from "../engine/src/application/semantic-render-request.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
@@ -140,7 +154,7 @@ export const TOOLS = [
   {
     name: "figma_connect",
     description:
-      "Ensure Figma Bridge is available in Safe Mode (never Yolo) without dropping a healthy plugin connection. Self-heals a single connected but unresponsive plugin UI, generates the access key if needed, and returns plugin import instructions.",
+      "Connect Figma Bridge in Safe Mode; recover its plugin, create its key, or return import steps.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -156,9 +170,9 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        validateRest: { type: "boolean", description: "Also validate the optional REST token remotely." },
-        probePlugin: { type: "boolean", default: true, description: "Plugin eval probe (default true); false = socket only." },
-        fileKey: { type: "string", description: "File key/URL for REST file-access validation fallback." },
+        validateRest: { type: "boolean", description: "Validate the optional REST token." },
+        probePlugin: { type: "boolean", default: true, description: "Probe plugin eval; false checks only its socket." },
+        fileKey: { type: "string", description: "Figma key/URL for REST validation." },
       },
       additionalProperties: false,
     },
@@ -178,7 +192,7 @@ export const TOOLS = [
         rotate: {
           type: "boolean",
           description:
-            "Generate a NEW key, invalidate the old one, and restart the daemon automatically.",
+            "Replace the key and restart the daemon.",
         },
       },
       additionalProperties: false,
@@ -187,10 +201,7 @@ export const TOOLS = [
   {
     name: "figma_run",
     description:
-      "Run a Capability Catalog-approved engine command. Discover commands with " +
-      'figma_reference {name:"capabilities"}. ' +
-      "Append --help to any command for its syntax. " +
-      "Note: node tree defaults to depth 3 — pass -d <n> for deeper trees.",
+      'Run an approved engine command. See figma_reference {name:"capabilities"}; use --help for syntax.',
     annotations: toolAnnotations({
       readOnlyHint: false,
       destructiveHint: true,
@@ -201,23 +212,23 @@ export const TOOLS = [
         args: {
           type: "array",
           items: { type: "string" },
-          description: "Engine subcommand and flags, e.g. [\"canvas\",\"info\"].",
+          description: "Command argv, e.g. [\"canvas\",\"info\"].",
         },
         confirm: {
           type: "boolean",
-          description: "Required for write commands when write-confirm mode is on.",
+          description: "Required in write-confirm mode.",
         },
         label: {
           type: "string",
-          description: "Optional intent note stored only as non-reversible audit metadata.",
+          description: "Optional intent stored only as non-reversible audit metadata.",
         },
         fileKey: {
           type: "string",
-          description: "Target connected file: bare key or Figma URL.",
+          description: "Figma key/URL.",
         },
         force: {
           type: "boolean",
-          description: "Asset Export only: bypass completed retry cache; never duplicate a running job.",
+          description: "Asset Export: bypass completed retry cache.",
         },
       },
       required: ["args"],
@@ -233,16 +244,36 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        jsx: { type: "string", description: "JSX markup to render." },
+        jsx: { type: "string", description: "JSX." },
+        keepWrapper: { type: "boolean", description: "Preserve the outer Frame." },
+        collection: { type: "string", minLength: 1, description: "Variable collection." },
+        preset: {
+          type: "string",
+          enum: Object.keys(SEMANTIC_RENDER_DEVICE_PRESETS),
+          description: "Root size if JSX omits w/h.",
+        },
+        manifest: { type: "string", minLength: 1, description: "Registry path." },
+        approvedFallbacks: {
+          type: "array",
+          maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
+          items: { type: "string", minLength: 1 },
+          description: "Approved fallback kinds/paths.",
+        },
+        allowedFreePaths: {
+          type: "array",
+          maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
+          items: { type: "string", minLength: 1 },
+          description: "Approved free-layout paths.",
+        },
         confirm: {
           type: "boolean",
-          description: "Required when write-confirm mode is on.",
+          description: "Required in write-confirm mode.",
         },
         label: {
           type: "string",
-          description: "Optional intent note stored only as non-reversible audit metadata.",
+          description: "Optional intent stored only as non-reversible audit metadata.",
         },
-        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
+        fileKey: { type: "string", description: "Figma key/URL." },
       },
       required: ["jsx"],
       additionalProperties: false,
@@ -258,7 +289,7 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
+        fileKey: { type: "string", description: "Figma key/URL." },
       },
       additionalProperties: false,
     },
@@ -266,7 +297,7 @@ export const TOOLS = [
   {
     name: "figma_history",
     description:
-      "Private local capability history for this machine's Figma sessions. Filter by nodeId using redacted node references; optionally merge git history and Figma version history. New records never retain raw commands, JSX, labels, file keys, paths, REST bodies, or error messages; bounded legacy records remain readable.",
+      "Private local command history, git/Figma version merge, and snapshot diff; new records omit raw or sensitive payloads.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -275,45 +306,45 @@ export const TOOLS = [
       properties: {
         nodeId: {
           type: "string",
-          description: "Only entries touching this node id (\"1:2\" or URL form \"1-2\").",
+          description: "Node-id filter.",
         },
         limit: {
           type: "number",
-          description: "Max entries (default 20, max 200).",
+          description: "Default 20; max 200.",
         },
         format: {
           type: "string",
           enum: ["markdown", "json"],
-          description: "Output format (default markdown table).",
+          description: "Default markdown.",
         },
         gitPaths: {
           type: "array",
           items: { type: "string" },
-          description: "Repo-relative file paths whose git log to merge in (generated code files).",
+          description: "Repo-relative paths for git history.",
         },
         repoPath: {
           type: "string",
-          description: "Repo root for gitPaths (default: server working directory).",
+          description: "Repo root for gitPaths.",
         },
         includeVersions: {
           type: "boolean",
           description:
-            "Also merge the file's Figma version history (what designers saved, by whom) via the optional REST layer. Needs a configured REST token; without one a note is appended instead.",
+            "Merge Figma versions via optional REST.",
         },
         fileKey: {
           type: "string",
           description:
-            "File for includeVersions: bare key or full Figma URL. Default: the file open in Figma Desktop.",
+            "Figma key/URL for versions.",
         },
         diff: {
           type: "object",
           description:
-            "Structural diff instead of the log: what nodes were added, removed, recreated, moved or changed between two states. Refs are \"live\" (the document right now), \"latest\"/\"previous\", an index, or a Figma version id (needs the REST layer). Record comparison points with figma_run [\"history\",\"snapshot\"].",
+            "Diff live/latest/previous, an index, or a Figma version.",
           properties: {
-            from: { type: "string", description: "Older side. Default \"previous\"." },
-            to: { type: "string", description: "Newer side. Default \"latest\". Use \"live\" for the current document." },
-            nodeId: { type: "string", description: "Subtree root when a side is \"live\" (default: current page)." },
-            changelog: { type: "boolean", description: "Emit a markdown changelog instead of the terse report." },
+            from: { type: "string", description: "Older ref; default previous." },
+            to: { type: "string", description: "Newer ref; default latest." },
+            nodeId: { type: "string", description: "Live subtree root." },
+            changelog: { type: "boolean", description: "Return markdown changelog." },
           },
           additionalProperties: false,
         },
@@ -1161,6 +1192,36 @@ async function runAssetExport(plan, label, { force = false } = {}) {
   return resultFromCli(job.result);
 }
 
+async function runSemanticRenderApplication(plan, label, prepared) {
+  const res = await runInProcessCommandPlan(plan, {
+    label,
+    compatibilityFallback: false,
+  }, async ({ fileKey, deadline }) => {
+    const remainingMs = () => Math.max(1, deadline - Date.now());
+    await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+    const result = await executePreparedSemanticRender(prepared, {
+      renderPlan: (renderPlan) => renderFigmaPlan(renderPlan, {
+        fileKey,
+        timeoutMs: remainingMs(),
+      }),
+      evaluate: (code) => evaluateFigma(code, {
+        fileKey,
+        timeoutMs: remainingMs(),
+      }),
+      inspectInventory: (code) => evaluateFigma(code, {
+        fileKey,
+        timeoutMs: remainingMs(),
+      }),
+    });
+    return {
+      stdout: formatSemanticRenderResult(result),
+      stderr: "",
+      code: semanticRenderOutcomeCode(result),
+    };
+  });
+  return resultFromCli(res);
+}
+
 /**
  * Resolve one figma_run Command Plan after path normalization. Registry lookup
  * stays lazy behind the Figma Target Context precedence rules.
@@ -1257,6 +1318,40 @@ export function unknownParamError(toolName, input, tools = TOOLS) {
     return match ? `Unknown parameter "${k}" — did you mean "${match}"?` : `Unknown parameter "${k}".`;
   });
   return `${hints.join(" ")} ${known.length ? `Accepted parameters: ${known.join(", ")}.` : "This tool takes no parameters."}`;
+}
+
+function semanticRenderToolArgv(input) {
+  if (typeof input.jsx !== "string" || input.jsx.length === 0) {
+    throw new Error("jsx must be a non-empty string.");
+  }
+  if (input.keepWrapper !== undefined && typeof input.keepWrapper !== "boolean") {
+    throw new Error("keepWrapper must be a boolean.");
+  }
+  for (const key of ["collection", "preset", "manifest"]) {
+    if (input[key] !== undefined && (typeof input[key] !== "string" || input[key].length === 0)) {
+      throw new Error(`${key} must be a non-empty string.`);
+    }
+  }
+  for (const key of ["approvedFallbacks", "allowedFreePaths"]) {
+    if (input[key] !== undefined && (!Array.isArray(input[key])
+      || input[key].length > MAX_SEMANTIC_RENDER_LIST_ITEMS
+      || input[key].some((value) => typeof value !== "string" || value.length === 0))) {
+      throw new Error(`${key} must contain at most ${MAX_SEMANTIC_RENDER_LIST_ITEMS} non-empty strings.`);
+    }
+  }
+  const args = ["render"];
+  if (input.keepWrapper === true) args.push("--keep-wrapper");
+  if (input.collection !== undefined) args.push(`--collection=${input.collection}`);
+  if (input.preset !== undefined) args.push(`--preset=${input.preset}`);
+  if (input.manifest !== undefined) args.push(`--manifest=${input.manifest}`);
+  if (input.approvedFallbacks?.length) args.push(`--approve-fallback=${input.approvedFallbacks.join(",")}`);
+  if (input.allowedFreePaths?.length) args.push(`--allow-free-layout=${input.allowedFreePaths.join(",")}`);
+  // Typed JSX is always data, even when it happens to equal a CLI flag.
+  args.push("--", input.jsx);
+  const route = semanticRenderArgvRoute(args);
+  return route.kind === "simple"
+    ? semanticRenderArgvFromRequest(semanticRenderRequestFromArgv(args))
+    : args;
 }
 
 export async function handleTool(name, rawArgs) {
@@ -1463,6 +1558,15 @@ export async function handleTool(name, rawArgs) {
       if (input.force === true && plan.execution.mode !== "tracked-job") {
         return errorResult("force is only available for tracked Asset Export commands.");
       }
+      const semanticRenderRoute = semanticRenderPlanRoute(plan);
+      let preparedSemanticRender = null;
+      if (semanticRenderRoute === "command-application") {
+        try {
+          preparedSemanticRender = prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+        } catch (error) {
+          return errorResult(error?.message || String(error));
+        }
+      }
       if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
         return previewResult(args);
       }
@@ -1528,6 +1632,9 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      if (semanticRenderRoute === "command-application") {
+        return await runSemanticRenderApplication(plan, input.label, preparedSemanticRender);
+      }
       const res = await runCliPlan(plan, { label: input.label });
       // Library-metadata enrichment (opt-in REST layer): after a successful
       // `map storybook` run, upgrade the written figma-map.json with the
@@ -1541,15 +1648,33 @@ export async function handleTool(name, rawArgs) {
     }
 
     case "figma_render": {
-      const jsx = input.jsx;
-      if (typeof jsx !== "string" || jsx.length === 0) {
-        return errorResult("jsx must be a non-empty string.");
+      let args;
+      try {
+        args = semanticRenderToolArgv(input);
+      } catch (error) {
+        return errorResult(error?.message || String(error));
       }
-      const args = ["render", jsx];
-      if (WRITE_CONFIRM && input.confirm !== true) {
+      const plan = planFigmaRunCommand(args, {
+        fileKey: input.fileKey,
+        workspaceIO: WORKSPACE_IO,
+      });
+      if (!plan.allowed) return errorResult("Invalid Semantic Render request.");
+      const route = semanticRenderPlanRoute(plan);
+      let prepared = null;
+      if (route === "command-application") {
+        try {
+          prepared = prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+        } catch (error) {
+          return errorResult(error?.message || String(error));
+        }
+      }
+      if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
         return previewResult(args);
       }
-      const res = await runCli(args, { label: input.label, fileKey: input.fileKey });
+      if (route === "command-application") {
+        return await runSemanticRenderApplication(plan, input.label, prepared);
+      }
+      const res = await runCliPlan(plan, { label: input.label });
       return resultFromCli(res);
     }
 

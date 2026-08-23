@@ -25,7 +25,10 @@ test('daemon client concentrates signed execution and explicit file targeting', 
   assert.equal(await client.evaluate('1 + 1', { fileKey: 'EXPLICIT_FILE', timeoutMs: 54321 }), 'ok');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://127.0.0.1:3456/exec');
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
+  const executionBody = JSON.parse(calls[0].options.body);
+  assert.ok(executionBody.deadlineAt > Date.now());
+  delete executionBody.deadlineAt;
+  assert.deepEqual(executionBody, {
     action: 'eval', code: '1 + 1', fileKey: 'EXPLICIT_FILE', timeoutMs: 54321,
   });
   assert.equal(calls[0].options.headers['Content-Type'], 'application/json');
@@ -64,6 +67,8 @@ test('daemon client sends Semantic Render Plans as structured authenticated payl
   });
   const plan = { kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx', root: {}, diagnostics: {} };
   assert.deepEqual(await client.renderPlan(plan), { id: '1:2' });
+  assert.ok(body.deadlineAt > Date.now());
+  delete body.deadlineAt;
   assert.deepEqual(body, { action: 'render-plan', plan, timeoutMs: 90000 });
 });
 
@@ -75,6 +80,8 @@ test('daemon client sends native Semantic Render Plan batches without JavaScript
   });
   const plans = [{ kind: 'figma-bridge/semantic-render-plan', version: 1 }];
   assert.deepEqual(await client.renderPlanBatch(plans, { gap: 20, vertical: false }), { frames: [] });
+  assert.ok(body.deadlineAt > Date.now());
+  delete body.deadlineAt;
   assert.deepEqual(body, {
     action: 'render-plan-batch', plans, options: { gap: 20, vertical: false }, timeoutMs: 90000,
   });

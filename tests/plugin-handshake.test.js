@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   HANDSHAKE_PROTO,
+  canonicalPluginCapabilities,
   pluginTranscript,
   daemonTranscript,
   sign,
@@ -36,16 +37,24 @@ const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 // Running the real code is the whole point: a re-implementation here could
 // agree with Node while the shipped panel drifted.
 function loadPluginCrypto() {
-  const start = UI.indexOf('const SHA_K = new Uint32Array([');
+  const start = UI.indexOf('const HANDSHAKE_PROTO =');
   const endMarker = 'const PORTS =';
   const end = UI.indexOf(endMarker);
-  assert.ok(start > 0, 'SHA_K table not found in ui.html — did the crypto block move?');
+  assert.ok(start > 0, 'handshake block not found in ui.html — did the protocol constants move?');
   assert.ok(end > start, 'PORTS marker not found after the crypto block');
   const source = UI.slice(start, end);
   for (const needed of ['function sha256', 'function hmacSha256Hex', 'function proofEquals']) {
     assert.ok(source.includes(needed), `${needed} missing from the extracted block`);
   }
-  const factory = new Function(`${source}; return { sha256, hmacSha256Hex, toHex, proofEquals };`);
+  const factory = new Function(`${source}; return {
+    sha256,
+    hmacSha256Hex,
+    toHex,
+    proofEquals,
+    canonicalPluginCapabilities,
+    pluginHandshakeTranscript,
+    PLUGIN_CAPABILITIES,
+  };`);
   return factory();
 }
 
@@ -70,7 +79,7 @@ test('plugin HMAC matches Node crypto across sizes and key lengths', () => {
   const cases = [
     ['k', ''],
     ['short-key', 'hello'],
-    ['test-access-key-0123456789', 'figma-bridge-mcp/handshake/v2|plugin|abc|def|3456|3.0.0'],
+    ['test-access-key-0123456789', '["figma-bridge-mcp/handshake/v3","plugin","abc","def",3456,"3.0.0",[]]'],
     // Key longer than the 64-byte block, which HMAC must hash down first.
     ['x'.repeat(200), 'y'.repeat(500)],
     // Message spanning several SHA-256 blocks, incl. a length near a boundary.
@@ -117,7 +126,7 @@ test('ui.html and the engine lib agree on proto version and transcript prefix', 
   );
   // The prefix is baked into both transcripts; derive it from the lib rather
   // than repeating the literal here, so there is exactly one source of truth.
-  const prefix = pluginTranscript({ daemonNonce: 'D', pluginNonce: 'P', port: 1, version: 'V' }).split('|')[0];
+  const prefix = JSON.parse(pluginTranscript({ daemonNonce: 'D', pluginNonce: 'P', port: 1, version: 'V' }))[0];
   assert.ok(UI.includes(`const HANDSHAKE_PREFIX = '${prefix}';`), `plugin prefix must be ${prefix}`);
 });
 
@@ -126,19 +135,27 @@ test('plugin builds the exact transcripts the daemon verifies', () => {
   const pluginNonce = makeNonce();
   const port = 3457;
   const version = '3.0.0';
+  const capabilities = ['render-plan-v1', 'execution-deadline-v1', 'render-plan-batch-v1'];
+  const canonicalCapabilities = canonicalPluginCapabilities(capabilities);
   const KEY = 'the-access-key';
 
   // Rebuild the strings exactly as ui.html concatenates them.
-  const prefix = pluginTranscript({ daemonNonce: 'D', pluginNonce: 'P', port: 1, version: 'V' }).split('|')[0];
-  const asPlugin = `${prefix}|plugin|${daemonNonce}|${pluginNonce}|${port}|${version}`;
+  const prefix = JSON.parse(pluginTranscript({ daemonNonce: 'D', pluginNonce: 'P', port: 1, version: 'V' }))[0];
+  const asPlugin = JSON.stringify([
+    prefix, 'plugin', daemonNonce, pluginNonce, port, version, canonicalCapabilities,
+  ]);
   const asDaemon = `${prefix}|daemon|${pluginNonce}|${daemonNonce}|${port}`;
 
-  assert.equal(asPlugin, pluginTranscript({ daemonNonce, pluginNonce, port, version }));
+  assert.equal(asPlugin, pluginTranscript({ daemonNonce, pluginNonce, port, version, capabilities }));
+  assert.equal(
+    plugin.pluginHandshakeTranscript(daemonNonce, pluginNonce, port, version, capabilities),
+    asPlugin,
+  );
   assert.equal(asDaemon, daemonTranscript({ daemonNonce, pluginNonce, port }));
 
   // And the proof the panel would send verifies with the daemon's checker.
   const proof = plugin.hmacSha256Hex(KEY, asPlugin);
-  assert.ok(verify(KEY, pluginTranscript({ daemonNonce, pluginNonce, port, version }), proof));
+  assert.ok(verify(KEY, pluginTranscript({ daemonNonce, pluginNonce, port, version, capabilities }), proof));
 
   // The daemon's ack verifies with the panel's checker.
   const ack = sign(KEY, daemonTranscript({ daemonNonce, pluginNonce, port }));
@@ -146,8 +163,50 @@ test('plugin builds the exact transcripts the daemon verifies', () => {
 });
 
 test('plugin advertises structured rendering only after the authenticated hello', () => {
-  assert.match(UI, /capabilities: \['render-plan-v1', 'render-plan-batch-v1'\]/);
-  assert.ok(UI.indexOf("capabilities: ['render-plan-v1', 'render-plan-batch-v1']") > UI.indexOf("type: 'hello'"));
+  assert.deepEqual(plugin.PLUGIN_CAPABILITIES, [
+    'execution-deadline-v1', 'render-plan-batch-v1', 'render-plan-v1',
+  ]);
+  assert.match(UI, /capabilities: PLUGIN_CAPABILITIES/);
+  assert.ok(UI.indexOf('capabilities: PLUGIN_CAPABILITIES') > UI.indexOf("type: 'hello'"));
+});
+
+test('capability claims have one canonical signed representation', () => {
+  const claimed = ['render-plan-v1', 'execution-deadline-v1', 'render-plan-v1'];
+  const canonical = ['execution-deadline-v1', 'render-plan-v1'];
+  assert.deepEqual(canonicalPluginCapabilities(claimed), canonical);
+  assert.deepEqual(plugin.canonicalPluginCapabilities(claimed), canonical);
+
+  const fields = { daemonNonce: 'D', pluginNonce: 'P', port: 3456, version: 'V' };
+  assert.equal(
+    pluginTranscript({ ...fields, capabilities: claimed }),
+    pluginTranscript({ ...fields, capabilities: canonical }),
+    'order and duplicates must not change the protocol meaning',
+  );
+  const proof = sign('k', pluginTranscript({ ...fields, capabilities: canonical }));
+  assert.equal(
+    verify('k', pluginTranscript({ ...fields, capabilities: [...canonical, 'forged-capability'] }), proof),
+    false,
+    'an added capability must invalidate the proof',
+  );
+});
+
+test('plugin transcript fields remain unambiguous when claims contain delimiters', () => {
+  const transcript = pluginTranscript({
+    daemonNonce: 'D',
+    pluginNonce: 'P',
+    port: 3456,
+    version: 'version|with,[delimiters]',
+    capabilities: ['cap|one', 'cap,"two"'],
+  });
+  assert.deepEqual(JSON.parse(transcript), [
+    'figma-bridge-mcp/handshake/v3',
+    'plugin',
+    'D',
+    'P',
+    3456,
+    'version|with,[delimiters]',
+    ['cap,"two"', 'cap|one'],
+  ]);
 });
 
 test('the two transcripts are not interchangeable', () => {
@@ -240,10 +299,12 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
     constructor(url) {
       this.url = url;
       this.readyState = 0;
+      this.closed = false;
+      this.sent = [];
       sockets.push(this);
     }
-    close() {}
-    send() {}
+    close() { this.closed = true; this.readyState = 3; }
+    send(value) { this.sent.push(String(value)); }
   }
   const window = { crypto: null, scrollY: 0, onmessage: null };
   const context = {
@@ -284,6 +345,18 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
     'ws://localhost:3459/plugin',
     'ws://localhost:3460/plugin',
   ]);
+
+  // A transparent relay can forward the real daemon's challenge, but it cannot
+  // make its bound port equal the socket this iframe actually opened.
+  const relayed = sockets[1];
+  relayed.readyState = FakeWebSocket.OPEN;
+  relayed.onopen();
+  relayed.onmessage({ data: JSON.stringify({
+    type: 'challenge', proto: HANDSHAKE_PROTO, nonce: 'a'.repeat(64), port: 3458,
+  }) });
+  assert.equal(relayed.sent.length, 0, 'a mismatched challenge port must never receive a plugin proof');
+  assert.equal(relayed.closed, true);
+  assert.equal(elements.get('status').textContent, 'The daemon could not prove itself');
 });
 
 test('Capture revision metadata crosses both plugin threads', () => {

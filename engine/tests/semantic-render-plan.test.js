@@ -31,6 +31,81 @@ describe('Semantic Render Plan', () => {
     assert.match(plan.root.children[1].children[0].asset.svg, /^<svg/);
   });
 
+  it('requires one complete root Frame without silently dropping trailing content', () => {
+    const client = new FigmaClient();
+    assert.equal(client.planJSX('<Frame name="Only" />').root.name, 'Only');
+    assert.equal(client.planJSX('  <Frame name="Only"></Frame>\n').root.name, 'Only');
+    assert.throws(
+      () => client.planJSX('<Frame name="Open"><Text>Lost</Text>'),
+      /<Frame> is not closed/,
+    );
+    assert.throws(
+      () => client.planJSX('<Frame name="First"></Frame><Frame name="Second"></Frame>'),
+      /exactly one root <Frame>/,
+    );
+    assert.throws(
+      () => client.planJSX('<Frame name="First"></Frame> trailing'),
+      /exactly one root <Frame>|text content must be inside <Text>/,
+    );
+  });
+
+  it('rejects malformed or unprojected descendants instead of rendering a partial tree', () => {
+    const client = new FigmaClient();
+    for (const malformed of [
+      '<Frame><Text>oops</Frame>',
+      '<Frame><Unknown /></Frame>',
+      '<Frame>orphan text</Frame>',
+      '<Frame><Rect></Rect></Frame>',
+      '<Frame><Rect / ></Frame>',
+      '<Frame><Text / ></Frame>',
+      '<Frame><Slot / ></Frame>',
+      '<Frame><Slot><Text>X</Text></Slot ><Text>Y</Text></Frame>',
+      '<Frame><Text>X</Text ></Frame>',
+      '<Frame><Text>X</Text></Frame >',
+      '<Frame name="A" name="B" />',
+      '<Frame name=A />',
+    ]) {
+      assert.throws(() => client.planJSX(malformed), /Invalid JSX/);
+    }
+    const rich = client.planJSX('<Frame><Text>Hello <strong>bold <em>italic</em></strong></Text><Text name="Empty" /></Frame>');
+    assert.equal(rich.root.children.length, 2);
+    assert.equal(rich.root.children[0].source.props.content, 'Hello bold italic');
+    assert.equal(rich.root.children[1].source.props.content, '');
+
+    const slot = client.planJSX('<Frame><Slot name="Content"><Frame name="Inner" /></Slot></Frame>');
+    assert.deepEqual(slot.root.children.map((node) => node.source.type), ['slot']);
+    assert.deepEqual(slot.root.children[0].children.map((node) => node.name), ['Inner']);
+  });
+
+  it('preserves nested Frame and Slot ownership with multiline attributes', () => {
+    const client = new FigmaClient();
+    const frame = client.planJSX(
+      '<Frame><Frame\n name="Inner"><Text>X</Text></Frame><Text>Y</Text></Frame>',
+    );
+    assert.deepEqual(frame.root.children.map((node) => node.source.type), ['frame', 'text']);
+    assert.equal(frame.root.children[0].name, 'Inner');
+    assert.equal(frame.root.children[0].children[0].source.props.content, 'X');
+    assert.equal(frame.root.children[1].source.props.content, 'Y');
+
+    const slot = client.planJSX(
+      '<Frame><Slot name="Outer"><Slot\n\tname="Inner"><Text>X</Text></Slot><Text>Y</Text></Slot></Frame>',
+    );
+    assert.deepEqual(slot.root.children.map((node) => node.name), ['Outer']);
+    assert.deepEqual(slot.root.children[0].children.map((node) => node.source.type), ['slot', 'text']);
+    assert.equal(slot.root.children[0].children[0].name, 'Inner');
+    assert.equal(slot.root.children[0].children[0].children[0].source.props.content, 'X');
+    assert.equal(slot.root.children[0].children[1].source.props.content, 'Y');
+  });
+
+  it('bounds JSX depth and element count before recursive projection', () => {
+    const client = new FigmaClient();
+    const tooDeep = '<Frame>'.repeat(201) + '</Frame>'.repeat(201);
+    const tooMany = `<Frame>${'<Rect />'.repeat(20_000)}</Frame>`;
+
+    assert.throws(() => client.planJSX(tooDeep), /Invalid JSX: nesting exceeds 200 levels/);
+    assert.throws(() => client.planJSX(tooMany), /Invalid JSX: exceeds 20,000 elements/);
+  });
+
   it('serializes deterministically without changing ordered arrays', () => {
     const client = new FigmaClient();
     const plan = client.planJSX(jsx);

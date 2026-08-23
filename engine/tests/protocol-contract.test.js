@@ -9,18 +9,22 @@ import {
   validatePluginMessage,
 } from '../src/lib/protocol-contract.js';
 import { FigmaClient } from '../src/lib/jsx-render.js';
+import { HANDSHAKE_PROTO } from '../src/lib/plugin-handshake.js';
 
 test('execution protocol accepts bounded eval and Semantic Render Plan shapes', () => {
   const plan = new FigmaClient().planJSX('<Frame name="Card"><Text>Hello</Text></Frame>');
-  assert.equal(validateExecPayload({ action: 'eval', code: '1+1', timeoutMs: 1000, fileKey: 'FILE', requireDocumentRevision: true }), null);
+  assert.equal(validateExecPayload({ action: 'eval', code: '1+1', timeoutMs: 1000, deadlineAt: Date.now() + 1000, fileKey: 'FILE', requireDocumentRevision: true }), null);
   assert.equal(validateExecPayload({ action: 'render-plan', plan, timeoutMs: 1000, fileKey: 'FILE' }), null);
-  assert.equal(validateExecPayload({ action: 'render-plan-batch', plans: [plan, plan], options: { gap: 24, vertical: true } }), null);
+  assert.equal(validateExecPayload({
+    action: 'render-plan-batch', plans: [plan, plan], options: { gap: 24, vertical: true }, timeoutMs: 1000,
+  }), null);
   assert.match(validateExecPayload({ action: 'render', code: 'x' }), /eval.*render-plan.*render-plan-batch/);
   assert.match(validateExecPayload({ action: 'eval', code: '' }), /non-empty/);
   assert.match(validateExecPayload({ action: 'render-plan', plan: { version: 999 } }), /invalid/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', fileKey: 'x'.repeat(65) }), /64/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', timeoutMs: Infinity }), /finite/);
+  assert.match(validateExecPayload({ action: 'eval', code: 'x', deadlineAt: Infinity }), /timestamp/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', requireDocumentRevision: 'yes' }), /boolean/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, requireDocumentRevision: true }), /eval requests/);
 });
@@ -44,7 +48,7 @@ test('execution limits are byte-based and leave room for the signed JSON envelop
 });
 
 test('plugin protocol has explicit pre-auth and authenticated message contracts', () => {
-  const hello = { type: 'hello', proto: 2, nonce: 'n', version: '0.4.0', proof: 'p' };
+  const hello = { type: 'hello', proto: HANDSHAKE_PROTO, nonce: 'n', version: '0.4.0', proof: 'p' };
   assert.equal(validatePluginMessage(hello), null);
   assert.match(validatePluginMessage({ type: 'ping' }), /expected hello/);
   assert.equal(validatePluginMessage({ type: 'result', id: 1, result: 'ok' }, { authenticated: true }), null);
@@ -112,7 +116,7 @@ test('selection admission preserves the daemon whitelist and truncation contract
 });
 
 test('plugin handshake fields and capabilities are bounded before authentication', () => {
-  const base = { type: 'hello', proto: 2, nonce: 'n', version: '0.5.2', proof: 'p' };
+  const base = { type: 'hello', proto: HANDSHAKE_PROTO, nonce: 'n', version: '0.5.2', proof: 'p' };
   assert.match(validatePluginMessage({ ...base, version: 'x'.repeat(129) }), /version.*128 bytes/i);
   assert.match(
     validatePluginMessage({ ...base, capabilities: Array.from({ length: 17 }, (_, index) => `cap-${index}`) }),
