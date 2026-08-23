@@ -14,6 +14,24 @@ test('Figma Target Context resolves precedence once and stays immutable', () => 
   assert.equal(targetFileKey(inferred), 'ARGUMENTPLACEHOLDERKEY');
 });
 
+test('a closed request may project one URL target without scanning payload fields', () => {
+  const target = resolveFigmaTarget({
+    args: ['node', 'set-text', '1:2', 'https://www.figma.com/design/PAYLOADPLACEHOLDERKEY/FILE_NAME?node-id=9-9'],
+    figmaUrlArgs: [],
+    figmaUrlFileKey: 'NODEPLACEHOLDERKEY',
+  });
+  assert.deepEqual(target, {
+    kind: 'plugin-file', fileKey: 'NODEPLACEHOLDERKEY', source: 'figma-url',
+  });
+  const explicit = resolveFigmaTarget({
+    explicitFileKey: 'EXPLICITPLACEHOLDERKEY',
+    figmaUrlFileKey: 'NODEPLACEHOLDERKEY',
+    figmaUrlArgs: [],
+  });
+  assert.equal(explicit.fileKey, 'EXPLICITPLACEHOLDERKEY');
+  assert.equal(explicit.source, 'explicit');
+});
+
 test('implicit single-window targeting is explicit in the Context', () => {
   const target = resolveFigmaTarget({ args: ['inspect', '1:2'] });
   assert.deepEqual(target, { kind: 'plugin-file', fileKey: null, source: 'implicit-single-window' });

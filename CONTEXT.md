@@ -65,6 +65,10 @@ _Avoid_: vector heuristic, exporter rule
 The manifest-last **Command Application** that pins one Figma connection and document revision, collects image/vector identities from one Figma root, fetches each byte payload, plans stable cross-run filenames and publishes workspace files without overwriting unrelated content. Commander and MCP share the same implementation; tracked-job polling remains an MCP Adapter concern, while an output lock serializes manifest merges across processes.
 _Avoid_: export loop, background CLI command
 
+**Node Text Mutation**:
+The closed **Command Application** that replaces one TEXT node's characters only after every unique authored font has completed preflight. Its request preserves literal and empty text, its result is bounded at the Plugin Seam, and a dispatched failure is never retried or reported as a successful process outcome.
+_Avoid_: set-text handler, generated eval action
+
 **Design Entity**:
 One durable UI concept that exists in code and Figma under a repository-owned id, such as `ui.button` or `screen.settings`. Code paths, Storybook stories, publish keys and node ids are links to the Design Entity; none of them alone defines its identity.
 _Avoid_: mapped node, remembered component
@@ -138,6 +142,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** Does polling `export assets` run the export again?
 >
 > **Domain expert:** No. Equivalent node/flag spellings canonicalize to one tracked-job identity. Polling attaches to the same Asset Export, while revision drift aborts before publication, files are published before `assets.json`, and a total failure leaves the prior manifest unchanged.
+
+> **Developer:** Can I set a text layer to the literal value `--help`?
+>
+> **Domain expert:** Yes. Put it after the `--` option terminator. The Figma Command remains a confirmed, non-retrying Node Text Mutation; payload can never impersonate Help policy.
 
 > **Developer:** How does an agent know that a selected Figma frame is the same screen as `src/routes/settings.tsx`?
 >

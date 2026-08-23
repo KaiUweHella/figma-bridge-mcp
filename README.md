@@ -289,11 +289,11 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   removed entirely; there is no code path to it.
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
   and migrated `figma_run` actions execute directly through value-returning
-  **Command Application Modules**. `export assets`, Design Link set/inspect,
-  and Design Contract capture/check use the same Implementation from MCP and
-  Commander. Other `figma_run` actions remain on the deliberately broad
-  child-process compatibility Adapter while they migrate one vertical slice at
-  a time. One
+  **Command Application Modules**. `export assets`, `node set-text`, Design
+  Link set/inspect, and Design Contract capture/check use the same
+  Implementation from MCP and Commander. Other `figma_run` actions remain on
+  the deliberately broad child-process compatibility Adapter while they
+  migrate one vertical slice at a time. One
   **Daemon Client Module** owns signing, timeouts and transport errors for both
   paths.
 - The **Design Capture Module** walks an explicit node once and locally projects

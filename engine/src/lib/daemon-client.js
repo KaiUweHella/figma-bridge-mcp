@@ -131,7 +131,9 @@ export function createDaemonClient({
     } catch (error) {
       if (timeoutError(error)) {
         throw new DaemonClientError(
-          `Execution timeout (${timeoutMs / 1000}s). Bring the Figma Desktop window and Figma Bridge plugin to the foreground, then retry; use figma_connect if it stays unresponsive`,
+          execution
+            ? `Execution timeout (${timeoutMs / 1000}s). The Figma operation may have completed; do not repeat it automatically. Inspect the explicitly targeted file before deciding any follow-up. Bring Figma Desktop and the Figma Bridge plugin to the foreground; use figma_connect if the Bridge stays unresponsive.`
+            : `Daemon request timeout (${timeoutMs / 1000}s). Bring Figma Desktop and the Figma Bridge plugin to the foreground; use figma_connect if the Bridge stays unresponsive.`,
           {
             kind: 'timeout',
             phase: 'daemon-request',
@@ -168,6 +170,10 @@ export function createDaemonClient({
     /** @type {Record<string, any>} */
     const payload = { action, ...data };
     if (target) payload.fileKey = target;
+    // The same deadline must govern both legs of execution. Without this wire
+    // field the HTTP client could wait for the owning Command Plan while the
+    // Daemon silently cut the Plugin leg off at its 30-second default.
+    payload.timeoutMs = timeoutMs;
     const body = JSON.stringify(payload);
     const response = await request('/exec', {
       method: 'POST',
@@ -189,9 +195,9 @@ export function createDaemonClient({
       } else if (facts.kind === 'plugin-unavailable' && facts.outcome === 'not-dispatched') {
         message = 'Plugin not connected.\nIn Figma: Plugins → Development → Figma Bridge (keep that tab open).';
       } else if (facts.kind === 'plugin-unavailable') {
-        message = 'Plugin disconnected while the request was running. The plugin reconnects automatically; retry this read once it is connected.';
+        message = 'Plugin disconnected while the request was running. The Figma operation may have completed; do not repeat it automatically. Reconnect the plugin and inspect the explicitly targeted file before deciding any follow-up.';
       } else if (facts.kind === 'plugin-timeout') {
-        message = `${facts.message.split('\n')[0]}\nThe socket is open but Figma did not answer. Bring Figma Desktop and the plugin tab to the foreground, then retry; use figma_connect if it persists.`;
+        message = `${facts.message.split('\n')[0]}\nThe socket is open but Figma did not answer. The Figma operation may have completed; do not repeat it automatically. Inspect the explicitly targeted file before deciding any follow-up, and bring Figma Desktop plus the plugin tab to the foreground.`;
       }
       throw new DaemonClientError(message, {
         kind: facts.kind,

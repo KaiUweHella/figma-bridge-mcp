@@ -323,6 +323,19 @@ test('figma_run routes Design Contract capture/check through the shared Applicat
   assert.match(source, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
 });
 
+test('figma_run routes Node Text through the shared non-retrying Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)');
+  const end = source.indexOf('const res = await runCliPlan(plan', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeTextPlan\(plan/);
+  assert.match(slice, /formatNodeTextResult\(result\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Text must not re-enter Commander');
+});
+
 test('figma_run keeps Asset Export polling around the shared in-process Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('async function runAssetExport');
@@ -392,6 +405,23 @@ test('figma_run rejects malformed Asset Export argv before job scheduling', asyn
     assert.equal(result.isError, true, args.join(' '));
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /RUNNING|private-value/);
+  }
+});
+
+test('figma_run rejects malformed Node Text argv before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['node', 'set-text'],
+    ['node', 'set-text', '1:2'],
+    ['node', 'set-text', '1:2', '--future', 'private-value'],
+    ['node', 'set-text', '1:2', 'Hello', 'private-value'],
+    ['node', 'set-text', '1:2', '--'],
+    ['node', 'set-text', '1:2', 'x'.repeat(200_001)],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.slice(0, 5).join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
   }
 });
 

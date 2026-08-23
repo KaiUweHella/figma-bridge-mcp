@@ -13,6 +13,12 @@ import {
 } from '../engine/src/application/asset-export-request.js';
 import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
 import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
+import {
+  acceptsNodeTextArgv,
+  nodeTextFigmaUrlFileKeyFromArgv,
+  nodeTextArgvFromRequest,
+  parseNodeTextRequest,
+} from '../engine/src/application/node-text-request.js';
 import { resolveFigmaTarget } from './figma-target.js';
 import { resolveFigmaCommandAction } from './figma-command-grammar.js';
 
@@ -76,7 +82,7 @@ const COMMANDS = Object.freeze({
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'link.inspect', 'link.set',
+  'contract.capture', 'contract.check', 'export.assets', 'link.inspect', 'link.set', 'node.set-text',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -106,12 +112,8 @@ const TOP_LEVEL_HELP = Object.freeze({
   summary: 'List available Figma Commands',
 });
 
-function hasHelp(args) {
-  return args.some((arg) => HELP_TOKENS.has(arg));
-}
-
 function mutatesDesign(entry, args) {
-  if (!args.length || hasHelp(args)) return false;
+  if (!args.length) return false;
   const sub = args[1];
   if (entry.mutation === 'write') return true;
   if (entry.mutation === 'render') return !args.includes('--print-browser-capture') && !args.includes('--structural-gate');
@@ -132,7 +134,6 @@ function mutatesDesign(entry, args) {
 }
 
 function targetPolicy(name, entry, args) {
-  if (hasHelp(args)) return 'none';
   if (entry.target !== 'conditional') return entry.target || 'figma';
   if (name === 'spec') return args.includes('--check') ? 'figma' : 'none';
   if (name === 'verify-build') return args.includes('--node') ? 'figma' : 'none';
@@ -191,6 +192,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'export' && args[1] === 'assets' && !action.help && !acceptsAssetExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   const specialized = action.help
@@ -337,6 +341,8 @@ function normalizeVerifyBuild(args, baseDir, notePath) {
 function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
   const args = [...rawArgs];
   const capability = commandCapability(args);
+  let figmaUrlArgs = rawArgs;
+  let figmaUrlFileKey = null;
   let outputPath = null;
   let workspace = 'none';
   const paths = [];
@@ -477,7 +483,14 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       break;
     }
     case 'node-inputs': {
-      if (args[1] === 'set-image' && typeof args[3] === 'string') {
+      if (args[1] === 'set-text') {
+        // Equivalent node spellings and optional literal delimiters become
+        // one semantic argv. The original input remains available separately
+        // to Figma Target Context resolution for URL-derived file identity.
+        figmaUrlFileKey = nodeTextFigmaUrlFileKeyFromArgv(args);
+        figmaUrlArgs = [];
+        args.splice(0, args.length, ...nodeTextArgvFromRequest(parseNodeTextRequest(args)));
+      } else if (args[1] === 'set-image' && typeof args[3] === 'string') {
         args[3] = absolute(baseDir, args[3]);
         markRead(args[3], 'node-image');
       }
@@ -560,7 +573,15 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
     default:
       break;
   }
-  return { args, outputPath, capability, workspace, paths: Object.freeze(paths) };
+  return {
+    args,
+    outputPath,
+    capability,
+    workspace,
+    paths: Object.freeze(paths),
+    figmaUrlArgs,
+    figmaUrlFileKey,
+  };
 }
 
 function backgroundJobIdentity(args, fileKey) {
@@ -579,7 +600,6 @@ function flagValue(args, flag) {
 
 /** External outbound access only; authenticated localhost transport is separate. */
 function networkEffect(args) {
-  if (hasHelp(args)) return 'none';
   if (args[0] === 'api' && args[1] === 'setup') return 'read';
   if (args[0] === 'map' && args[1] === 'storybook' && isUrl(args[2] || '')) return 'read';
   if (args[0] === 'import' && isUrl(args[1] || '')) return 'read';
@@ -588,7 +608,6 @@ function networkEffect(args) {
 }
 
 function sharedEffect(args) {
-  if (hasHelp(args)) return 'none';
   if (args[0] === 'api') {
     if (args[1] === 'setup' || args[1] === 'index' || args[1] === 'context') return 'write';
     return 'read';
@@ -657,7 +676,8 @@ export function planFigmaCommand(rawArgs, {
     : resolveFigmaTarget({
       explicitFileKey: fileKey,
       args: argv,
-      figmaUrlArgs: input,
+      figmaUrlFileKey: prepared.figmaUrlFileKey,
+      figmaUrlArgs: prepared.figmaUrlArgs,
       registryFileKey: capability.available ? registryFileKey : null,
     });
   const outputs = Object.freeze(prepared.outputPath

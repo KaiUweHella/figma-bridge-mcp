@@ -7,6 +7,14 @@
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 
+function hasHelpBeforeOptionTerminator(args, startIndex) {
+  for (let index = startIndex; index < args.length; index++) {
+    if (args[index] === '--') return false;
+    if (HELP_TOKENS.has(args[index])) return true;
+  }
+  return false;
+}
+
 function action(aliases = [], { exposed = true } = {}) {
   return Object.freeze({
     aliases: Object.freeze([...aliases]),
@@ -149,7 +157,7 @@ export function resolveFigmaCommandAction(args) {
     if (token.startsWith('-')) {
       return node.positionalAction && node.positionalOptions.includes(token)
         ? resolved(`${path.join('.')}.${node.positionalAction}`, {
-          help: args.slice(index + 1).some((value) => HELP_TOKENS.has(value)),
+          help: hasHelpBeforeOptionTerminator(args, index + 1),
         })
         : REJECTED_OPTION;
     }
@@ -157,7 +165,7 @@ export function resolveFigmaCommandAction(args) {
     if (!child) {
       if (node.positionalAction) {
         return resolved(`${path.join('.')}.${node.positionalAction}`, {
-          help: args.slice(index + 1).some((value) => HELP_TOKENS.has(value)),
+          help: hasHelpBeforeOptionTerminator(args, index + 1),
         });
       }
       return REJECTED;
@@ -169,7 +177,7 @@ export function resolveFigmaCommandAction(args) {
   }
 
   return resolved(path.join('.'), {
-    help: args.slice(index).some((value) => HELP_TOKENS.has(value)),
+    help: hasHelpBeforeOptionTerminator(args, index),
   });
 }
 

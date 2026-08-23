@@ -55,6 +55,11 @@ import {
   executeAssetExportPlan,
   formatAssetExportResult,
 } from "../engine/src/application/asset-export-command.js";
+import {
+  executeNodeTextPlan,
+  formatNodeTextResult,
+  nodeTextPlanRoute,
+} from "../engine/src/application/node-text-command.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
@@ -1498,6 +1503,27 @@ export async function handleTool(name, rawArgs) {
             stdout: formatDesignContractAdapterResult(result),
             stderr: "",
             code: result.action === "check" && !result.check.ok ? 1 : 0,
+          };
+        });
+        return resultFromCli(res);
+      }
+      const nodeTextRoute = nodeTextPlanRoute(plan);
+      if (nodeTextRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          const result = await executeNodeTextPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+          return {
+            stdout: formatNodeTextResult(result),
+            stderr: "",
+            code: 0,
           };
         });
         return resultFromCli(res);

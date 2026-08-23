@@ -48,3 +48,14 @@ inside a process-safe output lock before the prior manifest is read. The lock
 serializes the complete read-prior, plan and manifest-last publication across
 CLI and MCP processes. Revision drift, an unsafe prior manifest filename, or a
 lock deadline aborts without replacing the prior manifest.
+
+The first representative canvas write, `node set-text`, also runs through one
+Command Application from Commander and MCP. A closed request Interface owns
+arity and the `--` literal boundary before confirmation. Its Command Plan is
+non-retrying, one bounded readiness Adapter precedes exactly one Plugin
+evaluation, and the same remaining deadline reaches both the Daemon Client
+abort and the Daemon-to-Plugin execution timer. Every unique font preflight
+settles before mutation, and invalid post-dispatch results cannot become code-0
+success. Only the closed request's node-id field may contribute a Figma URL
+file identity to the Figma Target Context; text payload never retargets the
+write, while canonical argv retains only the semantic node id.

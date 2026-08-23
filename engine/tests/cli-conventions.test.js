@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -111,6 +112,48 @@ test('asset export Adapter delegates one Command Application to Manifest v2', ()
     'asset export must use staged publication with the manifest written last');
   assert.doesNotMatch(application, /const usedNames\s*=|const byContent\s*=/,
     'run-local filename ordinals and dedup maps must not return');
+});
+
+test('node set-text delegates one non-retrying Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'node-text-command.js'), 'utf8');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('set-text <nodeId> <text>')");
+  const end = adapter.indexOf(".command('set-fill <nodeId> <color>')", start);
+  const action = adapter.slice(start, end);
+  const helperStart = adapter.indexOf('async function runNodeTextCommand');
+  const helper = adapter.slice(helperStart, start);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/,
+    'Commander must reject ignored positional values before readiness');
+  assert.match(action, /runNodeTextCommand\(\{ nodeId, text \}\)/);
+  assert.match(action, /process\.exitCode = 1/,
+    'the CLI Adapter must expose Application failure as a nonzero process outcome');
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|loadFontAsync|getRangeAllFontNames|node\.characters\s*=/,
+    'Commander must not retain Node Text execution logic');
+  assert.match(helper, /planFigmaCommand\(nodeTextPlanningArgvFromRequest\(request\)/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(helper, /executeNodeTextPlan\(plan/);
+  assert.match(helper, /daemonExec\('eval'/);
+  assert.match(application, /await Promise\.all\(fonts\.map/,
+    'every unique font preflight must settle before the write');
+  assert.ok(
+    application.indexOf('await Promise.all(fonts.map') < application.indexOf('node.characters ='),
+    'font preflight must precede the only mutation',
+  );
+});
+
+test('node set-text rejects excess CLI positionals before Plugin readiness', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  const result = spawnSync(process.execPath, [entry, 'node', 'set-text', '1:2', 'Hello', 'extra'], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /too many arguments for 'set-text'/);
+  assert.doesNotMatch(result.stderr, /Plugin not connected|figma_connect/,
+    'request rejection must happen before the readiness Adapter');
 });
 
 test('token export projects valuesByMode centrally instead of selecting the first value', () => {

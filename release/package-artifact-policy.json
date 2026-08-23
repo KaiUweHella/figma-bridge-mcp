@@ -22,6 +22,8 @@
     "engine/src/application/design-link-command.js",
     "engine/src/application/design-link-request.js",
     "engine/src/application/inspect-command.js",
+    "engine/src/application/node-text-command.js",
+    "engine/src/application/node-text-request.js",
     "engine/src/application/screenshot-command.js",
     "engine/src/code-import/css.js",
     "engine/src/code-import/index.js",

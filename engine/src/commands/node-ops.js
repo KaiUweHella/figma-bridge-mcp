@@ -1,14 +1,26 @@
 // Commands: node-ops (extracted from index.js)
 import chalk from 'chalk';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import {
+  ensurePluginReadiness,
+  runInProcessCommandPlan,
+} from '../../../src/engine.js';
 import {
   program,
   checkConnection,
+  daemonExec,
   fastEval
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import { generateFillCode, isVarRef, pageLookupCode, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import { formatNodeCss, nodeCssCode } from '../lib/native-node-data.js';
+import {
+  executeNodeTextPlan,
+  formatNodeTextResult,
+  nodeTextPlanningArgvFromRequest,
+  nodeTextResultRows,
+} from '../application/node-text-command.js';
 
 // ============ NODE OPERATIONS ============
 
@@ -575,30 +587,44 @@ node
     }
   });
 
+function renderNodeTextRows(rows) {
+  for (const row of rows) {
+    const marker = row.markerTone === 'success' ? chalk.green(row.marker) : row.marker;
+    console.log(marker, row.text);
+  }
+}
+
+async function runNodeTextCommand(request) {
+  const plan = planFigmaCommand(nodeTextPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  let domainResult = null;
+  await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      domainResult = await executeNodeTextPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+      return { stdout: formatNodeTextResult(domainResult), stderr: '', code: 0 };
+    });
+  return domainResult;
+}
+
 node
   .command('set-text <nodeId> <text>')
   .description('Replace the characters of a TEXT node (loads its fonts first; works on instance sub-texts too)')
+  .allowExcessArguments(false)
   .action(async (nodeId, text) => {
-    await checkConnection();
-    const code = `(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
-      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-      if (node.type !== 'TEXT') throw new Error('Not a TEXT node: ' + node.type + ' — pass the text layer id (see node tree)');
-      // Mixed-style text carries several fonts; every one must be loaded
-      // before characters may be written.
-      const fonts = node.characters.length > 0
-        ? node.getRangeAllFontNames(0, node.characters.length)
-        : [node.fontName];
-      for (const f of fonts) await figma.loadFontAsync(f);
-      const oldText = node.characters;
-      node.characters = ${JSON.stringify(String(text))};
-      return { id: node.id, oldText, text: node.characters };
-    })()`;
     try {
-      const r = await fastEval(code);
-      console.log(chalk.green('✓'), `Text set on ${r.id}: "${r.oldText}" → "${r.text}"`);
-    } catch (e) {
-      console.log(chalk.red('✗ set-text failed: ' + e.message));
+      const result = await runNodeTextCommand({ nodeId, text });
+      renderNodeTextRows(nodeTextResultRows(result));
+    } catch (error) {
+      console.error(chalk.red('✗'), error?.message || String(error));
+      process.exitCode = 1;
     }
   });
 

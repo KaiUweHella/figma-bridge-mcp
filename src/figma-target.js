@@ -18,16 +18,23 @@ function fileKeyFrom(value) {
  * Design Link Registry is unnecessary when the caller or a Figma URL already
  * supplied a stronger target.
  *
- * @param {{explicitFileKey?: unknown, args?: readonly unknown[], figmaUrlArgs?: readonly unknown[], registryFileKey?: unknown|((args:readonly unknown[])=>unknown)}} [options]
+ * @param {{explicitFileKey?: unknown, args?: readonly unknown[], figmaUrlFileKey?: unknown, figmaUrlArgs?: readonly unknown[], registryFileKey?: unknown|((args:readonly unknown[])=>unknown)}} [options]
  */
 export function resolveFigmaTarget({
   explicitFileKey,
   args = [],
+  figmaUrlFileKey,
   figmaUrlArgs = args,
   registryFileKey,
 } = {}) {
   const explicit = fileKeyFrom(explicitFileKey);
   if (explicit) return Object.freeze({ kind: 'plugin-file', fileKey: explicit, source: 'explicit' });
+  // Closed request Interfaces may already know exactly which semantic field
+  // supplied a Figma URL. Prefer that projection over scanning payload fields.
+  const projectedUrlTarget = fileKeyFrom(figmaUrlFileKey);
+  if (projectedUrlTarget) {
+    return Object.freeze({ kind: 'plugin-file', fileKey: projectedUrlTarget, source: 'figma-url' });
+  }
   // A Command Application may canonicalize a node URL to its node id before
   // execution. Targeting still observes the original Adapter input, while a
   // registry resolver receives the prepared argv it understands.

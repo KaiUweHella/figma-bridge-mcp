@@ -80,6 +80,29 @@ test('bare groups and help forms stay discoverable without becoming writes', () 
   }
 });
 
+test('the option terminator keeps later help tokens in the command payload', () => {
+  for (const [args, actionId] of [
+    [['node', 'set-text', '1:2', '--', '--help'], 'node.set-text'],
+    [['render', '--', '-h'], 'render'],
+    [['api', 'SceneNode', '--', '--help'], 'api.lookup'],
+    [['api', '--full', '--', '-h'], 'api.lookup'],
+  ]) {
+    const resolved = resolveFigmaCommandAction(args);
+    assert.equal(resolved.accepted, true, args.join(' '));
+    assert.equal(resolved.help, false, args.join(' '));
+    assert.equal(resolved.actionId, actionId, args.join(' '));
+  }
+
+  for (const args of [
+    ['node', 'set-text', '1:2', '--help', '--', 'literal'],
+    ['render', '-h', '--', 'literal'],
+  ]) {
+    const resolved = resolveFigmaCommandAction(args);
+    assert.equal(resolved.help, true, args.join(' '));
+    assert.match(resolved.actionId, /\.help$/, args.join(' '));
+  }
+});
+
 test('every exposed grammar node has a stable closed projection', () => {
   const roots = listFigmaCommandGrammar();
   assert.ok(roots.length > 40);

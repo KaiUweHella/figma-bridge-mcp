@@ -22,11 +22,11 @@ test('daemon client concentrates signed execution and explicit file targeting', 
     },
   });
 
-  assert.equal(await client.evaluate('1 + 1', { fileKey: 'EXPLICIT_FILE' }), 'ok');
+  assert.equal(await client.evaluate('1 + 1', { fileKey: 'EXPLICIT_FILE', timeoutMs: 54321 }), 'ok');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://127.0.0.1:3456/exec');
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    action: 'eval', code: '1 + 1', fileKey: 'EXPLICIT_FILE',
+    action: 'eval', code: '1 + 1', fileKey: 'EXPLICIT_FILE', timeoutMs: 54321,
   });
   assert.equal(calls[0].options.headers['Content-Type'], 'application/json');
   assert.ok(calls[0].options.headers['X-Daemon-Auth']);
@@ -64,7 +64,7 @@ test('daemon client sends Semantic Render Plans as structured authenticated payl
   });
   const plan = { kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx', root: {}, diagnostics: {} };
   assert.deepEqual(await client.renderPlan(plan), { id: '1:2' });
-  assert.deepEqual(body, { action: 'render-plan', plan });
+  assert.deepEqual(body, { action: 'render-plan', plan, timeoutMs: 90000 });
 });
 
 test('daemon client sends native Semantic Render Plan batches without JavaScript code', async () => {
@@ -75,7 +75,9 @@ test('daemon client sends native Semantic Render Plan batches without JavaScript
   });
   const plans = [{ kind: 'figma-bridge/semantic-render-plan', version: 1 }];
   assert.deepEqual(await client.renderPlanBatch(plans, { gap: 20, vertical: false }), { frames: [] });
-  assert.deepEqual(body, { action: 'render-plan-batch', plans, options: { gap: 20, vertical: false } });
+  assert.deepEqual(body, {
+    action: 'render-plan-batch', plans, options: { gap: 20, vertical: false }, timeoutMs: 90000,
+  });
 });
 
 test('daemon client signs the stable selection path while targeting through the query', async () => {
@@ -155,6 +157,9 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
   await assert.rejects(() => pluginDropped.evaluate('x'), (error) => {
     assert.equal(error.kind, 'plugin-unavailable');
     assert.match(error.message, /reconnect/i);
+    assert.match(error.message, /may have completed/);
+    assert.match(error.message, /do not repeat it automatically/);
+    assert.doesNotMatch(error.message, /retry/i);
     return true;
   });
 
@@ -166,6 +171,9 @@ test('daemon client exposes stable error kinds for adapter fallback decisions', 
     assert.equal(error.kind, 'plugin-timeout');
     assert.match(error.message, /foreground/i);
     assert.match(error.message, /socket is open/i);
+    assert.match(error.message, /may have completed/);
+    assert.match(error.message, /do not repeat it automatically/);
+    assert.doesNotMatch(error.message, /retry/i);
     return true;
   });
 

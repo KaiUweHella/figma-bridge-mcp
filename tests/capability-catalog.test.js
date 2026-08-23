@@ -65,6 +65,74 @@ test('catalog owns the full read/write matrix including special flag semantics',
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');
 });
 
+test('literal help after the option terminator retains write policy and Audit classification', () => {
+  const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
+
+  assert.equal(plan.allowed, true);
+  assert.equal(plan.id, 'node.set-text');
+  assert.equal(plan.effects.figma, 'write');
+  assert.equal(plan.confirmation, 'configured');
+  assert.deepEqual(plan.target, {
+    kind: 'plugin-file',
+    fileKey: null,
+    source: 'implicit-single-window',
+  });
+  assert.deepEqual(plan.availability, {
+    transport: 'plugin',
+    editor: 'figma',
+    feature: null,
+  });
+  assert.equal(plan.audit.capability, 'node.set-text');
+  assert.equal(plan.audit.operation, 'write');
+  assert.equal(plan.audit.effects.figma, 'write');
+  assert.equal(plan.audit.targetKind, 'plugin-file');
+});
+
+test('Node Text closes and canonicalizes one policy-identical CLI/MCP request', () => {
+  const url = 'https://www.figma.com/design/FILEA/Text-Lab?node-id=12-34';
+  const input = ['node', 'set-text', url, '--', '--help'];
+  const mcp = planFigmaCommand(input, { adapter: 'mcp' });
+  const cli = planFigmaCommand(input, { adapter: 'cli' });
+
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(mcp.argv, ['node', 'set-text', '12:34', '--', '--help']);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.target, mcp.target);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+
+  const payloadUrl = 'https://www.figma.com/design/PAYLOADPLACEHOLDERKEY/FILE_NAME?node-id=9-9';
+  const payloadPlan = planFigmaCommand(['node', 'set-text', '1:2', payloadUrl]);
+  assert.equal(payloadPlan.target.fileKey, null,
+    'the text payload must never impersonate Figma Target Context');
+  assert.equal(payloadPlan.target.source, 'implicit-single-window');
+
+  for (const nodeUrl of [
+    `  ${url}  `,
+    'www.figma.com/design/FILEA/Text-Lab?node-id=12-34',
+  ]) {
+    const urlPlan = planFigmaCommand(['node', 'set-text', nodeUrl, 'Hello']);
+    assert.equal(urlPlan.target.fileKey, 'FILEA');
+    assert.equal(urlPlan.target.source, 'figma-url');
+    assert.equal(urlPlan.argv[2], '12:34');
+  }
+
+  for (const args of [
+    ['node', 'set-text'],
+    ['node', 'set-text', '1:2'],
+    ['node', 'set-text', '1:2', '--future'],
+    ['node', 'set-text', '1:2', 'Hello', 'extra'],
+    ['node', 'set-text', '1:2', '--'],
+  ]) {
+    const rejected = planFigmaCommand(args);
+    assert.equal(rejected.allowed, false, args.join(' '));
+    assert.equal(rejected.id, 'unknown', args.join(' '));
+  }
+});
+
 test('catalog specializes targeting, retry, timeout and background execution', () => {
   assert.equal(planFigmaCommand(['api', 'setup']).target.kind, 'none');
   assert.equal(planFigmaCommand(['spec', 'Button']).target.kind, 'none');
