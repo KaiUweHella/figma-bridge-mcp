@@ -5,6 +5,7 @@ import {
   BridgeDaemonError,
   bridgeDaemonErrorBody,
   parseBridgeDaemonError,
+  parseStructuredMutationReport,
   adaptLegacyDaemonError,
   permitsCompatibilityRedispatch,
 } from '../src/lib/daemon-error-envelope.js';
@@ -41,6 +42,28 @@ test('Bridge Daemon error parser rejects malformed or unknown structured facts',
   assert.equal(parseBridgeDaemonError({ ...valid, kind: 'made-up' }), null);
   assert.equal(parseBridgeDaemonError({ ...valid, dispatchState: 'made-up' }), null);
   assert.equal(parseBridgeDaemonError({ ...valid, message: 'x'.repeat(20_000) }), null);
+});
+
+test('Bridge Daemon errors preserve only closed bounded mutation residue facts', () => {
+  const mutationReport = {
+    version: 1,
+    outcome: 'partial-residue',
+    created: 3,
+    removed: 2,
+    residueCount: 1,
+    residue: [{ kind: 'image-resource', handle: 'image:abc', reason: 'no-removal-api' }],
+    residueTruncated: false,
+  };
+  const body = bridgeDaemonErrorBody(new BridgeDaemonError('Render failed', {
+    kind: 'execution', phase: 'plugin-execution', outcome: 'unknown-after-dispatch',
+    dispatchState: 'failed', mutationReport,
+  }));
+
+  assert.deepEqual(body.bridgeError.mutationReport, mutationReport);
+  assert.deepEqual(parseBridgeDaemonError(body.bridgeError), body.bridgeError);
+  assert.deepEqual(parseStructuredMutationReport(mutationReport), mutationReport);
+  assert.equal(parseStructuredMutationReport({ ...mutationReport, residue: [{ ...mutationReport.residue[0], bytes: 'secret' }] }), null);
+  assert.equal(parseStructuredMutationReport({ ...mutationReport, residueCount: 51, residueTruncated: false }), null);
 });
 
 test('bounded legacy adapter never treats a domain token error as authentication', () => {

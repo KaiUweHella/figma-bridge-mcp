@@ -1438,6 +1438,12 @@ rather than a generic API failure.
   wrong editors and missing capabilities fail before mutation; malformed or
   mismatched terminal receipts are outcome-unknown and never authorize a write
   retry.
+- **Owned Structured Render rollback** — native single and batch renders
+  preflight every plan through one shared mutation-free resource catalog, then
+  journal only Command-created variables, collections, Text Styles, image
+  handles and scene nodes. Failures clean removable entries in reverse order;
+  non-removable or failed cleanup is reported as bounded residue rather than
+  false atomicity.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
 - **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
   (per-request HMAC over method/path/body, keyed with the session token, nonce

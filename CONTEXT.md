@@ -53,6 +53,10 @@ _Avoid_: message id, current-file check, socket metadata
 The bounded, deadline-aware serialization boundary for mutations against one resolved Plugin document session. Queue expiry and cancellation before start are not dispatched; an unknown dispatched outcome quarantines only that target until the exact Dispatch Receipt proves the Plugin operation has stopped or an explicit recovery proves the old runtime stopped. Other document sessions remain independent.
 _Avoid_: global mutex, eval chain, request timeout
 
+**Structured Mutation Journal**:
+The request-scoped ownership record for resources and scene nodes created by one native Semantic Render execution. It cleans removable Command-owned entries in reverse creation order, never includes reused user/library resources, and reports bounded stable residue when Figma exposes no reversal API or cleanup fails.
+_Avoid_: Figma undo, atomic transaction, version restore
+
 **Runtime Soak Report**:
 The closed maintainer evidence from a sustained two-file Bridge session. It records bounded latency, recovery outcomes, cross-target mismatches, uncertain-write residue and cleanup state using target aliases only; Figma file keys, document names, node names, argv and error prose never enter the report.
 _Avoid_: debug log, connection dump, live file transcript
@@ -178,6 +182,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** What happens when a Semantic Render Plan uses a feature the native plugin runtime does not support yet?
 >
 > **Domain expert:** The Figma Render Executor rejects the complete plan before mutation. The host may choose the compatibility adapter only from that known preflight result or a missing advertised capability; it never retries after a timeout or uncertain write.
+
+> **Developer:** Is native Semantic Render atomic when Figma rejects a later mutation?
+>
+> **Domain expert:** Only where Figma exposes a truthful inverse. The Structured Mutation Journal removes Command-owned nodes, variables, collections and Text Styles in reverse order. Non-removable image hashes or failed cleanup become bounded `partial-residue`; a lost terminal response remains `unknown-after-dispatch`.
 
 > **Developer:** How does a designer know that a rendered property is an approved approximation rather than an exact mapping?
 >

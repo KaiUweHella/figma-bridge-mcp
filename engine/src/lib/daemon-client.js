@@ -19,6 +19,7 @@ export class DaemonClientError extends Error {
     schema = null,
     legacy = false,
     dispatchState = null,
+    mutationReport = null,
     cause = null,
   } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -29,6 +30,7 @@ export class DaemonClientError extends Error {
     this.schema = schema;
     this.legacy = legacy;
     if (dispatchState != null) this.dispatchState = dispatchState;
+    if (mutationReport != null) this.mutationReport = mutationReport;
     if (status != null) this.status = status;
   }
 }
@@ -216,6 +218,7 @@ export function createDaemonClient({
         legacy: structured === null,
         dispatchState: facts.dispatchState
           || (facts.outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown'),
+        mutationReport: 'mutationReport' in facts ? facts.mutationReport : null,
         status: response.status,
       });
     }

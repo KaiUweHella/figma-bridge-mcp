@@ -126,6 +126,27 @@ function textStyleReport(value) {
   return report;
 }
 
+function completedMutationReport(value) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || value.version !== 1 || value.outcome !== 'completed'
+    || !Number.isSafeInteger(value.created) || value.created < 0 || value.created > 100_000
+    || value.removed !== 0 || value.residueCount !== 0
+    || !Array.isArray(value.residue) || value.residue.length !== 0
+    || value.residueTruncated !== false) {
+    throw resultError('Semantic Render returned an invalid completed mutation report.');
+  }
+  return Object.freeze({
+    version: 1,
+    outcome: 'completed',
+    created: value.created,
+    removed: 0,
+    residueCount: 0,
+    residue: Object.freeze([]),
+    residueTruncated: false,
+  });
+}
+
 function structuralReport(value, { required }) {
   if (value === undefined && !required) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -226,6 +247,13 @@ function validateResult(value, executor) {
       throw resultError(`Semantic Render returned an invalid ${key}.`);
     }
   }
+  if (value.mutationOutcome !== undefined && value.mutationOutcome !== 'completed') {
+    throw resultError('Semantic Render returned an inconsistent mutation outcome.');
+  }
+  const mutation = completedMutationReport(value.mutationReport);
+  if ((value.mutationOutcome === undefined) !== (mutation === null)) {
+    throw resultError('Semantic Render returned incomplete mutation outcome facts.');
+  }
 
   return Object.freeze({
     id: value.id,
@@ -242,6 +270,8 @@ function validateResult(value, executor) {
     variableReport: variableReport(value.variableReport),
     textStyleReport: textStyleReport(value.textStyleReport),
     fallbackAnnotationReport: fallbackAnnotationReport(value.fallbackAnnotationReport),
+    mutationOutcome: value.mutationOutcome || null,
+    mutationReport: mutation,
   });
 }
 

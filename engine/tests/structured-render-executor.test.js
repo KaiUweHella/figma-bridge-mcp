@@ -18,7 +18,11 @@ describe('structured Semantic Render Plan executor', () => {
     const figma = fakeFigma();
 
     assert.equal(inspectStructuredRenderPlan(plan).supported, false);
-    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /brightness\(\)/);
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+      assert.match(error.message, /brightness\(\)/);
+      assert.equal(error.mutationOutcome, 'no-mutation');
+      return true;
+    });
     assert.equal(figma.created.length, 0);
   });
 
@@ -35,6 +39,8 @@ describe('structured Semantic Render Plan executor', () => {
     const text = figma.created.find((node) => node.type === 'TEXT');
 
     assert.equal(result.executor, 'structured-v1');
+    assert.equal(result.mutationOutcome, 'completed');
+    assert.equal(result.mutationReport.outcome, 'completed');
     assert.equal(frame.layoutMode, 'VERTICAL');
     assert.equal(frame.itemSpacing, 8);
     assert.equal(frame.paddingTop, 12);
@@ -607,13 +613,157 @@ describe('structured Semantic Render Plan executor', () => {
       },
     });
 
-    await assert.rejects(
-      () => executeStructuredRenderPlan(figma, plan),
-      /created nodes were rolled back \(runtime validation failed\)/,
-    );
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+      assert.match(error.message, /runtime validation failed/);
+      assert.equal(error.mutationOutcome, 'rolled-back');
+      assert.equal(error.mutationReport.residueCount, 0);
+      return true;
+    });
     assert.equal(figma.currentPage.children.length, 0);
     assert.ok(figma.created.length >= 2);
     assert.ok(figma.created.every((node) => node.removed === true));
+  });
+
+  it('preflights every batch resource before the first real mutation', async () => {
+    const client = new FigmaClient();
+    const plans = [
+      client.planJSX('<Frame name="Would create" p="12"><Text style="Typography/Shared" size="12">One</Text></Frame>'),
+      client.planJSX('<Frame name="Conflict"><Text style="Typography/Shared" size="18">Two</Text></Frame>'),
+    ];
+    const mutations = [];
+    const figma = fakeFigma({ mutationCheckpoint: (entry) => mutations.push(entry) });
+
+    await assert.rejects(() => executeStructuredRenderPlanBatch(figma, plans), (error) => {
+      assert.match(error.message, /Text Style "Typography\/Shared" exists with different typography/);
+      assert.equal(error.mutationOutcome, 'no-mutation');
+      assert.deepEqual(error.mutationReport.residue, []);
+      return true;
+    });
+    assert.deepEqual(mutations, []);
+    assert.equal(figma.currentPage.children.length, 0);
+    assert.equal(figma.localVariables.length, 0);
+    assert.equal(figma.localTextStyles.length, 0);
+  });
+
+  it('rolls back batch-wide Command resources in reverse creation order without touching reused resources', async () => {
+    const existingVariable = fakeVariable('space/4px', 'FLOAT', 4, ['GAP']);
+    const createdOrder = [];
+    const removedOrder = [];
+    let sceneNodes = 0;
+    const figma = fakeFigma({
+      variables: [existingVariable],
+      collections: [],
+      mutationCheckpoint(entry) {
+        createdOrder.push(`${entry.kind}:${entry.handle}`);
+        if (entry.kind === 'scene-node' && ++sceneNodes === 3) throw new Error('fault after third scene mutation');
+      },
+      removeHook(entry) { removedOrder.push(`${entry.kind}:${entry.handle}`); },
+    });
+    const client = new FigmaClient();
+    const plans = [
+      client.planJSX('<Frame name="One" p="4" rounded="8"><Text size="12">One</Text></Frame>'),
+      client.planJSX('<Frame name="Two" gap="6"><Text size="14">Two</Text></Frame>'),
+    ];
+
+    await assert.rejects(() => executeStructuredRenderPlanBatch(figma, plans), (error) => {
+      assert.match(error.message, /fault after third scene mutation/);
+      assert.equal(error.mutationOutcome, 'rolled-back');
+      assert.equal(error.mutationReport.removed, createdOrder.length);
+      return true;
+    });
+    assert.deepEqual(removedOrder, [...createdOrder].reverse());
+    assert.equal(figma.currentPage.children.length, 0);
+    assert.ok(figma.localVariables.includes(existingVariable));
+    assert.equal(existingVariable.removed, undefined);
+    assert.equal(new Set(createdOrder).size, createdOrder.length, 'every journal mutation executes exactly once');
+  });
+
+  it('fault-injects after every removable resource and tree mutation', async () => {
+    const plan = new FigmaClient().planJSX(
+      '<Frame name="Every boundary" p="8" rounded="4"><Text size="13">Checkpoint</Text></Frame>',
+    );
+    const baseline = [];
+    const completed = await executeStructuredRenderPlan(fakeFigma({
+      collections: [],
+      mutationCheckpoint: (entry) => baseline.push(entry),
+    }), plan);
+    assert.equal(completed.mutationOutcome, 'completed');
+    assert.ok(baseline.some((entry) => entry.kind === 'variable-collection'));
+    assert.ok(baseline.some((entry) => entry.kind === 'variable'));
+    assert.ok(baseline.some((entry) => entry.kind === 'text-style'));
+    assert.ok(baseline.some((entry) => entry.kind === 'scene-node'));
+
+    for (let failAt = 1; failAt <= baseline.length; failAt++) {
+      const checkpoints = [];
+      const figma = fakeFigma({
+        collections: [],
+        mutationCheckpoint(entry) {
+          checkpoints.push(entry);
+          if (entry.sequence === failAt) throw new Error(`fault-${failAt}`);
+        },
+      });
+      await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+        assert.match(error.cause.message, new RegExp(`fault-${failAt}$`));
+        assert.equal(error.mutationOutcome, 'rolled-back');
+        assert.equal(error.mutationReport.created, failAt);
+        assert.equal(error.mutationReport.removed, failAt);
+        return true;
+      });
+      assert.equal(checkpoints.length, failAt, 'execution must stop at the injected mutation exactly once');
+      assert.equal(figma.currentPage.children.length, 0);
+      assert.equal(figma.localVariables.length, 0);
+      assert.equal(figma.localTextStyles.length, 0);
+      assert.equal(figma.localCollections.length, 0);
+    }
+  });
+
+  it('reports bounded image residue and preserves the original execution failure', async () => {
+    const client = new FigmaClient();
+    client.setImageData(Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`asset-${index}`, 'aGVsbG8='])));
+    const images = Array.from({ length: 60 }, (_, index) => `<Image name="Image ${index}" src="imgref:asset-${index}" />`).join('');
+    const plan = client.planJSX(`<Frame name="Residue">${images}</Frame>`);
+    const figma = fakeFigma({
+      mutationCheckpoint(entry) {
+        if (entry.kind === 'scene-node') throw new Error('visible tree fault');
+      },
+    });
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+      assert.match(error.message, /visible tree fault/);
+      assert.equal(error.cause.message, 'visible tree fault');
+      assert.equal(error.mutationOutcome, 'partial-residue');
+      assert.equal(error.mutationReport.residueCount, 60);
+      assert.equal(error.mutationReport.residue.length, 50);
+      assert.equal(error.mutationReport.residueTruncated, true);
+      assert.ok(error.mutationReport.residue.every((entry) => (
+        entry.kind === 'image-resource'
+        && /^image:\d+$/.test(entry.handle)
+        && entry.reason === 'no-removal-api'
+      )));
+      assert.doesNotMatch(JSON.stringify(error.mutationReport), /aGVsbG8|embedded-raster|asset-0/);
+      return true;
+    });
+    assert.equal(figma.currentPage.children.length, 0);
+  });
+
+  it('keeps rollback failure as a failed partial-residue result', async () => {
+    const plan = new FigmaClient().planJSX('<Frame name="Rollback failure" p="8" />');
+    const figma = fakeFigma({
+      mutationCheckpoint(entry) {
+        if (entry.kind === 'scene-node') throw new Error('original execution failure');
+      },
+      removeHook(entry) {
+        if (entry.kind === 'variable') throw new Error('cleanup refused');
+      },
+    });
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+      assert.match(error.message, /original execution failure/);
+      assert.equal(error.cause.message, 'original execution failure');
+      assert.equal(error.mutationOutcome, 'partial-residue');
+      assert.ok(error.mutationReport.residue.some((entry) => entry.kind === 'variable' && entry.reason === 'remove-failed'));
+      return true;
+    });
   });
 
   it('restores captured SVG descendant filters as native effects', async () => {
@@ -1061,7 +1211,7 @@ function fakeVariable(name, resolvedType, value, scopes = ['ALL_SCOPES'], collec
   };
 }
 
-function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null } = {}) {
+function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, mutationCheckpoint = null, removeHook = null } = {}) {
   let id = 0;
   let imageId = 0;
   const created = [];
@@ -1074,8 +1224,15 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
     id: `${type}:${++id}`, type, name: '', x: 0, y: 0, width: type === 'TEXT' ? 1 : 0, height: type === 'TEXT' ? 16 : 0,
     children: [], fills: [], strokes: [], effects: [], annotations: [], layoutMode: 'NONE', visible: true, locked: false,
     resize(width, height) { this.width = width; this.height = height; },
-    appendChild(child) { this.children.push(child); child.parent = this; },
+    appendChild(child) {
+      const priorOwner = child.parent || currentPage;
+      const priorIndex = priorOwner.children.indexOf(child);
+      if (priorIndex >= 0) priorOwner.children.splice(priorIndex, 1);
+      this.children.push(child);
+      child.parent = this;
+    },
     remove() {
+      if (removeHook) removeHook({ kind: 'scene-node', handle: this.id });
       const owner = this.parent || currentPage;
       const index = owner.children.indexOf(this);
       if (index >= 0) owner.children.splice(index, 1);
@@ -1218,7 +1375,8 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
     } else createComponent(spec);
   }
   const api = {
-    created, imageResources, localVariables, localTextStyles,
+    created, imageResources, localVariables, localTextStyles, localCollections: collections,
+    __figmaBridgeMutationCheckpoint: mutationCheckpoint,
     currentPage,
     async getLocalTextStylesAsync() { return [...localTextStyles]; },
     createTextStyle() {
@@ -1227,6 +1385,7 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
         fontSize: 14, lineHeight: { unit: 'AUTO' }, letterSpacing: { unit: 'PIXELS', value: 0 },
         paragraphSpacing: 0, paragraphIndent: 0,
         remove() {
+          if (removeHook) removeHook({ kind: 'text-style', handle: this.id });
           const index = localTextStyles.indexOf(this);
           if (index >= 0) localTextStyles.splice(index, 1);
           this.removed = true;
@@ -1301,7 +1460,16 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
       async getLocalVariableCollectionsAsync() { return [...collections]; },
       async getLocalVariablesAsync() { return [...localVariables]; },
       createVariableCollection(name) {
-        const collection = { id: `collection:${collections.length + 1}`, name, modes: [{ modeId: `mode:${collections.length + 1}`, name: 'Default' }] };
+        const collection = {
+          id: `collection:${collections.length + 1}`, name,
+          modes: [{ modeId: `mode:${collections.length + 1}`, name: 'Default' }],
+          remove() {
+            if (removeHook) removeHook({ kind: 'variable-collection', handle: this.id });
+            const index = collections.indexOf(this);
+            if (index >= 0) collections.splice(index, 1);
+            this.removed = true;
+          },
+        };
         collections.push(collection);
         return collection;
       },
@@ -1311,8 +1479,10 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
         variable.id = `variable:${localVariables.length + 1}`;
         variable.valuesByMode = {};
         variable.remove = () => {
+          if (removeHook) removeHook({ kind: 'variable', handle: variable.id });
           const index = localVariables.indexOf(variable);
           if (index >= 0) localVariables.splice(index, 1);
+          variable.removed = true;
         };
         localVariables.push(variable);
         return variable;

@@ -796,6 +796,165 @@ function structuredFindOverrideLayer(root, requested, predicate, label) {
   return matches[0];
 }
 
+const STRUCTURED_RESIDUE_LIMIT = 50;
+
+function structuredStableHandle(value) {
+  const source = String(value || '(unavailable)');
+  return Array.from(source).slice(0, 256).join('');
+}
+
+function createStructuredMutationJournal(figmaApi) {
+  const entries = [];
+
+  const record = (kind, resource, { handle = null, removable = true } = {}) => {
+    const stableHandle = structuredStableHandle(handle || resource?.id || resource?.hash);
+    entries.push({
+      kind,
+      handle: stableHandle,
+      removable: removable && typeof resource?.remove === 'function',
+      resource,
+    });
+    if (typeof figmaApi?.__figmaBridgeMutationCheckpoint === 'function') {
+      figmaApi.__figmaBridgeMutationCheckpoint({ sequence: entries.length, kind, handle: stableHandle });
+    }
+    return resource;
+  };
+
+  const publicReport = (outcome, { removed = 0, residue = [] } = {}) => ({
+    version: 1,
+    outcome,
+    created: entries.length,
+    removed,
+    residueCount: residue.length,
+    residue: residue.slice(0, STRUCTURED_RESIDUE_LIMIT),
+    residueTruncated: residue.length > STRUCTURED_RESIDUE_LIMIT,
+  });
+
+  return {
+    record,
+    completed() {
+      return publicReport('completed');
+    },
+    async rollback() {
+      if (!entries.length) return publicReport('no-mutation');
+      let removed = 0;
+      const residue = [];
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const entry = entries[index];
+        if (!entry.removable) {
+          residue.push({ kind: entry.kind, handle: entry.handle, reason: 'no-removal-api' });
+          continue;
+        }
+        try {
+          if (entry.resource?.removed !== true) await entry.resource.remove();
+          removed++;
+        } catch {
+          residue.push({ kind: entry.kind, handle: entry.handle, reason: 'remove-failed' });
+        }
+      }
+      return publicReport(residue.length ? 'partial-residue' : 'rolled-back', { removed, residue });
+    },
+  };
+}
+
+function structuredExecutionError(error, report, prefix) {
+  const original = error instanceof Error ? error : new Error(String(error));
+  const residue = report.residueCount
+    ? `; ${report.residueCount} bounded residue entr${report.residueCount === 1 ? 'y' : 'ies'} reported`
+    : '';
+  return Object.assign(
+    new Error(
+      `${prefix}; mutation outcome=${report.outcome}${residue} (${original.message || original})`,
+      { cause: original },
+    ),
+    { mutationOutcome: report.outcome, mutationReport: report },
+  );
+}
+
+function structuredRenderFailureResult(error, executor = 'structured-v1') {
+  if (!error || !['no-mutation', 'rolled-back', 'partial-residue'].includes(error.mutationOutcome)) return null;
+  const report = error.mutationReport;
+  if (!report || report.version !== 1 || report.outcome !== error.mutationOutcome) return null;
+  return {
+    executor,
+    mutationOutcome: error.mutationOutcome,
+    mutationReport: report,
+  };
+}
+
+async function createStructuredPreflightApi(figmaApi) {
+  const [collections, variables, textStyles] = await Promise.all([
+    figmaApi.variables?.getLocalVariableCollectionsAsync?.() || [],
+    figmaApi.variables?.getLocalVariablesAsync?.() || [],
+    figmaApi.getLocalTextStylesAsync?.() || [],
+  ]);
+  let virtualId = 0;
+  const nextId = (kind) => `preflight:${kind}:${++virtualId}`;
+  const virtualCollections = [...collections];
+  const virtualVariables = [...variables];
+  const virtualTextStyles = [...textStyles];
+
+  const api = {
+    mixed: figmaApi.mixed,
+    base64Decode: (...args) => figmaApi.base64Decode(...args),
+    loadFontAsync: (...args) => figmaApi.loadFontAsync(...args),
+    createImage() {
+      return { hash: nextId('image') };
+    },
+    async createImageAsync() {
+      return { hash: nextId('image') };
+    },
+    async getLocalTextStylesAsync() {
+      return [...virtualTextStyles];
+    },
+    createTextStyle() {
+      const style = {
+        id: nextId('text-style'), name: '',
+        fontName: { family: 'Inter', style: 'Regular' }, fontSize: 14,
+        lineHeight: { unit: 'AUTO' }, letterSpacing: { unit: 'PIXELS', value: 0 },
+        paragraphSpacing: 0, paragraphIndent: 0,
+        remove() {
+          const index = virtualTextStyles.indexOf(this);
+          if (index >= 0) virtualTextStyles.splice(index, 1);
+        },
+      };
+      virtualTextStyles.push(style);
+      return style;
+    },
+    variables: {
+      async getLocalVariableCollectionsAsync() { return [...virtualCollections]; },
+      async getLocalVariablesAsync() { return [...virtualVariables]; },
+      createVariableCollection(name) {
+        const collection = {
+          id: nextId('collection'), name,
+          modes: [{ modeId: nextId('mode'), name: 'Default' }],
+          remove() {
+            const index = virtualCollections.indexOf(this);
+            if (index >= 0) virtualCollections.splice(index, 1);
+          },
+        };
+        virtualCollections.push(collection);
+        return collection;
+      },
+      createVariable(name, collection, type) {
+        const variable = {
+          id: nextId('variable'), name, resolvedType: type,
+          variableCollectionId: collection.id, valuesByMode: {}, scopes: ['ALL_SCOPES'],
+          setValueForMode(modeId, value) { this.valuesByMode[modeId] = value; },
+          remove() {
+            const index = virtualVariables.indexOf(this);
+            if (index >= 0) virtualVariables.splice(index, 1);
+          },
+        };
+        virtualVariables.push(variable);
+        return variable;
+      },
+      setBoundVariableForPaint: (...args) => figmaApi.variables.setBoundVariableForPaint(...args),
+    },
+  };
+  return api;
+}
+
 async function prepareStructuredComponents(figmaApi, plan) {
   const intents = [];
   const bindings = new WeakMap();
@@ -971,7 +1130,7 @@ async function prepareStructuredComponents(figmaApi, plan) {
   return { bindings, overrides, swapComponents };
 }
 
-async function prepareStructuredImages(figmaApi, plan) {
+async function prepareStructuredImages(figmaApi, plan, journal = null) {
   const intents = [];
   const bindings = new WeakMap();
   const collect = (node) => {
@@ -979,17 +1138,23 @@ async function prepareStructuredImages(figmaApi, plan) {
     for (const child of node.children || []) collect(child);
   };
   collect(plan.root);
-  const outcomes = await Promise.all(intents.map(async (node) => {
+  const outcomes = [];
+  for (const node of intents) {
     try {
       const image = node.asset.kind === 'embedded-raster'
         ? figmaApi.createImage(figmaApi.base64Decode(node.asset.base64))
         : await figmaApi.createImageAsync(node.asset.src);
-      if (!image?.hash) throw new Error('Figma returned no image hash');
-      return { node, hash: image.hash };
+      if (!image?.hash) {
+        journal?.record('image-resource', image, { handle: '(unavailable)', removable: false });
+        throw new Error('Figma returned no image hash');
+      }
+      journal?.record('image-resource', image, { handle: image.hash, removable: false });
+      outcomes.push({ node, hash: image.hash });
     } catch (error) {
-      return { node, error: `${node.path || node.name}: image preflight failed (${error.message || error})` };
+      outcomes.push({ node, error: `${node.path || node.name}: image preflight failed (${error.message || error})` });
+      if (journal) break;
     }
-  }));
+  }
   const failures = outcomes.filter((outcome) => outcome.error).map((outcome) => outcome.error);
   if (failures.length) throw new Error(`Structured image preflight failed: ${failures.slice(0, 5).join('; ')}`);
   for (const outcome of outcomes) bindings.set(outcome.node, outcome.hash);
@@ -1339,7 +1504,7 @@ function inspectStructuredRenderPlan(plan) {
   return { supported: problems.length === 0, problems };
 }
 
-async function prepareStructuredVariables(figmaApi, plan) {
+async function prepareStructuredVariables(figmaApi, plan, journal = null) {
   const intents = [];
   const bindings = new WeakMap();
   const addColor = (node, key, raw) => {
@@ -1634,6 +1799,7 @@ async function prepareStructuredVariables(figmaApi, plan) {
         if (!collection) {
           collection = figmaApi.variables.createVariableCollection(descriptor.collectionName);
           newCollectionObjects.push(collection);
+          journal?.record('variable-collection', collection);
         }
         createdCollections.set(key, collection);
         if (!collections.includes(collection)) collections.push(collection);
@@ -1646,6 +1812,7 @@ async function prepareStructuredVariables(figmaApi, plan) {
       }
       const variable = figmaApi.variables.createVariable(name, collection, descriptor.type);
       createdVariableObjects.push(variable);
+      journal?.record('variable', variable);
       const value = descriptor.type === 'COLOR'
         ? (() => {
           const source = String(descriptor.value).replace(/^#/, '');
@@ -1666,11 +1833,13 @@ async function prepareStructuredVariables(figmaApi, plan) {
     // Resource preparation is part of preflight. Roll back any primitives
     // created earlier in this loop so a rejected name/value cannot leave a
     // partially populated token collection behind.
-    for (const variable of createdVariableObjects.reverse()) {
-      try { variable.remove(); } catch {}
-    }
-    for (const collection of newCollectionObjects.reverse()) {
-      try { collection.remove(); } catch {}
+    if (!journal) {
+      for (const variable of createdVariableObjects.reverse()) {
+        try { variable.remove(); } catch {}
+      }
+      for (const collection of newCollectionObjects.reverse()) {
+        try { collection.remove(); } catch {}
+      }
     }
     throw error;
   }
@@ -1716,7 +1885,7 @@ function structuredTextStyleSignature(descriptor) {
   });
 }
 
-async function prepareStructuredTextStyles(figmaApi, plan, variableContext) {
+async function prepareStructuredTextStyles(figmaApi, plan, variableContext, journal = null) {
   const requests = [];
   const bindings = new WeakMap();
   const bindingValue = (node, key, raw, fallback) => variableContext.bindings.get(node)?.get(key)?.value ?? raw ?? fallback;
@@ -1782,6 +1951,8 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext) {
         const sameName = styles.find((candidate) => candidate.name === name);
         if (sameName) throw new Error(`generated Text Style "${name}" collides with different typography`);
         style = figmaApi.createTextStyle();
+        createdObjects.push(style);
+        journal?.record('text-style', style);
         style.name = name;
         style.fontName = request.descriptor.fontName;
         style.fontSize = request.descriptor.fontSize;
@@ -1790,15 +1961,16 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext) {
         style.paragraphSpacing = request.descriptor.paragraphSpacing;
         style.paragraphIndent = request.descriptor.paragraphIndent;
         styles.push(style);
-        createdObjects.push(style);
         createdStyles.push(name);
         styleBySignature.set(signature, style);
       }
       bindings.set(request.node, style);
     }
   } catch (error) {
-    for (const style of createdObjects.reverse()) {
-      try { style.remove(); } catch {}
+    if (!journal) {
+      for (const style of createdObjects.reverse()) {
+        try { style.remove(); } catch {}
+      }
     }
     throw new Error(`Structured text-style preflight failed: ${error.message || error}`);
   }
@@ -1873,14 +2045,12 @@ function auditStructuredCreatedNodes(records) {
   };
 }
 
-async function executeStructuredRenderPlan(figmaApi, plan) {
-  const support = inspectStructuredRenderPlan(plan);
-  if (!support.supported) {
-    const error = new Error(`Structured render unsupported: ${support.problems.slice(0, 5).join('; ')}`);
-    throw error;
-  }
-  const componentContext = await prepareStructuredComponents(figmaApi, plan);
-  const imageContext = await prepareStructuredImages(figmaApi, plan);
+async function executePreparedStructuredRenderPlan(figmaApi, plan, {
+  componentContext,
+  imageContext,
+  variableContext,
+  textStyleContext,
+}, journal) {
   const createdRecords = [];
   const fallbackAnnotationReport = { requested: 0, applied: 0, deduplicated: 0, unsupported: 0 };
 
@@ -1899,7 +2069,6 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
   const align = { start: 'MIN', center: 'CENTER', end: 'MAX', stretch: 'STRETCH' };
   const justify = { start: 'MIN', center: 'CENTER', end: 'MAX', between: 'SPACE_BETWEEN' };
 
-  const variableContext = await prepareStructuredVariables(figmaApi, plan);
   const bindingFor = (node, key) => variableContext.bindings.get(node)?.get(key) || null;
   const resolvedNumber = (node, key, raw, fallback = 0) => {
     const binding = bindingFor(node, key);
@@ -1930,7 +2099,6 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
     const layers = structuredPaintLayers(raw || fallback);
     return layers.map((layer) => structuredGradientPaint(layer, target) || hex(layer));
   };
-  const textStyleContext = await prepareStructuredTextStyles(figmaApi, plan, variableContext);
   const applyRichTextRuns = (created, semanticNode, props) => {
     for (let index = 0; index < (props.runs || []).length; index++) {
       const run = props.runs[index];
@@ -2065,9 +2233,8 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
     }));
   };
 
-  const createdNodes = [];
   const trackCreated = (node) => {
-    createdNodes.push(node);
+    journal.record('scene-node', node);
     return node;
   };
 
@@ -2316,15 +2483,7 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
     return created;
   };
 
-  let root;
-  try {
-    root = await create(plan.root, null, true);
-  } catch (error) {
-    for (const node of createdNodes.reverse()) {
-      try { if (node && typeof node.remove === 'function') node.remove(); } catch {}
-    }
-    throw new Error(`Structured render failed; created nodes were rolled back (${error.message || error})`);
-  }
+  const root = await create(plan.root, null, true);
   const structuralReport = auditStructuredCreatedNodes(createdRecords);
   return {
     id: root.id, name: root.name, width: root.width, height: root.height,
@@ -2339,23 +2498,99 @@ async function executeStructuredRenderPlan(figmaApi, plan) {
   };
 }
 
-async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
-  if (!Array.isArray(plans) || !plans.length) throw new Error('Structured batch needs at least one Render Plan');
-  const gap = structuredNumber(options.gap, 40);
-  if (gap < 0 || gap > 10000) throw new Error('Structured batch gap must be between 0 and 10000');
-  const vertical = options.vertical === true;
+async function preflightStructuredPlans(figmaApi, plans, { batch = false } = {}) {
   const unsupported = [];
   for (let index = 0; index < plans.length; index++) {
     const support = inspectStructuredRenderPlan(plans[index]);
-    if (!support.supported) unsupported.push(`plan ${index + 1}: ${support.problems.slice(0, 3).join('; ')}`);
+    if (!support.supported) unsupported.push(batch
+      ? `plan ${index + 1}: ${support.problems.slice(0, 3).join('; ')}`
+      : support.problems.slice(0, 5).join('; '));
   }
-  if (unsupported.length) throw new Error(`Structured batch unsupported: ${unsupported.slice(0, 5).join(' | ')}`);
+  if (unsupported.length) {
+    throw new Error(batch
+      ? `Structured batch unsupported: ${unsupported.slice(0, 5).join(' | ')}`
+      : `Structured render unsupported: ${unsupported[0]}`);
+  }
+
+  // The facade keeps a shared, in-memory catalog for the whole request. This
+  // catches cross-plan variable/style naming conflicts without creating a
+  // Figma resource. Fonts and component handles are resolved against the real
+  // API because those reads do not mutate the document.
+  const preflightApi = await createStructuredPreflightApi(figmaApi);
+  const componentContexts = [];
+  for (const plan of plans) {
+    componentContexts.push(await prepareStructuredComponents(figmaApi, plan));
+    const variableContext = await prepareStructuredVariables(preflightApi, plan);
+    await prepareStructuredTextStyles(preflightApi, plan, variableContext);
+    await prepareStructuredImages(preflightApi, plan);
+  }
+  return componentContexts;
+}
+
+async function materializeStructuredResources(figmaApi, plans, componentContexts, journal) {
+  const prepared = [];
+  for (let index = 0; index < plans.length; index++) {
+    const variableContext = await prepareStructuredVariables(figmaApi, plans[index], journal);
+    const textStyleContext = await prepareStructuredTextStyles(figmaApi, plans[index], variableContext, journal);
+    const imageContext = await prepareStructuredImages(figmaApi, plans[index], journal);
+    prepared.push({
+      componentContext: componentContexts[index],
+      variableContext,
+      textStyleContext,
+      imageContext,
+    });
+  }
+  return prepared;
+}
+
+async function executeStructuredRenderPlan(figmaApi, plan) {
+  const journal = createStructuredMutationJournal(figmaApi);
+  let componentContexts;
+  try {
+    componentContexts = await preflightStructuredPlans(figmaApi, [plan]);
+  } catch (error) {
+    throw structuredExecutionError(error, await journal.rollback(), 'Structured render preflight failed');
+  }
+  try {
+    const [prepared] = await materializeStructuredResources(figmaApi, [plan], componentContexts, journal);
+    const result = await executePreparedStructuredRenderPlan(figmaApi, plan, prepared, journal);
+    const mutationReport = journal.completed();
+    return { ...result, mutationOutcome: mutationReport.outcome, mutationReport };
+  } catch (error) {
+    throw structuredExecutionError(error, await journal.rollback(), 'Structured render failed');
+  }
+}
+
+async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
+  const journal = createStructuredMutationJournal(figmaApi);
+  if (!Array.isArray(plans) || !plans.length) {
+    throw structuredExecutionError(
+      new Error('Structured batch needs at least one Render Plan'),
+      await journal.rollback(),
+      'Structured batch preflight failed',
+    );
+  }
+  const gap = structuredNumber(options.gap, 40);
+  if (gap < 0 || gap > 10000) {
+    throw structuredExecutionError(
+      new Error('Structured batch gap must be between 0 and 10000'),
+      await journal.rollback(),
+      'Structured batch preflight failed',
+    );
+  }
+  const vertical = options.vertical === true;
+  const positionedPlans = plans.map((plan) => JSON.parse(JSON.stringify(plan)));
+  let componentContexts;
+  try {
+    componentContexts = await preflightStructuredPlans(figmaApi, positionedPlans, { batch: true });
+  } catch (error) {
+    throw structuredExecutionError(error, await journal.rollback(), 'Structured batch preflight failed');
+  }
 
   const existing = [...figmaApi.currentPage.children];
   let x = existing.reduce((right, node) => Math.max(right, structuredNumber(node.x) + structuredNumber(node.width)), 0) + (existing.length ? 100 : 0);
   let y = 100;
   const frames = [];
-  const createdRootIds = [];
   const createdVariables = new Set();
   const scopeQuestions = [];
   const variableReport = { references: 0, reused: 0, created: 0, bound: 0, ambiguous: 0, unsupported: 0 };
@@ -2363,12 +2598,12 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
   const createdTextStyles = new Set();
   const fallbackAnnotationReport = { requested: 0, applied: 0, deduplicated: 0, unsupported: 0 };
   try {
-    for (let index = 0; index < plans.length; index++) {
-      const positioned = JSON.parse(JSON.stringify(plans[index]));
+    const preparedPlans = await materializeStructuredResources(figmaApi, positionedPlans, componentContexts, journal);
+    for (let index = 0; index < positionedPlans.length; index++) {
+      const positioned = positionedPlans[index];
       positioned.root.source.props = { ...positioned.root.source.props, x, y };
-      const result = await executeStructuredRenderPlan(figmaApi, positioned);
+      const result = await executePreparedStructuredRenderPlan(figmaApi, positioned, preparedPlans[index], journal);
       frames.push(result);
-      createdRootIds.push(result.id);
       for (const name of result.createdVariables || []) createdVariables.add(name);
       for (const question of result.scopeQuestions || []) scopeQuestions.push(question);
       for (const key of Object.keys(variableReport)) variableReport[key] += structuredNumber(result.variableReport?.[key]);
@@ -2379,17 +2614,18 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
       else x += result.width + gap;
     }
   } catch (error) {
-    for (const id of createdRootIds.reverse()) {
-      try {
-        const node = await figmaApi.getNodeByIdAsync(id);
-        if (node && typeof node.remove === 'function') node.remove();
-      } catch {}
-    }
-    throw new Error(`Structured batch failed after ${frames.length} of ${plans.length} plans; created root frames were rolled back (${error.message || error})`);
+    throw structuredExecutionError(
+      error,
+      await journal.rollback(),
+      `Structured batch failed after ${frames.length} of ${plans.length} plans`,
+    );
   }
+  const mutationReport = journal.completed();
   return {
     frames,
     executor: 'structured-batch-v1',
+    mutationOutcome: mutationReport.outcome,
+    mutationReport,
     ...(variableReport.references ? { variableReport } : {}),
     ...(createdVariables.size ? { createdVariables: [...createdVariables].sort() } : {}),
     ...(scopeQuestions.length ? { scopeQuestions } : {}),
@@ -2573,8 +2809,10 @@ figma.ui.onmessage = async (msg) => {
           timeoutPosted || execution.timedOut ? 'execution-timeout' : null,
         );
       } catch (error) {
+        const result = structuredRenderFailureResult(error, 'structured-v1');
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
+          ...(result ? { result } : {}),
           metadata: revisionMetadata(revisionBefore),
         });
         postLaneSettled(msg, 'failed', 'execution-error');
@@ -2605,8 +2843,10 @@ figma.ui.onmessage = async (msg) => {
         });
         postLaneSettled(msg, 'completed');
       } catch (error) {
+        const result = structuredRenderFailureResult(error, 'structured-batch-v1');
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
+          ...(result ? { result } : {}),
           metadata: revisionMetadata(revisionBefore),
         });
         postLaneSettled(msg, 'failed', 'execution-error');

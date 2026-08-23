@@ -60,6 +60,7 @@ import {
 import {
   BridgeDaemonError,
   bridgeDaemonErrorBody,
+  parseStructuredMutationReport,
 } from './lib/daemon-error-envelope.js';
 import {
   PluginWriteLaneError,
@@ -1105,12 +1106,26 @@ function handlePluginSocket(ws) {
             outcome: 'not-dispatched',
           }));
         } else if (msg.dispatchReceipt.state !== 'completed') {
-          pending.reject(new BridgeDaemonError(msg.error, {
-            kind: msg.dispatchReceipt.state === 'unknown' ? 'plugin-timeout' : 'execution',
-            phase: 'plugin-execution',
-            outcome: 'unknown-after-dispatch',
-            dispatchState: msg.dispatchReceipt.state,
-          }));
+          const mutationReport = msg.result?.mutationReport == null
+            ? null
+            : parseStructuredMutationReport(msg.result.mutationReport);
+          const mutationCapability = ['render-plan-v1', 'render-plan-batch-v1']
+            .includes(pending.dispatchReceipt.capability);
+          if (msg.result?.mutationReport != null && (!mutationReport || !mutationCapability)) {
+            pending.reject(new BridgeDaemonError('Plugin returned an invalid structured mutation report', {
+              kind: 'plugin-protocol',
+              phase: 'plugin-response',
+              outcome: 'unknown-after-dispatch',
+            }));
+          } else {
+            pending.reject(new BridgeDaemonError(msg.error, {
+              kind: msg.dispatchReceipt.state === 'unknown' ? 'plugin-timeout' : 'execution',
+              phase: 'plugin-execution',
+              outcome: 'unknown-after-dispatch',
+              dispatchState: msg.dispatchReceipt.state,
+              ...(mutationReport ? { mutationReport } : {}),
+            }));
+          }
         }
         else pending.resolve({ result: msg.result, metadata: resultMetadata(pending, msg.metadata) });
       }

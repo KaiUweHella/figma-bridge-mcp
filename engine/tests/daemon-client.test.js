@@ -226,6 +226,15 @@ test('daemon client preserves actionable multi-window target details', async () 
 });
 
 test('daemon client trusts structured execution facts instead of domain prose', async () => {
+  const mutationReport = {
+    version: 1,
+    outcome: 'rolled-back',
+    created: 2,
+    removed: 2,
+    residueCount: 0,
+    residue: [],
+    residueTruncated: false,
+  };
   const client = createDaemonClient({
     readToken: () => 'token',
     getPort: () => 3456,
@@ -238,6 +247,7 @@ test('daemon client trusts structured execution facts instead of domain prose', 
         outcome: 'unknown-after-dispatch',
         dispatchState: 'failed',
         message: 'Token alias could not be resolved',
+        mutationReport,
       },
     }),
   });
@@ -248,6 +258,7 @@ test('daemon client trusts structured execution facts instead of domain prose', 
     assert.equal(error.outcome, 'unknown-after-dispatch');
     assert.equal(error.dispatchState, 'failed');
     assert.equal(error.legacy, false);
+    assert.deepEqual(error.mutationReport, mutationReport);
     assert.doesNotMatch(error.message, /Token file:/);
     return true;
   });

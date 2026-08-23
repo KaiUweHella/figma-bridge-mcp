@@ -38,6 +38,16 @@ const DISPATCH_STATES = new Set([
   'failed',
   'unknown',
 ]);
+const MUTATION_OUTCOMES = new Set(['no-mutation', 'rolled-back', 'partial-residue']);
+const MUTATION_RESIDUE_KINDS = new Set([
+  'scene-node',
+  'variable',
+  'variable-collection',
+  'text-style',
+  'image-resource',
+]);
+const MUTATION_RESIDUE_REASONS = new Set(['no-removal-api', 'remove-failed']);
+const MAX_MUTATION_RESIDUE = 50;
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -62,12 +72,52 @@ function validFacts({ kind, phase, outcome }) {
     && KINDS.has(kind) && PHASES.has(phase) && OUTCOMES.has(outcome);
 }
 
+function boundedMutationReport(value) {
+  if (!isRecord(value) || value.version !== 1 || !MUTATION_OUTCOMES.has(value.outcome)) return null;
+  const reportFields = ['version', 'outcome', 'created', 'removed', 'residueCount', 'residue', 'residueTruncated'];
+  if (Object.keys(value).some((key) => !reportFields.includes(key))) return null;
+  for (const key of ['created', 'removed', 'residueCount']) {
+    if (!Number.isSafeInteger(value[key]) || value[key] < 0 || value[key] > 100_000) return null;
+  }
+  if (value.removed > value.created || value.residueCount > value.created) return null;
+  if (value.removed + value.residueCount !== value.created) return null;
+  if (!Array.isArray(value.residue) || value.residue.length > MAX_MUTATION_RESIDUE) return null;
+  if (typeof value.residueTruncated !== 'boolean') return null;
+  if (value.residue.length !== Math.min(value.residueCount, MAX_MUTATION_RESIDUE)) return null;
+  if (value.residueTruncated !== (value.residueCount > MAX_MUTATION_RESIDUE)) return null;
+  if (value.outcome === 'no-mutation' && (value.created !== 0 || value.removed !== 0 || value.residueCount !== 0)) return null;
+  if (value.outcome === 'rolled-back' && (value.created === 0 || value.removed !== value.created || value.residueCount !== 0)) return null;
+  if (value.outcome === 'partial-residue' && value.residueCount === 0) return null;
+  const residue = [];
+  for (const entry of value.residue) {
+    if (!isRecord(entry) || !MUTATION_RESIDUE_KINDS.has(entry.kind)
+      || !MUTATION_RESIDUE_REASONS.has(entry.reason)
+      || typeof entry.handle !== 'string' || !entry.handle
+      || Object.keys(entry).some((key) => !['kind', 'handle', 'reason'].includes(key))
+      || Buffer.byteLength(entry.handle, 'utf8') > 1024) return null;
+    residue.push(Object.freeze({ kind: entry.kind, handle: entry.handle, reason: entry.reason }));
+  }
+  return Object.freeze({
+    version: 1,
+    outcome: value.outcome,
+    created: value.created,
+    removed: value.removed,
+    residueCount: value.residueCount,
+    residue: Object.freeze(residue),
+    residueTruncated: value.residueTruncated,
+  });
+}
+
+export function parseStructuredMutationReport(value) {
+  return boundedMutationReport(value);
+}
+
 export class BridgeDaemonError extends Error {
   /**
    * @param {string} message
-   * @param {{kind?:BridgeDaemonErrorKind,phase?:BridgeDaemonErrorPhase,outcome?:BridgeDaemonErrorOutcome,dispatchState?:'not-dispatched'|'failed'|'unknown',cause?:unknown}} [options]
+   * @param {{kind?:BridgeDaemonErrorKind,phase?:BridgeDaemonErrorPhase,outcome?:BridgeDaemonErrorOutcome,dispatchState?:'not-dispatched'|'failed'|'unknown',mutationReport?:unknown,cause?:unknown}} [options]
    */
-  constructor(message, { kind, phase, outcome, dispatchState = null, cause = null } = {}) {
+  constructor(message, { kind, phase, outcome, dispatchState = null, mutationReport = null, cause = null } = {}) {
     if (!validFacts({ kind, phase, outcome })) {
       throw new TypeError('BridgeDaemonError requires a known kind, phase, and outcome');
     }
@@ -82,6 +132,11 @@ export class BridgeDaemonError extends Error {
     this.phase = phase;
     this.outcome = outcome;
     this.dispatchState = normalizedDispatchState;
+    const mutation = mutationReport == null ? null : boundedMutationReport(mutationReport);
+    if (mutationReport != null && !mutation) {
+      throw new TypeError('BridgeDaemonError received an invalid structured mutation report');
+    }
+    if (mutation) this.mutationReport = mutation;
   }
 }
 
@@ -106,6 +161,7 @@ export function bridgeDaemonErrorBody(error, {
     outcome: normalized.outcome,
     dispatchState: normalized.dispatchState,
     message: normalized.message,
+    ...(normalized.mutationReport ? { mutationReport: normalized.mutationReport } : {}),
   });
   return Object.freeze({ error: bridgeError.message, bridgeError });
 }
@@ -117,6 +173,8 @@ export function parseBridgeDaemonError(value) {
   if (value.dispatchState != null && !DISPATCH_STATES.has(value.dispatchState)) return null;
   if (typeof value.message !== 'string' || !value.message) return null;
   if (Buffer.byteLength(value.message, 'utf8') > MAX_BRIDGE_DAEMON_ERROR_BYTES) return null;
+  const mutationReport = value.mutationReport == null ? null : boundedMutationReport(value.mutationReport);
+  if (value.mutationReport != null && !mutationReport) return null;
   return Object.freeze({
     schema: BRIDGE_DAEMON_ERROR_SCHEMA,
     kind: value.kind,
@@ -126,6 +184,7 @@ export function parseBridgeDaemonError(value) {
       ? value.dispatchState
       : value.outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown',
     message: value.message,
+    ...(mutationReport ? { mutationReport } : {}),
   });
 }
 

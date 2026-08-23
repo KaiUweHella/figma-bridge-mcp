@@ -32,6 +32,7 @@ import {
 } from '../engine/src/lib/protocol-contract.js';
 import { BRIDGE_DAEMON_ERROR_SCHEMA } from '../engine/src/lib/daemon-error-envelope.js';
 import { createDaemonClient } from '../engine/src/lib/daemon-client.js';
+import { FigmaClient } from '../engine/src/lib/jsx-render.js';
 import { terminalDispatchReceipt } from '../engine/src/lib/dispatch-receipt.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -804,6 +805,50 @@ test('/exec rejects a bounded-but-invalid Plugin response without waiting for ti
       phase: 'plugin-response',
       outcome: 'unknown-after-dispatch',
     });
+  });
+});
+
+test('/exec preserves a failed Structured Render mutation report without weakening dispatch uncertainty', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'MUTATION_REPORT_FILE' });
+    const mutationReport = {
+      version: 1,
+      outcome: 'partial-residue',
+      created: 2,
+      removed: 1,
+      residueCount: 1,
+      residue: [{ kind: 'image-resource', handle: 'image:bounded', reason: 'no-removal-api' }],
+      residueTruncated: false,
+    };
+    const command = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('daemon did not route Structured Render')), 3000);
+      ws.on('message', (data) => {
+        const message = JSON.parse(data.toString());
+        if (message.action !== 'render-plan') return;
+        clearTimeout(timer);
+        ws.send(JSON.stringify(pluginResult(message, {
+          error: 'Structured render failed; mutation outcome=partial-residue',
+          result: { executor: 'structured-v1', mutationOutcome: 'partial-residue', mutationReport },
+        })));
+        resolve();
+      });
+    });
+    const plan = new FigmaClient().planJSX('<Frame name="Mutation report" />');
+    const body = JSON.stringify({
+      action: 'render-plan', plan, fileKey: 'MUTATION_REPORT_FILE', expectedEditor: 'figma',
+    });
+    const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth('POST', '/exec', body) },
+      body,
+    });
+    await command;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    const payload = await response.json();
+    assert.equal(payload.bridgeError.outcome, 'unknown-after-dispatch');
+    assert.equal(payload.bridgeError.dispatchState, 'failed');
+    assert.deepEqual(payload.bridgeError.mutationReport, mutationReport);
   });
 });
 

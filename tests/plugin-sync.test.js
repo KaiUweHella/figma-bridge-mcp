@@ -132,6 +132,14 @@ test('execution deadlines cross the UI boundary for every write protocol', () =>
     PLUGIN_CODE,
     /msg\.type === 'render-plan-batch'[\s\S]*?remainingExecutionBudget\(timeoutMs, queuedAt, deadlineAt\)[\s\S]*?executeStructuredRenderPlanBatch\(figma, plans, options \|\| \{\}\)/,
   );
+  assert.match(
+    PLUGIN_CODE,
+    /structuredRenderFailureResult\(error, 'structured-v1'\)[\s\S]*?result \? \{ result \} : \{\}/,
+  );
+  assert.match(
+    PLUGIN_CODE,
+    /structuredRenderFailureResult\(error, 'structured-batch-v1'\)[\s\S]*?result \? \{ result \} : \{\}/,
+  );
 });
 
 test('Plugin main replays exact lane settlement after an authenticated UI reconnect', () => {

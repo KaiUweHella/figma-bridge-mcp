@@ -158,6 +158,39 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-RENDER-ROLLBACK",
+    [
+      [
+        "engine/tests/structured-render-executor.test.js",
+        "preflights every batch resource before the first real mutation",
+      ],
+      [
+        "engine/tests/structured-render-executor.test.js",
+        "rolls back batch-wide Command resources in reverse creation order without touching reused resources",
+      ],
+      [
+        "engine/tests/structured-render-executor.test.js",
+        "fault-injects after every removable resource and tree mutation",
+      ],
+      [
+        "engine/tests/structured-render-executor.test.js",
+        "reports bounded image residue and preserves the original execution failure",
+      ],
+      [
+        "engine/tests/structured-render-executor.test.js",
+        "keeps rollback failure as a failed partial-residue result",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "/exec preserves a failed Structured Render mutation report without weakening dispatch uncertainty",
+      ],
+      [
+        "engine/tests/daemon-error-envelope.test.js",
+        "Bridge Daemon errors preserve only closed bounded mutation residue facts",
+      ],
+    ],
+  ],
+  [
     "SEC-COMMAND",
     [
       [

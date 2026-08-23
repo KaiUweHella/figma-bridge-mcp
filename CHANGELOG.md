@@ -15,6 +15,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   session. Same-file writes no longer dispatch concurrently, different files
   remain independent, and unknown outcomes stay quarantined across UI
   reconnect until the exact settlement receipt is replayed.
+- Added one ownership-aware mutation journal for native single and batch
+  Semantic Render. Complete requests preflight before real resource creation,
+  removable Command artifacts roll back in reverse order, and closed bounded
+  mutation reports distinguish no mutation, completed rollback, partial
+  residue and successful completion without weakening unknown-dispatch rules.
 
 - Added Safe-Mode Commands for duplicating cloneable canvas nodes (including
   Sections), reparenting nodes with explicit child order, setting instance
