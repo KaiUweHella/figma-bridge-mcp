@@ -113,6 +113,10 @@ _Avoid_: URL allowlist, fetch helper, SSRF filter
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
 _Avoid_: JSX tree, generated code, render payload
 
+**Semantic Render Outcome**:
+The closed, versioned and deeply bounded result of one simple Semantic Render Command. It retains only created-root identity, executor and structural facts, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
+_Avoid_: render response, console result, Plugin result
+
 **Figma Render Executor**:
 The static plugin runtime that applies one or a bounded batch of structurally preflighted **Semantic Render Plans** through native Figma operations. It advertises explicit single/batch plan capabilities during the authenticated handshake and must reject unsupported structure before creating canvas nodes. External component, image, font and variable resources are prepared explicitly before the visible tree; batch failures remove already-created root frames. Generated JavaScript remains a temporary compatibility adapter, never an automatic retry after an uncertain write.
 _Avoid_: eval renderer, plugin action, plan interpreter
@@ -186,6 +190,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** Is native Semantic Render atomic when Figma rejects a later mutation?
 >
 > **Domain expert:** Only where Figma exposes a truthful inverse. The Structured Mutation Journal removes Command-owned nodes, variables, collections and Text Styles in reverse order. Non-removable image hashes or failed cleanup become bounded `partial-residue`; a lost terminal response remains `unknown-after-dispatch`.
+
+> **Developer:** Can CLI and MCP disagree about whether a render completed with structural findings?
+>
+> **Domain expert:** No. Both format one Semantic Render Outcome. Its closed status produces the MCP structured result, human text, accepted process code and Audit completion; a malformed Plugin response never becomes success.
 
 > **Developer:** How does a designer know that a rendered property is an approved approximation rather than an exact mapping?
 >

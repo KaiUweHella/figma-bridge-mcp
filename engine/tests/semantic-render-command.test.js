@@ -13,6 +13,15 @@ import {
   semanticRenderResultRows,
 } from '../src/application/semantic-render-command.js';
 import {
+  MAX_SEMANTIC_RENDER_ARRAY_ITEMS,
+  MAX_SEMANTIC_RENDER_STRING_CODE_POINTS,
+  SEMANTIC_RENDER_OUTCOME_KIND,
+  SEMANTIC_RENDER_OUTCOME_SCHEMA,
+  semanticRenderOutcomeJson,
+  semanticRenderOutcomeYaml,
+} from '../src/lib/semantic-render-outcome.js';
+import YAML from 'yaml';
+import {
   acceptsSemanticRenderArgv,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
@@ -54,7 +63,16 @@ function nativeResult(overrides = {}) {
         instances: 0, absoluteNodes: 0,
       },
       mismatchCount: 0,
-      mismatches: [],
+    },
+    mutationOutcome: 'completed',
+    mutationReport: {
+      version: 1,
+      outcome: 'completed',
+      created: 2,
+      removed: 0,
+      residueCount: 0,
+      residue: [],
+      residueTruncated: false,
     },
     ...overrides,
   };
@@ -261,8 +279,11 @@ test('the native Semantic Render executor is dispatched exactly once without gen
 
   assert.equal(nativeCalls, 1);
   assert.equal(evalCalls, 0);
-  assert.equal(result.id, '1:2');
-  assert.equal(result.executor, 'structured-v1');
+  assert.equal(result.schemaVersion, SEMANTIC_RENDER_OUTCOME_SCHEMA);
+  assert.equal(result.kind, SEMANTIC_RENDER_OUTCOME_KIND);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.roots[0].handle, '1:2');
+  assert.deepEqual(result.executor, { kind: 'structured', version: 1 });
   assert.equal(semanticRenderOutcomeCode(result), 0);
 });
 
@@ -282,7 +303,7 @@ test('generated compatibility dispatch is allowed only before a native write cou
   });
   assert.equal(nativeCalls, 1);
   assert.equal(evalCalls, 1);
-  assert.equal(fallback.executor, 'generated-eval-compatibility');
+  assert.deepEqual(fallback.executor, { kind: 'generated-eval-compatibility', version: 1 });
 
   const denied = [
     { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'unknown-after-dispatch' },
@@ -312,7 +333,7 @@ test('generated compatibility dispatch is allowed only before a native write cou
     evaluate: async () => { legacyEvalCalls++; return { id: '4:5', name: 'Legacy daemon' }; },
   });
   assert.equal(legacyEvalCalls, 1);
-  assert.equal(legacy.executor, 'generated-eval-compatibility');
+  assert.deepEqual(legacy.executor, { kind: 'generated-eval-compatibility', version: 1 });
 });
 
 test('locally unsupported native plans choose one generated execution before dispatch', async (t) => {
@@ -330,12 +351,20 @@ test('locally unsupported native plans choose one generated execution before dis
   });
   assert.equal(nativeCalls, 0);
   assert.equal(evalCalls, 1);
-  assert.equal(result.executor, 'generated-eval-compatibility');
-  assert.match(result.warnings.at(-1).text, /Native preflight unsupported/);
+  assert.deepEqual(result.executor, { kind: 'generated-eval-compatibility', version: 1 });
+  assert.match(result.notices.at(-1).text, /Native preflight unsupported/);
 });
 
 test('malformed post-dispatch results remain unknown and never redispatch', async (t) => {
   const { plan, io } = renderPlan(t);
+  const cyclic = nativeResult();
+  cyclic.cyclic = cyclic;
+  const maximumStrings = Array.from(
+    { length: MAX_SEMANTIC_RENDER_ARRAY_ITEMS },
+    (_, index) => `${index}-${'x'.repeat(MAX_SEMANTIC_RENDER_STRING_CODE_POINTS - String(index).length - 1)}`,
+  );
+  let nested = 'leaf';
+  for (let depth = 0; depth < 10; depth++) nested = { nested };
   for (const malformed of [
     null,
     [],
@@ -375,6 +404,24 @@ test('malformed post-dispatch results remain unknown and never redispatch', asyn
       name: 'Body', collection: 'Brand', resolvedType: 'STRING',
       status: 'USER_DECISION_REQUIRED', question: 'Choose',
     }] }),
+    nativeResult({ stack: 'Plugin internals must not cross the Outcome boundary.' }),
+    nativeResult({ unresolved: Array.from(
+      { length: MAX_SEMANTIC_RENDER_ARRAY_ITEMS + 1 },
+      (_, index) => `Brand/Missing-${index}`,
+    ) }),
+    nativeResult({ name: 'x'.repeat(MAX_SEMANTIC_RENDER_STRING_CODE_POINTS + 1) }),
+    nativeResult({ width: 1_000_001 }),
+    nativeResult({
+      unresolved: maximumStrings,
+      createdVariables: maximumStrings,
+      createdTextStyles: maximumStrings,
+    }),
+    nativeResult({ nested }),
+    nativeResult({ mutationReport: {
+      version: 1, outcome: 'completed', created: 2, removed: 0,
+      residueCount: 0, residue: [], residueTruncated: false, future: true,
+    } }),
+    cyclic,
   ]) {
     let nativeCalls = 0;
     let evalCalls = 0;
@@ -384,20 +431,65 @@ test('malformed post-dispatch results remain unknown and never redispatch', asyn
       evaluate: async () => { evalCalls += 1; return { id: '9:9' }; },
     }), (error) => error.kind === 'plugin-result'
       && error.phase === 'plugin-response'
-      && error.outcome === 'unknown-after-dispatch');
+      && error.outcome === 'unknown-after-dispatch'
+      && error.semanticRenderOutcome?.status === 'failed'
+      && error.semanticRenderOutcome?.failure?.phase === 'plugin-response'
+      && error.semanticRenderOutcome?.failure?.dispatchState === 'unknown');
     assert.equal(nativeCalls, 1);
     assert.equal(evalCalls, 0);
   }
 });
 
-test('a structural finding preserves the created root, returns code 1 and bounds evidence output', async (t) => {
+test('known rollback residue is carried only as typed failure facts', async (t) => {
   const { plan, io } = renderPlan(t);
-  const oversized = 'x'.repeat(5_000);
-  const mismatches = Array.from({ length: 30 }, (_, index) => ({
-    path: `root.children[${index}].${oversized}`,
-    fact: `layout-${index}-${oversized}`,
-    expected: `expected-${oversized}`,
-    actual: `actual-${oversized}`,
+  const secret = 'SECRET-JSX-AND-STACK';
+  const pluginFailure = Object.assign(new Error(secret), {
+    kind: 'execution',
+    phase: 'plugin-execution',
+    outcome: 'unknown-after-dispatch',
+    dispatchState: 'failed',
+    mutationReport: {
+      version: 1,
+      outcome: 'partial-residue',
+      created: 3,
+      removed: 2,
+      residueCount: 1,
+      residue: [{ kind: 'image-resource', handle: 'image-hash-1', reason: 'no-removal-api' }],
+      residueTruncated: false,
+    },
+  });
+
+  await assert.rejects(() => executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async () => { throw pluginFailure; },
+    evaluate: async () => { throw new Error('must not run'); },
+  }), (error) => {
+    assert.equal(error, pluginFailure);
+    const outcome = error.semanticRenderOutcome;
+    assert.equal(outcome.status, 'failed');
+    assert.deepEqual(outcome.roots, []);
+    assert.deepEqual(outcome.mutation, pluginFailure.mutationReport);
+    assert.deepEqual(outcome.failure, {
+      kind: 'execution',
+      phase: 'plugin-execution',
+      outcome: 'unknown-after-dispatch',
+      dispatchState: 'failed',
+    });
+    assert.doesNotMatch(JSON.stringify(outcome), new RegExp(secret));
+    assert.throws(() => semanticRenderOutcomeCode(outcome), /has no accepted process code/);
+    assert.throws(() => formatSemanticRenderResult(outcome), /cannot format a failed Outcome as success/);
+    return true;
+  });
+});
+
+test('a structural finding preserves the created root, returns code 1 and bounded deterministic output', async (t) => {
+  const { plan, io } = renderPlan(t);
+  const maximumText = 'x'.repeat(MAX_SEMANTIC_RENDER_STRING_CODE_POINTS);
+  const mismatches = Array.from({ length: 20 }, (_, index) => ({
+    path: `root.children[${index}]`,
+    fact: index === 0 ? maximumText : `layout-${index}`,
+    expected: 'AUTO_LAYOUT',
+    actual: 'FREE',
   }));
   const result = await executeSemanticRenderPlan(plan, {
     workspaceIO: io,
@@ -417,11 +509,18 @@ test('a structural finding preserves the created root, returns code 1 and bounds
     evaluate: async () => { throw new Error('must not run'); },
   });
 
-  assert.equal(result.id, '7:8');
-  assert.equal(result.structuralReport.mismatches.length, 20);
-  assert.ok(result.structuralReport.mismatches.every((finding) =>
-    Object.values(finding).every((value) => Array.from(value).length <= 513)));
+  assert.equal(result.status, 'completed-with-findings');
+  assert.equal(result.roots[0].handle, '7:8');
+  assert.equal(result.structure.live.mismatches.length, 20);
+  assert.equal(result.structure.live.mismatches[0].fact, maximumText);
   assert.equal(semanticRenderOutcomeCode(result), 1);
+
+  const json = semanticRenderOutcomeJson(result);
+  const yaml = semanticRenderOutcomeYaml(result);
+  assert.deepEqual(JSON.parse(json), result);
+  assert.deepEqual(YAML.parse(yaml), result);
+  assert.equal(semanticRenderOutcomeJson(result), json);
+  assert.equal(semanticRenderOutcomeYaml(result), yaml);
 
   const rows = semanticRenderResultRows(result);
   assert.equal(rows.filter((row) => row.tone === 'error').length, 6,
@@ -429,7 +528,7 @@ test('a structural finding preserves the created root, returns code 1 and bounds
   const output = formatSemanticRenderResult(result);
   assert.match(output, /Rendered: 7:8/);
   assert.match(output, /FAIL — 30 mismatch\(es\)/);
-  assert.equal((output.match(/layout-/g) || []).length, 5);
+  assert.equal((output.match(/layout-/g) || []).length, 4);
   assert.ok(output.length < 12_000);
 });
 
@@ -443,6 +542,7 @@ test('formatter preserves actionable variable, scope and overflow guidance', asy
       scopeQuestions: [{
         name: 'Body', collection: 'Brand', resolvedType: 'STRING',
         status: 'USER_DECISION_REQUIRED', question: 'Limit Body to TEXT_CONTENT?',
+        currentScopes: ['ALL_SCOPES'],
         allowedScopes: ['ALL_SCOPES', 'TEXT_CONTENT'],
       }],
     }),

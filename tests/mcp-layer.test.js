@@ -347,7 +347,12 @@ test('figma_run and figma_render share one non-retrying Semantic Render Applicat
   assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(helper, /executePreparedSemanticRender\(prepared/);
   assert.match(helper, /renderFigmaPlan\(renderPlan/);
-  assert.match(helper, /formatSemanticRenderResult\(result\)/);
+  assert.match(helper, /formatSemanticRenderResult\(outcome\)/);
+  assert.match(helper, /semanticRenderOutcomeCode\(outcome\)/);
+  assert.match(helper, /structuredContent: outcome/,
+    'MCP text and structured content must project the same Application Outcome');
+  assert.match(source, /structuredContent: err\?\.semanticRenderOutcome/,
+    'known failure and rollback facts must survive the MCP error projection');
   assert.doesNotMatch(helper, /runCliPlan\(|runCli\(/);
 
   assert.match(source, /semanticRenderRoute === "command-application"[\s\S]*?runSemanticRenderApplication\(plan, input\.label, preparedSemanticRender\)/);

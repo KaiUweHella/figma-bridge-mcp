@@ -20,6 +20,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   removable Command artifacts roll back in reverse order, and closed bounded
   mutation reports distinguish no mutation, completed rollback, partial
   residue and successful completion without weakening unknown-dispatch rules.
+- Added one closed, versioned Semantic Render Outcome shared by Commander,
+  `figma_run` and `figma_render`. Deep byte, nesting, collection, string,
+  numeric and handle bounds now reject malformed post-dispatch Plugin results;
+  MCP structured content, text, JSON/YAML, Audit and process codes derive from
+  the same root, structural, resource and rollback facts.
 
 - Added Safe-Mode Commands for duplicating cloneable canvas nodes (including
   Sections), reparenting nodes with explicit child order, setting instance

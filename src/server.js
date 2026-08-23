@@ -75,6 +75,7 @@ import {
   semanticRenderRequestFromArgv,
 } from "../engine/src/application/semantic-render-request.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
+import { isSemanticRenderOutcome } from "../engine/src/lib/semantic-render-outcome.js";
 import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
 import { getAuditStatus } from "./audit-trail.js";
@@ -1031,7 +1032,7 @@ function textResult(text, { audit = getAuditStatus() } = {}) {
   return identifiedResult({ content: [{ type: "text", text: body }] }, audit);
 }
 
-function errorResult(text, { audit = getAuditStatus() } = {}) {
+function errorResult(text, { audit = getAuditStatus(), structuredContent = null } = {}) {
   let body = String(text || "The Figma Bridge request failed.");
   if (!body.startsWith(`[${MCP_SERVER_ID}]`)) {
     body = `[${MCP_SERVER_ID}] ${body}`;
@@ -1040,7 +1041,11 @@ function errorResult(text, { audit = getAuditStatus() } = {}) {
   if (!body.includes(scope)) body += `\n\n${scope}`;
   const warning = auditWarning(audit);
   if (warning && !body.includes(warning)) body += `\n\n${warning}`;
-  return identifiedResult({ content: [{ type: "text", text: body }], isError: true }, audit);
+  return identifiedResult({
+    content: [{ type: "text", text: body }],
+    isError: true,
+    ...(isSemanticRenderOutcome(structuredContent) ? { structuredContent } : {}),
+  }, audit);
 }
 
 export async function executeSpecBatch(requests, executeOne, options = {}) {
@@ -1194,13 +1199,14 @@ async function runAssetExport(plan, label, { force = false } = {}) {
 }
 
 async function runSemanticRenderApplication(plan, label, prepared) {
+  let outcome = null;
   const res = await runInProcessCommandPlan(plan, {
     label,
     compatibilityFallback: false,
   }, async ({ fileKey, expectedEditor, deadline }) => {
     const remainingMs = () => Math.max(1, deadline - Date.now());
     await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
-    const result = await executePreparedSemanticRender(prepared, {
+    outcome = await executePreparedSemanticRender(prepared, {
       renderPlan: (renderPlan) => renderFigmaPlan(renderPlan, {
         fileKey,
         expectedEditor,
@@ -1218,12 +1224,15 @@ async function runSemanticRenderApplication(plan, label, prepared) {
       }),
     });
     return {
-      stdout: formatSemanticRenderResult(result),
+      stdout: formatSemanticRenderResult(outcome),
       stderr: "",
-      code: semanticRenderOutcomeCode(result),
+      code: semanticRenderOutcomeCode(outcome),
     };
   });
-  return resultFromCli(res);
+  return {
+    ...resultFromCli(res),
+    structuredContent: outcome,
+  };
 }
 
 /**
@@ -2168,7 +2177,10 @@ async function main() {
     try {
       return await handleTool(name, args);
     } catch (err) {
-      return errorResult(formatPublicError(err), { audit: err?.audit || getAuditStatus() });
+      return errorResult(formatPublicError(err), {
+        audit: err?.audit || getAuditStatus(),
+        structuredContent: err?.semanticRenderOutcome,
+      });
     }
   });
 

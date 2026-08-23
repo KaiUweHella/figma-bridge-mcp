@@ -197,6 +197,57 @@ test('in-process results preserve only Command Plan-accepted domain outcome code
   );
 });
 
+test('Semantic Render findings project the same Outcome into process and Audit codes', async () => {
+  const { runInProcessCommandPlan } = await import('../src/engine.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const { createWorkspaceIO } = await import('../engine/src/lib/workspace-io.js');
+  const {
+    projectSemanticRenderOutcome,
+    semanticRenderOutcomeCode,
+  } = await import('../engine/src/lib/semantic-render-outcome.js');
+  const io = createWorkspaceIO({ root: dir });
+  const plan = planFigmaCommand(['render', '<Frame name="Audit" />'], {
+    fileKey: 'FILE_A', workspaceDir: dir, workspaceIO: io,
+  });
+  const outcome = projectSemanticRenderOutcome({
+    id: '7:8',
+    name: 'Audit',
+    executor: 'structured-v1',
+    structuralReport: {
+      version: 1,
+      passed: false,
+      summary: {
+        nodes: 1, grids: 0, autoLayouts: 0, freeLayouts: 1,
+        instances: 0, absoluteNodes: 0,
+      },
+      mismatchCount: 1,
+      mismatches: [{ path: 'root', fact: 'layout', expected: 'AUTO_LAYOUT', actual: 'FREE' }],
+    },
+    mutationOutcome: 'completed',
+    mutationReport: {
+      version: 1, outcome: 'completed', created: 1, removed: 0,
+      residueCount: 0, residue: [], residueTruncated: false,
+    },
+  }, {
+    executor: 'structured-v1',
+    structure: { grid: 0, flex: 0, free: 1, absolute: 0 },
+  });
+
+  const result = await runInProcessCommandPlan(
+    plan,
+    { compatibilityFallback: false },
+    async () => ({ stdout: 'finding', stderr: '', code: semanticRenderOutcomeCode(outcome) }),
+  );
+  assert.equal(outcome.status, 'completed-with-findings');
+  assert.equal(result.code, 1);
+  const entries = readFileSync(auditFile, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(entries.at(-1).outcome, {
+    ok: true,
+    durationMs: entries.at(-1).outcome.durationMs,
+    code: 1,
+  });
+});
+
 test('callers cannot replace timeout, target, or accepted outcomes after planning', async () => {
   const { runCliPlan, runInProcessCommand, runInProcessCommandPlan } = await import('../src/engine.js');
   const { planFigmaCommand } = await import('../src/capability-catalog.js');

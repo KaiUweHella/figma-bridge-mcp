@@ -191,6 +191,31 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-RENDER-OUTCOME",
+    [
+      [
+        "engine/tests/semantic-render-command.test.js",
+        "malformed post-dispatch results remain unknown and never redispatch",
+      ],
+      [
+        "engine/tests/semantic-render-command.test.js",
+        "known rollback residue is carried only as typed failure facts",
+      ],
+      [
+        "engine/tests/semantic-render-command.test.js",
+        "a structural finding preserves the created root, returns code 1 and bounded deterministic output",
+      ],
+      [
+        "tests/mcp-layer.test.js",
+        "figma_run and figma_render share one non-retrying Semantic Render Application",
+      ],
+      [
+        "tests/command-application.test.js",
+        "Semantic Render findings project the same Outcome into process and Audit codes",
+      ],
+    ],
+  ],
+  [
     "SEC-COMMAND",
     [
       [

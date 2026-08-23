@@ -1444,6 +1444,12 @@ rather than a generic API failure.
   handles and scene nodes. Failures clean removable entries in reverse order;
   non-removable or failed cleanup is reported as bounded residue rather than
   false atomicity.
+- **Bounded Semantic Render outcomes** — the Plugin response must match one
+  closed, versioned and deeply bounded result before any Adapter can report
+  success. CLI text, MCP structured content, JSON/YAML, Audit completion and
+  process code project the same root, structural, resource and mutation facts;
+  stacks, source payloads, file keys, credentials and arbitrary fields cannot
+  enter that result.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
 - **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
   (per-request HMAC over method/path/body, keyed with the session token, nonce

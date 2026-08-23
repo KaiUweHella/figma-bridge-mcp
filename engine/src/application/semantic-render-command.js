@@ -22,6 +22,11 @@ import { cachedInventoryCode } from '../lib/component-inventory.js';
 import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import {
+  assertSemanticRenderOutcome,
+  projectSemanticRenderFailureOutcome,
+  projectSemanticRenderOutcome,
+} from '../lib/semantic-render-outcome.js';
+import {
   SEMANTIC_RENDER_DEVICE_PRESETS,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
@@ -29,10 +34,10 @@ import {
 } from './semantic-render-request.js';
 
 export { semanticRenderArgvFromRequest } from './semantic-render-request.js';
+export { semanticRenderOutcomeCode } from '../lib/semantic-render-outcome.js';
 
 const APPLICATION_ID = 'render';
 const PREPARED_RENDER_REQUESTS = new WeakSet();
-const NODE_ID = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
 const MAX_EVIDENCE_ITEMS = 100;
 const MAX_EVIDENCE_STRING_CODE_POINTS = 512;
 
@@ -40,7 +45,7 @@ const MAX_EVIDENCE_STRING_CODE_POINTS = 512;
 
 function boundedText(value, max = MAX_EVIDENCE_STRING_CODE_POINTS) {
   const points = Array.from(String(value ?? ''));
-  return points.length > max ? `${points.slice(0, max).join('')}…` : points.join('');
+  return points.length > max ? `${points.slice(0, Math.max(0, max - 1)).join('')}…` : points.join('');
 }
 
 function preflightError(message) {
@@ -51,228 +56,11 @@ function preflightError(message) {
   });
 }
 
-function resultError(message) {
-  return Object.assign(new Error(message), {
-    kind: 'plugin-result',
-    phase: 'plugin-response',
-    outcome: 'unknown-after-dispatch',
-  });
-}
-
-function finiteCount(value, label, max = 1_000_000) {
-  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
-    throw resultError(`Semantic Render returned an invalid ${label}.`);
-  }
-  return value;
-}
-
 function preflightCount(value, label, max = 20_000) {
   if (!Number.isSafeInteger(value) || value < 0 || value > max) {
     throw preflightError(`Semantic Render produced invalid ${label} diagnostics.`);
   }
   return value;
-}
-
-function boundedStringArray(value, label) {
-  if (value === undefined) return Object.freeze([]);
-  if (!Array.isArray(value)) throw resultError(`Semantic Render returned an invalid ${label}.`);
-  const items = value.slice(0, MAX_EVIDENCE_ITEMS).map((item) => {
-    if (typeof item !== 'string') throw resultError(`Semantic Render returned an invalid ${label} item.`);
-    return boundedText(item);
-  });
-  return Object.freeze(items);
-}
-
-function numericReport(value, label, keys) {
-  if (value === undefined) return null;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw resultError(`Semantic Render returned an invalid ${label}.`);
-  }
-  if (keys.some((key) => !Object.hasOwn(value, key))) {
-    throw resultError(`Semantic Render returned an incomplete ${label}.`);
-  }
-  return Object.freeze(Object.fromEntries(keys.map((key) => [key, finiteCount(value[key], `${label}.${key}`)])));
-}
-
-function fallbackAnnotationReport(value) {
-  const report = numericReport(value, 'fallbackAnnotationReport', [
-    'requested', 'applied', 'deduplicated', 'unsupported',
-  ]);
-  if (report && report.requested !== report.applied + report.deduplicated + report.unsupported) {
-    throw resultError('Semantic Render returned an inconsistent fallbackAnnotationReport.');
-  }
-  return report;
-}
-
-function variableReport(value) {
-  const report = numericReport(value, 'variableReport', [
-    'references', 'reused', 'created', 'bound', 'ambiguous', 'unsupported',
-  ]);
-  if (report && (report.bound !== report.references || report.ambiguous !== 0
-    || report.unsupported !== 0 || report.reused + report.created > report.references)) {
-    throw resultError('Semantic Render returned an inconsistent variableReport.');
-  }
-  return report;
-}
-
-function textStyleReport(value) {
-  const report = numericReport(value, 'textStyleReport', [
-    'references', 'reused', 'created', 'bound',
-  ]);
-  if (report && (report.bound !== report.references
-    || report.reused + report.created > report.references)) {
-    throw resultError('Semantic Render returned an inconsistent textStyleReport.');
-  }
-  return report;
-}
-
-function completedMutationReport(value) {
-  if (value === undefined) return null;
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || value.version !== 1 || value.outcome !== 'completed'
-    || !Number.isSafeInteger(value.created) || value.created < 0 || value.created > 100_000
-    || value.removed !== 0 || value.residueCount !== 0
-    || !Array.isArray(value.residue) || value.residue.length !== 0
-    || value.residueTruncated !== false) {
-    throw resultError('Semantic Render returned an invalid completed mutation report.');
-  }
-  return Object.freeze({
-    version: 1,
-    outcome: 'completed',
-    created: value.created,
-    removed: 0,
-    residueCount: 0,
-    residue: Object.freeze([]),
-    residueTruncated: false,
-  });
-}
-
-function structuralReport(value, { required }) {
-  if (value === undefined && !required) return null;
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || value.version !== 1 || typeof value.passed !== 'boolean') {
-    throw resultError('Semantic Render returned an invalid structural report.');
-  }
-  const summaryKeys = ['nodes', 'grids', 'autoLayouts', 'freeLayouts', 'instances', 'absoluteNodes'];
-  if (!value.summary || typeof value.summary !== 'object' || Array.isArray(value.summary)
-    || summaryKeys.some((key) => !Object.hasOwn(value.summary, key))) {
-    throw resultError('Semantic Render returned an invalid structural report summary.');
-  }
-  const summary = Object.freeze(Object.fromEntries(summaryKeys.map((key) => [
-    key, finiteCount(value.summary[key], `structuralReport.summary.${key}`),
-  ])));
-  if (!Object.hasOwn(value, 'mismatchCount')) {
-    throw resultError('Semantic Render returned an invalid structural mismatch count.');
-  }
-  const mismatchCount = finiteCount(value.mismatchCount, 'structuralReport.mismatchCount');
-  if (value.passed !== (mismatchCount === 0)) {
-    throw resultError('Semantic Render returned an inconsistent structural report outcome.');
-  }
-  const mismatches = [];
-  if (value.mismatches !== undefined) {
-    if (!Array.isArray(value.mismatches)) throw resultError('Semantic Render returned invalid structural mismatches.');
-    for (const item of value.mismatches.slice(0, 20)) {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        throw resultError('Semantic Render returned an invalid structural mismatch.');
-      }
-      if (['path', 'fact', 'expected', 'actual'].some((key) => typeof item[key] !== 'string')) {
-        throw resultError('Semantic Render returned a structural mismatch with invalid text fields.');
-      }
-      mismatches.push(Object.freeze({
-        path: boundedText(item.path),
-        fact: boundedText(item.fact),
-        expected: boundedText(item.expected),
-        actual: boundedText(item.actual),
-      }));
-    }
-  }
-  if (mismatches.length !== Math.min(mismatchCount, 20)) {
-    throw resultError('Semantic Render returned incomplete structural mismatch evidence.');
-  }
-  return Object.freeze({
-    passed: value.passed,
-    summary,
-    mismatchCount,
-    mismatches: Object.freeze(mismatches),
-  });
-}
-
-function scopeQuestions(value) {
-  if (value === undefined) return Object.freeze([]);
-  if (!Array.isArray(value)) throw resultError('Semantic Render returned invalid scope questions.');
-  return Object.freeze(value.slice(0, MAX_EVIDENCE_ITEMS).map((question) => {
-    if (!question || typeof question !== 'object' || Array.isArray(question)) {
-      throw resultError('Semantic Render returned an invalid scope question.');
-    }
-    const textKeys = ['name', 'collection', 'resolvedType', 'status', 'question'];
-    if (textKeys.some((key) => typeof question[key] !== 'string')) {
-      throw resultError('Semantic Render returned a scope question with invalid text fields.');
-    }
-    if (!Array.isArray(question.allowedScopes)) {
-      throw resultError('Semantic Render returned a scope question without allowedScopes.');
-    }
-    const allowedScopes = boundedStringArray(question.allowedScopes, 'scope question allowedScopes');
-    if (!question.name || !question.collection || !question.question || !allowedScopes.length
-      || question.status !== 'USER_DECISION_REQUIRED'
-      || !['BOOLEAN', 'COLOR', 'FLOAT', 'STRING'].includes(question.resolvedType)) {
-      throw resultError('Semantic Render returned an inconsistent scope question.');
-    }
-    return Object.freeze({
-      name: boundedText(question.name),
-      collection: boundedText(question.collection),
-      resolvedType: boundedText(question.resolvedType),
-      status: boundedText(question.status),
-      question: boundedText(question.question),
-      allowedScopes,
-    });
-  }));
-}
-
-function validateResult(value, executor) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw resultError('Semantic Render returned no structured result.');
-  }
-  if (typeof value.id !== 'string' || value.id.length > 512 || !NODE_ID.test(value.id)) {
-    throw resultError('Semantic Render returned an invalid root node id.');
-  }
-  if (value.name !== undefined && typeof value.name !== 'string') {
-    throw resultError('Semantic Render returned an invalid root name.');
-  }
-  if (executor === 'structured-v1' && value.executor !== 'structured-v1') {
-    throw resultError('Semantic Render returned the wrong native executor identity.');
-  }
-  for (const key of ['width', 'height', 'overflow']) {
-    if (value[key] !== undefined && (typeof value[key] !== 'number'
-      || !Number.isFinite(value[key]) || value[key] < 0)) {
-      throw resultError(`Semantic Render returned an invalid ${key}.`);
-    }
-  }
-  if (value.mutationOutcome !== undefined && value.mutationOutcome !== 'completed') {
-    throw resultError('Semantic Render returned an inconsistent mutation outcome.');
-  }
-  const mutation = completedMutationReport(value.mutationReport);
-  if ((value.mutationOutcome === undefined) !== (mutation === null)) {
-    throw resultError('Semantic Render returned incomplete mutation outcome facts.');
-  }
-
-  return Object.freeze({
-    id: value.id,
-    name: boundedText(value.name || ''),
-    executor,
-    width: value.width === undefined ? null : value.width,
-    height: value.height === undefined ? null : value.height,
-    overflow: value.overflow === undefined ? null : value.overflow,
-    structuralReport: structuralReport(value.structuralReport, { required: executor === 'structured-v1' }),
-    unresolved: boundedStringArray(value.unresolved, 'unresolved variables'),
-    createdVariables: boundedStringArray(value.createdVariables, 'created variables'),
-    createdTextStyles: boundedStringArray(value.createdTextStyles, 'created Text Styles'),
-    scopeQuestions: scopeQuestions(value.scopeQuestions),
-    variableReport: variableReport(value.variableReport),
-    textStyleReport: textStyleReport(value.textStyleReport),
-    fallbackAnnotationReport: fallbackAnnotationReport(value.fallbackAnnotationReport),
-    mutationOutcome: value.mutationOutcome || null,
-    mutationReport: mutation,
-  });
 }
 
 function devicePreset(jsx, presetName) {
@@ -410,12 +198,34 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   let raw;
   let executor;
   let compatibilityReason = null;
+  const attachFailureOutcome = (error, failedExecutor) => {
+    /** @type {Error & {semanticRenderOutcome?: unknown}} */
+    const failure = error instanceof Error ? error : new Error(String(error || 'Semantic Render failed'));
+    if (!failure.semanticRenderOutcome) {
+      const outcome = projectSemanticRenderFailureOutcome(failure, {
+        executor: failedExecutor,
+        structure: prepared.evidence.structure,
+      });
+      try {
+        failure.semanticRenderOutcome = outcome;
+      } catch {
+        /** @type {Error & {semanticRenderOutcome?: unknown,kind?:unknown,phase?:unknown,outcome?:unknown,dispatchState?:unknown,mutationReport?:unknown}} */
+        const wrapped = new Error(failure.message, { cause: failure });
+        for (const key of ['kind', 'phase', 'outcome', 'dispatchState', 'mutationReport']) {
+          if (key in failure) wrapped[key] = failure[key];
+        }
+        wrapped.semanticRenderOutcome = outcome;
+        return wrapped;
+      }
+    }
+    return failure;
+  };
   if (prepared.support.supported) {
     try {
       raw = await adapters.renderPlan(prepared.renderPlan);
       executor = 'structured-v1';
     } catch (error) {
-      if (!permitsCompatibilityRedispatch(error)) throw error;
+      if (!permitsCompatibilityRedispatch(error)) throw attachFailureOutcome(error, 'structured-v1');
       compatibilityReason = 'Plugin did not advertise the native Semantic Render capability before dispatch.';
     }
   } else {
@@ -423,13 +233,27 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   }
 
   if (compatibilityReason) {
-    const code = await prepared.client.compileRenderPlan(prepared.renderPlan);
-    raw = await adapters.evaluate(code);
     executor = 'generated-eval-compatibility';
+    try {
+      const code = await prepared.client.compileRenderPlan(prepared.renderPlan);
+      raw = await adapters.evaluate(code);
+    } catch (error) {
+      throw attachFailureOutcome(error, executor);
+    }
   }
-  const projected = validateResult(raw, executor);
   const warnings = [...prepared.evidence.warnings];
   if (compatibilityReason) warnings.push(Object.freeze({ tone: 'warning', text: boundedText(compatibilityReason) }));
+
+  // Validate the untrusted post-dispatch response before any advisory read.
+  try {
+    projectSemanticRenderOutcome(raw, {
+      executor,
+      structure: prepared.evidence.structure,
+      notices: warnings,
+    });
+  } catch (error) {
+    throw attachFailureOutcome(error, executor);
+  }
 
   if (typeof adapters.inspectInventory === 'function') {
     try {
@@ -446,11 +270,15 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
     }
   }
 
-  return Object.freeze({
-    ...projected,
-    structure: prepared.evidence.structure,
-    warnings: Object.freeze(warnings.slice(0, MAX_EVIDENCE_ITEMS)),
-  });
+  try {
+    return projectSemanticRenderOutcome(raw, {
+      executor,
+      structure: prepared.evidence.structure,
+      notices: warnings.slice(0, MAX_EVIDENCE_ITEMS),
+    });
+  } catch (error) {
+    throw attachFailureOutcome(error, executor);
+  }
 }
 
 /** Convenience Interface for tests and Adapters without a readiness phase. */
@@ -459,61 +287,59 @@ export async function executeSemanticRenderPlan(plan, adapters = {}) {
   return executePreparedSemanticRender(prepared, adapters);
 }
 
-export function semanticRenderOutcomeCode(result) {
-  return result?.structuralReport?.passed === false ? 1 : 0;
-}
-
 export function semanticRenderResultRows(result) {
-  if (!result || typeof result !== 'object' || !NODE_ID.test(result.id || '')) {
-    throw new TypeError('Semantic Render formatter requires an Application result.');
-  }
+  const outcome = assertSemanticRenderOutcome(result);
+  if (outcome.status === 'failed') throw new TypeError('Semantic Render formatter cannot format a failed Outcome as success.');
+  const root = outcome.roots[0];
+  const resources = outcome.resources;
+  const structuralReport = outcome.structure.live;
   /** @type {SemanticRenderRow[]} */
   const rows = [{
     tone: 'muted',
-    text: `JSX structure: ${result.structure.grid} Grid, ${result.structure.flex} Auto Layout, ${result.structure.free} explicit free, ${result.structure.absolute} absolute`,
+    text: `JSX structure: ${outcome.structure.planned.grid} Grid, ${outcome.structure.planned.flex} Auto Layout, ${outcome.structure.planned.free} explicit free, ${outcome.structure.planned.absolute} absolute`,
   }];
-  rows.push(...result.warnings.map((warning) => ({ tone: warning.tone, text: warning.text })));
-  rows.push({ tone: 'success', marker: '✓', markerTone: 'success', text: `Rendered: ${result.id}` });
-  if (result.name) rows.push({ tone: 'muted', text: `name: ${result.name}` });
+  rows.push(...outcome.notices.map((notice) => ({ tone: notice.tone, text: notice.text })));
+  rows.push({ tone: 'success', marker: '✓', markerTone: 'success', text: `Rendered: ${root.handle}` });
+  if (root.name) rows.push({ tone: 'muted', text: `name: ${root.name}` });
   rows.push({
-    tone: result.executor === 'structured-v1' ? 'muted' : 'warning',
-    text: `executor: ${result.executor === 'structured-v1' ? 'Semantic Render Plan v1' : 'generated eval compatibility'}`,
+    tone: outcome.executor.kind === 'structured' ? 'muted' : 'warning',
+    text: `executor: ${outcome.executor.kind === 'structured' ? `Semantic Render Plan v${outcome.executor.version}` : 'generated eval compatibility'}`,
   });
-  if (result.structuralReport) {
-    const summary = result.structuralReport.summary;
+  if (structuralReport) {
+    const summary = structuralReport.summary;
     const detail = `${summary.nodes} nodes, ${summary.grids} Grid, ${summary.autoLayouts} Auto Layout, ${summary.freeLayouts} free, ${summary.instances} instances, ${summary.absoluteNodes} absolute`;
     rows.push({
-      tone: result.structuralReport.passed ? 'muted' : 'error',
-      text: `live structural audit: ${result.structuralReport.passed ? 'PASS' : `FAIL — ${result.structuralReport.mismatchCount} mismatch(es)`} — ${detail}`,
+      tone: structuralReport.passed ? 'muted' : 'error',
+      text: `live structural audit: ${structuralReport.passed ? 'PASS' : `FAIL — ${structuralReport.mismatchCount} mismatch(es)`} — ${detail}`,
     });
-    if (!result.structuralReport.passed) {
-      for (const finding of result.structuralReport.mismatches.slice(0, 5)) {
+    if (!structuralReport.passed) {
+      for (const finding of structuralReport.mismatches.slice(0, 5)) {
         rows.push({ tone: 'error', text: `${finding.path}: ${finding.fact}; expected ${finding.expected}, got ${finding.actual}` });
       }
     }
   }
-  if (result.unresolved.length) {
-    rows.push({ tone: 'warning', text: `${result.unresolved.length} unresolved variable reference(s): ${result.unresolved.join(', ')}. These bindings rendered as grey placeholders; inspect variables with figma_run ["var","list"].` });
+  if (resources.unresolvedVariables.length) {
+    rows.push({ tone: 'warning', text: `${resources.unresolvedVariables.length} unresolved variable reference(s): ${resources.unresolvedVariables.join(', ')}. These bindings rendered as grey placeholders; inspect variables with figma_run ["var","list"].` });
   }
-  if (result.variableReport) {
-    const report = result.variableReport;
+  if (resources.variableReport) {
+    const report = resources.variableReport;
     rows.push({ tone: 'muted', text: `variable report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound, ${report.ambiguous} ambiguous, ${report.unsupported} unsupported` });
   }
-  if (result.textStyleReport) {
-    const report = result.textStyleReport;
+  if (resources.textStyleReport) {
+    const report = resources.textStyleReport;
     rows.push({ tone: 'muted', text: `Text Style report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound` });
   }
-  if (result.fallbackAnnotationReport?.requested) {
-    const report = result.fallbackAnnotationReport;
+  if (resources.fallbackAnnotationReport?.requested) {
+    const report = resources.fallbackAnnotationReport;
     rows.push({ tone: report.unsupported ? 'warning' : 'muted', text: `fallback annotations: ${report.applied} added, ${report.deduplicated} already present, ${report.unsupported} unsupported` });
   }
-  if (result.createdVariables.length) rows.push({ tone: 'success', text: `${result.createdVariables.length} variable(s) created and bound: ${result.createdVariables.join(', ')}` });
-  if (result.createdTextStyles.length) rows.push({ tone: 'success', text: `${result.createdTextStyles.length} Text Style(s) created: ${result.createdTextStyles.join(', ')}` });
-  for (const question of result.scopeQuestions) {
+  if (resources.createdVariables.length) rows.push({ tone: 'success', text: `${resources.createdVariables.length} variable(s) created and bound: ${resources.createdVariables.join(', ')}` });
+  if (resources.createdTextStyles.length) rows.push({ tone: 'success', text: `${resources.createdTextStyles.length} Text Style(s) created: ${resources.createdTextStyles.join(', ')}` });
+  for (const question of resources.scopeQuestions) {
     rows.push({ tone: 'warning', text: `variable scope decision: ${question.collection ? `${question.collection}/` : ''}${question.name} (${question.resolvedType}); choices: ${question.allowedScopes.join(', ')}` });
     rows.push({ tone: 'muted', text: question.question });
   }
-  if (result.overflow) rows.push({ tone: 'warning', text: `Content overflows the fixed frame height by ${result.overflow}px; shrink a child or raise the frame height.` });
+  if (outcome.overflow) rows.push({ tone: 'warning', text: `Content overflows the fixed frame height by ${outcome.overflow.pixels}px; shrink a child or raise the frame height.` });
   return Object.freeze(rows.map((row) => Object.freeze(row)));
 }
 

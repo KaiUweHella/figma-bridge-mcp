@@ -21,6 +21,7 @@
     "engine/src/lib/plugin-write-lane.js",
     "engine/src/lib/protocol-contract.js",
     "engine/src/lib/revision-context.js",
+    "engine/src/lib/semantic-render-outcome.js",
     "engine/src/lib/spec-format.js",
     "engine/src/application/asset-export-request.js",
     "engine/src/application/asset-export-command.js",
