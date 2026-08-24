@@ -19,6 +19,8 @@
     "engine/src/application/canvas-awareness-request.js",
     "engine/src/application/page-navigation-command.js",
     "engine/src/application/page-navigation-request.js",
+    "engine/src/application/page-structure-command.js",
+    "engine/src/application/page-structure-request.js",
     "engine/src/application/code-spec-command.js",
     "engine/src/application/code-spec-request.js",
     "engine/src/application/design-capture.js",

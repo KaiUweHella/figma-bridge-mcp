@@ -456,6 +456,13 @@ non-retrying, and resolves only an id, exact name, or unique substring. It
 changes the active editor page without modifying document content, while
 ambiguous names fail instead of selecting a page by guesswork.
 
+The mutating `canvas page-create` and `canvas page-divider` commands share a
+separate non-retrying Page Structure path. Duplicate page names and divider
+indexes are validated before creation. Optional divider names must use Figma's
+native all-asterisk, all-dash or all-space form so the command cannot silently
+create a normal page. A failure after creation triggers Command-owned cleanup
+and reports possible residue truthfully if Figma cannot remove it.
+
 `node duplicate` works for cloneable design nodes including Sections;
 `node reparent` accepts an explicit child index and preserves canvas position
 when the destination is not Auto Layout. `create frame|rect|ellipse|text|line|autolayout`

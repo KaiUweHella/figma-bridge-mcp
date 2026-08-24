@@ -326,6 +326,25 @@ test('canvas pages and page delegate one Plan-bound Page Navigation Application'
     'Commander must not retain Page Navigation readiness, resolution, or formatting logic');
 });
 
+test('canvas page-create and page-divider delegate one Plan-bound Page Structure Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const start = adapter.indexOf(".command('page-create <name>')");
+  const end = adapter.indexOf(".command('page <nameOrId>')", start);
+  const actions = adapter.slice(start, end);
+  const helperStart = adapter.indexOf('async function runPageStructureCommand');
+  const helper = adapter.slice(helperStart, start);
+
+  assert.equal((actions.match(/runPageStructureCommand\(/g) || []).length, 2);
+  assert.match(helper, /pageStructurePlanningArgvFromRequest/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /executePageStructurePlan\(plan/);
+  assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
+  assert.doesNotMatch(actions,
+    /checkConnection\(|figma\.createPage|figma\.createPageDivider|setCurrentPageAsync|insertChild/,
+    'Commander must not retain Page Structure readiness, mutation, or formatting logic');
+});
+
 test('code-spec delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');

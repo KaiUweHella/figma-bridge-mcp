@@ -15,6 +15,10 @@ import {
   pageNavigationPlanningArgvFromRequest,
 } from '../application/page-navigation-command.js';
 import {
+  executePageStructurePlan,
+  pageStructurePlanningArgvFromRequest,
+} from '../application/page-structure-command.js';
+import {
   program,
   buildNodeSelector,
   checkConnection,
@@ -63,6 +67,23 @@ async function runPageNavigationCommand(request) {
     });
 }
 
+async function runPageStructureCommand(request) {
+  const plan = planFigmaCommand(pageStructurePlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executePageStructurePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 canvas
   .command('info')
   .description('Show canvas info (bounds, element count, free space)')
@@ -97,21 +118,17 @@ canvas
   .command('page-create <name>')
   .description('Create a new page and switch to it')
   .option('--no-switch', 'Create the page without switching to it')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
-    await checkConnection();
-    const code = `(async () => {
-      const existing = figma.root.children.find(p => p.name === ${JSON.stringify(name)});
-      if (existing) throw new Error('Page already exists: ' + ${JSON.stringify(name)} + ' (' + existing.id + ')');
-      const page = figma.createPage();
-      page.name = ${JSON.stringify(name)};
-      ${options.switch === false ? '' : 'await figma.setCurrentPageAsync(page);'}
-      return { id: page.id, name: page.name, switched: ${options.switch !== false} };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓') + ` Created page: ${r.name} ${chalk.gray('(' + r.id + ')')}${r.switched ? ' — now current' : ''}`);
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runPageStructureCommand({
+        action: 'page-create',
+        name,
+        switchPage: options.switch !== false,
+      });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
     }
   });
 
@@ -120,19 +137,16 @@ canvas
   .description('Create a native page divider')
   .option('--index <n>', 'Insert at this zero-based document index')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
     try {
-      const index = options.index === undefined ? null : Number(options.index);
-      if (index !== null && (!Number.isInteger(index) || index < 0)) throw new Error('--index must be a non-negative integer');
-      await checkConnection();
-      const code = `(async () => {
-const divider = figma.createPageDivider(${name === undefined ? '' : JSON.stringify(name)});
-${index === null ? '' : `if (${index} >= figma.root.children.length) throw new Error('Index out of range: ' + ${index}); figma.root.insertChild(${index}, divider);`}
-return { id: divider.id, name: divider.name, index: figma.root.children.indexOf(divider), isPageDivider: divider.isPageDivider };
-})()`;
-      const result = await daemonExec('eval', { code });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓') + ` Created page divider ${chalk.gray('(' + result.id + ')')}`);
+      const result = await runPageStructureCommand({
+        action: 'page-divider',
+        name: name === undefined ? null : name,
+        index: options.index === undefined ? null : options.index,
+        json: options.json === true,
+      });
+      console.log(result.stdout);
     } catch (error) { handleEvalError(error); }
   });
 

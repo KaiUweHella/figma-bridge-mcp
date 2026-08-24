@@ -7,6 +7,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `canvas page-create` and `canvas page-divider` through one closed,
+  non-retrying Page Structure Application shared by Commander and MCP. Divider
+  indexes now preflight before creation, and later-stage failures clean up the
+  Command-created object or report possible residue truthfully. Optional names
+  must retain Figma's native divider grammar instead of silently creating a
+  normal page.
 - Routed `canvas pages` and `canvas page` through one closed Page Navigation
   Application shared by Commander and MCP. Listing is bounded and safely
   retryable; switching is explicit and non-retrying, with deterministic

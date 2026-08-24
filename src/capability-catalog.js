@@ -66,6 +66,11 @@ import {
   parsePageNavigationRequest,
 } from '../engine/src/application/page-navigation-request.js';
 import {
+  acceptsPageStructureArgv,
+  pageStructureArgvFromRequest,
+  parsePageStructureRequest,
+} from '../engine/src/application/page-structure-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -163,7 +168,8 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'canvas.info', 'canvas.next', 'canvas.page', 'canvas.pages',
+  'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
+  'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
@@ -278,6 +284,9 @@ function specializedPolicy(name, entry, args) {
     if (sub === 'pages') retry = 'safe-read';
     pathPolicy = 'page-navigation-input';
   }
+  if (name === 'canvas' && ['page-create', 'page-divider'].includes(sub)) {
+    pathPolicy = 'page-structure-input';
+  }
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -326,6 +335,10 @@ function commandCapability(args) {
   }
   if (name === 'canvas' && ['pages', 'page'].includes(args[1])
     && !action.help && !acceptsPageNavigationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'canvas' && ['page-create', 'page-divider'].includes(args[1])
+    && !action.help && !acceptsPageStructureArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
@@ -791,6 +804,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'page-navigation-input': {
       args.splice(0, args.length,
         ...pageNavigationArgvFromRequest(parsePageNavigationRequest(args)));
+      break;
+    }
+    case 'page-structure-input': {
+      args.splice(0, args.length,
+        ...pageStructureArgvFromRequest(parsePageStructureRequest(args)));
       break;
     }
     case 'inspect-input': {

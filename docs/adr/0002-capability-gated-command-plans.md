@@ -164,3 +164,13 @@ queries after `--`; Commander and `figma_run` share one authentic Plan,
 deterministic id/exact-name/unique-substring resolution, bounded ambiguity and
 result validation, and control-safe text projection. Page creation and other
 document mutations remain outside this Application.
+
+The mutating `canvas page-create` and `canvas page-divider` actions form a
+separate Page Structure Application. Their closed request owns page names,
+switch intent, optional divider index and output format before confirmation.
+Both Adapters execute one non-retrying write Plan. Duplicate page names and
+divider indexes are checked before creation, and optional divider names must
+retain Figma's native all-asterisk, all-dash or all-space semantics. If a later
+rename, page switch or divider insertion fails, the Application removes the
+object it created where Figma permits and reports bounded possible residue
+otherwise.

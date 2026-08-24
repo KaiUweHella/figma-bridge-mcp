@@ -47,6 +47,14 @@ It changes editor context, not document content, and never creates, deletes,
 renames, or guesses a page when a query is ambiguous.
 _Avoid_: page eval, document mutation, implicit page selection
 
+**Page Structure**:
+The non-retrying creation of a named Figma page or native page divider through
+one shared Command Application. It preflights duplicates and document indexes
+and enforces Figma's native divider-name grammar before mutation, owns rollback
+of a Command-created object when a later stage fails, and reports possible
+residue instead of claiming atomicity.
+_Avoid_: page helper, unchecked divider insertion, silent partial creation
+
 **Verification Artifact**:
 A PNG evidence file whose exact path, scope, retention owner and output role are
 fixed by the owning **Command Plan** before Figma readiness or dispatch.
