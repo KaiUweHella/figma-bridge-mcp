@@ -323,6 +323,24 @@ test('prototype inspect delegates one Plan-bound bounded Prototype Inspection Ap
     'Commander must not retain Prototype Inspection readiness, execution, or formatting logic');
 });
 
+test('var show delegates one Plan-bound bounded Variable Facts Application', () => {
+  const adapter = sources.get('variables.js');
+  assert.ok(adapter, 'variables.js exists');
+  const start = adapter.indexOf("variables.command('show <variable>')");
+  const end = adapter.indexOf("variables.command('update <variable>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(variableFactsArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableFactsPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|variableShowCode\(/,
+    'Commander must not retain Variable Facts readiness, execution, or formatting logic');
+});
+
 test('canvas info and next delegate one Plan-bound Canvas Awareness Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

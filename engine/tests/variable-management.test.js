@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { variableFactsCode } from '../src/application/variable-facts-command.js';
 import {
   collectionExtendCode, collectionModeCode, collectionUpdateCode, parseBoolean, parseCodePlatform,
   parseScopes, variableCodeSyntaxCode, variableResolveCode, variableSetValueCode,
-  variableShowCode, variableUpdateCode,
+  variableUpdateCode,
 } from '../src/lib/variable-management.js';
 
 const execute = (code, figma) => new Function('figma', `return ${code}`)(figma);
@@ -63,7 +64,7 @@ test('collection extension prefers the native local collection and supports a li
 
 test('variable show and update expose metadata, modes, values, scopes, and publish status', async () => {
   const { variable, figma } = fixture();
-  const shown = await execute(variableShowCode({ variable: 'space/md' }), figma);
+  const shown = JSON.parse(await execute(variableFactsCode({ variable: 'space/md' }), figma));
   assert.equal(shown.collection.name, 'Primitives');
   assert.equal(shown.publishStatus, 'CURRENT');
   const updated = await execute(variableUpdateCode({ variable: 'V:1', description: 'Medium space', hidden: true, scopes: ['GAP'] }), figma);

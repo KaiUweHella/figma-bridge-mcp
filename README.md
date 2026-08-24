@@ -292,10 +292,10 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   **Command Application Modules**. `export assets`, `node set-text`, bounded
   `node tree`, current-page Node Discovery through `find`, direct
   `node bindings`, native Inspect `node css`, exact Prototype Inspection,
-  Design Link set/inspect, and Design Contract capture/check use the same
-  Implementation from MCP and Commander. Other `figma_run` actions remain on
-  the deliberately broad child-process compatibility Adapter while they
-  migrate one vertical slice at a time. One
+  Variable Facts through `var show`, Design Link set/inspect, and Design
+  Contract capture/check use the same Implementation from MCP and Commander.
+  Other `figma_run` actions remain on the deliberately broad child-process
+  compatibility Adapter while they migrate one vertical slice at a time. One
   **Daemon Client Module** owns signing, timeouts and transport errors for both
   paths.
 - The **Design Capture Module** walks an explicit node once and locally projects
@@ -1243,9 +1243,13 @@ figma_run ["col", "mode-rename", "Primitives", "Dark", "Dim"]
 figma_run ["col", "extend", "Primitives", "Brand"]
 ```
 
-`var show` returns values by mode, scopes, code syntax, collection metadata and
-publish status. `var resolve` deliberately requires a consumer node because
-aliases can resolve differently under that node's selected modes. Collection
+`var show` returns exact bounded Variable Facts through the same safe-read
+Application from CLI and MCP: values by mode, alias ids, scopes, code syntax,
+collection/mode identity and publish status. Variable and collection names must
+resolve uniquely; `--collection` is the explicit way to disambiguate duplicate
+variable names. URL-shaped names remain payload and cannot retarget the
+command. `var resolve` deliberately requires a consumer node because aliases
+can resolve differently under that node's selected modes. Collection
 `show`, `update`, `mode-add`, `mode-rename`, `mode-remove` and
 `publish-status` follow the same ID/exact-name/unique-substring lookup policy.
 Figma plan limits on mode count remain Figma-enforced and surface as errors.

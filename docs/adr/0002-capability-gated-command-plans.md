@@ -168,6 +168,17 @@ instead of returning a plausible partial interaction contract. Safe JSON text
 escapes terminal controls without changing the parsed facts. Mutating
 `prototype add`, `set` and `clear` remain separate non-retrying Commands.
 
+`var show` is a separate Variable Facts read for exact token metadata. Its
+closed request owns one variable id/name and an optional collection id/name;
+neither payload field contributes a Figma URL target. Commander and
+`figma_run` execute one safe-read Command Plan and Variable Facts Application.
+The versioned result preserves supported VariableValue shapes, mode and alias
+identity, scopes, code syntax, collection metadata and publish status within
+explicit depth, collection, value, string and serialized-size limits.
+Ambiguous names and invalid or oversized results fail instead of selecting or
+truncating. Consumer-specific resolution and all variable mutations remain
+separate Commands.
+
 Current-page Canvas Awareness follows the same rule for `canvas info` and
 `canvas next`. Their closed request Interface owns the complete option surface,
 including bounded numeric gaps and the `right|below` direction. Commander and

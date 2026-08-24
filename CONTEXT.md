@@ -33,6 +33,15 @@ _Avoid_: walker output, cache entry
 The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
 _Avoid_: binding dump, token proof, complete variable capture
 
+**Variable Facts**:
+The exact, versioned and deeply bounded read of one local Figma variable by id
+or unambiguous name, optionally scoped to one collection. It preserves authored
+mode values and aliases, type, scopes, code syntax, collection/mode identity and
+publish status through one shared safe-read Command Application. It is token
+metadata, not a consumer-specific resolved value or permission to mutate a
+variable.
+_Avoid_: variable dump, resolved token value, variable edit
+
 **Node Discovery**:
 The bounded depth-first search of the fully loaded current Figma page by
 case-insensitive partial node name and optional node type. It returns stable

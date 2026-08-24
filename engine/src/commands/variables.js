@@ -1,6 +1,12 @@
 // Commands: variables (extracted from index.js)
 import chalk from 'chalk';
 import { join } from 'path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executeVariableFactsPlan,
+  variableFactsArgvFromRequest,
+} from '../application/variable-facts-command.js';
 import {
   progress,
   program,
@@ -17,7 +23,7 @@ import {
 import {
   parseBoolean, parseScopes, parseVariableLiteral, parseVariableType,
   variableCodeSyntaxCode, variablePublishStatusCode,
-  variableResolveCode, variableSetValueCode, variableShowCode, variableUpdateCode,
+  variableResolveCode, variableSetValueCode, variableUpdateCode,
 } from '../lib/variable-management.js';
 
 // ============ VARIABLES ============
@@ -67,9 +73,31 @@ variables
 
 variables.command('show <variable>')
   .option('-c, --collection <collection>')
+  .allowExcessArguments(false)
   .action(async (variable, options) => {
-    try { await checkConnection(); console.log(JSON.stringify(await fastEval(variableShowCode({ variable, collection: options.collection })), null, 2)); }
-    catch (error) { handleEvalError(error); }
+    try {
+      const plan = planFigmaCommand(variableFactsArgvFromRequest({
+        variable,
+        collection: options.collection || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableFactsPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables.command('update <variable>')

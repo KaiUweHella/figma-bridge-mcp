@@ -23,6 +23,8 @@
     "engine/src/application/page-structure-request.js",
     "engine/src/application/prototype-inspection-command.js",
     "engine/src/application/prototype-inspection-request.js",
+    "engine/src/application/variable-facts-command.js",
+    "engine/src/application/variable-facts-request.js",
     "engine/src/application/code-spec-command.js",
     "engine/src/application/code-spec-request.js",
     "engine/src/application/design-capture.js",

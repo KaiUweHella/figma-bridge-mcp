@@ -140,12 +140,6 @@ const __variableFacts = async (v) => {
 };`;
 }
 
-function variableShowCode({ variable, collection = null }) {
-  return `(async () => {${variableHelpersCode()}
-return __variableFacts(await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)}));
-})()`;
-}
-
 function variableUpdateCode({ variable, collection = null, name, description, hidden, scopes }) {
   return `(async () => {${variableHelpersCode()}
 const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
@@ -283,5 +277,5 @@ export {
   collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
   collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes, parseVariableLiteral, parseVariableType,
   variableCodeSyntaxCode, variablePublishStatusCode, variableResolveCode,
-  variableSetValueCode, variableShowCode, variableUpdateCode,
+  variableSetValueCode, variableUpdateCode,
 };

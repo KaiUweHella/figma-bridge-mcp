@@ -82,6 +82,11 @@ import {
   prototypeInspectionFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/prototype-inspection-request.js';
 import {
+  acceptsVariableFactsArgv,
+  parseVariableFactsRequest,
+  variableFactsArgvFromRequest,
+} from '../engine/src/application/variable-facts-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -185,7 +190,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
-  'prototype.inspect', 'render', 'render-batch', 'verify',
+  'prototype.inspect', 'render', 'render-batch', 'var.show', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -291,6 +296,10 @@ function specializedPolicy(name, entry, args) {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
   }
+  if (name === 'var' && sub === 'show') {
+    retry = 'safe-read';
+    pathPolicy = 'variable-facts-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -349,6 +358,10 @@ function commandCapability(args) {
   }
   if (name === 'prototype' && args[1] === 'inspect'
     && !action.help && !acceptsPrototypeInspectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'show'
+    && !action.help && !acceptsVariableFactsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -845,6 +858,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       args.splice(0, args.length,
         ...prototypeInspectionArgvFromRequest(parsePrototypeInspectionRequest(args)));
+      break;
+    }
+    case 'variable-facts-input': {
+      args.splice(0, args.length,
+        ...variableFactsArgvFromRequest(parseVariableFactsRequest(args)));
       break;
     }
     case 'inspect-input': {

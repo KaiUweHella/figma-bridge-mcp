@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `var show` through one exact, versioned and deeply bounded Variable
+  Facts Application shared by Commander and MCP. Mode values, aliases, scopes,
+  code syntax, collection identity and publish status now retain their official
+  value shapes; ambiguous names and malformed or oversized results fail without
+  guessing or truncation.
 - Routed `prototype inspect` through one exact, versioned and deeply bounded
   Prototype Inspection Application shared by Commander and MCP. Semantic node
   targeting, safe-read retry, deadlines and safe JSON projection now preserve
