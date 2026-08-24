@@ -30,6 +30,8 @@
     "engine/src/application/node-text-request.js",
     "engine/src/application/node-css-command.js",
     "engine/src/application/node-css-request.js",
+    "engine/src/application/node-bindings-command.js",
+    "engine/src/application/node-bindings-request.js",
     "engine/src/application/node-tree-command.js",
     "engine/src/application/node-tree-request.js",
     "engine/src/application/screenshot-command.js",

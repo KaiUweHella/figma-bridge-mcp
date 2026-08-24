@@ -19,6 +19,10 @@ import {
   nodeCssPlanningArgvFromRequest,
 } from '../application/node-css-command.js';
 import {
+  executeNodeBindingsPlan,
+  nodeBindingsPlanningArgvFromRequest,
+} from '../application/node-bindings-command.js';
+import {
   executeNodeTextPlan,
   formatNodeTextResult,
   nodeTextPlanningArgvFromRequest,
@@ -72,56 +76,32 @@ node
 node
   .command('bindings [nodeId]')
   .description('Show variable bindings for node')
-  .action(async (nodeId) => {
-    await checkConnection();
-
-    // Plugin bridge is the only execution path in the Safe-Mode build.
-    {
-      const code = `(async () => {
-        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
-        const nodes = targetId
-          ? [await figma.getNodeByIdAsync(targetId)]
-          : figma.currentPage.selection;
-
-        if (!nodes.length) return 'No node selected';
-
-        const results = [];
-        for (const node of nodes) {
-          if (!node) continue;
-          const bindings = {};
-          if (node.boundVariables) {
-            for (const [prop, binding] of Object.entries(node.boundVariables)) {
-              const b = Array.isArray(binding) ? binding[0] : binding;
-              if (b && b.id) {
-                const variable = await figma.variables.getVariableByIdAsync(b.id);
-                bindings[prop] = variable ? variable.name : b.id;
-              }
-            }
-          }
-          results.push({ id: node.id, name: node.name, bindings });
-        }
-        return results;
-      })()`;
-
-      try {
-        const result = await fastEval(code);
-        if (typeof result === 'string') {
-          console.log(result);
-        } else {
-          result.forEach(r => {
-            console.log(chalk.cyan(`\n${r.name} (${r.id}):`));
-            if (Object.keys(r.bindings).length === 0) {
-              console.log(chalk.gray('  No variable bindings'));
-            } else {
-              Object.entries(r.bindings).forEach(([prop, varName]) => {
-                console.log(`  ${prop}: ${chalk.green(varName)}`);
-              });
-            }
+  .option('--json', 'Output bounded direct Node Binding Facts as JSON')
+  .allowExcessArguments(false)
+  .action(async (nodeId, options) => {
+    try {
+      const plan = planFigmaCommand(nodeBindingsPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+        json: options.json === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeBindingsPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
           });
-        }
-      } catch (e) {
-        console.log(chalk.red('✗ Bindings failed: ' + e.message));
-      }
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Bindings failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

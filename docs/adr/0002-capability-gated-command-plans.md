@@ -108,6 +108,16 @@ ID projection and URL target regardless of option order. Commander and
 and decreasing deadline. Line, depth and total-output bounds are explicit and
 truthful; malformed results and Plugin failures cannot become successful text.
 
+The neighbouring `node bindings` discovery read is a separate Node Binding
+Facts Application rather than a partial Design Capture. Its closed request
+owns optional node/selection targeting, JSON/text projection and semantic URL
+identity. Scalar aliases, array positions and component-property names retain
+their direct `node.boundVariables` topology together with bounded variable,
+collection and type identity. Commander and `figma_run` share the same
+safe-read Plan and decreasing deadline. Nested style/paint/effect and text-range
+bindings, mode values, resolved values and provenance remain Design Capture
+facts and are never implied by this outline.
+
 Native Inspect `node css` is also a dedicated bounded read rather than a
 Commander-owned eval. Its closed request owns the required node, JSON/text
 projection and Figma URL target regardless of option order. Commander and

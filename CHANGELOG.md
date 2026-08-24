@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed direct `node bindings` reads through one closed, versioned and bounded
+  Node Binding Facts Application shared by Commander and MCP. Scalar aliases,
+  array positions, component-property names and variable/collection/type
+  identity now survive text and JSON projection without claiming the broader
+  provenance owned by Design Capture.
 - Routed native Figma Inspect `node css` reads through one closed, bounded
   Command Application shared by Commander and MCP. URL targeting, safe-read
   retry, deadlines, output format and malformed-result handling now come from

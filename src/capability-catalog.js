@@ -44,6 +44,12 @@ import {
   parseNodeCssRequest,
 } from '../engine/src/application/node-css-request.js';
 import {
+  acceptsNodeBindingsArgv,
+  nodeBindingsArgvFromRequest,
+  nodeBindingsFigmaUrlFileKeyFromArgv,
+  parseNodeBindingsRequest,
+} from '../engine/src/application/node-bindings-request.js';
+import {
   acceptsNodeTreeArgv,
   nodeTreeArgvFromRequest,
   nodeTreeFigmaUrlFileKeyFromArgv,
@@ -149,7 +155,8 @@ const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check', 'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.css', 'node.set-text', 'node.tree', 'render', 'render-batch', 'verify',
+  'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree',
+  'render', 'render-batch', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -235,6 +242,7 @@ function specializedPolicy(name, entry, args) {
     }
   }
   if (name === 'link' && sub === 'inspect') retry = 'safe-read';
+  if (name === 'node' && sub === 'bindings') retry = 'safe-read';
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
   return { execution, timeoutClass, pathPolicy, retry };
@@ -274,6 +282,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'css' && !action.help && !acceptsNodeCssArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'bindings' && !action.help && !acceptsNodeBindingsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
@@ -641,7 +652,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'node-inputs': {
-      if (args[1] === 'css') {
+      if (args[1] === 'bindings') {
+        const closedNodeBindingsFileKey = nodeBindingsFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeBindingsFileKey;
+        args.splice(0, args.length,
+          ...nodeBindingsArgvFromRequest(parseNodeBindingsRequest(args)));
+      } else if (args[1] === 'css') {
         const closedNodeCssFileKey = nodeCssFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeCssFileKey;
         args.splice(0, args.length, ...nodeCssArgvFromRequest(parseNodeCssRequest(args)));

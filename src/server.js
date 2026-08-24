@@ -81,6 +81,10 @@ import {
   nodeCssPlanRoute,
 } from "../engine/src/application/node-css-command.js";
 import {
+  executeNodeBindingsPlan,
+  nodeBindingsPlanRoute,
+} from "../engine/src/application/node-bindings-command.js";
+import {
   executeNodeTreePlan,
   nodeTreePlanRoute,
 } from "../engine/src/application/node-tree-command.js";
@@ -1741,6 +1745,23 @@ export async function handleTool(name, rawArgs) {
             stderr: "",
             code: 0,
           };
+        });
+        return resultFromCli(res);
+      }
+      const nodeBindingsRoute = nodeBindingsPlanRoute(plan);
+      if (nodeBindingsRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeBindingsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
         });
         return resultFromCli(res);
       }

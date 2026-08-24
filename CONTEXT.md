@@ -29,6 +29,10 @@ _Avoid_: prepared arguments, execution options, mutable command context
 The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
 _Avoid_: walker output, cache entry
 
+**Node Binding Facts**:
+The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
+_Avoid_: binding dump, token proof, complete variable capture
+
 **Verification Artifact**:
 A PNG evidence file whose exact path, scope, retention owner and output role are
 fixed by the owning **Command Plan** before Figma readiness or dispatch.
@@ -202,6 +206,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** Is `node css` the same thing as exported design tokens?
 >
 > **Domain expert:** No. Native Inspect CSS is the bounded property map returned by Figma's `getCSSAsync()` for one target node. It is useful implementation evidence, but it neither replaces Design Capture nor claims token provenance. `export css` separately projects variable collections as CSS custom properties.
+
+> **Developer:** Does `node bindings` prove every variable that affects a node?
+>
+> **Domain expert:** No. Node Binding Facts preserve the exact topology and identity of direct `node.boundVariables` for quick discovery. Use Design Capture when implementation needs nested style, paint, effect or text-range bindings, mode values, resolved values or provenance.
 
 > **Developer:** Can a command silently switch to another open file?
 >

@@ -290,8 +290,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
   and migrated `figma_run` actions execute directly through value-returning
   **Command Application Modules**. `export assets`, `node set-text`, bounded
-  `node tree`, native Inspect `node css`, Design Link set/inspect, and Design
-  Contract capture/check use the same
+  `node tree`, direct `node bindings`, native Inspect `node css`, Design Link
+  set/inspect, and Design Contract capture/check use the same
   Implementation from MCP and Commander. Other `figma_run` actions remain on
   the deliberately broad child-process compatibility Adapter while they
   migrate one vertical slice at a time. One
@@ -1117,6 +1117,21 @@ figma_run ["tokens", "rebind", "TARGET_COLLECTION", "--node", "12:34", "--apply"
 `stroke`, `radius`, `gap`, `padding` (or one side), `opacity`, `stroke-width`,
 `width`, `height`. Its read counterpart is `node bindings`. Pass `--batch` with
 a JSON array to bind many properties or nodes in one call.
+
+For a bounded machine-readable read, add `--json`:
+
+```
+figma_run ["node", "bindings", "12:34"]
+figma_run ["node", "bindings", "12:34", "--json"]
+```
+
+The result preserves direct `node.boundVariables` topology: scalar aliases,
+array positions such as `fills.1`, and component-property names. It also keeps
+the variable id, name, resolved type and collection identity when Figma can
+resolve them. This is intentionally a fast discovery outline, not proof of
+every variable influencing the node. Use Design Capture/Code Spec for bindings
+inside styles, paints, effects or text ranges, mode values, resolved values and
+provenance.
 
 A variable name that is not unique is **refused, not guessed** — this file has
 `radius/lg` in two collections, and the answer names both so `--collection` can
