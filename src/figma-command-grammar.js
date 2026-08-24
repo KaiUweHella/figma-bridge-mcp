@@ -12,8 +12,153 @@ const EMPTY_OPTION_FACTS = Object.freeze({
   entries: Object.freeze([]),
 });
 
-function optionFacts(args) {
+function valueOption(...aliases) {
+  return Object.freeze({
+    name: aliases.find((alias) => alias.startsWith('--')) || aliases[0],
+    aliases: Object.freeze(aliases),
+    value: true,
+  });
+}
+
+function flagOption(...aliases) {
+  return Object.freeze({
+    name: aliases.find((alias) => alias.startsWith('--')) || aliases[0],
+    aliases: Object.freeze(aliases),
+    value: false,
+  });
+}
+
+function optionSchema(options = [], { conflicts = [] } = {}) {
+  return Object.freeze({
+    options: Object.freeze([
+      valueOption('--figma-file'),
+      ...options,
+    ]),
+    conflicts: Object.freeze(conflicts.map((names) => Object.freeze([...names]))),
+  });
+}
+
+// Only Legacy Commands whose options affect Command Capability policy need a
+// compatibility schema here. Migrated Command Applications validate through
+// their own closed request Interfaces instead.
+const POLICY_OPTION_SCHEMAS = Object.freeze({
+  'export.screenshot': optionSchema([
+    valueOption('-o', '--output'), valueOption('-s', '--scale'), valueOption('-f', '--format'),
+  ]),
+  'export.node': optionSchema([
+    valueOption('-o', '--output'), valueOption('-s', '--scale'), valueOption('-f', '--format'),
+  ]),
+  'export.video': optionSchema([
+    valueOption('-o', '--output'), valueOption('-f', '--format'), valueOption('--fps'),
+    valueOption('--quality'), valueOption('--loop'),
+  ]),
+  'export.node-json': optionSchema([valueOption('-o', '--output')]),
+  'export.dtcg': optionSchema([valueOption('--dialect')]),
+  'gradient.extract': optionSchema([
+    valueOption('--mode'), valueOption('--apply-to'), valueOption('--direction'),
+    valueOption('--stops'), valueOption('--blur'), flagOption('--no-trim'), flagOption('--json'),
+  ]),
+  'tokens.import': optionSchema([
+    valueOption('-c', '--collection'), flagOption('--force-slash'),
+  ]),
+  'tokens.sync': optionSchema([
+    valueOption('-c', '--collection'), flagOption('--apply'), flagOption('--prune'),
+    flagOption('--ours'), flagOption('--theirs'), valueOption('--lockfile'),
+  ], { conflicts: [['--ours', '--theirs']] }),
+  'tokens.import-design-md': optionSchema([
+    valueOption('-c', '--collection'), flagOption('--print-context'),
+  ]),
+  'tokens.rebind': optionSchema([
+    valueOption('-n', '--node'), flagOption('--page'), flagOption('--apply'),
+  ], { conflicts: [['--node', '--page']] }),
+  extract: optionSchema([
+    valueOption('--sections'), valueOption('--pages'), flagOption('--selection'),
+    flagOption('--split'), flagOption('--no-split'),
+  ], { conflicts: [['--split', '--no-split']] }),
+  spec: optionSchema([
+    valueOption('-f', '--file'), valueOption('--check'), valueOption('--tolerance'),
+  ]),
+  'map.storybook': optionSchema([
+    valueOption('-o', '--output'), flagOption('--json'), flagOption('--current-page'),
+  ]),
+  'verify-build': optionSchema([
+    valueOption('--assets'), valueOption('--compare'), valueOption('--design'),
+    valueOption('--node'), valueOption('--diff-out'), valueOption('--max-diff'), flagOption('--json'),
+  ]),
+  import: optionSchema([
+    valueOption('-c', '--collection'), flagOption('--print-context'),
+    valueOption('--save'), valueOption('--type'),
+  ]),
+  'motion.apply': optionSchema(),
+  'kit.init': optionSchema([
+    valueOption('--storybook'), valueOption('--out'), valueOption('--node'),
+  ]),
+});
+
+function policyToken(schema, token) {
+  if (!schema || typeof token !== 'string') return null;
+  for (const option of schema.options) {
+    for (const alias of option.aliases) {
+      if (token === alias) return { option, name: alias, inline: false, value: null };
+      if (alias.startsWith('--') && token.startsWith(`${alias}=`)) {
+        return { option, name: alias, inline: true, value: token.slice(alias.length + 1) };
+      }
+      if (option.value && /^-[^-]$/.test(alias) && token.startsWith(alias)
+        && token.length > alias.length) {
+        return { option, name: alias, inline: true, value: token.slice(alias.length) };
+      }
+    }
+  }
+  return null;
+}
+
+function acceptsPolicyOptions(actionId, args) {
+  const schema = POLICY_OPTION_SCHEMAS[actionId];
+  let globalTargetSeen = false;
+  for (let index = 1; index < args.length; index++) {
+    const token = args[index];
+    if (token === '--') break;
+    if (token === '--figma-file') {
+      if (globalTargetSeen) return false;
+      globalTargetSeen = true;
+      const value = args[index + 1];
+      if (typeof value !== 'string' || value === '--'
+        || (value !== '-' && value.startsWith('-'))) return false;
+      index++;
+    } else if (typeof token === 'string' && token.startsWith('--figma-file=')) {
+      if (globalTargetSeen || token.slice('--figma-file='.length).length === 0) return false;
+      globalTargetSeen = true;
+    }
+  }
+  if (!schema) return true;
+  const seen = new Set();
+  for (let index = 1; index < args.length; index++) {
+    const token = args[index];
+    if (token === '--') break;
+    if (typeof token !== 'string' || token === '-' || !token.startsWith('-')) continue;
+    const parsed = policyToken(schema, token);
+    const option = parsed?.option;
+    if (!option || seen.has(option.name)) return false;
+    seen.add(option.name);
+    if (option.value) {
+      if (parsed.inline) {
+        if (parsed.value.length === 0) return false;
+      } else {
+        const value = args[index + 1];
+        if (typeof value !== 'string' || value === '--'
+          || (value !== '-' && value.startsWith('-'))) return false;
+        index++;
+      }
+    } else if (parsed.inline) {
+      return false;
+    }
+  }
+  return schema.conflicts.every((names) => names.filter((name) => seen.has(name)).length < 2);
+}
+
+function optionFacts(args, actionId = null) {
   if (!Array.isArray(args)) return EMPTY_OPTION_FACTS;
+  const schema = POLICY_OPTION_SCHEMAS[actionId];
   const entries = [];
   let terminatorIndex = null;
   for (let index = 1; index < args.length; index++) {
@@ -23,11 +168,12 @@ function optionFacts(args) {
       break;
     }
     if (typeof token !== 'string' || token === '-' || !token.startsWith('-')) continue;
+    const policy = policyToken(schema, token);
     const equals = token.indexOf('=');
     entries.push(Object.freeze({
-      name: equals === -1 ? token : token.slice(0, equals),
+      name: policy?.name || (equals === -1 ? token : token.slice(0, equals)),
       index,
-      inline: equals !== -1,
+      inline: policy?.inline ?? equals !== -1,
     }));
   }
   return Object.freeze({ terminatorIndex, entries: Object.freeze(entries) });
@@ -151,12 +297,13 @@ function childNamed(node, token) {
 }
 
 function resolved(actionId, { help = false, args = [] } = {}) {
+  if (!help && !acceptsPolicyOptions(actionId, args)) return REJECTED_OPTION;
   return Object.freeze({
     accepted: true,
     actionId: help ? `${actionId}.help` : actionId,
     help,
     reason: null,
-    options: optionFacts(args),
+    options: optionFacts(args, actionId),
   });
 }
 

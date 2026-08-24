@@ -632,6 +632,21 @@ test('figma_run denies an unknown nested command before write confirmation', asy
   assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
 });
 
+test('figma_run rejects malformed Legacy policy options before readiness or effects', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['tokens', 'sync', 'private-value', '--ours', '--theirs'],
+    ['gradient', 'extract', 'private-value', '--apply-to'],
+    ['verify-build', 'private-value', '--future'],
+    ['create', 'frame', 'private-value', '--figma-file', 'ONE', '--figma-file', 'TWO'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
 test('figma_run rejects malformed Design Link argv before confirmation or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

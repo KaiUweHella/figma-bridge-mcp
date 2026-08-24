@@ -158,16 +158,40 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   assert.equal(historyLiteral.effects.shared, 'none');
 });
 
-test('policy path options reject duplicates and missing values before planning', () => {
-  assert.throws(() => planFigmaCommand([
-    'export', 'node', '1:2', '--output', 'one.png', '--output', 'two.png',
-  ], { workspaceDir: '/work' }), /Duplicate output option/);
-  assert.throws(() => planFigmaCommand([
-    'spec', 'Button', '--file', 'one.md', '--file', 'two.md',
-  ], { workspaceDir: '/work' }), /Duplicate path option/);
-  assert.throws(() => planFigmaCommand([
-    'export', 'node', '1:2', '--output', '--', 'literal',
-  ], { workspaceDir: '/work' }), /requires a path value/);
+test('policy options reject unknown, duplicate, missing, and conflicting forms before planning', () => {
+  for (const args of [
+    ['export', 'node', '1:2', '--output', 'one.png', '--output', 'two.png'],
+    ['spec', 'Button', '--file', 'one.md', '--file', 'two.md'],
+    ['export', 'node', '1:2', '--output', '--', 'literal'],
+    ['gradient', 'extract', 'hero.png', '--apply-to'],
+    ['tokens', 'sync', 'tokens.json', '--ours', '--theirs'],
+    ['verify-build', '.', '--unknown-policy'],
+  ]) {
+    const plan = planFigmaCommand(args, { workspaceDir: '/work' });
+    assert.equal(plan.allowed, false, args.join(' '));
+    assert.equal(plan.id, 'unknown', args.join(' '));
+    assert.deepEqual(plan.effects, {
+      figma: 'none', workspace: 'none', network: 'none', shared: 'none',
+    }, args.join(' '));
+    assert.equal(plan.target.kind, 'none', args.join(' '));
+  }
+});
+
+test('short-attached Legacy option values keep Commander meaning during path planning', () => {
+  const exportPlan = planFigmaCommand([
+    'export', 'node', '1:2', '-onode.png', '-fpng', '-s2',
+  ], { workspaceDir: '/work' });
+  assert.equal(exportPlan.allowed, true);
+  assert.deepEqual(exportPlan.argv, [
+    'export', 'node', '1:2', '-o/work/node.png', '-fpng', '-s2',
+  ]);
+  assert.equal(exportPlan.outputs[0].path, '/work/node.png');
+
+  const specPlan = planFigmaCommand([
+    'spec', 'Button', '-fDESIGN.md',
+  ], { workspaceDir: '/work' });
+  assert.equal(specPlan.allowed, true);
+  assert.deepEqual(specPlan.argv, ['spec', 'Button', '-f/work/DESIGN.md']);
 });
 
 test('CLI and MCP receive identical option-region and literal-payload plans', () => {

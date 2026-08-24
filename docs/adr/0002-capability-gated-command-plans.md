@@ -28,6 +28,15 @@ request Interface; tokens after the terminator are always payload. The facts
 never retain option values or payload content, and they do not replace
 command-specific parsing, arity or validation.
 
+Until a Legacy Command becomes a Command Application, every option that can
+change those policies is declared in a small command-specific compatibility
+schema inside the Grammar. It accepts Commander's separate, long-inline and
+short-attached value spellings, but rejects unknown policy options, alias
+duplicates, empty or missing values and declared conflicts before a Command
+Plan can authorize effects. The global `--figma-file` target option receives
+the same duplicate and value checks for every exposed action. This schema is a
+bounded migration seam, not a second general-purpose Commander parser.
+
 Path normalization happens before a lazy Design Link Registry lookup. The
 Figma Target Context precedence is explicit caller target, a Figma URL from the
 Command Capability's closed semantic target fields, Registry target, then

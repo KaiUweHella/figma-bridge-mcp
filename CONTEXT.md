@@ -18,7 +18,7 @@ The resolved policy for one concrete **Figma Command** before execution: Adapter
 _Avoid_: allowlist entry, command metadata
 
 **Figma Command Grammar**:
-The closed recursive set of exposed Figma Command action paths and documented aliases. It resolves argv to a stable payload-free action id and syntactic option facts from before the first `--` terminator before capability policy, confirmation, audit or Adapter dispatch; unknown nested actions are not commands and later tokens are payload.
+The closed recursive set of exposed Figma Command action paths and documented aliases. It resolves argv to a stable payload-free action id and syntactic option facts from before the first `--` terminator before capability policy, confirmation, audit or Adapter dispatch. Migrated Command Applications own a closed request Interface; policy-relevant Legacy Commands instead have a small compatibility option schema that rejects unknown, duplicate, valueless or conflicting policy options while preserving Commander short and inline value forms. Unknown nested actions are not commands and later tokens are payload.
 _Avoid_: Commander fallback, subcommand allowlist
 
 **Command Plan**:

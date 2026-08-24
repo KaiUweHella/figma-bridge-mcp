@@ -374,15 +374,26 @@ function localPath(baseDir, value) {
   return isUrl(value) ? value : absolute(baseDir, value);
 }
 
+function inlineOptionValue(token, name) {
+  if (typeof token !== 'string' || typeof name !== 'string') return null;
+  if (token.startsWith(`${name}=`)) {
+    return { separator: '=', value: token.slice(name.length + 1) };
+  }
+  if (/^-[^-]$/.test(name) && token.startsWith(name) && token.length > name.length) {
+    return { separator: '', value: token.slice(name.length) };
+  }
+  return null;
+}
+
 function pathFlag(args, flags, baseDir, options) {
   const matches = optionEntries(options, flags);
   if (matches.length > 1) throw new Error(`Duplicate path option ${matches[1].name}.`);
   for (const entry of matches) {
     const arg = args[entry.index];
-    const combined = entry.inline ? arg.match(/^(--?[a-z-]+)=(.*)$/i) : null;
-    if (combined && combined[2]) {
-      const value = localPath(baseDir, combined[2]);
-      args[entry.index] = `${combined[1]}=${value}`;
+    const inline = entry.inline ? inlineOptionValue(arg, entry.name) : null;
+    if (inline?.value) {
+      const value = localPath(baseDir, inline.value);
+      args[entry.index] = `${entry.name}${inline.separator}${value}`;
       return { value };
     }
     if (!entry.inline && typeof args[entry.index + 1] === 'string'
@@ -405,10 +416,10 @@ function outputFlag(args, baseDir, defaultValue, options) {
     return args[entry.index + 1];
   }
   if (entry?.inline) {
-    const [flag, ...rest] = args[entry.index].split('=');
-    if (!rest.join('=')) throw new Error(`${entry.name} requires a path value.`);
-    const value = absolute(baseDir, rest.join('='));
-    args[entry.index] = `${flag}=${value}`;
+    const inline = inlineOptionValue(args[entry.index], entry.name);
+    if (!inline?.value) throw new Error(`${entry.name} requires a path value.`);
+    const value = absolute(baseDir, inline.value);
+    args[entry.index] = `${entry.name}${inline.separator}${value}`;
     return value;
   }
   if (entry) throw new Error(`${entry.name} requires a path value.`);
@@ -429,10 +440,10 @@ function optionalOutputFlag(args, baseDir, options) {
     return args[entry.index + 1];
   }
   if (!entry.inline) throw new Error(`${entry.name} requires a path value.`);
-  const [flag, ...rest] = args[entry.index].split('=');
-  if (!rest.join('=')) throw new Error(`${entry.name} requires a path value.`);
-  const value = absolute(baseDir, rest.join('='));
-  args[entry.index] = `${flag}=${value}`;
+  const inline = inlineOptionValue(args[entry.index], entry.name);
+  if (!inline?.value) throw new Error(`${entry.name} requires a path value.`);
+  const value = absolute(baseDir, inline.value);
+  args[entry.index] = `${entry.name}${inline.separator}${value}`;
   return value;
 }
 
@@ -882,8 +893,7 @@ function flagValue(args, flags, options) {
   const entry = matches[0];
   if (!entry) return null;
   if (entry.inline) {
-    const value = args[entry.index].slice(args[entry.index].indexOf('=') + 1);
-    return value || null;
+    return inlineOptionValue(args[entry.index], entry.name)?.value || null;
   }
   const value = args[entry.index + 1];
   return typeof value === 'string' && value !== '--' ? value : null;
