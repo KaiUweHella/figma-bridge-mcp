@@ -286,6 +286,26 @@ test('top-level inspect delegates one Plan-bound safe-read Command Application',
     'Commander must not retain Inspect readiness or execution logic');
 });
 
+test('canvas info and next delegate one Plan-bound Canvas Awareness Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const infoStart = adapter.indexOf(".command('info')");
+  const infoEnd = adapter.indexOf(".command('pages')", infoStart);
+  const nextStart = adapter.indexOf(".command('next')");
+  const nextEnd = adapter.indexOf('// (The selection-driven command groups', nextStart);
+  const actions = adapter.slice(infoStart, infoEnd) + adapter.slice(nextStart, nextEnd);
+  const helperStart = adapter.indexOf('async function runCanvasAwarenessCommand');
+  const helper = adapter.slice(helperStart, infoStart);
+
+  assert.equal((actions.match(/runCanvasAwarenessCommand\(/g) || []).length, 2);
+  assert.match(helper, /canvasAwarenessPlanningArgvFromRequest/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /executeCanvasAwarenessPlan\(plan/);
+  assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
+  assert.doesNotMatch(actions, /checkConnection\(|evalPrint\(|currentPage\.children/,
+    'Commander must not retain Canvas Awareness readiness, traversal, or formatting logic');
+});
+
 test('code-spec delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');

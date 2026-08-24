@@ -33,6 +33,13 @@ _Avoid_: walker output, cache entry
 The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
 _Avoid_: binding dump, token proof, complete variable capture
 
+**Canvas Awareness**:
+The bounded read-only aggregate of the fully loaded current Figma page used for
+safe Code-to-Figma placement. It reports top-level bounds and counts or one
+gap-aware next position through a shared Command Application; it is neither a
+Design Capture nor permission to mutate or scan other pages.
+_Avoid_: canvas eval, document layout dump, placement guess
+
 **Verification Artifact**:
 A PNG evidence file whose exact path, scope, retention owner and output role are
 fixed by the owning **Command Plan** before Figma readiness or dispatch.

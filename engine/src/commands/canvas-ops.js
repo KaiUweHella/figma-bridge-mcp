@@ -8,6 +8,10 @@ import {
   inspectPlanningArgvFromRequest,
 } from '../application/inspect-command.js';
 import {
+  canvasAwarenessPlanningArgvFromRequest,
+  executeCanvasAwarenessPlan,
+} from '../application/canvas-awareness-command.js';
+import {
   program,
   buildNodeSelector,
   checkConnection,
@@ -22,38 +26,34 @@ const canvas = program
   .command('canvas')
   .description('Canvas awareness and smart positioning');
 
+async function runCanvasAwarenessCommand(request) {
+  const plan = planFigmaCommand(canvasAwarenessPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeCanvasAwarenessPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 canvas
   .command('info')
   .description('Show canvas info (bounds, element count, free space)')
+  .allowExcessArguments(false)
   .action(async () => {
-    await checkConnection();
-    let code = `(async function() {
-// Dynamic page loading: right after a page switch, children is incomplete
-// until the page is loaded — measuring then reports bounds that are far too
-// small and smart positioning drops new renders onto existing content.
-await figma.currentPage.loadAsync();
-const children = figma.currentPage.children;
-if (children.length === 0) {
-  return JSON.stringify({ empty: true, message: 'Canvas is empty', nextX: 0, nextY: 0 });
-} else {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  children.forEach(n => {
-    minX = Math.min(minX, n.x);
-    minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + n.width);
-    maxY = Math.max(maxY, n.y + n.height);
-  });
-  return JSON.stringify({
-    elements: children.length,
-    bounds: { x: Math.round(minX), y: Math.round(minY), width: Math.round(maxX - minX), height: Math.round(maxY - minY) },
-    nextX: Math.round(maxX + 100),
-    nextY: 0,
-    frames: children.filter(n => n.type === 'FRAME').length,
-    components: children.filter(n => n.type === 'COMPONENT').length
-  }, null, 2);
-}
-})()`;
-    await evalPrint(code);
+    try {
+      const result = await runCanvasAwarenessCommand({ action: 'info' });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+    }
   });
 
 canvas
@@ -151,29 +151,18 @@ canvas
   .description('Get next free position on canvas (no overlap)')
   .option('-g, --gap <n>', 'Gap from existing elements', '100')
   .option('-d, --direction <dir>', 'Direction: right, below', 'right')
+  .allowExcessArguments(false)
   .action(async (options) => {
-    await checkConnection();
-    let code = `(async function() {
-// Same dynamic-page-loading caveat as \`canvas info\`: measure only after
-// the page is fully loaded, or the "free" position lands on real content.
-await figma.currentPage.loadAsync();
-const children = figma.currentPage.children;
-const gap = ${options.gap};
-if (children.length === 0) {
-  return JSON.stringify({ x: 0, y: 0 });
-} else {
-  ${options.direction === 'below' ? `
-  let maxY = -Infinity;
-  children.forEach(n => { maxY = Math.max(maxY, n.y + n.height); });
-  return JSON.stringify({ x: 0, y: Math.round(maxY + gap) });
-  ` : `
-  let maxX = -Infinity;
-  children.forEach(n => { maxX = Math.max(maxX, n.x + n.width); });
-  return JSON.stringify({ x: Math.round(maxX + gap), y: 0 });
-  `}
-}
-})()`;
-    await evalPrint(code);
+    try {
+      const result = await runCanvasAwarenessCommand({
+        action: 'next',
+        gap: options.gap,
+        direction: options.direction,
+      });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+    }
   });
 
 // (The selection-driven command groups `bind`, `sizing`, `padding`, `gap`,

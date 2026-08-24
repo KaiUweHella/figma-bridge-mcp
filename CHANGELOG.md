@@ -7,6 +7,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed read-only `canvas info` and `canvas next` through one closed Canvas
+  Awareness Application shared by Commander and MCP. Dynamic page loading,
+  target, safe-read retry, deadline, finite gap validation and closed geometry
+  projection now come from the same authentic Command Plan.
 - Routed direct `node bindings` reads through one closed, versioned and bounded
   Node Binding Facts Application shared by Commander and MCP. Scalar aliases,
   array positions, component-property names and variable/collection/type

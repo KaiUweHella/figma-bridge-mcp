@@ -56,6 +56,11 @@ import {
   parseNodeTreeRequest,
 } from '../engine/src/application/node-tree-request.js';
 import {
+  acceptsCanvasAwarenessArgv,
+  canvasAwarenessArgvFromRequest,
+  parseCanvasAwarenessRequest,
+} from '../engine/src/application/canvas-awareness-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -153,7 +158,8 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'export.code-spec',
+  'canvas.info', 'canvas.next', 'contract.capture', 'contract.check',
+  'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree',
   'render', 'render-batch', 'verify',
@@ -258,6 +264,10 @@ function specializedPolicy(name, entry, args) {
   if (name === 'node' && sub === 'bindings') retry = 'safe-read';
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
+  if (name === 'canvas' && ['info', 'next'].includes(sub)) {
+    retry = 'safe-read';
+    pathPolicy = 'canvas-awareness-input';
+  }
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -298,6 +308,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'bindings' && !action.help && !acceptsNodeBindingsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'canvas' && ['info', 'next'].includes(args[1])
+    && !action.help && !acceptsCanvasAwarenessArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
@@ -753,6 +767,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           markRead(args[imageIndex], 'node-image');
         }
       }
+      break;
+    }
+    case 'canvas-awareness-input': {
+      args.splice(0, args.length,
+        ...canvasAwarenessArgvFromRequest(parseCanvasAwarenessRequest(args)));
       break;
     }
     case 'inspect-input': {

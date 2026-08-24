@@ -443,6 +443,13 @@ figma_run {args:["component","prop","set","12:34","State","Active"]}
 figma_run {args:["gradient","apply","12:34","linear-gradient(90deg, #7c3aed, #06b6d4)","--field","stroke","--stroke-weight","1"]}
 ```
 
+The read-only `canvas info` and `canvas next` commands share one targeted
+Canvas Awareness path across CLI and MCP. They wait for dynamic page loading,
+validate the returned aggregate geometry, and accept only a finite numeric gap
+plus the explicit `right` or `below` direction before anything reaches Figma.
+This keeps automatic Code-to-Figma placement useful without treating option
+values as executable code.
+
 `node duplicate` works for cloneable design nodes including Sections;
 `node reparent` accepts an explicit child index and preserves canvas position
 when the destination is not Auto Layout. `create frame|rect|ellipse|text|line|autolayout`

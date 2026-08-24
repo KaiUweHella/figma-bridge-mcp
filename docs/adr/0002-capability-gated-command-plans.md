@@ -148,3 +148,11 @@ projection and Figma URL target regardless of option order. Commander and
 Application with a decreasing deadline. Property count, names, values and
 metadata are bounded below the Plugin protocol cap; invalid or oversized
 results fail explicitly instead of being truncated into plausible CSS.
+
+Current-page Canvas Awareness follows the same rule for `canvas info` and
+`canvas next`. Their closed request Interface owns the complete option surface,
+including bounded numeric gaps and the `right|below` direction. Commander and
+`figma_run` execute one safe-read Command Plan and Canvas Awareness Command
+Application after dynamic page loading. The Plugin result is structurally
+validated before projection, and placement options select static generated
+code rather than crossing the Plugin seam as executable input.
