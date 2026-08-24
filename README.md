@@ -291,8 +291,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   and migrated `figma_run` actions execute directly through value-returning
   **Command Application Modules**. `export assets`, `node set-text`, bounded
   `node tree`, current-page Node Discovery through `find`, direct
-  `node bindings`, native Inspect `node css`, Design Link set/inspect, and
-  Design Contract capture/check use the same
+  `node bindings`, native Inspect `node css`, exact Prototype Inspection,
+  Design Link set/inspect, and Design Contract capture/check use the same
   Implementation from MCP and Commander. Other `figma_run` actions remain on
   the deliberately broad child-process compatibility Adapter while they
   migrate one vertical slice at a time. One
@@ -1307,6 +1307,13 @@ commands are available alongside `categories`. These manual review notes are
 independent from the semantic renderer's automatic Boundary Fallback
 Annotations, which are emitted only by explicitly opted-in lossy mapping
 policies and remain machine-readable through plugin data.
+
+`prototype inspect` is the read-only verification path shared by CLI and MCP.
+It preserves the complete authored reaction JSON while enforcing explicit
+depth, collection, value, string and total serialized-size bounds below the
+Plugin protocol cap. Oversized or malformed facts fail rather than being
+silently truncated, and safe JSON escaping keeps terminal controls inert
+without changing the parsed interaction facts.
 
 ### 2026 Plugin APIs: video, shaders, grid, slots, and Draw
 

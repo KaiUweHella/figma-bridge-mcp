@@ -26,6 +26,11 @@ import {
   nodeBindingsPlanningArgvFromRequest,
   parseNodeBindingsRequest,
 } from '../src/application/node-bindings-request.js';
+import {
+  parsePrototypeInspectionRequest,
+  prototypeInspectionArgvFromRequest,
+  prototypeInspectionPlanningArgvFromRequest,
+} from '../src/application/prototype-inspection-request.js';
 
 const FILE_URL = 'https://www.figma.com/design/FILEA/Reference-Lab?node-id=I12-34%3B56-78';
 
@@ -64,6 +69,15 @@ const commands = [
     parse: parseNodeBindingsRequest,
     canonical: nodeBindingsArgvFromRequest,
     planning: nodeBindingsPlanningArgvFromRequest,
+    nodeIndex: 2,
+  },
+  {
+    name: 'prototype inspect',
+    argv: (nodeId) => ['prototype', 'inspect', nodeId],
+    request: (nodeId) => ({ nodeId }),
+    parse: parsePrototypeInspectionRequest,
+    canonical: prototypeInspectionArgvFromRequest,
+    planning: prototypeInspectionPlanningArgvFromRequest,
     nodeIndex: 2,
   },
 ];

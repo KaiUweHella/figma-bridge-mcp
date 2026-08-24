@@ -43,10 +43,6 @@ ${body}
 })()`;
 }
 
-function prototypeInspectCode({ nodeId }) {
-  return prototypeNodeCode(nodeId, `return { id: node.id, name: node.name, type: node.type, reactions: node.reactions || [] };`);
-}
-
 function prototypeSetCode({ nodeId, reactions }) {
   const parsed = parseReactions(reactions);
   return prototypeNodeCode(nodeId, `const reactions = ${JSON.stringify(parsed)};
@@ -76,5 +72,5 @@ return { id: node.id, name: node.name, removed, reactions: [] };`);
 
 export {
   TRIGGERS, parseActions, parseReactions, parseTrigger, prototypeAddCode,
-  prototypeClearCode, prototypeInspectCode, prototypeSetCode,
+  prototypeClearCode, prototypeSetCode,
 };

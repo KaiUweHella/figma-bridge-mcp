@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   parseActions, parseReactions, parseTrigger, prototypeAddCode, prototypeClearCode,
-  prototypeInspectCode, prototypeSetCode,
+  prototypeSetCode,
 } from '../src/lib/prototype-management.js';
+import { prototypeInspectionCode } from '../src/application/prototype-inspection-command.js';
 
 const execute = (code, figma) => new Function('figma', `return ${code}`)(figma);
 
@@ -24,7 +25,7 @@ test('prototype commands read, append, replace, and clear through setReactionsAs
   const { node, figma } = fixture();
   await execute(prototypeAddCode({ nodeId: node.id, trigger: 'click', navigateTo: '3:4' }), figma);
   assert.equal(node.reactions[0].actions[0].destinationId, '3:4');
-  assert.equal((await execute(prototypeInspectCode({ nodeId: node.id }), figma)).reactions.length, 1);
+  assert.equal(JSON.parse(await execute(prototypeInspectionCode({ nodeId: node.id }), figma)).reactions.length, 1);
   await execute(prototypeSetCode({ nodeId: node.id, reactions: [{ trigger: { type: 'ON_HOVER' }, actions: [{ type: 'BACK' }] }] }), figma);
   assert.equal(node.reactions[0].actions[0].type, 'BACK');
   assert.equal((await execute(prototypeClearCode({ nodeId: node.id }), figma)).removed, 1);

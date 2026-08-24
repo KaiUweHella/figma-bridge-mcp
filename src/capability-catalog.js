@@ -76,6 +76,12 @@ import {
   parsePageStructureRequest,
 } from '../engine/src/application/page-structure-request.js';
 import {
+  acceptsPrototypeInspectionArgv,
+  parsePrototypeInspectionRequest,
+  prototypeInspectionArgvFromRequest,
+  prototypeInspectionFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/prototype-inspection-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -179,7 +185,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
-  'render', 'render-batch', 'verify',
+  'prototype.inspect', 'render', 'render-batch', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -281,6 +287,10 @@ function specializedPolicy(name, entry, args) {
   if (name === 'node' && sub === 'bindings') retry = 'safe-read';
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
+  if (name === 'prototype' && sub === 'inspect') {
+    retry = 'safe-read';
+    pathPolicy = 'prototype-inspection-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -335,6 +345,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'find' && !action.help && !acceptsNodeDiscoveryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'prototype' && args[1] === 'inspect'
+    && !action.help && !acceptsPrototypeInspectionArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -822,6 +836,15 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'node-discovery-input': {
       args.splice(0, args.length,
         ...nodeDiscoveryArgvFromRequest(parseNodeDiscoveryRequest(args)));
+      break;
+    }
+    case 'prototype-inspection-input': {
+      const closedPrototypeFileKey = prototypeInspectionFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget && closedPrototypeFileKey !== figmaUrlFileKey) {
+        throw new Error('Prototype Inspection target projection disagrees with its closed request Interface.');
+      }
+      args.splice(0, args.length,
+        ...prototypeInspectionArgvFromRequest(parsePrototypeInspectionRequest(args)));
       break;
     }
     case 'inspect-input': {

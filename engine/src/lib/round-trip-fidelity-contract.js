@@ -202,7 +202,7 @@ const evidenceRegistry = deepFreeze({
   'verification.prototype-inspection': {
     kind: 'check',
     label: 'prototype inspect',
-    source: 'engine/src/lib/prototype-management.js',
+    source: 'engine/src/application/prototype-inspection-command.js',
   },
   'verification.design-contract-transition-rules': {
     kind: 'check',

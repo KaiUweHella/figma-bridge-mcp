@@ -158,6 +158,16 @@ Application with a decreasing deadline. Property count, names, values and
 metadata are bounded below the Plugin protocol cap; invalid or oversized
 results fail explicitly instead of being truncated into plausible CSS.
 
+`prototype inspect` is the exact bounded verification read for native Figma
+prototype reactions. Its closed request owns one semantic Node Reference and
+URL-derived target before readiness. Commander and `figma_run` execute one
+safe-read Command Plan and Prototype Inspection Application. Trigger, action,
+conditional, variable and transition facts remain complete within explicit
+depth, collection, value, string and serialized-size limits; an excess fails
+instead of returning a plausible partial interaction contract. Safe JSON text
+escapes terminal controls without changing the parsed facts. Mutating
+`prototype add`, `set` and `clear` remain separate non-retrying Commands.
+
 Current-page Canvas Awareness follows the same rule for `canvas info` and
 `canvas next`. Their closed request Interface owns the complete option surface,
 including bounded numeric gaps and the `right|below` direction. Commander and

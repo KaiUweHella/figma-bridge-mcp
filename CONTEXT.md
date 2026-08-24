@@ -41,6 +41,14 @@ result or traversal limits truthfully; it is neither a Design Capture nor an
 implicit cross-page scan.
 _Avoid_: find eval, document search, unbounded node walk
 
+**Prototype Inspection**:
+The exact, versioned and deeply bounded read of one explicit node's native
+Figma prototype reactions. It preserves triggers, actions, conditional blocks,
+variable operations and transitions as authored JSON facts through one shared
+safe-read Command Application; it is interaction evidence, not executable
+application behavior or permission to mutate reactions.
+_Avoid_: reaction dump, prototype eval, application-flow proof
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one

@@ -305,6 +305,24 @@ test('top-level find delegates one Plan-bound bounded Node Discovery Application
     'Commander must not retain Node Discovery readiness, traversal, or formatting logic');
 });
 
+test('prototype inspect delegates one Plan-bound bounded Prototype Inspection Application', () => {
+  const adapter = sources.get('prototype.js');
+  assert.ok(adapter, 'prototype.js exists');
+  const start = adapter.indexOf("prototype.command('inspect <nodeId>')");
+  const end = adapter.indexOf("prototype.command('add <nodeId>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(prototypeInspectionPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executePrototypeInspectionPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|prototypeInspectCode\(/,
+    'Commander must not retain Prototype Inspection readiness, execution, or formatting logic');
+});
+
 test('canvas info and next delegate one Plan-bound Canvas Awareness Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

@@ -93,6 +93,10 @@ import {
   nodeDiscoveryPlanRoute,
 } from "../engine/src/application/node-discovery-command.js";
 import {
+  executePrototypeInspectionPlan,
+  prototypeInspectionPlanRoute,
+} from "../engine/src/application/prototype-inspection-command.js";
+import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
@@ -1823,6 +1827,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeNodeDiscoveryPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const prototypeInspectionRoute = prototypeInspectionPlanRoute(plan);
+      if (prototypeInspectionRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executePrototypeInspectionPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

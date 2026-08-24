@@ -7,6 +7,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `prototype inspect` through one exact, versioned and deeply bounded
+  Prototype Inspection Application shared by Commander and MCP. Semantic node
+  targeting, safe-read retry, deadlines and safe JSON projection now preserve
+  complete reaction facts or fail explicitly before presenting partial data.
 - Routed top-level `find` through one closed, bounded Node Discovery Application
   shared by Commander and MCP. The current page loads before traversal;
   case-insensitive name queries, optional type filters and limits stay inert,
