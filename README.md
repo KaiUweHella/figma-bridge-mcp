@@ -342,9 +342,12 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   For a legitimate second repository, add canonical roots explicitly with
   `FIGMA_BRIDGE_EXTRA_ROOTS` (use the platform path-list separator: `:` on
   macOS/Linux, `;` on Windows). The launch directory always remains allowed.
-- One immutable **Figma Target Context** resolves explicit `fileKey`, pasted
-  Figma URL or implicit single-window targeting once per command and then
-  accompanies planning, audit, job identity and daemon execution. One shared
+- One immutable **Figma Target Context** resolves explicit `fileKey`, a pasted
+  Figma URL from that command's documented node field, a Design Link Registry,
+  or implicit single-window targeting once per command and then accompanies
+  planning, audit, job identity and daemon execution. URLs in text, JSX, names,
+  annotations, paths, labels, and remote assets remain payload and cannot
+  retarget a command. One shared
   **Asset Policy** classifies image fills, vector art and vector clusters for
   both Design Capture projections and export.
 - One versioned **Dispatch Receipt** binds every authenticated Plugin action to

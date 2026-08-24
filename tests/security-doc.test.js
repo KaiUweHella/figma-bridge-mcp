@@ -86,6 +86,18 @@ const EVIDENCE = Object.freeze([
         "one Command Plan resolves its Figma Target Context after path normalization",
       ],
       [
+        "tests/capability-catalog.test.js",
+        "every exposed command root owns a closed URL target projection",
+      ],
+      [
+        "tests/capability-catalog.test.js",
+        "only semantic node fields may derive a Figma URL target",
+      ],
+      [
+        "tests/capability-catalog.test.js",
+        "conflicting semantic node URLs stop before one target is selected",
+      ],
+      [
         "tests/command-application.test.js",
         "a pre-resolved Command Plan preserves its registry target through the Command Application",
       ],

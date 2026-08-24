@@ -22,9 +22,12 @@ Accepted plans expose the canonical action path as a payload-free audit id,
 never a positional value copied from argv.
 
 Path normalization happens before a lazy Design Link Registry lookup. The
-Figma Target Context precedence is explicit caller target, Figma URL argument,
-Registry target, then implicit single-window targeting. Repository-only
-commands carry a non-applicable target and do not read the Registry.
+Figma Target Context precedence is explicit caller target, a Figma URL from the
+Command Capability's closed semantic target fields, Registry target, then
+implicit single-window targeting. Whole argv is never searched, so text, JSX,
+names, annotations, paths, labels, assets and unrelated option values cannot
+retarget a Command. Repository-only commands carry a non-applicable target and
+do not read the Registry.
 
 The Command Application accepts only a Command Plan created by the Capability
 Catalog. Process and in-process Adapters consume that exact plan; they do not

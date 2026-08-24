@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveFigmaTarget, targetFileKey } from '../src/figma-target.js';
+import { projectFigmaUrlFileKey } from '../src/figma-target-projection.js';
 
 test('Figma Target Context resolves precedence once and stays immutable', () => {
   const explicit = resolveFigmaTarget({
@@ -9,7 +10,11 @@ test('Figma Target Context resolves precedence once and stays immutable', () => 
   });
   assert.deepEqual(explicit, { kind: 'plugin-file', fileKey: 'EXPLICITPLACEHOLDERKEY', source: 'explicit' });
   assert.equal(Object.isFrozen(explicit), true);
-  const inferred = resolveFigmaTarget({ args: ['inspect', 'https://www.figma.com/design/ARGUMENTPLACEHOLDERKEY/FILE_NAME?node-id=1-2'] });
+  const inferredArgs = ['inspect', 'https://www.figma.com/design/ARGUMENTPLACEHOLDERKEY/FILE_NAME?node-id=1-2'];
+  const inferred = resolveFigmaTarget({
+    args: inferredArgs,
+    figmaUrlFileKey: projectFigmaUrlFileKey(inferredArgs, 'inspect'),
+  });
   assert.deepEqual(inferred, { kind: 'plugin-file', fileKey: 'ARGUMENTPLACEHOLDERKEY', source: 'figma-url' });
   assert.equal(targetFileKey(inferred), 'ARGUMENTPLACEHOLDERKEY');
 });
@@ -54,8 +59,10 @@ test('registry targeting is lazy and stays below explicit and URL-derived target
   assert.equal(explicit.source, 'explicit');
   assert.equal(registryReads, 0);
 
+  const urlArgs = ['inspect', 'https://www.figma.com/design/ARGUMENTPLACEHOLDERKEY/FILE_NAME?node-id=1-2'];
   const fromUrl = resolveFigmaTarget({
-    args: ['inspect', 'https://www.figma.com/design/ARGUMENTPLACEHOLDERKEY/FILE_NAME?node-id=1-2'],
+    args: urlArgs,
+    figmaUrlFileKey: projectFigmaUrlFileKey(urlArgs, 'inspect'),
     registryFileKey,
   });
   assert.equal(fromUrl.source, 'figma-url');

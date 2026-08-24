@@ -113,13 +113,14 @@ function validateArgs(args) {
 /**
  * Resolve one explicit Figma target for a command.
  *
- * An explicit fileKey wins. Otherwise a Figma URL argument
- * supplies its file key automatically. Non-Figma URLs (for example a local
- * Storybook) are ignored. This keeps all command adapters consistent without
- * teaching every handler how to parse Figma URLs.
+ * An explicit fileKey wins. Otherwise the Capability Catalog projects only
+ * command-specific semantic target fields; payload URLs are never scanned.
  */
 export function resolveFileTarget(explicitFileKey, args = []) {
-  return resolveFigmaTarget({ explicitFileKey, args }).fileKey;
+  const explicit = resolveFigmaTarget({ explicitFileKey }).fileKey;
+  if (explicit) return explicit;
+  if (!Array.isArray(args) || args.length === 0) return null;
+  return targetFileKey(planFigmaCommand(args).target);
 }
 
 const POST_PLAN_POLICY_KEYS = Object.freeze([

@@ -5,6 +5,12 @@ import {
   listFigmaCapabilities,
   planFigmaCommand,
 } from '../src/capability-catalog.js';
+import {
+  FIGMA_URL_TARGET_ROOTS,
+  figmaUrlTargetProjectionContract,
+  listFigmaUrlTargetActions,
+} from '../src/figma-target-projection.js';
+import { listFigmaCommandGrammar } from '../src/figma-command-grammar.js';
 
 test('catalog denies and gates unknown commands with safe defaults', () => {
   const unknown = planFigmaCommand(['future-command', 'anything']);
@@ -131,6 +137,105 @@ test('Node Text closes and canonicalizes one policy-identical CLI/MCP request', 
     assert.equal(rejected.allowed, false, args.join(' '));
     assert.equal(rejected.id, 'unknown', args.join(' '));
   }
+});
+
+test('every exposed command root owns a closed URL target projection', () => {
+  assert.deepEqual(
+    Object.keys(FIGMA_URL_TARGET_ROOTS).sort(),
+    listFigmaCapabilities().map(({ name }) => name).sort(),
+  );
+  assert.deepEqual(figmaUrlTargetProjectionContract('render'), []);
+  assert.deepEqual(figmaUrlTargetProjectionContract('node.rename'), [
+    { kind: 'position', index: 2, from: null, flags: [] },
+  ]);
+
+  const actionIds = new Set();
+  const visit = (node, parent = '') => {
+    const actionId = parent ? `${parent}.${node.name}` : node.name;
+    if (node.positionalAction) actionIds.add(`${actionId}.${node.positionalAction}`);
+    if (node.children.length === 0) actionIds.add(actionId);
+    for (const child of node.children) visit(child, actionId);
+  };
+  for (const root of listFigmaCommandGrammar()) visit(root);
+  for (const actionId of listFigmaUrlTargetActions()) {
+    assert.equal(actionIds.has(actionId), true, `${actionId} is not in the closed Command Grammar`);
+  }
+});
+
+test('only semantic node fields may derive a Figma URL target', () => {
+  const targetUrl = 'https://www.figma.com/design/TARGETPLACEHOLDERKEY/FILE_NAME?node-id=12-34';
+  const payloadUrl = 'https://www.figma.com/design/PAYLOADPLACEHOLDERKEY/FILE_NAME?node-id=98-76';
+
+  for (const argv of [
+    ['node', 'rename', '1:2', payloadUrl],
+    ['node', 'set-text', '1:2', payloadUrl],
+    ['render', `<Frame name="${payloadUrl}" />`],
+    ['render', `<Frame><Rectangle src="${payloadUrl}" /></Frame>`],
+    ['annotate', 'add', payloadUrl, '--node', '1:2'],
+    ['tokens', 'add', 'semantic/name', payloadUrl],
+    ['var', 'set-value', 'semantic/name', payloadUrl],
+    ['dev', 'link', '1:2', payloadUrl],
+    ['link', 'set', '1:2', payloadUrl],
+    ['import', payloadUrl],
+    ['map', 'storybook', payloadUrl],
+    ['create', 'frame', payloadUrl],
+    ['analyze', 'colors', '--node', payloadUrl],
+    ['gradient', 'apply', '1:2', payloadUrl],
+    ['history', 'save', payloadUrl],
+    ['jam', 'sticky', payloadUrl],
+    ['slides', 'create', payloadUrl],
+  ]) {
+    const plan = planFigmaCommand(argv);
+    assert.equal(plan.target.fileKey, null, argv.join(' '));
+    assert.equal(plan.target.source, 'implicit-single-window', argv.join(' '));
+  }
+
+  for (const argv of [
+    ['node', 'rename', targetUrl, 'Renamed'],
+    ['annotate', 'add', 'Note', '--node', targetUrl],
+    ['create', 'frame', 'Card', '--parent', targetUrl],
+    ['prototype', 'add', targetUrl, '--navigate-to', targetUrl],
+    ['verify-build', '.', '--node', targetUrl],
+  ]) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(argv, { adapter: 'cli' });
+    assert.equal(mcp.target.fileKey, 'TARGETPLACEHOLDERKEY', argv.join(' '));
+    assert.equal(mcp.target.source, 'figma-url', argv.join(' '));
+    assert.deepEqual(cli.target, mcp.target, argv.join(' '));
+    assert.deepEqual(cli.argv, mcp.argv, argv.join(' '));
+    assert.deepEqual(cli.effects, mcp.effects, argv.join(' '));
+    assert.equal(cli.confirmation, mcp.confirmation, argv.join(' '));
+    assert.deepEqual(cli.audit, mcp.audit, argv.join(' '));
+  }
+
+  const schemaless = planFigmaCommand([
+    'inspect',
+    '  www.figma.com/design/TARGETPLACEHOLDERKEY/FILE_NAME?node-id=12-34  ',
+  ]);
+  assert.equal(schemaless.target.fileKey, 'TARGETPLACEHOLDERKEY');
+});
+
+test('conflicting semantic node URLs stop before one target is selected', () => {
+  assert.throws(
+    () => planFigmaCommand([
+      'prototype',
+      'add',
+      'https://www.figma.com/design/FIRSTPLACEHOLDERKEY/FILE_NAME?node-id=1-2',
+      '--navigate-to',
+      'https://www.figma.com/design/SECONDPLACEHOLDERKEY/FILE_NAME?node-id=3-4',
+    ]),
+    /target-bearing fields reference multiple Figma files/,
+  );
+
+  const explicit = planFigmaCommand([
+    'prototype',
+    'add',
+    'https://www.figma.com/design/FIRSTPLACEHOLDERKEY/FILE_NAME?node-id=1-2',
+    '--navigate-to',
+    'https://www.figma.com/design/SECONDPLACEHOLDERKEY/FILE_NAME?node-id=3-4',
+  ], { fileKey: 'EXPLICITPLACEHOLDERKEY' });
+  assert.equal(explicit.target.fileKey, 'EXPLICITPLACEHOLDERKEY');
+  assert.equal(explicit.target.source, 'explicit');
 });
 
 test('catalog specializes targeting, retry, timeout and background execution', () => {

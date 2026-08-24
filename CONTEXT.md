@@ -66,7 +66,7 @@ The stable `figma-bridge-mcp` attribution attached to every tool result, with th
 _Avoid_: tool prefix, Figma availability
 
 **Figma Target Context**:
-The immutable resolution of exactly one plugin file for a **Figma Command**, including whether the file came from an explicit key, a Figma URL, or the single connected window.
+The immutable resolution of exactly one plugin file for a **Figma Command**, including whether the file came from an explicit key, a Figma URL in a Command Capability's closed semantic target field, a Design Link Registry, or the single connected window. Payload argv is never searched for targets.
 _Avoid_: fileKey parameter, current window
 
 **Asset Policy**:

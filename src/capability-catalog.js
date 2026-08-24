@@ -30,6 +30,10 @@ import {
   semanticRenderRequestFromArgv,
 } from '../engine/src/application/semantic-render-request.js';
 import { resolveFigmaTarget } from './figma-target.js';
+import {
+  FIGMA_URL_TARGET_ROOTS,
+  projectFigmaUrlFileKey,
+} from './figma-target-projection.js';
 import { resolveFigmaCommandAction } from './figma-command-grammar.js';
 
 const readGroup = (summary, readSubcommands, extra = {}) => ({
@@ -88,6 +92,17 @@ const COMMANDS = Object.freeze({
   slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect']),
   kit: { summary: 'Prepare a design system for agent use', mutation: 'read', timeout: 'long', path: 'kit-files' },
 });
+
+const missingTargetProjections = Object.keys(COMMANDS)
+  .filter((name) => !Object.hasOwn(FIGMA_URL_TARGET_ROOTS, name));
+const orphanedTargetProjections = Object.keys(FIGMA_URL_TARGET_ROOTS)
+  .filter((name) => !Object.hasOwn(COMMANDS, name));
+if (missingTargetProjections.length || orphanedTargetProjections.length) {
+  throw new Error(
+    `Figma URL target projection catalog drift (missing: ${missingTargetProjections.join(', ') || 'none'}; `
+    + `orphaned: ${orphanedTargetProjections.join(', ') || 'none'}).`,
+  );
+}
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
@@ -355,11 +370,12 @@ function normalizeVerifyBuild(args, baseDir, notePath) {
 }
 
 /** Normalize all project-relative paths named by the command policy. */
-function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
+function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget = true } = {}) {
   const args = [...rawArgs];
   const capability = commandCapability(args);
-  let figmaUrlArgs = rawArgs;
-  let figmaUrlFileKey = null;
+  const figmaUrlFileKey = projectUrlTarget && capability.available && !capability.help
+    ? projectFigmaUrlFileKey(rawArgs, capability.actionId)
+    : null;
   let outputPath = null;
   let workspace = 'none';
   const paths = [];
@@ -487,7 +503,6 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
       break;
     }
     case 'render-inputs': {
-      figmaUrlArgs = [];
       const initialRoute = semanticRenderArgvRoute(args);
       // Browser-capture expression generation returns before every project
       // input in Commander. Keep its Plan honest: unused paths are neither
@@ -526,8 +541,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
         // Equivalent node spellings and optional literal delimiters become
         // one semantic argv. The original input remains available separately
         // to Figma Target Context resolution for URL-derived file identity.
-        figmaUrlFileKey = nodeTextFigmaUrlFileKeyFromArgv(args);
-        figmaUrlArgs = [];
+        const closedNodeTextFileKey = nodeTextFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget && closedNodeTextFileKey !== figmaUrlFileKey) {
+          throw new Error('Node Text target projection disagrees with its closed request Interface.');
+        }
         args.splice(0, args.length, ...nodeTextArgvFromRequest(parseNodeTextRequest(args)));
       } else if (args[1] === 'set-image' && typeof args[3] === 'string') {
         args[3] = absolute(baseDir, args[3]);
@@ -618,7 +635,6 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd()) {
     capability,
     workspace,
     paths: Object.freeze(paths),
-    figmaUrlArgs,
     figmaUrlFileKey,
   };
 }
@@ -700,7 +716,12 @@ export function planFigmaCommand(rawArgs, {
   workspaceIO = null,
 } = {}) {
   const input = Array.isArray(rawArgs) ? rawArgs : [];
-  const prepared = prepareCommandArgs(input, workspaceDir);
+  const hasExplicitFileKey = fileKey !== null
+    && fileKey !== undefined
+    && String(fileKey).trim().length > 0;
+  const prepared = prepareCommandArgs(input, workspaceDir, {
+    projectUrlTarget: !hasExplicitFileKey,
+  });
   const argv = Object.freeze(prepared.args);
   const capability = prepared.capability;
   if (workspaceIO) {
@@ -724,7 +745,6 @@ export function planFigmaCommand(rawArgs, {
       explicitFileKey: fileKey,
       args: argv,
       figmaUrlFileKey: prepared.figmaUrlFileKey,
-      figmaUrlArgs: prepared.figmaUrlArgs,
       registryFileKey: capability.available ? registryFileKey : null,
     });
   const outputs = Object.freeze(prepared.outputPath
