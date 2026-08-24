@@ -39,7 +39,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
   assert.equal(entries[0].data.arguments.count, 3);
   assert.equal(entries[0].data.nodeRefs.length, 1);
   assert.equal(entries[0].data.label.bytes, Buffer.byteLength('direct spec'));
-  const serialized = JSON.stringify(entries);
+  const serialized = JSON.stringify(entries.map(({ ts, ...entry }) => entry));
   assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec/);
   assert.deepEqual(entries[1], {
     schema: 3,

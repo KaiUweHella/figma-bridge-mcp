@@ -67,12 +67,17 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     secrets.fileKey,
     secrets.connectionEpoch,
     secrets.body.message,
-    "12:34",
   ]) {
     assert.equal(content.includes(raw), false, `must redact ${raw}`);
   }
 
   const [start, done] = records(auditPath);
+  const redactedPayload = JSON.stringify({
+    target: start.target,
+    data: start.data,
+    outcome: done.outcome,
+  });
+  assert.equal(redactedPayload.includes("12:34"), false, "must redact node reference 12:34");
   assert.equal(start.schema, AUDIT_SCHEMA_VERSION);
   assert.equal(start.event, "start");
   assert.equal(start.capability, "render");
