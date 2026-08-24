@@ -29,6 +29,14 @@ _Avoid_: prepared arguments, execution options, mutable command context
 The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
 _Avoid_: walker output, cache entry
 
+**Verification Artifact**:
+A PNG evidence file whose exact path, scope, retention owner and output role are
+fixed by the owning **Command Plan** before Figma readiness or dispatch.
+Workspace artifacts persist through Workspace I/O; default temporary artifacts
+use one command-owned private directory and remain readable for the caller.
+Inline Base64 evidence is not a file and therefore declares no artifact.
+_Avoid_: screenshot temp file, incidental render output
+
 **Design Contract**:
 A reviewed, repository-owned projection of one Design Entity's complete Design Capture. Its canonical layer removes volatile Figma handles for exact drift detection; its semantic rules enforce component existence, variant axes and exhaustiveness, token-binding floors, geometry tolerances and prototype transitions. Incomplete captures cannot become contracts.
 _Avoid_: screenshot snapshot, prose guideline, node-id fixture

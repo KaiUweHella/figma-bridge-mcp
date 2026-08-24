@@ -1,8 +1,8 @@
 // Commands: render (extracted from index.js)
 import chalk from 'chalk';
+import { Option } from 'commander';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
-import { tmpdir } from 'os';
-import { mkdtempSync, readdirSync, writeFileSync } from 'fs';
+import { readdirSync } from 'fs';
 import { FigmaClient } from '../lib/jsx-render.js';
 import { domCaptureToRenderPlan } from '../lib/dom-capture-to-jsx.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
@@ -37,6 +37,10 @@ import {
   ensurePluginReadiness,
   runInProcessCommandPlan,
 } from '../../../src/engine.js';
+import {
+  createVerificationArtifactWriter,
+  VERIFICATION_ARTIFACT_ROLE,
+} from '../application/verification-artifact.js';
 import {
   formatSemanticResizeProbe,
   parseResizeProbeDelta,
@@ -358,7 +362,12 @@ async function runCompoundSemanticRender(argv) {
   if (semanticRenderPlanRoute(plan) !== 'compound-command-application') return null;
   const prepared = prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io });
   let domainResult = null;
-  let verificationDirectory = null;
+  const verificationWriter = prepared.request.stages.verification
+    ? createVerificationArtifactWriter(
+      plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE),
+      { workspaceIO: io },
+    )
+    : null;
   const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
     async ({ fileKey, deadline }) => {
       const remainingMs = () => Math.max(1, deadline - Date.now());
@@ -372,12 +381,8 @@ async function runCompoundSemanticRender(argv) {
         }, remainingMs()),
         evaluate,
         inspectInventory: evaluate,
-        writeVerification: async ({ handle, base64 }) => {
-          verificationDirectory ||= mkdtempSync(join(tmpdir(), 'figma-bridge-verify-'));
-          const savePath = join(verificationDirectory, `root-${String(handle).replace(/:/g, '-')}.png`);
-          writeFileSync(savePath, Buffer.from(base64, 'base64'));
-          return savePath;
-        },
+        writeVerification: ({ index, base64 }) =>
+          verificationWriter.write(index, Buffer.from(base64, 'base64')),
       });
       return {
         stdout: formatSemanticRenderResult(domainResult), stderr: '',
@@ -476,7 +481,7 @@ function warnUnnamedComponentTexts(jsx) {
 
 // Screenshot a freshly rendered node (same export logic as the `verify` command)
 // so render --verify gives Claude the visual check in a single roundtrip.
-async function verifyRendered(nodeId) {
+async function verifyRendered(nodeId, plan) {
   try {
     const result = await fastEval(`(async () => {
       const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
@@ -491,8 +496,11 @@ async function verifyRendered(nodeId) {
       return { name: node.name, id: node.id, width: Math.round(nodeWidth * finalScale), height: Math.round(nodeHeight * finalScale), base64: figma.base64Encode(bytes) };
     })()`);
     if (result && result.base64) {
-      const savePath = join(tmpdir(), `figma-verify-${String(nodeId).replace(/:/g, '-')}.png`);
-      writeFileSync(savePath, Buffer.from(result.base64, 'base64'));
+      const writer = createVerificationArtifactWriter(
+        plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE),
+        { workspaceIO: workspaceIO() },
+      );
+      const savePath = await writer.write(0, Buffer.from(result.base64, 'base64'));
       console.log(JSON.stringify({ verify: { id: result.id, name: result.name, width: result.width, height: result.height, saved: savePath } }));
     } else if (result && result.error) {
       console.error(chalk.yellow('\u26a0 verify failed:'), result.error);
@@ -516,6 +524,7 @@ program
   .option('--keep-wrapper', 'Keep an outer flex Frame as a parent — disables the auto-split that turns "N items in a flex wrapper" into independent canvas items')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `verify` roundtrip')
+  .addOption(new Option('--verification-output-dir <path>').hideHelp())
   .option('--preset <device>', `Root frame size preset when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .option('--dom-capture <file>', 'Render a browser DOM/computed-style capture JSON instead of hand-authored JSX')
@@ -526,6 +535,7 @@ program
   .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this render/audit')
   .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
   .action(async (rawJsx, options) => {
+    let legacyVerificationPlan = null;
     try {
       // Commander intentionally presents convenient collapsed option values.
       // Security policy must instead validate the original argv so duplicate
@@ -556,6 +566,14 @@ program
         if (compound.execution.code !== 0) process.exitCode = compound.execution.code;
         return;
       }
+      legacyVerificationPlan = options.verify
+        ? planFigmaCommand(originalArgv, {
+          adapter: 'cli',
+          workspaceDir: workspaceIO().roots[0],
+          workspaceIO: workspaceIO(),
+          fileKey: program.opts().figmaFile || null,
+        })
+        : null;
     } catch (error) {
       const message = error?.message || String(error);
       console.error(chalk.red('✗'), message);
@@ -786,7 +804,7 @@ program
       }
       if (jsx) await printReuseLint([jsx]);
       const finalNodeId = await maybeAsComponent(result.id);
-      if (options.verify) await verifyRendered(finalNodeId);
+      if (options.verify) await verifyRendered(finalNodeId, legacyVerificationPlan);
     } catch (e) {
       const msg = e.stderr || e.message || String(e);
       // Extract node context from error if available
@@ -815,6 +833,7 @@ program
   .option('--as-component', 'After rendering, convert each resulting frame to a Figma component')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
+  .addOption(new Option('--verification-output-dir <path>').hideHelp())
   .option('--preset <device>', `Root frame size preset per frame when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
   .option('--manifest <file>', 'Design Link Registry used to resolve data-figma-component identities', 'figma-bridge.json')

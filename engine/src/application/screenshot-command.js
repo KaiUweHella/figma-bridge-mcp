@@ -4,6 +4,23 @@
 // CLI and MCP therefore share validation, scale limits, measurement and error
 // semantics without sharing console/process behaviour.
 import { normalizeNodeId } from '../lib/node-id.js';
+import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
+import {
+  createVerificationArtifactWriter,
+  VERIFICATION_ARTIFACT_ROLE,
+} from './verification-artifact.js';
+import {
+  parseScreenshotRequest,
+  screenshotArgvFromRequest,
+  screenshotPlanningArgvFromRequest,
+} from './screenshot-request.js';
+
+export {
+  screenshotArgvFromRequest,
+  screenshotPlanningArgvFromRequest,
+} from './screenshot-request.js';
+
+const SCREENSHOT_APPLICATION_ID = 'verify';
 
 function finiteNumber(value, fallback, { min, max }) {
   const number = value == null ? fallback : Number(value);
@@ -19,7 +36,7 @@ function normalizedRequest(request = {}) {
     nodeId: normalized.id,
     warning: normalized.warning || '',
     scale: finiteNumber(request.scale, 0.5, { min: 0, max: 4 }),
-    maxDimension: Math.round(finiteNumber(request.maxDimension, 2000, { min: 0, max: 8000 })),
+    maxDimension: Math.max(1, Math.round(finiteNumber(request.maxDimension, 2000, { min: 0, max: 8000 }))),
     measure: request.measure === true,
     savePath: request.savePath ? String(request.savePath) : null,
     saveDefault: request.saveDefault === true,
@@ -79,8 +96,12 @@ export async function executeScreenshot(request, adapters = {}) {
   const input = normalizedRequest(request);
   const result = await evaluate(screenshotCode(input));
   if (result?.error) throw new Error(result.error);
-  if (!result || typeof result.base64 !== 'string' || !result.id) {
+  if (!result || typeof result.base64 !== 'string' || !result.base64 || !result.id) {
     throw new Error('screenshot returned no image data');
+  }
+  if (result.base64.length > 16 * 1024 * 1024
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(result.base64)) {
+    throw new Error('screenshot returned invalid bounded image data');
   }
   /** @type {Record<string, any>} */
   const metadata = {
@@ -100,4 +121,38 @@ export async function executeScreenshot(request, adapters = {}) {
   }
   if (input.includeBase64) metadata.base64 = result.base64;
   return { stdout: JSON.stringify(metadata), stderr: input.warning ? `⚠ ${input.warning}` : '', result: metadata };
+}
+
+export function screenshotPlanRoute(plan) {
+  if (!isFigmaCommandPlan(plan)) {
+    throw new TypeError('Screenshot routing requires a Command Plan created by the Capability Catalog.');
+  }
+  return plan.allowed && plan.id === SCREENSHOT_APPLICATION_ID
+    ? 'command-application'
+    : 'not-screenshot';
+}
+
+export async function executeScreenshotPlan(plan, adapters = {}) {
+  if (screenshotPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Screenshot Command Application.`);
+  }
+  const request = parseScreenshotRequest(plan.argv);
+  const outputs = plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE);
+  if (request.persistence === 'inline') {
+    if (outputs.length) throw new Error('Inline screenshot Command Plan must not declare file artifacts.');
+    return executeScreenshot(request, { evaluate: adapters.evaluate });
+  }
+  if (outputs.length !== 1) {
+    throw new Error('Persisted screenshot Command Plan must declare exactly one verification artifact.');
+  }
+  const writer = createVerificationArtifactWriter(outputs, { workspaceIO: adapters.workspaceIO });
+  return executeScreenshot({
+    ...request,
+    savePath: outputs[0].path,
+    saveDefault: false,
+    includeBase64: false,
+  }, {
+    evaluate: adapters.evaluate,
+    save: (_path, bytes) => writer.write(0, bytes),
+  });
 }

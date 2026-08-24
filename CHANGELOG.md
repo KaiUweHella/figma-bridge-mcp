@@ -83,6 +83,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   one Plan-bound Code Spec Application. Selection/node targeting, phase, depth,
   section, hidden layers, format and deduplication are canonicalized before
   capture without removing MCP batching or lossless output-budget recovery.
+- `verify`, `figma_screenshot` and Render verification now declare every PNG
+  as a Plan-owned Verification Artifact before Figma dispatch. Default output
+  stays automatic and readable in a private temporary directory, explicit
+  workspace saves still work through Workspace I/O, and inline Base64 plans no
+  host file. One-root Render verification now shares the compound Application.
 - Plugin execution now rejects stale connections, wrong files and wrong
   editors before mutation. Reconnected UI results cannot settle newer work,
   multi-window metadata stays pinned to the connection selected at dispatch,

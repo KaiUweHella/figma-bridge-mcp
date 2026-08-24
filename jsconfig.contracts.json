@@ -35,6 +35,8 @@
     "engine/src/application/semantic-render-request.js",
     "engine/src/application/semantic-render-command.js",
     "engine/src/application/screenshot-command.js",
+    "engine/src/application/screenshot-request.js",
+    "engine/src/application/verification-artifact.js",
     "plugin/code.js"
   ]
 }

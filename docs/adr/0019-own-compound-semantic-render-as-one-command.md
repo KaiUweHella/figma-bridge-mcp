@@ -27,3 +27,10 @@ A failed conversion, probe, verification, missing root, malformed envelope or
 Structural Gate mismatch produces a non-success Outcome with the exact known
 handles and mutation residue. It cannot recursively invoke another command,
 select another executor or be audited as code-0 success.
+
+Verification outputs are exact Verification Artifacts of the same Command
+Plan. A one-root `render --verify` uses the compound Application rather than a
+separate post-render Adapter. Auto-split and explicit batches plan one private
+PNG path per root. Compatibility process Adapters carry the same hidden,
+closed artifact directory in canonical argv so re-planning cannot invent a
+different host write after confirmation.

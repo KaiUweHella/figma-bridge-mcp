@@ -194,6 +194,34 @@ test('Code Spec closes one policy-identical CLI/MCP capture request', () => {
   }
 });
 
+test('Screenshot plans keep Adapter policy identical across temp, workspace and inline persistence', () => {
+  const url = 'https://www.figma.com/design/FILEA/Shot?node-id=12-34';
+  const cases = [
+    { argv: ['verify', url], workspace: 'none', shared: 'write', outputs: 1 },
+    { argv: ['verify', url, '--save', 'shots/card.png'], workspace: 'write', shared: 'none', outputs: 1 },
+    { argv: ['verify', url, '--base64'], workspace: 'none', shared: 'none', outputs: 0 },
+  ];
+  for (const expected of cases) {
+    const options = {
+      workspaceDir: '/work',
+      fileKey: null,
+      verificationArtifactNonce: 'cross-adapter-screenshot-0001',
+    };
+    const mcp = planFigmaCommand(expected.argv, { ...options, adapter: 'mcp' });
+    const cli = planFigmaCommand(expected.argv, { ...options, adapter: 'cli' });
+    const { adapter: _mcp, ...mcpPolicy } = mcp;
+    const { adapter: _cli, ...cliPolicy } = cli;
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(cliPolicy, mcpPolicy);
+    assert.equal(mcp.target.fileKey, 'FILEA');
+    assert.equal(mcp.argv[1], '12:34');
+    assert.equal(mcp.effects.workspace, expected.workspace);
+    assert.equal(mcp.effects.shared, expected.shared);
+    assert.equal(mcp.outputs.length, expected.outputs);
+  }
+});
+
 test('every exposed command root owns a closed URL target projection', () => {
   assert.deepEqual(
     Object.keys(FIGMA_URL_TARGET_ROOTS).sort(),
@@ -554,6 +582,7 @@ test('catalog reports workspace, network and shared-state effects independently 
 test('cross-Adapter conformance keeps policy identical while migration exposure stays explicit', () => {
   const cases = [
     ['export', 'code-spec', '1:2'],
+    ['verify', '1:2', '--base64'],
     ['inspect', '1:2', '--format', 'yaml'],
     ['link', 'inspect', '1:2'],
     ['link', 'set', '1:2', 'ui.button'],
@@ -570,7 +599,7 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     assert.equal(mcpAdapter, 'mcp');
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
-    if (['export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    if (['export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set', 'verify'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
     else assert.equal(cliAllowed, false);
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');

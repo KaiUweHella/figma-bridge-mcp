@@ -32,6 +32,16 @@ import {
   parseNodeTextRequest,
 } from '../engine/src/application/node-text-request.js';
 import {
+  acceptsScreenshotArgv,
+  parseScreenshotRequest,
+  screenshotArgvFromRequest,
+  screenshotFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/screenshot-request.js';
+import {
+  planVerificationArtifacts,
+  verificationArtifactDirectory,
+} from '../engine/src/application/verification-artifact.js';
+import {
   acceptsSemanticRenderArgv,
   semanticCompoundRenderArgvFromRequest,
   semanticCompoundRenderRequestFromArgv,
@@ -119,7 +129,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch',
+  'contract.capture', 'contract.check', 'export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -239,6 +249,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'verify' && !action.help && !acceptsScreenshotArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
@@ -389,13 +402,18 @@ function normalizeVerifyBuild(args, baseDir, notePath) {
 }
 
 /** Normalize all project-relative paths named by the command policy. */
-function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget = true } = {}) {
+function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
+  projectUrlTarget = true,
+  verificationArtifactNonce = undefined,
+  temporaryArtifactRoot = undefined,
+} = {}) {
   const args = [...rawArgs];
   const capability = commandCapability(args);
   let figmaUrlFileKey = projectUrlTarget && capability.available && !capability.help
     ? projectFigmaUrlFileKey(rawArgs, capability.actionId)
     : null;
   let outputPath = null;
+  let artifactOutputs = [];
   let workspace = 'none';
   const paths = [];
   const notePath = (value, access, role, kind = access === 'read' ? 'file' : 'any') => {
@@ -513,11 +531,22 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget
       markRead();
       break;
     case 'verify-image': {
-      const index = args.findIndex((arg) => arg === '--save');
-      if (index !== -1 && typeof args[index + 1] === 'string' && !args[index + 1].startsWith('-')) {
-        args[index + 1] = absolute(baseDir, args[index + 1]);
-        outputPath = args[index + 1];
-        markWrite(outputPath, 'verification-image-output');
+      if (projectUrlTarget) figmaUrlFileKey = screenshotFigmaUrlFileKeyFromArgv(args);
+      const request = parseScreenshotRequest(args);
+      if (request.persistence === 'workspace') {
+        const explicitPath = absolute(baseDir, request.savePath);
+        args.splice(0, args.length, ...screenshotArgvFromRequest({ ...request, savePath: explicitPath }));
+        markWrite(explicitPath, 'verification-image-output');
+        outputPath = null;
+        artifactOutputs = [...planVerificationArtifacts({ explicitPath })];
+      } else {
+        args.splice(0, args.length, ...screenshotArgvFromRequest(request));
+        if (request.persistence === 'temporary') {
+          artifactOutputs = [...planVerificationArtifacts({
+            ...(verificationArtifactNonce === undefined ? {} : { nonce: verificationArtifactNonce }),
+            ...(temporaryArtifactRoot === undefined ? {} : { temporaryRoot: temporaryArtifactRoot }),
+          })];
+        }
       }
       break;
     }
@@ -551,6 +580,30 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget
         const assets = semanticRenderAssetIntentFromArgv(args);
         for (const localAsset of assets.localPaths) {
           markRead(absolute(baseDir, localAsset), 'render-image');
+        }
+      }
+      if (args.includes('--verify')) {
+        const request = finalRoute.kind === 'compound'
+          ? semanticCompoundRenderRequestFromArgv(args)
+          : null;
+        const existingDirectory = request?.stages.verificationDirectory
+          || flagValue(args, '--verification-output-dir');
+        artifactOutputs = [...planVerificationArtifacts({
+          count: request?.roots.length || 1,
+          ...(verificationArtifactNonce === undefined ? {} : { nonce: verificationArtifactNonce }),
+          ...(temporaryArtifactRoot === undefined ? {} : { temporaryRoot: temporaryArtifactRoot }),
+          ...(existingDirectory ? { plannedDirectory: existingDirectory } : {}),
+        })];
+        const plannedDirectory = verificationArtifactDirectory(artifactOutputs);
+        if (request) {
+          args.splice(0, args.length, ...semanticCompoundRenderArgvFromRequest({
+            ...request,
+            stages: Object.freeze({ ...request.stages, verificationDirectory: plannedDirectory }),
+          }));
+        } else if (!existingDirectory) {
+          const terminator = args.indexOf('--');
+          args.splice(terminator === -1 ? args.length : terminator, 0,
+            `--verification-output-dir=${plannedDirectory}`);
         }
       }
       break;
@@ -665,6 +718,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget
   return {
     args,
     outputPath,
+    artifactOutputs: Object.freeze(artifactOutputs),
     capability,
     workspace,
     paths: Object.freeze(paths),
@@ -698,9 +752,9 @@ function networkEffect(args) {
   return 'none';
 }
 
-function sharedEffect(args) {
-  if ((args[0] === 'render' || args[0] === 'render-batch')
-    && args.includes('--verify')) return 'write';
+/** @param {readonly any[]} artifactOutputs */
+function sharedEffect(args, artifactOutputs = []) {
+  if (artifactOutputs.some((output) => output.scope === 'private-temporary')) return 'write';
   if (args[0] === 'api') {
     if (args[1] === 'setup' || args[1] === 'index' || args[1] === 'context') return 'write';
     return 'read';
@@ -747,6 +801,8 @@ export function planFigmaCommand(rawArgs, {
   fileKey = null,
   registryFileKey = null,
   workspaceIO = null,
+  verificationArtifactNonce = undefined,
+  temporaryArtifactRoot = undefined,
 } = {}) {
   const input = Array.isArray(rawArgs) ? rawArgs : [];
   const hasExplicitFileKey = fileKey !== null
@@ -754,6 +810,8 @@ export function planFigmaCommand(rawArgs, {
     && String(fileKey).trim().length > 0;
   const prepared = prepareCommandArgs(input, workspaceDir, {
     projectUrlTarget: !hasExplicitFileKey,
+    verificationArtifactNonce,
+    temporaryArtifactRoot,
   });
   const argv = Object.freeze(prepared.args);
   const capability = prepared.capability;
@@ -770,7 +828,7 @@ export function planFigmaCommand(rawArgs, {
     figma: capability.mutatesDesign ? 'write' : capability.target === 'none' ? 'none' : 'read',
     workspace: capability.help ? 'none' : prepared.workspace,
     network: capability.help ? 'none' : networkEffect(prepared.args),
-    shared: capability.help ? 'none' : sharedEffect(prepared.args),
+    shared: capability.help ? 'none' : sharedEffect(prepared.args, prepared.artifactOutputs),
   });
   const target = capability.target === 'none'
     ? Object.freeze({ kind: 'none', fileKey: null, source: 'not-applicable' })
@@ -780,9 +838,12 @@ export function planFigmaCommand(rawArgs, {
       figmaUrlFileKey: prepared.figmaUrlFileKey,
       registryFileKey: capability.available ? registryFileKey : null,
     });
-  const outputs = Object.freeze(prepared.outputPath
-    ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
-    : []);
+  const outputs = Object.freeze([
+    ...(prepared.outputPath
+      ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
+      : []),
+    ...prepared.artifactOutputs,
+  ]);
   const operation = Object.values(effects).includes('write')
     ? 'write'
     : Object.values(effects).includes('read')
@@ -817,7 +878,7 @@ export function planFigmaCommand(rawArgs, {
       operation,
       effects,
       targetKind: target.kind,
-      outputRoles: Object.freeze(outputs.map(({ role }) => role)),
+      outputRoles: Object.freeze([...new Set(outputs.map(({ role }) => role))]),
     }),
     summary: capability.summary,
   };

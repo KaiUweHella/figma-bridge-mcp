@@ -178,6 +178,21 @@ test('code-spec delegates one Plan-bound safe-read Command Application', () => {
     'Commander must not retain Code Spec readiness or execution logic');
 });
 
+test('verify delegates capture and persistence to one Plan-bound Screenshot Application', () => {
+  const adapter = sources.get('export-eval.js');
+  assert.ok(adapter, 'export-eval.js exists');
+  const start = adapter.indexOf(".command('verify [nodeId]')");
+  const end = adapter.indexOf('// ============ EVAL', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(screenshotPlanningArgvFromRequest\(request\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeScreenshotPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|safeReadEval|writeFileSync|defaultSavePath/,
+    'Commander must not retain Screenshot readiness or persistence policy');
+});
+
 test('simple render delegates one non-retrying Semantic Render Application', () => {
   const adapter = sources.get('render.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'semantic-render-command.js'), 'utf8');

@@ -829,6 +829,41 @@ test('figma_run rejects malformed Code Spec argv before readiness or capture', a
   }
 });
 
+test('figma_screenshot and figma_run share the Plan-bound Screenshot Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const dedicatedStart = source.indexOf('case "figma_screenshot"');
+  const dedicated = source.slice(dedicatedStart, source.indexOf('case "figma_spec"', dedicatedStart));
+  assert.match(dedicated, /screenshotPlanningArgvFromRequest\(/);
+  assert.match(dedicated, /compatibilityFallback:\s*false/);
+  assert.match(dedicated, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(dedicated, /executeScreenshotPlan\(plan/);
+  assert.doesNotMatch(dedicated, /tmpdir\(|writeFileSync\(|executeScreenshot\(/);
+
+  const genericStart = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)');
+  const generic = source.slice(genericStart, source.indexOf('if (semanticRenderApplication)', genericStart));
+  assert.match(generic, /runInProcessCommandPlan\(plan/);
+  assert.match(generic, /compatibilityFallback:\s*false/);
+  assert.match(generic, /executeScreenshotPlan\(plan/);
+  assert.doesNotMatch(generic, /runCliPlan\(/);
+});
+
+test('malformed Screenshot requests stop before readiness or persistence', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['verify', 'bad-node'],
+    ['verify', '1:2', '2:3'],
+    ['verify', '1:2', '--scale', '0'],
+    ['verify', '1:2', '--save', 'shot.png', '--base64'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+  const dedicated = await handleTool('figma_screenshot', { nodeId: 'bad-node' });
+  assert.equal(dedicated.isError, true);
+  assert.match(dedicated.content[0].text, /Invalid verify command/);
+});
+
 test('figma_spec batch fails closed without partial or unbounded output', async () => {
   const { executeSpecBatch } = await import('../src/server.js');
   let calls = 0;

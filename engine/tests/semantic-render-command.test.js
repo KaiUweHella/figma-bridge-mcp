@@ -184,7 +184,7 @@ test('simple, compound and named compatibility Render modes remain explicitly re
     { argv: ['render', SIMPLE_JSX, '-x', '20'], kind: 'compatibility', reason: 'post-positioning', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--no-smart-position'], kind: 'compatibility', reason: 'post-positioning', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--as-component'], kind: 'compatibility', reason: 'component-conversion', write: true, target: 'figma' },
-    { argv: ['render', SIMPLE_JSX, '--verify'], kind: 'compatibility', reason: 'verification-output', write: true, target: 'figma' },
+    { argv: ['render', SIMPLE_JSX, '--verify'], kind: 'compound', reason: 'single-root-stages', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--icons', 'icons'], kind: 'compatibility', reason: 'project-icons', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--resize-probe'], kind: 'compatibility', reason: 'resize-probe', write: true, target: 'figma' },
     { argv: ['render', '--dom-capture', 'screen.json'], kind: 'compatibility', reason: 'dom-capture', write: true, target: 'figma' },
@@ -252,7 +252,7 @@ test('auto-split and explicit batch close the same option semantics', () => {
   assert.deepEqual(auto.layout, { direction: 'col', gap: 0 });
   assert.deepEqual(auto.placement, { smart: false, x: 10, y: 20 });
   assert.deepEqual(auto.stages, {
-    componentConversion: true, resizeProbe: 180, verification: true,
+    componentConversion: true, resizeProbe: 180, verification: true, verificationDirectory: null,
   });
   assert.deepEqual(auto.assets, {
     localPaths: ['assets/photo.png'], remoteCount: 1, embeddedCount: 0,
@@ -282,6 +282,7 @@ test('auto-split and explicit batch close the same option semantics', () => {
     ['render-batch', '["<Frame/>"]', '--direction=diagonal'],
     ['render-batch', '["<Frame/>"]', '--gap=-1'],
     ['render-batch', '["<Frame/>"]', '--verify', '--verify'],
+    ['render-batch', '["<Frame/>"]', '--verification-output-dir=/tmp/figma-bridge-verify-test-only'],
     ['render', SIMPLE_JSX, '--gap=20'],
   ]) {
     assert.equal(acceptsSemanticRenderArgv(malformed), false, malformed.join(' '));
@@ -298,18 +299,34 @@ test('compound assets and verification are explicit Command Plan effects', (t) =
   writeFileSync(join(root, 'icons', '__proto__.svg'), '<svg viewBox="0 0 1 1"><path d="M1 1"/></svg>');
   const wrapper = '<Frame flex="row"><Frame name="Card 1"><Image src={assets/photo.png}/></Frame><Frame name="Card 2"><Image src="https://images.example/card.png"/></Frame></Frame>';
   const argv = ['render', wrapper, '--icons=icons', '--verify'];
-  const options = { workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A' };
+  const options = {
+    workspaceDir: root,
+    workspaceIO: io,
+    fileKey: 'FILE_A',
+    verificationArtifactNonce: 'test-render-artifacts-0001',
+  };
   const mcp = planFigmaCommand(argv, { ...options, adapter: 'mcp' });
   const cli = planFigmaCommand(argv, { ...options, adapter: 'cli' });
   assert.equal(semanticRenderPlanRoute(mcp), 'compound-command-application');
   assert.deepEqual(mcp.effects, {
     figma: 'write', workspace: 'read', network: 'read', shared: 'write',
   });
+  assert.equal(mcp.outputs.length, 2);
+  assert.deepEqual(mcp.outputs.map((output) => output.path.split('/').at(-1)), [
+    'root-001.png', 'root-002.png',
+  ]);
+  assert.ok(mcp.outputs.every((output) => output.scope === 'private-temporary'));
+  assert.match(mcp.argv.find((arg) => arg.startsWith('--verification-output-dir=')),
+    /figma-bridge-verify-test-render-artifacts-0001$/);
   const { adapter: mcpAdapter, ...mcpPlan } = mcp;
   const { adapter: cliAdapter, ...cliPlan } = cli;
   assert.equal(mcpAdapter, 'mcp');
   assert.equal(cliAdapter, 'cli');
   assert.deepEqual(cliPlan, mcpPlan);
+  const replanned = planFigmaCommand(mcp.argv, {
+    ...options, adapter: 'mcp', verificationArtifactNonce: 'ignored-because-directory-is-planned',
+  });
+  assert.deepEqual(replanned.outputs, mcp.outputs, 'process Adapters retain the exact planned artifacts');
   const prepared = prepareCompoundSemanticRenderPlan(mcp, { workspaceIO: io });
   assert.equal(prepared.preparedAssets.localImages, 1);
   assert.equal(prepared.preparedAssets.remoteImages, 1);
@@ -318,6 +335,27 @@ test('compound assets and verification are explicit Command Plan effects', (t) =
   assert.doesNotMatch(prepared.jsxRoots[0], /assets\/photo\.png/);
   assert.equal(Object.getPrototypeOf(prepared.client.customIcons), null);
   assert.equal(Object.hasOwn(prepared.client.customIcons, '__proto__'), true);
+});
+
+test('DOM capture compatibility retains the exact Plan-owned verification artifact across process re-planning', () => {
+  const argv = ['render', '--dom-capture', 'screen.json', '--verify'];
+  const options = {
+    workspaceDir: '/work',
+    adapter: 'mcp',
+    verificationArtifactNonce: 'dom-capture-verification-0001',
+  };
+  const plan = planFigmaCommand(argv, options);
+  assert.equal(semanticRenderPlanRoute(plan), 'commander-compatibility');
+  assert.equal(plan.outputs.length, 1);
+  assert.equal(plan.outputs[0].scope, 'private-temporary');
+  assert.ok(plan.argv.some((arg) => arg.startsWith('--verification-output-dir=')));
+  const replanned = planFigmaCommand(plan.argv, {
+    ...options,
+    adapter: 'cli',
+    verificationArtifactNonce: 'must-not-replace-planned-directory',
+  });
+  assert.deepEqual(replanned.outputs, plan.outputs);
+  assert.deepEqual(replanned.argv, plan.argv);
 });
 
 test('CLI and MCP use one authentic canonical Semantic Render Command Plan', (t) => {

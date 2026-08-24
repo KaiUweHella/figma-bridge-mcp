@@ -9,9 +9,8 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
@@ -44,7 +43,11 @@ import {
   inspectPlanningArgvFromRequest,
   inspectPlanRoute,
 } from "../engine/src/application/inspect-command.js";
-import { executeScreenshot } from "../engine/src/application/screenshot-command.js";
+import {
+  executeScreenshotPlan,
+  screenshotPlanRoute,
+  screenshotPlanningArgvFromRequest,
+} from "../engine/src/application/screenshot-command.js";
 import {
   designLinkFileKeyFromArgv,
   designLinkPlanRoute,
@@ -88,6 +91,10 @@ import {
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
 import { isSemanticRenderOutcome } from "../engine/src/lib/semantic-render-outcome.js";
 import { parseBoundedJson } from "../engine/src/lib/workspace-io.js";
+import {
+  createVerificationArtifactWriter,
+  VERIFICATION_ARTIFACT_ROLE,
+} from "../engine/src/application/verification-artifact.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
 import { getAuditStatus } from "./audit-trail.js";
 import { createTrackedJobRegistry } from "./tracked-job-registry.js";
@@ -452,7 +459,7 @@ export const TOOLS = [
         },
         scale: {
           type: "number",
-          description: "Export scale (default 0.5, capped at 2000px max dimension). The result reports the applied scale — rendered pixels = node size × scale.",
+          description: "Export scale (default 0.5, capped at 2000px max dimension). Read the PNG for exact raster dimensions; the result also reports the applied scale.",
         },
         fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
@@ -1219,8 +1226,13 @@ async function runAssetExport(plan, label, { force = false } = {}) {
 
 async function runSemanticRenderApplication(plan, label, prepared) {
   let outcome = null;
-  let verificationDirectory = null;
   const compound = semanticRenderPlanRoute(plan) === "compound-command-application";
+  const verificationWriter = compound && prepared.request.stages.verification
+    ? createVerificationArtifactWriter(
+      plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE),
+      { workspaceIO: WORKSPACE_IO },
+    )
+    : null;
   const res = await runInProcessCommandPlan(plan, {
     label,
     compatibilityFallback: false,
@@ -1245,12 +1257,8 @@ async function runSemanticRenderApplication(plan, label, prepared) {
       }),
       evaluate,
       inspectInventory: evaluate,
-      writeVerification: async ({ handle, base64 }) => {
-        verificationDirectory ||= mkdtempSync(join(tmpdir(), "figma-bridge-verify-"));
-        const savePath = join(verificationDirectory, `root-${String(handle).replace(/:/g, "-")}.png`);
-        writeFileSync(savePath, Buffer.from(base64, "base64"));
-        return savePath;
-      },
+      writeVerification: ({ index, base64 }) =>
+        verificationWriter.write(index, Buffer.from(base64, "base64")),
     };
     outcome = compound
       ? await executePreparedCompoundSemanticRender(prepared, adapters)
@@ -1763,6 +1771,24 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const screenshotRoute = screenshotPlanRoute(plan);
+      if (screenshotRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeScreenshotPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, preparedSemanticRender);
       }
@@ -2123,35 +2149,34 @@ export async function handleTool(name, rawArgs) {
     }
 
     case "figma_screenshot": {
-      const args = ["verify"];
-      if (typeof input.nodeId === "string" && input.nodeId.length) {
-        args.push(input.nodeId);
-      }
-      if (input.scale != null) {
-        const scale = Number(input.scale);
-        if (!Number.isFinite(scale) || scale <= 0 || scale > 4) {
-          return errorResult("scale must be a number between 0 and 4.");
-        }
-        args.push("-s", String(scale));
-      }
-      const savePath = join(
-        tmpdir(),
-        `figma-shot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
-      );
-      args.push("--save", savePath);
-      const res = await runInProcessCommand(args, { fileKey: input.fileKey },
-        ({ fileKey, expectedEditor, timeoutMs }) => executeScreenshot({
+      let args;
+      try {
+        args = screenshotPlanningArgvFromRequest({
           nodeId: input.nodeId,
           scale: input.scale,
-          savePath,
-        }, {
-          evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
-          save: (file, bytes) => writeFileSync(file, bytes),
-        }));
+        });
+      } catch (error) {
+        return errorResult(error?.message || String(error));
+      }
+      const res = await runInProcessCommand(args, {
+        fileKey: input.fileKey,
+        compatibilityFallback: false,
+      }, async ({ plan, fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeScreenshotPlan(plan, {
+          workspaceIO: WORKSPACE_IO,
+          evaluate: (code) => evaluateFigma(code, {
+            fileKey,
+            expectedEditor,
+            timeoutMs: Math.max(1, deadline - Date.now()),
+          }),
+        });
+      });
+      const savePath = res.result?.saved || (res.stdout ? JSON.parse(res.stdout).saved : null);
       return textResult(
         (res.stdout || res.stderr || "") +
           `\n\nNow Read the PNG at ${savePath} to see the design.` +
-          `\n(width/height above are the RENDERED pixels; multiply by 1/scale for node dimensions.)`,
+          `\n(width/height are estimates from Figma node geometry; read the PNG itself for exact raster pixels.)`,
       );
     }
 

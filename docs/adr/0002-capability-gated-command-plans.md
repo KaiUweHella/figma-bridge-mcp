@@ -79,3 +79,11 @@ Code Spec Command Application and decreasing capture deadline. MCP-only output
 budgeting, lossless automatic deduplication and multi-node batching remain
 presentation/orchestration concerns outside the Application; they do not
 select another execution policy or re-enter Commander.
+
+Verification screenshots follow the same rule. `verify`, `figma_screenshot`
+and `figma_run` share one closed request and Screenshot Command Application.
+Default temporary persistence, explicit workspace persistence and inline
+Base64 are distinct Plan decisions; inline mode has no file output. Every
+persisted PNG is an exact Verification Artifact in `plan.outputs` before
+readiness. Private temporary paths use a command-owned namespace, while
+workspace paths remain behind Workspace I/O.

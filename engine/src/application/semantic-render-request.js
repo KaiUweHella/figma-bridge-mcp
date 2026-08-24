@@ -41,6 +41,7 @@ const OPTION_SPECS = new Map([
   ['-c', { key: 'collection', value: 'required' }],
   ['--collection', { key: 'collection', value: 'required' }],
   ['--verify', { key: 'verify', value: 'none', compatibility: 'verification-output' }],
+  ['--verification-output-dir', { key: 'verificationOutputDir', value: 'required' }],
   ['--preset', { key: 'preset', value: 'required' }],
   ['--icons', { key: 'icons', value: 'required', compatibility: 'project-icons' }],
   ['--dom-capture', { key: 'domCapture', value: 'required', compatibility: 'dom-capture' }],
@@ -66,6 +67,7 @@ const BATCH_OPTION_SPECS = new Map([
   ['-c', { key: 'collection', value: 'required' }],
   ['--collection', { key: 'collection', value: 'required' }],
   ['--verify', { key: 'verify', value: 'none' }],
+  ['--verification-output-dir', { key: 'verificationOutputDir', value: 'required' }],
   ['--preset', { key: 'preset', value: 'required' }],
   ['--icons', { key: 'icons', value: 'required' }],
   ['--manifest', { key: 'manifest', value: 'required' }],
@@ -222,6 +224,7 @@ function compoundRequest({ source, roots, sourceJsx = null, direction, values })
       componentConversion: values.asComponent === true,
       resizeProbe: resizeDelta,
       verification: values.verify === true,
+      verificationDirectory: values.verificationOutputDir || null,
     }),
     assets: combinedImageIntent(roots),
   });
@@ -310,6 +313,10 @@ function inspectRenderArgv(args) {
     try { parseResizeProbeDelta(values.resizeProbe); }
     catch (error) { throw requestError(error.message); }
   }
+  if (values.verificationOutputDir !== undefined) {
+    values.verificationOutputDir = boundedOption(values.verificationOutputDir, '--verification-output-dir');
+    if (!values.verify) throw requestError('--verification-output-dir requires --verify');
+  }
   if (values.collection !== undefined) values.collection = boundedOption(values.collection.trim(), '--collection');
   if (values.manifest !== undefined) values.manifest = boundedOption(values.manifest, '--manifest');
   if (values.approveFallback !== undefined) values.approveFallback = csv(values.approveFallback, '--approve-fallback');
@@ -343,6 +350,15 @@ function inspectRenderArgv(args) {
   }
   if (values.gap !== undefined || values.direction !== undefined) {
     throw requestError('--gap and --direction require an auto-split wrapper');
+  }
+  if (values.verify) {
+    const request = compoundRequest({
+      source: 'single-root', roots: [jsx], sourceJsx: jsx, direction: 'row', values,
+    });
+    return Object.freeze({
+      kind: 'compound', reason: 'single-root-stages', mutatesDesign: true,
+      target: 'figma', values, jsx, request,
+    });
   }
   if (compatibility.size) {
     return Object.freeze({ kind: 'compatibility', reason: [...compatibility][0], mutatesDesign: true, target: 'figma', values, jsx });
@@ -428,6 +444,10 @@ function inspectRenderBatchArgv(args) {
   if (values.collection !== undefined) values.collection = boundedOption(values.collection.trim(), '--collection');
   if (values.manifest !== undefined) values.manifest = boundedOption(values.manifest, '--manifest');
   if (values.icons !== undefined) values.icons = boundedOption(values.icons, '--icons');
+  if (values.verificationOutputDir !== undefined) {
+    values.verificationOutputDir = boundedOption(values.verificationOutputDir, '--verification-output-dir');
+    if (!values.verify) throw requestError('--verification-output-dir requires --verify');
+  }
   if (values.approveFallback !== undefined) values.approveFallback = csv(values.approveFallback, '--approve-fallback');
   if (values.allowFreeLayout !== undefined) values.allowFreeLayout = csv(values.allowFreeLayout, '--allow-free-layout');
   const request = compoundRequest({
@@ -511,6 +531,9 @@ function compoundOptions(request) {
   if (!request.placement.smart) options.push('--no-smart-position');
   if (request.stages.componentConversion) options.push('--as-component');
   if (request.stages.verification) options.push('--verify');
+  if (request.stages.verificationDirectory) {
+    options.push(`--verification-output-dir=${request.stages.verificationDirectory}`);
+  }
   if (request.stages.resizeProbe !== null) options.push(`--resize-probe=${request.stages.resizeProbe}`);
   if (request.collection) options.push(`--collection=${request.collection}`);
   if (request.preset) options.push(`--preset=${request.preset}`);
@@ -527,7 +550,7 @@ export function semanticCompoundRenderArgvFromRequest(request) {
     throw new TypeError('Compound Semantic Render request must be an object.');
   }
   const options = compoundOptions(request);
-  const args = request.source === 'auto-split'
+  const args = request.source === 'auto-split' || request.source === 'single-root'
     ? ['render', request.sourceJsx, ...options]
     : ['render-batch', JSON.stringify(request.roots), ...options];
   const inspected = inspectSemanticRenderArgv(args);

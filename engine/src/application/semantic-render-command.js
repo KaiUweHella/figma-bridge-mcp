@@ -553,7 +553,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
       try {
         const verified = validateVerificationResult(await adapters.evaluate(verificationCode(handles[index])), handles[index]);
         const artifact = await adapters.writeVerification({
-          handle: handles[index], width: verified.width, height: verified.height, base64: verified.base64,
+          index, handle: handles[index], width: verified.width, height: verified.height, base64: verified.base64,
         });
         if (typeof artifact !== 'string' || !artifact || Array.from(artifact).length > 512) {
           throw stageFailure('verification', 'Verification artifact Adapter returned an invalid path.');

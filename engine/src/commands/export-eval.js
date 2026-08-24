@@ -1,6 +1,6 @@
 // Commands: export-eval (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import {
@@ -15,7 +15,6 @@ import {
   daemonExec,
   daemonExecWithMetadata,
   fastEval,
-  safeReadEval,
   evalPrint,
   unescapeShell,
 } from '../lib/cli-core.js';
@@ -28,7 +27,10 @@ import {
   executeCodeSpecPlan,
   walkWithDepthRetry,
 } from '../application/code-spec-command.js';
-import { executeScreenshot } from '../application/screenshot-command.js';
+import {
+  executeScreenshotPlan,
+  screenshotPlanningArgvFromRequest,
+} from '../application/screenshot-command.js';
 import { DEFAULT_RASTER_SCALE } from '../lib/raster-optimize.js';
 import {
   AssetExportFailure,
@@ -470,32 +472,38 @@ program
   .description('Take a small screenshot for AI verification (saves PNG to disk by default; --base64 to dump inline)')
   .option('-s, --scale <number>', 'Export scale (default: 0.5 for small size)', '0.5')
   .option('--max <pixels>', 'Max dimension in pixels (default: 2000)', '2000')
-  .option('--save [path]', 'Custom PNG path (default: /tmp/figma-verify-{id}.png — save is the DEFAULT)')
+  .option('--save [path]', 'Custom workspace PNG path (default: collision-safe private temporary PNG — save is the DEFAULT)')
   .option('--base64', 'Dump the base64 PNG to stdout instead of saving (token-heavy — opt-in only)')
   .option('--measure', 'Also return real (unscaled) node + child dimensions so size bugs are caught by measurement, not just the screenshot')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
     try {
-      const result = await executeScreenshot({
+      const request = {
         nodeId,
         scale: options.scale,
         maxDimension: options.max,
         measure: !!options.measure,
         includeBase64: !!options.base64,
         savePath: !options.base64 && typeof options.save === 'string' ? options.save : null,
-        saveDefault: !options.base64 && typeof options.save !== 'string',
-      }, {
-        evaluate: safeReadEval,
-        save: (file, bytes) => {
-          if (typeof options.save === 'string') {
-            return workspaceIO().write(file, bytes, {
-              role: 'verification-image-output', createParents: true,
-            });
-          }
-          return writeFileSync(file, bytes);
-        },
-        defaultSavePath: (capture) => `/tmp/figma-verify-${String(capture.id).replace(/:/g, '-')}.png`,
+      };
+      const io = workspaceIO();
+      const plan = planFigmaCommand(screenshotPlanningArgvFromRequest(request), {
+        adapter: 'cli',
+        workspaceDir: io.roots[0],
+        workspaceIO: io,
+        fileKey: program.opts().figmaFile || null,
       });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeScreenshotPlan(plan, {
+            workspaceIO: io,
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
       if (result.stderr) console.error(chalk.yellow(result.stderr));
       console.log(result.stdout);
     } catch (error) {
