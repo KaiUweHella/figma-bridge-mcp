@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 import {
+  main,
+  packageArtifactEntries,
   parsePatchEntries,
   scanText,
   sensitivePathReason,
@@ -129,4 +135,125 @@ test("public-safety rejects credential-bearing filenames", () => {
     "binary artifact requiring public review"
   );
   assert.equal(sensitivePathReason(".env.example"), null);
+});
+
+test("public-safety scans an untracked file selected by the package artifact policy", () => {
+  const root = mkdtempSync(join(tmpdir(), "figma-bridge-public-package-"));
+  try {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "new-runtime.js"),
+      `export const token = "npm_${"A".repeat(36)}";`
+    );
+
+    const entries = packageArtifactEntries({
+      root,
+      policy: {
+        version: 1,
+        files: ["src/new-runtime.js"],
+        executables: [],
+      },
+    });
+    const findings = entries.flatMap((entry) =>
+      scanText(entry.content.toString("utf8"), {
+        path: entry.path,
+        revision: entry.revision,
+      })
+    );
+
+    assert.equal(entries[0]?.revision, "package artifact");
+    assert.equal(findings[0]?.kind, "npm token");
+    assert.equal(findings[0]?.path, "src/new-runtime.js");
+    assert.equal("value" in findings[0], false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("default prepublish safety fails on an untracked allowlisted Runtime secret", async () => {
+  const root = mkdtempSync(join(tmpdir(), "figma-bridge-public-prepublish-"));
+  const messages = [];
+  try {
+    mkdirSync(join(root, "release"), { recursive: true });
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "README.md"), "safe tracked source\n");
+    writeFileSync(
+      join(root, "src", "new-runtime.js"),
+      `export const token = "npm_${"B".repeat(36)}";`
+    );
+    writeFileSync(
+      join(root, "release", "package-artifact-policy.json"),
+      JSON.stringify({
+        version: 1,
+        files: ["src/new-runtime.js"],
+        executables: [],
+      })
+    );
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    execFileSync(
+      "git",
+      ["add", "README.md", "release/package-artifact-policy.json"],
+      { cwd: root }
+    );
+
+    const output = {
+      error: (...parts) => messages.push(parts.join(" ")),
+      log: (...parts) => messages.push(parts.join(" ")),
+    };
+    assert.equal(await main([], { root, output }), 1);
+
+    const rendered = messages.join("\n");
+    assert.match(rendered, /npm token: src\/new-runtime\.js:1/);
+    assert.doesNotMatch(rendered, new RegExp(`npm_${"B".repeat(36)}`));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("package projection does not scan ignored private documentation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "figma-bridge-public-private-docs-"));
+  const messages = [];
+  try {
+    mkdirSync(join(root, "release"), { recursive: true });
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "docs-local"), { recursive: true });
+    writeFileSync(join(root, ".gitignore"), "docs-local/\n");
+    writeFileSync(join(root, "README.md"), "safe tracked source\n");
+    writeFileSync(
+      join(root, "src", "runtime.js"),
+      "export const ready = true;\n"
+    );
+    writeFileSync(
+      join(root, "docs-local", "private.md"),
+      `private npm_${"C".repeat(36)}\n`
+    );
+    writeFileSync(
+      join(root, "release", "package-artifact-policy.json"),
+      JSON.stringify({
+        version: 1,
+        files: ["src/runtime.js"],
+        executables: [],
+      })
+    );
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    execFileSync(
+      "git",
+      [
+        "add",
+        ".gitignore",
+        "README.md",
+        "release/package-artifact-policy.json",
+      ],
+      { cwd: root }
+    );
+
+    const output = {
+      error: (...parts) => messages.push(parts.join(" ")),
+      log: (...parts) => messages.push(parts.join(" ")),
+    };
+    assert.equal(await main([], { root, output }), 0);
+    assert.doesNotMatch(messages.join("\n"), /docs-local|private\.md/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

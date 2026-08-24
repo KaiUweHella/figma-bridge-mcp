@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packageArtifactSourceEntries } from "./lib/package-artifact-policy.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const ZERO_SHA = /^0+$/;
@@ -202,25 +203,41 @@ function scanEntry(entry, denylist, findings) {
   findings.push(...entryFindings);
 }
 
-function trackedEntries() {
-  return nulList(git(["ls-files", "-z"]))
-    .filter((path) => existsSync(resolve(ROOT, path)))
+function trackedEntries(root = ROOT) {
+  return nulList(git(["ls-files", "-z"], { cwd: root }))
+    .filter((path) => existsSync(resolve(root, path)))
     .map((path) => ({
       path,
-      content: readFileSync(resolve(ROOT, path)),
+      content: readFileSync(resolve(root, path)),
       revision: "working tree",
     }));
 }
 
-function stagedEntries() {
+function stagedEntries(root = ROOT) {
   const paths = nulList(
-    git(["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"])
+    git(["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], {
+      cwd: root,
+    })
   );
   return paths.map((path) => ({
     path,
-    content: git(["show", `:${path}`], { encoding: null }),
+    content: git(["show", `:${path}`], { cwd: root, encoding: null }),
     revision: "staged",
   }));
+}
+
+export function packageArtifactEntries(options = {}) {
+  return packageArtifactSourceEntries({ root: ROOT, ...options });
+}
+
+function trackedAndPackageEntries(root = ROOT) {
+  const entries = new Map(
+    trackedEntries(root).map((entry) => [entry.path, entry])
+  );
+  for (const entry of packageArtifactEntries({ root })) {
+    if (!entries.has(entry.path)) entries.set(entry.path, entry);
+  }
+  return [...entries.values()];
 }
 
 export function parsePatchEntries(patch) {
@@ -284,7 +301,7 @@ export function parsePatchEntries(patch) {
   return entries;
 }
 
-function patchEntries(commits = null) {
+function patchEntries(commits = null, root = ROOT) {
   const common = [
     "--root",
     "--format=PUBLIC_SAFETY_COMMIT %H",
@@ -298,10 +315,10 @@ function patchEntries(commits = null) {
     ? ["-c", "core.quotePath=false", "show", ...common, ...commits]
     : ["-c", "core.quotePath=false", "log", "--all", ...common];
   if (commits && commits.length === 0) return [];
-  return parsePatchEntries(git(args));
+  return parsePatchEntries(git(args, { cwd: root }));
 }
 
-function outgoingCommits(input, remoteName) {
+function outgoingCommits(input, remoteName, root = ROOT) {
   const commits = new Set();
   for (const line of input.trim().split("\n")) {
     if (!line.trim()) continue;
@@ -311,7 +328,10 @@ function outgoingCommits(input, remoteName) {
       !remoteSha || ZERO_SHA.test(remoteSha)
         ? ["rev-list", localSha, `--not`, `--remotes=${remoteName || "origin"}`]
         : ["rev-list", `${remoteSha}..${localSha}`];
-    for (const commit of git(args).trim().split("\n").filter(Boolean))
+    for (const commit of git(args, { cwd: root })
+      .trim()
+      .split("\n")
+      .filter(Boolean))
       commits.add(commit);
   }
   return [...commits];
@@ -324,59 +344,68 @@ async function stdinText() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function printFailure(findings) {
-  console.error(
+function printFailure(findings, output = console) {
+  output.error(
     `Public-safety check failed with ${findings.length} finding(s):`
   );
   for (const finding of findings) {
     const revision = finding.revision
       ? ` [${finding.revision.slice(0, 12)}]`
       : "";
-    console.error(
+    output.error(
       `- ${finding.kind}: ${finding.path}:${finding.line}${revision}`
     );
   }
-  console.error("Matched values are deliberately redacted from this output.");
-  console.error(
+  output.error("Matched values are deliberately redacted from this output.");
+  output.error(
     "Replace private data with explicit placeholders. Put private names in " +
       ".public-safety-denylist (gitignored), never in a public allowlist."
   );
 }
 
-export async function main(args = process.argv.slice(2)) {
-  const denylist = loadDenylist();
+export async function main(
+  args = process.argv.slice(2),
+  { root = ROOT, output = console } = {}
+) {
+  const denylist = loadDenylist(root);
   let entries;
   let label;
 
   if (args.includes("--staged")) {
-    entries = stagedEntries();
+    entries = stagedEntries(root);
     label = "staged files";
   } else if (args.includes("--history")) {
-    entries = patchEntries();
+    entries = patchEntries(null, root);
     label = "complete Git history";
   } else if (args.includes("--pre-push")) {
     const input = await stdinText();
     const commits = outgoingCommits(
       input,
-      args.find((arg) => !arg.startsWith("--"))
+      args.find((arg) => !arg.startsWith("--")),
+      root
     );
-    entries = patchEntries(commits);
+    entries = patchEntries(commits, root);
     label = `${commits.length} outgoing commit(s)`;
   } else {
-    entries = trackedEntries();
-    label = "tracked files";
+    try {
+      entries = trackedAndPackageEntries(root);
+    } catch (error) {
+      output.error(`Public-safety package projection failed: ${error.message}`);
+      return 1;
+    }
+    label = "tracked and package artifact files";
   }
 
   const findings = [];
   for (const entry of entries) scanEntry(entry, denylist, findings);
   if (findings.length) {
-    printFailure(findings);
+    printFailure(findings, output);
     return 1;
   }
   const localTerms = denylist.length
     ? `; ${denylist.length} local denylist term(s)`
     : "";
-  console.log(`Public-safety check passed: ${label}${localTerms}.`);
+  output.log(`Public-safety check passed: ${label}${localTerms}.`);
   return 0;
 }
 

@@ -57,3 +57,41 @@ test("artifact policy rejects an unreviewed executable even when it is regular",
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("unexpected tar paths fail without becoming source-tree reads", () => {
+  const root = mkdtempSync(join(tmpdir(), "figma-bridge-artifact-boundary-"));
+  try {
+    writeFileSync(join(root, "approved.js"), "export {};");
+    assert.throws(
+      () =>
+        verifyPackageMetadata(
+          {
+            name: "example",
+            version: "1.0.0",
+            files: [
+              { path: "approved.js", size: 10, mode: 0o644 },
+              { path: "../outside.js", size: 10, mode: 0o644 },
+            ],
+          },
+          {
+            root,
+            packageJson: { name: "example", version: "1.0.0" },
+            policy: { version: 1, files: ["approved.js"], executables: [] },
+          }
+        ),
+      (error) => {
+        assert.match(
+          error.message,
+          /unexpected packed files: \.\.\/outside\.js/
+        );
+        assert.doesNotMatch(
+          error.message,
+          /cannot be verified in the source tree/
+        );
+        return true;
+      }
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

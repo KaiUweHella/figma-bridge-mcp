@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPackageArtifactPolicy } from "./lib/package-artifact-policy.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const POLICY_PATH = join(ROOT, "release", "package-artifact-policy.json");
@@ -48,9 +49,10 @@ export function verifyPackageMetadata(
   {
     root = ROOT,
     packageJson = JSON.parse(readFileSync(PACKAGE_PATH, "utf8")),
-    policy = JSON.parse(readFileSync(POLICY_PATH, "utf8")),
+    policy = null,
   } = {}
 ) {
+  const canonicalPolicy = readPackageArtifactPolicy({ root, policy });
   const failures = [];
   const files = Array.isArray(metadata?.files) ? metadata.files : [];
   const paths = files.map((entry) => entry.path);
@@ -67,22 +69,14 @@ export function verifyPackageMetadata(
         `expected ${packageJson.name}@${packageJson.version}`
     );
   }
-  if (
-    policy?.version !== 1 ||
-    !Array.isArray(policy.files) ||
-    !Array.isArray(policy.executables)
-  ) {
-    failures.push(
-      "release/package-artifact-policy.json must use the supported closed schema (version 1)"
-    );
-  }
   if (duplicates.length)
     failures.push(
       `duplicate tar entries: ${[...new Set(duplicates)].join(", ")}`
     );
 
-  const unexpected = difference(paths, policy.files || []);
-  const missing = difference(policy.files || [], paths);
+  const unexpected = difference(paths, canonicalPolicy.files);
+  const missing = difference(canonicalPolicy.files, paths);
+  const allowedPaths = new Set(canonicalPolicy.files);
   if (unexpected.length)
     failures.push(`unexpected packed files: ${unexpected.join(", ")}`);
   if (missing.length)
@@ -92,10 +86,10 @@ export function verifyPackageMetadata(
     .filter((entry) => (Number(entry.mode) & 0o111) !== 0)
     .map((entry) => entry.path)
     .sort();
-  if (!sameSortedValues(executables, policy.executables || [])) {
+  if (!sameSortedValues(executables, canonicalPolicy.executables)) {
     failures.push(
       `executable file set is [${executables.join(", ")}]; expected ` +
-        `[${(policy.executables || []).join(", ")}]`
+        `[${canonicalPolicy.executables.join(", ")}]`
     );
   }
 
@@ -111,6 +105,10 @@ export function verifyPackageMetadata(
     }
     if ((entry.mode & 0o022) !== 0)
       failures.push(`${entry.path} is group/world-writable in the tarball`);
+    // An unexpected tar entry is already a terminal policy failure. Never
+    // resolve it against the host filesystem: only canonical policy paths may
+    // cross the source-tree read boundary.
+    if (!allowedPaths.has(entry.path)) continue;
     try {
       const source = lstatSync(join(root, entry.path));
       if (source.isSymbolicLink())

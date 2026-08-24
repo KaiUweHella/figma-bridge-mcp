@@ -413,6 +413,14 @@ const EVIDENCE = Object.freeze([
         "tests/public-safety.test.js",
         "public-safety history parser scans additions with their real line",
       ],
+      [
+        "tests/public-safety.test.js",
+        "default prepublish safety fails on an untracked allowlisted Runtime secret",
+      ],
+      [
+        "tests/public-safety.test.js",
+        "package projection does not scan ignored private documentation",
+      ],
     ],
   ],
   [
@@ -425,6 +433,10 @@ const EVIDENCE = Object.freeze([
       [
         "tests/package-artifact.test.js",
         "artifact policy rejects an unreviewed executable even when it is regular",
+      ],
+      [
+        "tests/package-artifact.test.js",
+        "unexpected tar paths fail without becoming source-tree reads",
       ],
       [
         "tests/installed-dependency-evidence.test.js",
