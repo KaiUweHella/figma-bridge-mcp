@@ -174,6 +174,26 @@ test('Inspect closes one policy-identical CLI/MCP read without losing formats or
   }
 });
 
+test('Code Spec closes one policy-identical CLI/MCP capture request', () => {
+  const url = 'https://www.figma.com/design/FILEA/Spec-Lab?node-id=12-34';
+  const inputs = [
+    ['export', 'code-spec', url],
+    ['export', 'code-spec', '--format', 'yaml', '--depth=0', url, '--phase', 'style', '--no-dedup'],
+  ];
+  for (const input of inputs) {
+    const mcp = planFigmaCommand(input, { adapter: 'mcp' });
+    const cli = planFigmaCommand(input, { adapter: 'cli' });
+    const { adapter: _mcp, ...mcpPolicy } = mcp;
+    const { adapter: _cli, ...cliPolicy } = cli;
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(cliPolicy, mcpPolicy);
+    assert.equal(mcp.target.fileKey, 'FILEA');
+    assert.equal(mcp.argv[2], '12:34');
+    assert.equal(mcp.execution.retry, 'safe-read');
+  }
+});
+
 test('every exposed command root owns a closed URL target projection', () => {
   assert.deepEqual(
     Object.keys(FIGMA_URL_TARGET_ROOTS).sort(),
@@ -533,6 +553,7 @@ test('catalog reports workspace, network and shared-state effects independently 
 
 test('cross-Adapter conformance keeps policy identical while migration exposure stays explicit', () => {
   const cases = [
+    ['export', 'code-spec', '1:2'],
     ['inspect', '1:2', '--format', 'yaml'],
     ['link', 'inspect', '1:2'],
     ['link', 'set', '1:2', 'ui.button'],
@@ -549,7 +570,7 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     assert.equal(mcpAdapter, 'mcp');
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
-    if (['export.assets', 'inspect', 'link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    if (['export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
     else assert.equal(cliAllowed, false);
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');

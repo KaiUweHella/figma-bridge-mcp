@@ -14,6 +14,12 @@ import {
 import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
 import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
 import {
+  acceptsCodeSpecArgv,
+  codeSpecArgvFromRequest,
+  codeSpecFigmaUrlFileKeyFromArgv,
+  parseCodeSpecRequest,
+} from '../engine/src/application/code-spec-request.js';
+import {
   acceptsInspectArgv,
   inspectArgvFromRequest,
   inspectFigmaUrlFileKeyFromArgv,
@@ -113,7 +119,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'inspect', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch',
+  'contract.capture', 'contract.check', 'export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -191,6 +197,7 @@ function specializedPolicy(name, entry, args) {
       pathPolicy = 'export-image';
     } else if (sub === 'code-spec') {
       retry = 'safe-read';
+      pathPolicy = 'code-spec-input';
     } else if (sub === 'dtcg') {
       pathPolicy = 'dtcg-output';
     } else if (sub === 'node-json') {
@@ -223,6 +230,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'export' && args[1] === 'assets' && !action.help && !acceptsAssetExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'export' && args[1] === 'code-spec' && !action.help && !acceptsCodeSpecArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -568,6 +578,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget
       // projection for this migrated Command Application.
       if (projectUrlTarget) figmaUrlFileKey = closedInspectFileKey;
       args.splice(0, args.length, ...inspectArgvFromRequest(parseInspectRequest(args)));
+      break;
+    }
+    case 'code-spec-input': {
+      if (projectUrlTarget) figmaUrlFileKey = codeSpecFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...codeSpecArgvFromRequest(parseCodeSpecRequest(args)));
       break;
     }
     case 'gradient-input': {

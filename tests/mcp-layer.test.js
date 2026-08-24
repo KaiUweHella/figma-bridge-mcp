@@ -792,6 +792,43 @@ test('figma_spec batches bounded reads behind one manual approval', async () => 
   assert.match(WORKFLOW_GUIDE, /one manual approval/i);
 });
 
+test('figma_spec routes every bounded read through the Plan-bound Code Spec Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('case "figma_spec"');
+  const slice = source.slice(start, source.indexOf('default:', start));
+  assert.match(slice, /codeSpecPlanningArgvFromRequest\(/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCodeSpecPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(|executeCodeSpec\(\{/);
+});
+
+test('figma_run routes Code Spec in-process without Commander re-entry', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const codeSpecRoute = codeSpecPlanRoute(plan)');
+  const slice = source.slice(start, source.indexOf('if (semanticRenderApplication)', start));
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCodeSpecPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Code Spec argv before readiness or capture', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['export', 'code-spec', 'bad-node'],
+    ['export', 'code-spec', '1:2', '2:3'],
+    ['export', 'code-spec', '1:2', '--future', 'private-value'],
+    ['export', 'code-spec', '1:2', '--depth', '3x'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_spec batch fails closed without partial or unbounded output', async () => {
   const { executeSpecBatch } = await import('../src/server.js');
   let calls = 0;

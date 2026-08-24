@@ -24,7 +24,8 @@ import { formatCssTokens, buildDtcgTree, projectVariableModes } from '../lib/css
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
 import { nodeRestJsonCode } from '../lib/native-node-data.js';
 import {
-  executeCodeSpec,
+  codeSpecPlanningArgvFromRequest,
+  executeCodeSpecPlan,
   walkWithDepthRetry,
 } from '../application/code-spec-command.js';
 import { executeScreenshot } from '../application/screenshot-command.js';
@@ -425,10 +426,10 @@ exp
     DEFAULT_SPEC_FORMAT,
   )
   .option('--no-dedup', 'Print every style value inline instead of S<n> bundle refs')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
     try {
-      const result = await executeCodeSpec({
+      const request = {
         nodeId,
         phase: options.phase,
         depth: options.depth,
@@ -436,12 +437,26 @@ exp
         includeHidden: options.includeHidden,
         format: options.format,
         dedup: options.dedup,
-      }, { evaluate: safeReadEval });
-      if (result.stderr) process.stderr.write(result.stderr + '\n');
+      };
+      const plan = planFigmaCommand(codeSpecPlanningArgvFromRequest(request), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCodeSpecPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (execution.stderr) process.stderr.write(execution.stderr + '\n');
       // process.exit right after console.log DROPS unflushed stdout beyond
       // 64KB (classic Node pitfall — surfaced as yaml/json output truncated
       // at exactly 65536 bytes). Exit only once the write has been flushed.
-      process.stdout.write(result.stdout + '\n', () => process.exit(0));
+      process.stdout.write(execution.stdout + '\n', () => process.exit(0));
     } catch (e) {
       console.error(chalk.red('✗ code-spec failed: ' + e.message));
       process.exit(1);

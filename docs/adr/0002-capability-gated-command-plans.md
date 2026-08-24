@@ -70,3 +70,12 @@ Spec formats, accepts Commander options before or after the node, and projects
 Figma URL identity only from that typed node field. Commander, `figma_run` and
 `figma_inspect` execute the same authentic Plan, bounded readiness step,
 decreasing deadline and safe-read retry policy without re-entering Commander.
+
+The Figma-to-code `export code-spec` read follows the same rule. Its closed
+request canonicalizes optional node/selection targeting, phase, depth, named
+section, hidden-layer inclusion, output format and deduplication before the
+Plan. Commander, `figma_run` and every bounded `figma_spec` read share one
+Code Spec Command Application and decreasing capture deadline. MCP-only output
+budgeting, lossless automatic deduplication and multi-node batching remain
+presentation/orchestration concerns outside the Application; they do not
+select another execution policy or re-enter Commander.

@@ -79,6 +79,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   `figma_run` and `figma_inspect`. All three preserve the existing text, YAML,
   JSON and Spec formats while sharing closed node parsing, exact URL targeting,
   bounded readiness, one decreasing deadline and the same safe-read retry path.
+- `export code-spec`, `figma_run` and each bounded `figma_spec` read now share
+  one Plan-bound Code Spec Application. Selection/node targeting, phase, depth,
+  section, hidden layers, format and deduplication are canonicalized before
+  capture without removing MCP batching or lossless output-budget recovery.
 - Plugin execution now rejects stale connections, wrong files and wrong
   editors before mutation. Reconnected UI results cannot settle newer work,
   multi-window metadata stays pinned to the connection selected at dispatch,

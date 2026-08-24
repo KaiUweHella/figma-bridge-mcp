@@ -14,12 +14,25 @@ import {
 import {
   DEFAULT_SPEC_FORMAT,
   serializeSpecModel,
-  STRUCTURED_SPEC_FORMATS,
 } from '../lib/spec-format.js';
+import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
+import {
+  CODE_SPEC_FORMATS,
+  CODE_SPEC_PHASES,
+  codeSpecArgvFromRequest,
+  codeSpecPlanningArgvFromRequest,
+  parseCodeSpecRequest,
+} from './code-spec-request.js';
 
-export const CODE_SPEC_PHASES = ['structure', 'style', 'all'];
-export const CODE_SPEC_FORMATS = ['tree', ...STRUCTURED_SPEC_FORMATS];
+export {
+  CODE_SPEC_FORMATS,
+  CODE_SPEC_PHASES,
+  codeSpecArgvFromRequest,
+  codeSpecPlanningArgvFromRequest,
+} from './code-spec-request.js';
 export { walkWithDepthRetry };
+
+const CODE_SPEC_APPLICATION_ID = 'export.code-spec';
 
 // CLI calls are short-lived and cannot prove a revision, so they use the same
 // Capture Interface with storage disabled. MCP supplies the long-lived,
@@ -203,4 +216,20 @@ export async function executeCodeSpec(request, adapters = {}) {
     nodeId,
     format: input.format,
   };
+}
+
+export function codeSpecPlanRoute(plan) {
+  if (!isFigmaCommandPlan(plan)) {
+    throw new TypeError('Code Spec routing requires a Command Plan created by the Capability Catalog.');
+  }
+  return plan.allowed && plan.id === CODE_SPEC_APPLICATION_ID
+    ? 'command-application'
+    : 'not-code-spec';
+}
+
+export async function executeCodeSpecPlan(plan, adapters = {}) {
+  if (codeSpecPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Code Spec Command Application.`);
+  }
+  return executeCodeSpec(parseCodeSpecRequest(plan.argv), adapters);
 }

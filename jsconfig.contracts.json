@@ -27,6 +27,7 @@
     "engine/src/application/asset-export-command.js",
     "engine/src/application/design-capture.js",
     "engine/src/application/code-spec-command.js",
+    "engine/src/application/code-spec-request.js",
     "engine/src/application/inspect-command.js",
     "engine/src/application/inspect-request.js",
     "engine/src/application/node-text-request.js",

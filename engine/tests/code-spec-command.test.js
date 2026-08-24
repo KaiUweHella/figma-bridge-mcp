@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { executeCodeSpec } from '../src/application/code-spec-command.js';
+import { planFigmaCommand } from '../../src/capability-catalog.js';
+import {
+  codeSpecPlanRoute,
+  codeSpecPlanningArgvFromRequest,
+  executeCodeSpec,
+  executeCodeSpecPlan,
+} from '../src/application/code-spec-command.js';
+import {
+  acceptsCodeSpecArgv,
+  codeSpecArgvFromRequest,
+  parseCodeSpecRequest,
+} from '../src/application/code-spec-request.js';
 import { createDesignCaptureModule } from '../src/application/design-capture.js';
 import { parseSpecModel } from '../src/lib/spec-format.js';
 
@@ -70,6 +81,41 @@ test('code-spec command validates its full Interface before touching Figma', asy
   await assert.rejects(() => executeCodeSpec({ format: 'toml' }, adapter), /Unknown format/);
   await assert.rejects(() => executeCodeSpec({ depth: -1 }, adapter), /between 0 and 30/);
   assert.equal(adapter.calls.length, 0);
+});
+
+test('code-spec request closes and canonicalizes options around an optional node', () => {
+  assert.deepEqual(parseCodeSpecRequest([
+    'export', 'code-spec', '--format=yaml', '--no-dedup', '1-2', '-p', 'STYLE', '-d=0', '--include-hidden',
+  ]), {
+    nodeId: '1:2', phase: 'style', depth: 0, section: null,
+    format: 'yaml', includeHidden: true, dedup: false,
+  });
+  assert.deepEqual(codeSpecArgvFromRequest({ nodeId: '1-2', phase: 'structure' }), [
+    'export', 'code-spec', '1:2', '--phase', 'structure',
+  ]);
+  assert.equal(acceptsCodeSpecArgv(['export', 'code-spec']), true, 'selection remains supported');
+  for (const argv of [
+    ['export', 'code-spec', 'bad-node'],
+    ['export', 'code-spec', '1:2', '2:3'],
+    ['export', 'code-spec', '1:2', '--future'],
+    ['export', 'code-spec', '1:2', '--depth', '3x'],
+    ['export', 'code-spec', '1:2', '--format', 'toml'],
+  ]) assert.equal(acceptsCodeSpecArgv(argv), false, argv.join(' '));
+});
+
+test('code-spec executes only from its authentic policy-owned Plan', async () => {
+  const url = 'https://www.figma.com/design/FILEA/Spec-Lab?node-id=1-2';
+  const plan = planFigmaCommand(codeSpecPlanningArgvFromRequest({
+    nodeId: url, phase: 'all', depth: 12, format: 'tree', dedup: true,
+  }), { adapter: 'cli' });
+  assert.equal(plan.allowed, true);
+  assert.equal(plan.target.fileKey, 'FILEA');
+  assert.equal(codeSpecPlanRoute(plan), 'command-application');
+  const result = await executeCodeSpecPlan(plan, evaluator());
+  assert.match(result.stdout, /Code-Spec: Screen/);
+  await assert.rejects(() => executeCodeSpecPlan({ ...plan }, evaluator()),
+    /requires a Command Plan created by the Capability Catalog/);
+  assert.equal(codeSpecPlanRoute(planFigmaCommand(['inspect', '1:2'])), 'not-code-spec');
 });
 
 test('depth 0 is an exact node-only style contract', async () => {

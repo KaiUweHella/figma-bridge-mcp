@@ -34,7 +34,11 @@ import { readRestToken, getRestHealth, resolveFileKey, getVersions, getFileAtVer
 import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
 import { diffSnapshots, formatDiff, formatChangelog } from "../engine/src/lib/doc-diff.js";
 import { DEFAULT_SPEC_FORMAT, parseSpecModel, serializeSpecModel } from "../engine/src/lib/spec-format.js";
-import { executeCodeSpec } from "../engine/src/application/code-spec-command.js";
+import {
+  codeSpecPlanRoute,
+  codeSpecPlanningArgvFromRequest,
+  executeCodeSpecPlan,
+} from "../engine/src/application/code-spec-command.js";
 import {
   executeInspectPlan,
   inspectPlanningArgvFromRequest,
@@ -1737,6 +1741,28 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const codeSpecRoute = codeSpecPlanRoute(plan);
+      if (codeSpecRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCodeSpecPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+            captureDesign: (request) => captureFigmaDesign(request, {
+              fileKey,
+              expectedEditor,
+              deadline,
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, preparedSemanticRender);
       }
@@ -2147,43 +2173,28 @@ export async function handleTool(name, rawArgs) {
       if (typeof nodeId !== "string" || nodeId.length === 0) {
         return errorResult("nodeId must be a non-empty string.");
       }
-      const args = ["export", "code-spec", nodeId];
-      if (input.includeHidden === true) args.push("--include-hidden");
-      if (input.section != null) {
-        if (typeof input.section !== "string" || input.section.length === 0) {
-          return errorResult("section must be a non-empty string (a layer name from the structure map).");
-        }
-        args.push("--section", input.section);
-      }
-      if (input.phase != null) args.push("-p", String(input.phase));
       const dedup = input.dedup === true;
-      if (!dedup) args.push("--no-dedup");
       const format = input.format == null ? DEFAULT_SPEC_FORMAT : String(input.format);
-      if (!["tree", "yaml", "json"].includes(format)) {
-        return errorResult("format must be tree, yaml or json.");
-      }
-      // Pass the Interface default explicitly so the MCP contract cannot
-      // silently drift if the lower-level CLI ever chooses another default.
-      args.push("-f", format);
-      if (input.depth != null) {
-        const depth = Number(input.depth);
-        if (!Number.isInteger(depth) || depth < 0 || depth > 30) {
-          return errorResult("depth must be an integer between 0 and 30.");
-        }
-        args.push("-d", String(depth));
+      const requestFor = (useDedup) => ({
+        nodeId,
+        phase: input.phase,
+        depth: input.depth,
+        section: input.section,
+        includeHidden: input.includeHidden,
+        format,
+        dedup: useDedup,
+      });
+      try {
+        codeSpecPlanningArgvFromRequest(requestFor(dedup));
+      } catch (error) {
+        return errorResult(error?.message || String(error));
       }
       const runSpec = (useDedup) => runInProcessCommand(
-        useDedup ? args.filter((arg) => arg !== "--no-dedup") : args,
-        { fileKey: input.fileKey },
-        async ({ fileKey, expectedEditor, deadline }) => executeCodeSpec({
-            nodeId,
-            phase: input.phase,
-            depth: input.depth,
-            section: input.section,
-            includeHidden: input.includeHidden,
-            format,
-            dedup: useDedup,
-          }, {
+        codeSpecPlanningArgvFromRequest(requestFor(useDedup)),
+        { fileKey: input.fileKey, compatibilityFallback: false },
+        async ({ plan, fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCodeSpecPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
@@ -2194,7 +2205,8 @@ export async function handleTool(name, rawArgs) {
               expectedEditor,
               deadline,
             }),
-          }),
+          });
+        },
       );
       const project = (result) => {
         if (format === "tree") {
