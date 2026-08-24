@@ -463,6 +463,150 @@ test('plugin bounds failed WebSocket scans and hands recovery to quiet HTTP disc
   assert.match(UI, /fetchImpl\(`http:\/\/localhost:\$\{port\}\/plugin-ready`/);
 });
 
+test('a disconnected iframe distinguishes another authenticated Plugin window from a missing Bridge', async () => {
+  const script = UI.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(script, 'ui.html must contain a <script> block');
+
+  const elements = new Map();
+  const element = (id) => {
+    if (!elements.has(id)) {
+      const classes = new Set();
+      const attributes = new Map();
+      elements.set(id, {
+        id,
+        value: '',
+        textContent: '',
+        className: '',
+        hidden: false,
+        classList: {
+          add(name) { classes.add(name); },
+          remove(name) { classes.delete(name); },
+          toggle(name, force) {
+            if (force === true) classes.add(name);
+            else if (force === false) classes.delete(name);
+            else if (classes.has(name)) classes.delete(name);
+            else classes.add(name);
+            return classes.has(name);
+          },
+          contains(name) { return classes.has(name); },
+        },
+        setAttribute(name, value) { attributes.set(name, String(value)); },
+        getAttribute(name) { return attributes.get(name) ?? null; },
+        focus() {},
+      });
+    }
+    return elements.get(id);
+  };
+
+  let timerId = 0;
+  const timers = new Map();
+  const setTimer = (fn, delay = 0) => {
+    const id = ++timerId;
+    timers.set(id, { fn, delay });
+    return id;
+  };
+  const runNextTimer = async () => {
+    const next = [...timers.entries()].sort((a, b) => a[1].delay - b[1].delay)[0];
+    assert.ok(next, 'expected a scheduled reconnect/discovery pass');
+    timers.delete(next[0]);
+    await next[1].fn();
+    await Promise.resolve();
+  };
+
+  const sockets = [];
+  class RefusedWebSocket {
+    static OPEN = 1;
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      this.sent = [];
+      sockets.push(this);
+    }
+    close() { this.readyState = 3; }
+    send(value) { this.sent.push(String(value)); }
+  }
+  let failedThrough = 0;
+  const refuseNewSockets = () => {
+    const pending = sockets.slice(failedThrough);
+    failedThrough = sockets.length;
+    assert.ok(pending.length > 0, 'expected a new WebSocket scan');
+    for (const socket of pending) {
+      if (socket.onerror) socket.onerror();
+    }
+  };
+
+  const posted = [];
+  const window = {
+    crypto: { getRandomValues(values) { values.fill(7); return values; } },
+    scrollY: 0,
+    onmessage: null,
+  };
+  const context = {
+    window,
+    document: {
+      getElementById: element,
+      body: { children: [] },
+      createElement: () => element('created'),
+    },
+    parent: { postMessage: (message) => posted.push(message) },
+    WebSocket: RefusedWebSocket,
+    TextEncoder,
+    requestAnimationFrame: () => 1,
+    setTimeout: setTimer,
+    clearTimeout: (id) => timers.delete(id),
+    setInterval: () => 1,
+    clearInterval() {},
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({ bridge: 'figma-bridge-mcp', ready: true, port: 3456 }),
+    }),
+    console: { log() {}, warn() {}, error() {} },
+  };
+
+  new Script(script[1], { filename: 'plugin/ui.html' }).runInNewContext(context);
+  window.onmessage({ data: { pluginMessage: { type: 'key', value: 'stored-test-key' } } });
+
+  for (let scan = 0; scan < 3; scan++) {
+    refuseNewSockets();
+    if (scan < 2) await runNextTimer();
+  }
+  assert.equal(elements.get('status').textContent, 'Waiting for MCP…',
+    'feedback loop must reproduce the exact visible symptom first');
+  assert.match(elements.get('hint').textContent, /Start figma_connect/);
+
+  await runNextTimer();
+  refuseNewSockets();
+  assert.equal(elements.get('status').textContent, 'This Figma window is disconnected');
+  assert.match(elements.get('hint').textContent, /another Figma window/i);
+  assert.equal(posted.some(({ pluginMessage }) => pluginMessage?.type === 'connected'), false,
+    'this iframe must not claim another window connection as its own');
+
+  const previousSocketCount = sockets.length;
+  elements.get('reconnectBtn').onclick();
+  const reconnectSocket = sockets[previousSocketCount];
+  assert.ok(reconnectSocket, 'manual reconnect must start a fresh immediate scan');
+  reconnectSocket.readyState = RefusedWebSocket.OPEN;
+  reconnectSocket.onopen();
+  reconnectSocket.onmessage({ data: JSON.stringify({
+    type: 'challenge', proto: HANDSHAKE_PROTO, nonce: 'a'.repeat(64), port: 3456,
+  }) });
+  const hello = JSON.parse(reconnectSocket.sent[0]);
+  const connectionEpoch = '66666666-6666-4666-8666-666666666666';
+  reconnectSocket.onmessage({ data: JSON.stringify({
+    type: 'hello-ack',
+    connectionEpoch,
+    proof: sign('stored-test-key', daemonTranscript({
+      daemonNonce: 'a'.repeat(64),
+      pluginNonce: hello.nonce,
+      port: 3456,
+      connectionEpoch,
+    })),
+  }) });
+  assert.equal(elements.get('status').textContent, 'Connected');
+  assert.equal(posted.at(-1)?.pluginMessage?.type, 'connected');
+  assert.equal(posted.at(-1)?.pluginMessage?.connectionEpoch, connectionEpoch);
+});
+
 test('manual reconnect stays visible and restarts the whole connection state', () => {
   assert.match(
     UI,

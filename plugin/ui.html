@@ -500,6 +500,17 @@
     const PORT_SCAN_TIMEOUT_MS = 750;    // fallback for sockets that stay pending
     let failedScans = 0;
     let unreachableNotified = false;
+    let bridgeDiscovered = false;
+
+    function showWaitingForBridge() {
+      setStatus('Waiting for MCP…', 'connecting');
+      hintEl.textContent = 'Start figma_connect in your AI app. Quiet discovery keeps checking automatically; Reconnect now forces one immediate scan.';
+    }
+
+    function showDisconnectedWindow() {
+      setStatus('This Figma window is disconnected', 'connecting');
+      hintEl.textContent = 'The local Bridge daemon is running, but this window could not open its authenticated socket. Another Figma window may still be connected; Reconnect now retries this window.';
+    }
 
     function setStatus(text, state) {
       statusEl.textContent = text;
@@ -977,13 +988,16 @@
       const generation = scanGen;
       discoveryInFlight = true;
       try {
-        const candidates = await Promise.all(PORTS.map(probeBridgePort));
+        const candidates = await Promise.all(PORTS.map((port) => probeBridgePort(port)));
         if (generation !== scanGen || superseded || (ws && ws.readyState === WebSocket.OPEN)) return;
         const found = candidates.find(Boolean);
         if (found) {
+          bridgeDiscovered = true;
           failedScans = 0;
           connectParallel([found.port]);
         } else {
+          bridgeDiscovered = false;
+          showWaitingForBridge();
           scheduleDiscovery();
         }
       } finally {
@@ -1039,10 +1053,14 @@
           activeScan = null;
           clearTimeout(reconnectTimer);
           failedScans++;
+          if (bridgeDiscovered) {
+            showDisconnectedWindow();
+            scheduleDiscovery();
+            return;
+          }
           const recovery = recoveryStrategy(failedScans);
           if (recovery.kind === 'health') {
-            setStatus('Waiting for MCP…', 'connecting');
-            hintEl.textContent = 'Start figma_connect in your AI app. Quiet discovery keeps checking automatically; Reconnect now forces one immediate scan.';
+            showWaitingForBridge();
             if (!unreachableNotified) {
               unreachableNotified = true;
               parent.postMessage({ pluginMessage: { type: 'daemon-unreachable' } }, '*');
@@ -1163,6 +1181,7 @@
         pendingChallenge = null;
 
         authed = true;
+        bridgeDiscovered = true;
         okCount = 0; errCount = 0; renderStats();
         if (msg.pluginUpdateAvailable) showPluginUpdate(msg);
         setStatus(paused ? 'Paused' : 'Connected', paused ? 'paused' : 'connected');

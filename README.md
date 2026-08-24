@@ -1514,7 +1514,11 @@ port per call (env `DAEMON_PORT` > port file > 3456), and the plugin scans the
 whole range, so a foreign process squatting 3456 no longer blocks connecting.
 After three bounded WebSocket scans, quiet `/plugin-ready` probes discover a
 returning daemon every three seconds without flooding Chromium with refused
-socket attempts. A normal `figma_connect` is idempotent and preserves an
+socket attempts. If the daemon is reachable but this iframe still cannot open
+its authenticated socket, the panel says that this Figma window is
+disconnected instead of claiming MCP is absent; another Figma window may still
+be connected. The discovery beacon still exposes no connection state or
+identity. A normal `figma_connect` is idempotent and preserves an
 authenticated, responsive socket. If that one socket is open but a live
 round-trip fails, it asks the persistent Figma plugin thread to recreate only
 the UI iframe; if the relay cannot answer, it resets that stale socket so quiet
