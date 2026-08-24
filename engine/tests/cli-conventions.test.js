@@ -306,6 +306,26 @@ test('canvas info and next delegate one Plan-bound Canvas Awareness Application'
     'Commander must not retain Canvas Awareness readiness, traversal, or formatting logic');
 });
 
+test('canvas pages and page delegate one Plan-bound Page Navigation Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const pagesStart = adapter.indexOf(".command('pages')");
+  const pagesEnd = adapter.indexOf(".command('page-create <name>')", pagesStart);
+  const pageStart = adapter.indexOf(".command('page <nameOrId>')");
+  const pageEnd = adapter.indexOf(".command('next')", pageStart);
+  const actions = adapter.slice(pagesStart, pagesEnd) + adapter.slice(pageStart, pageEnd);
+  const helperStart = adapter.indexOf('async function runPageNavigationCommand');
+  const helper = adapter.slice(helperStart, pagesStart);
+
+  assert.equal((actions.match(/runPageNavigationCommand\(/g) || []).length, 2);
+  assert.match(helper, /pageNavigationPlanningArgvFromRequest/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /executePageNavigationPlan\(plan/);
+  assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
+  assert.doesNotMatch(actions, /checkConnection\(|pageLookupCode\(|figma\.root\.children|setCurrentPageAsync/,
+    'Commander must not retain Page Navigation readiness, resolution, or formatting logic');
+});
+
 test('code-spec delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');

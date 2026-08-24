@@ -196,8 +196,8 @@ if (children.length > 0) {
 /**
  * Build the snippet that resolves a page from a user query into `target`
  * (id match → exact name → unique substring → ambiguity/not-found error).
- * Shared by `canvas page`, `canvas page-create` and `node move --page` so
- * the matching semantics and error wording cannot drift.
+ * Legacy compatibility helper retained only by `node move --page`. Canvas
+ * Page Navigation owns its closed structured resolver in the Application.
  */
 function pageLookupCode(query) {
   return `

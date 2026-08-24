@@ -61,6 +61,11 @@ import {
   parseCanvasAwarenessRequest,
 } from '../engine/src/application/canvas-awareness-request.js';
 import {
+  acceptsPageNavigationArgv,
+  pageNavigationArgvFromRequest,
+  parsePageNavigationRequest,
+} from '../engine/src/application/page-navigation-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -158,7 +163,8 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'canvas.info', 'canvas.next', 'contract.capture', 'contract.check',
+  'canvas.info', 'canvas.next', 'canvas.page', 'canvas.pages',
+  'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree',
@@ -268,6 +274,10 @@ function specializedPolicy(name, entry, args) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
   }
+  if (name === 'canvas' && ['pages', 'page'].includes(sub)) {
+    if (sub === 'pages') retry = 'safe-read';
+    pathPolicy = 'page-navigation-input';
+  }
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -312,6 +322,10 @@ function commandCapability(args) {
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
     && !action.help && !acceptsCanvasAwarenessArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'canvas' && ['pages', 'page'].includes(args[1])
+    && !action.help && !acceptsPageNavigationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
@@ -772,6 +786,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'canvas-awareness-input': {
       args.splice(0, args.length,
         ...canvasAwarenessArgvFromRequest(parseCanvasAwarenessRequest(args)));
+      break;
+    }
+    case 'page-navigation-input': {
+      args.splice(0, args.length,
+        ...pageNavigationArgvFromRequest(parsePageNavigationRequest(args)));
       break;
     }
     case 'inspect-input': {

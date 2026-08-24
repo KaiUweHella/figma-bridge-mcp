@@ -2,7 +2,6 @@
 import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
-import { pageLookupCode } from '../lib/eval-snippets.js';
 import {
   executeInspectPlan,
   inspectPlanningArgvFromRequest,
@@ -11,6 +10,10 @@ import {
   canvasAwarenessPlanningArgvFromRequest,
   executeCanvasAwarenessPlan,
 } from '../application/canvas-awareness-command.js';
+import {
+  executePageNavigationPlan,
+  pageNavigationPlanningArgvFromRequest,
+} from '../application/page-navigation-command.js';
 import {
   program,
   buildNodeSelector,
@@ -43,6 +46,23 @@ async function runCanvasAwarenessCommand(request) {
     });
 }
 
+async function runPageNavigationCommand(request) {
+  const plan = planFigmaCommand(pageNavigationPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executePageNavigationPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 canvas
   .command('info')
   .description('Show canvas info (bounds, element count, free space)')
@@ -60,28 +80,16 @@ canvas
   .command('pages')
   .description('List all pages in the file (current page marked)')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (options) => {
-    await checkConnection();
-    const code = `(async () => {
-      // Page names/ids are available without loading page contents.
-      return figma.root.children.map(p => ({
-        id: p.id,
-        name: p.name,
-        current: p.id === figma.currentPage.id,
-      }));
-    })()`;
     try {
-      const pages = await daemonExec('eval', { code });
-      if (options.json) {
-        console.log(JSON.stringify(pages, null, 2));
-        return;
-      }
-      pages.forEach(p => {
-        const marker = p.current ? chalk.green('→ ') : '  ';
-        console.log(`${marker}${p.name} ${chalk.gray('(' + p.id + ')')}`);
+      const result = await runPageNavigationCommand({
+        action: 'pages',
+        json: options.json === true,
       });
-    } catch (e) {
-      handleEvalError(e);
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
     }
   });
 
@@ -131,18 +139,13 @@ return { id: divider.id, name: divider.name, index: figma.root.children.indexOf(
 canvas
   .command('page <nameOrId>')
   .description('Switch the current page (by exact id, exact name, or unique substring)')
+  .allowExcessArguments(false)
   .action(async (nameOrId) => {
-    await checkConnection();
-    const code = `(async () => {
-      ${pageLookupCode(nameOrId)}
-      await figma.setCurrentPageAsync(target);
-      return { id: target.id, name: target.name };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓') + ` Switched to page: ${r.name} ${chalk.gray('(' + r.id + ')')}`);
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runPageNavigationCommand({ action: 'page', query: nameOrId });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
     }
   });
 

@@ -376,6 +376,32 @@ test('figma_run rejects malformed Canvas Awareness before readiness or dispatch'
   }
 });
 
+test('figma_run routes Page Navigation through the shared Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const pageNavigationRoute = pageNavigationPlanRoute(plan)');
+  const end = source.indexOf('const canvasAwarenessRoute = canvasAwarenessPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executePageNavigationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Page Navigation must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Page Navigation before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['canvas', 'pages', '--json', '--json'],
+    ['canvas', 'pages', 'payload'],
+    ['canvas', 'page'],
+    ['canvas', 'page', 'One', 'Two'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+  }
+});
+
 test('figma_run routes Node Binding Facts through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeBindingsRoute = nodeBindingsPlanRoute(plan)');

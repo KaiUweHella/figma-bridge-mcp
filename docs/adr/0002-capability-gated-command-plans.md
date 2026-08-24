@@ -156,3 +156,11 @@ including bounded numeric gaps and the `right|below` direction. Commander and
 Application after dynamic page loading. The Plugin result is structurally
 validated before projection, and placement options select static generated
 code rather than crossing the Plugin seam as executable input.
+
+Page Navigation is adjacent but separate. `canvas pages` is a bounded safe
+read, while `canvas page` changes only the current editor page and is therefore
+never retried. Their closed request Interface preserves literal dash-prefixed
+queries after `--`; Commander and `figma_run` share one authentic Plan,
+deterministic id/exact-name/unique-substring resolution, bounded ambiguity and
+result validation, and control-safe text projection. Page creation and other
+document mutations remain outside this Application.

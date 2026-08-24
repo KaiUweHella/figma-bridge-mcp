@@ -93,6 +93,10 @@ import {
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
 import {
+  executePageNavigationPlan,
+  pageNavigationPlanRoute,
+} from "../engine/src/application/page-navigation-command.js";
+import {
   executePreparedCompoundSemanticRender,
   executePreparedSemanticRender,
   formatSemanticRenderResult,
@@ -1794,6 +1798,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeNodeTreePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const pageNavigationRoute = pageNavigationPlanRoute(plan);
+      if (pageNavigationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executePageNavigationPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

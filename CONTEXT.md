@@ -40,6 +40,13 @@ gap-aware next position through a shared Command Application; it is neither a
 Design Capture nor permission to mutate or scan other pages.
 _Avoid_: canvas eval, document layout dump, placement guess
 
+**Page Navigation**:
+The bounded listing of current-document pages and the explicit non-retrying
+switch of Figma's current editor page through one shared Command Application.
+It changes editor context, not document content, and never creates, deletes,
+renames, or guesses a page when a query is ambiguous.
+_Avoid_: page eval, document mutation, implicit page selection
+
 **Verification Artifact**:
 A PNG evidence file whose exact path, scope, retention owner and output role are
 fixed by the owning **Command Plan** before Figma readiness or dispatch.

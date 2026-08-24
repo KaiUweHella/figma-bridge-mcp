@@ -450,6 +450,12 @@ plus the explicit `right` or `below` direction before anything reaches Figma.
 This keeps automatic Code-to-Figma placement useful without treating option
 values as executable code.
 
+`canvas pages` and `canvas page` likewise use one Page Navigation path across
+CLI and MCP. Page listing is a bounded safe read; switching is explicit,
+non-retrying, and resolves only an id, exact name, or unique substring. It
+changes the active editor page without modifying document content, while
+ambiguous names fail instead of selecting a page by guesswork.
+
 `node duplicate` works for cloneable design nodes including Sections;
 `node reparent` accepts an explicit child index and preserves canvas position
 when the destination is not Auto Layout. `create frame|rect|ellipse|text|line|autolayout`

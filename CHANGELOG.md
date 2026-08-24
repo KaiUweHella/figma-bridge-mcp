@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `canvas pages` and `canvas page` through one closed Page Navigation
+  Application shared by Commander and MCP. Listing is bounded and safely
+  retryable; switching is explicit and non-retrying, with deterministic
+  id/name resolution, bounded ambiguity, result validation and control-safe
+  text output without changing document content.
 - Routed read-only `canvas info` and `canvas next` through one closed Canvas
   Awareness Application shared by Commander and MCP. Dynamic page loading,
   target, safe-read retry, deadline, finite gap validation and closed geometry
