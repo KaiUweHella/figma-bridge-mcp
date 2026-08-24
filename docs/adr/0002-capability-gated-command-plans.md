@@ -21,6 +21,13 @@ confirmation, Audit Trail creation, job scheduling or Adapter dispatch.
 Accepted plans expose the canonical action path as a payload-free audit id,
 never a positional value copied from argv.
 
+The same Grammar resolution records only syntactic option names and indexes
+before the first `--` terminator. Capability mutation, target, network,
+shared-state, timeout and path policy consume those facts or a command's closed
+request Interface; tokens after the terminator are always payload. The facts
+never retain option values or payload content, and they do not replace
+command-specific parsing, arity or validation.
+
 Path normalization happens before a lazy Design Link Registry lookup. The
 Figma Target Context precedence is explicit caller target, a Figma URL from the
 Command Capability's closed semantic target fields, Registry target, then

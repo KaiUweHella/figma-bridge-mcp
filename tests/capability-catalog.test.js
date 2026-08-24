@@ -94,6 +94,98 @@ test('literal help after the option terminator retains write policy and Audit cl
   assert.equal(plan.audit.targetKind, 'plugin-file');
 });
 
+test('literal payload cannot impersonate mutation, target, network, or output policy', () => {
+  for (const literal of ['--print-browser-capture', '--structural-gate', '--verify']) {
+    const plan = planFigmaCommand(['render', '--', literal], { workspaceDir: '/work' });
+    assert.equal(plan.allowed, true, literal);
+    assert.equal(plan.effects.figma, 'write', literal);
+    assert.equal(plan.target.kind, 'plugin-file', literal);
+    assert.equal(plan.execution.timeout, 'long', literal);
+    assert.equal(plan.execution.retry, 'never', literal);
+    assert.deepEqual(plan.outputs, [], literal);
+  }
+
+  const tokenLiteral = planFigmaCommand(['tokens', 'sync', '--', '--apply'], {
+    workspaceDir: '/work',
+  });
+  assert.equal(tokenLiteral.effects.figma, 'read');
+  assert.equal(tokenLiteral.confirmation, 'none');
+  assert.deepEqual(tokenLiteral.argv, ['tokens', 'sync', '--', '/work/--apply']);
+  assert.equal(planFigmaCommand(['tokens', 'sync', '--apply', 'tokens.json'], {
+    workspaceDir: '/work',
+  }).effects.figma, 'write');
+
+  const gradientLiteral = planFigmaCommand(['gradient', 'extract', '--', '--apply-to'], {
+    workspaceDir: '/work',
+  });
+  assert.equal(gradientLiteral.effects.figma, 'none');
+  assert.equal(gradientLiteral.target.kind, 'none');
+  assert.deepEqual(gradientLiteral.argv, ['gradient', 'extract', '--', '/work/--apply-to']);
+  assert.equal(planFigmaCommand([
+    'gradient', 'extract', 'hero.png', '--apply-to', '1:2',
+  ], { workspaceDir: '/work' }).effects.figma, 'write');
+
+  assert.equal(planFigmaCommand(['spec', '--', '--check']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['spec', 'Button', '--check', '1:2']).target.kind, 'plugin-file');
+  assert.equal(planFigmaCommand(['verify-build', '--', '--node'], {
+    workspaceDir: '/work',
+  }).target.kind, 'none');
+  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2'], {
+    workspaceDir: '/work',
+  }).target.kind, 'plugin-file');
+
+  const outputLiteral = planFigmaCommand(['export', 'node', '1:2', '--', '--output'], {
+    workspaceDir: '/work',
+  });
+  assert.deepEqual(outputLiteral.argv, [
+    'export', 'node', '1:2', '-o', '/work/node-export.png', '--', '--output',
+  ]);
+  assert.equal(outputLiteral.outputs[0].path, '/work/node-export.png');
+
+  const networkLiteral = planFigmaCommand([
+    'kit', 'init', '.', '--', '--storybook=https://example.test/private',
+  ], { workspaceDir: '/work' });
+  assert.equal(networkLiteral.effects.network, 'none');
+  assert.equal(planFigmaCommand([
+    'map', 'storybook', '--output', 'map.json', 'https://example.test/storybook',
+  ], { workspaceDir: '/work' }).effects.network, 'read');
+  assert.equal(planFigmaCommand([
+    'map', 'storybook', '--', '--output=https://example.test/literal',
+  ], { workspaceDir: '/work' }).effects.network, 'none');
+
+  const historyLiteral = planFigmaCommand(['history', 'save', '--', '--json']);
+  assert.equal(historyLiteral.effects.figma, 'write');
+  assert.equal(historyLiteral.effects.shared, 'none');
+});
+
+test('policy path options reject duplicates and missing values before planning', () => {
+  assert.throws(() => planFigmaCommand([
+    'export', 'node', '1:2', '--output', 'one.png', '--output', 'two.png',
+  ], { workspaceDir: '/work' }), /Duplicate output option/);
+  assert.throws(() => planFigmaCommand([
+    'spec', 'Button', '--file', 'one.md', '--file', 'two.md',
+  ], { workspaceDir: '/work' }), /Duplicate path option/);
+  assert.throws(() => planFigmaCommand([
+    'export', 'node', '1:2', '--output', '--', 'literal',
+  ], { workspaceDir: '/work' }), /requires a path value/);
+});
+
+test('CLI and MCP receive identical option-region and literal-payload plans', () => {
+  for (const args of [
+    ['tokens', 'sync', '--', '--apply'],
+    ['gradient', 'extract', '--', '--apply-to'],
+    ['render', '--', '--verify'],
+    ['export', 'node', '1:2', '--', '--output'],
+  ]) {
+    const options = { workspaceDir: '/work' };
+    const mcp = planFigmaCommand(args, { ...options, adapter: 'mcp' });
+    const cli = planFigmaCommand(args, { ...options, adapter: 'cli' });
+    const { adapter: _mcpAdapter, allowed: _mcpAllowed, ...mcpPlan } = mcp;
+    const { adapter: _cliAdapter, allowed: _cliAllowed, ...cliPlan } = cli;
+    assert.deepEqual(cliPlan, mcpPlan, args.join(' '));
+  }
+});
+
 test('Node Text closes and canonicalizes one policy-identical CLI/MCP request', () => {
   const url = 'https://www.figma.com/design/FILEA/Text-Lab?node-id=12-34';
   const input = ['node', 'set-text', url, '--', '--help'];

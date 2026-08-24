@@ -171,6 +171,7 @@ const UNKNOWN = Object.freeze({
   execution: 'foreground',
   pathPolicy: 'none',
   summary: 'Unknown command',
+  options: Object.freeze({ terminatorIndex: null, entries: Object.freeze([]) }),
 });
 const TOP_LEVEL_HELP = Object.freeze({
   name: '--help',
@@ -184,21 +185,31 @@ const TOP_LEVEL_HELP = Object.freeze({
   execution: 'foreground',
   pathPolicy: 'none',
   summary: 'List available Figma Commands',
+  options: Object.freeze({ terminatorIndex: null, entries: Object.freeze([]) }),
 });
 
-function mutatesDesign(entry, args) {
+function optionEntries(optionFacts, names) {
+  const accepted = new Set(Array.isArray(names) ? names : [names]);
+  return optionFacts.entries.filter((entry) => accepted.has(entry.name));
+}
+
+function hasOption(optionFacts, name) {
+  return optionEntries(optionFacts, name).length > 0;
+}
+
+function mutatesDesign(entry, args, options) {
   if (!args.length) return false;
   const sub = args[1];
   if (entry.mutation === 'write') return true;
   if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
   if (entry.mutation === 'read') return false;
   if (entry.mutation === 'gradient') {
-    return sub !== 'extract' || args.includes('--apply-to');
+    return sub !== 'extract' || hasOption(options, '--apply-to');
   }
   if (entry.mutation === 'layout') return !(sub === 'grid' && args[2] === 'inspect');
   const subIsAction = sub !== undefined && !sub.startsWith('-');
   if (entry.mutation === 'tokens') {
-    if (sub === 'sync' || sub === 'rebind') return args.includes('--apply');
+    if (sub === 'sync' || sub === 'rebind') return hasOption(options, '--apply');
     return subIsAction && sub !== 'overlap';
   }
   if (entry.mutation === 'group') {
@@ -207,11 +218,13 @@ function mutatesDesign(entry, args) {
   return true;
 }
 
-function targetPolicy(name, entry, args) {
+function targetPolicy(name, entry, args, options) {
   if (entry.target !== 'conditional') return entry.target || 'figma';
-  if (name === 'spec') return args.includes('--check') ? 'figma' : 'none';
-  if (name === 'verify-build') return args.includes('--node') ? 'figma' : 'none';
-  if (name === 'gradient') return args[1] === 'extract' && !args.includes('--apply-to') ? 'none' : 'figma';
+  if (name === 'spec') return hasOption(options, '--check') ? 'figma' : 'none';
+  if (name === 'verify-build') return hasOption(options, '--node') ? 'figma' : 'none';
+  if (name === 'gradient') {
+    return args[1] === 'extract' && !hasOption(options, '--apply-to') ? 'none' : 'figma';
+  }
   if (name === 'link') return ['list', 'configure'].includes(args[1]) ? 'none' : 'figma';
   if (name === 'render' || name === 'render-batch') return semanticRenderPolicyFromArgv(args).target;
   return 'figma';
@@ -308,13 +321,14 @@ function commandCapability(args) {
     actionId: action.actionId,
     help: action.help,
     available: true,
-    mutatesDesign: action.help ? false : mutatesDesign(entry, args),
-    target: action.help ? 'none' : targetPolicy(name, entry, args),
+    mutatesDesign: action.help ? false : mutatesDesign(entry, args, action.options),
+    target: action.help ? 'none' : targetPolicy(name, entry, args, action.options),
     retry: specialized.retry,
     timeoutClass: specialized.timeoutClass,
     execution: specialized.execution,
     pathPolicy: specialized.pathPolicy,
     summary: entry.summary,
+    options: action.options,
   });
 }
 
@@ -360,54 +374,65 @@ function localPath(baseDir, value) {
   return isUrl(value) ? value : absolute(baseDir, value);
 }
 
-function pathFlag(args, flags, baseDir) {
-  const names = new Set(flags);
-  for (let index = 1; index < args.length; index++) {
-    const arg = args[index];
-    if (arg === '--') break;
-    const combined = arg.match(/^(--?[a-z-]+)=(.*)$/i);
-    if (combined && names.has(combined[1]) && combined[2]) {
+function pathFlag(args, flags, baseDir, options) {
+  const matches = optionEntries(options, flags);
+  if (matches.length > 1) throw new Error(`Duplicate path option ${matches[1].name}.`);
+  for (const entry of matches) {
+    const arg = args[entry.index];
+    const combined = entry.inline ? arg.match(/^(--?[a-z-]+)=(.*)$/i) : null;
+    if (combined && combined[2]) {
       const value = localPath(baseDir, combined[2]);
-      args[index] = `${combined[1]}=${value}`;
+      args[entry.index] = `${combined[1]}=${value}`;
       return { value };
     }
-    if (names.has(arg) && typeof args[index + 1] === 'string' && !args[index + 1].startsWith('-')) {
-      args[index + 1] = localPath(baseDir, args[index + 1]);
-      return { value: args[index + 1] };
+    if (!entry.inline && typeof args[entry.index + 1] === 'string'
+      && args[entry.index + 1] !== '--' && !args[entry.index + 1].startsWith('-')) {
+      args[entry.index + 1] = localPath(baseDir, args[entry.index + 1]);
+      return { value: args[entry.index + 1] };
     }
+    throw new Error(`${entry.name} requires a path value.`);
   }
   return null;
 }
 
-function outputFlag(args, baseDir, defaultValue) {
-  const index = args.findIndex((arg) => arg === '-o' || arg === '--output');
-  if (index !== -1 && typeof args[index + 1] === 'string') {
-    args[index + 1] = absolute(baseDir, args[index + 1]);
-    return args[index + 1];
+function outputFlag(args, baseDir, defaultValue, options) {
+  const matches = optionEntries(options, ['-o', '--output']);
+  if (matches.length > 1) throw new Error(`Duplicate output option ${matches[1].name}.`);
+  const entry = matches[0];
+  if (entry && !entry.inline && typeof args[entry.index + 1] === 'string'
+    && args[entry.index + 1] !== '--' && !args[entry.index + 1].startsWith('-')) {
+    args[entry.index + 1] = absolute(baseDir, args[entry.index + 1]);
+    return args[entry.index + 1];
   }
-  const combined = args.findIndex((arg) => /^(--output|-o)=/.test(arg));
-  if (combined !== -1) {
-    const [flag, ...rest] = args[combined].split('=');
+  if (entry?.inline) {
+    const [flag, ...rest] = args[entry.index].split('=');
+    if (!rest.join('=')) throw new Error(`${entry.name} requires a path value.`);
     const value = absolute(baseDir, rest.join('='));
-    args[combined] = `${flag}=${value}`;
+    args[entry.index] = `${flag}=${value}`;
     return value;
   }
+  if (entry) throw new Error(`${entry.name} requires a path value.`);
   const value = absolute(baseDir, defaultValue);
-  args.push('-o', value);
+  const insertion = options.terminatorIndex ?? args.length;
+  args.splice(insertion, 0, '-o', value);
   return value;
 }
 
-function optionalOutputFlag(args, baseDir) {
-  const index = args.findIndex((arg) => arg === '-o' || arg === '--output');
-  if (index !== -1 && typeof args[index + 1] === 'string') {
-    args[index + 1] = absolute(baseDir, args[index + 1]);
-    return args[index + 1];
+function optionalOutputFlag(args, baseDir, options) {
+  const matches = optionEntries(options, ['-o', '--output']);
+  if (matches.length > 1) throw new Error(`Duplicate output option ${matches[1].name}.`);
+  const entry = matches[0];
+  if (!entry) return null;
+  if (!entry.inline && typeof args[entry.index + 1] === 'string'
+    && args[entry.index + 1] !== '--' && !args[entry.index + 1].startsWith('-')) {
+    args[entry.index + 1] = absolute(baseDir, args[entry.index + 1]);
+    return args[entry.index + 1];
   }
-  const combined = args.findIndex((arg) => /^(--output|-o)=/.test(arg));
-  if (combined === -1) return null;
-  const [flag, ...rest] = args[combined].split('=');
+  if (!entry.inline) throw new Error(`${entry.name} requires a path value.`);
+  const [flag, ...rest] = args[entry.index].split('=');
+  if (!rest.join('=')) throw new Error(`${entry.name} requires a path value.`);
   const value = absolute(baseDir, rest.join('='));
-  args[combined] = `${flag}=${value}`;
+  args[entry.index] = `${flag}=${value}`;
   return value;
 }
 
@@ -415,8 +440,18 @@ function normalizeVerifyBuild(args, baseDir, notePath) {
   const pathFlags = new Set(['--assets', '--compare', '--design', '--diff-out']);
   const skipValue = new Set(['--node', '--max-diff']);
   let positionalDone = false;
+  let literal = false;
   for (let index = 1; index < args.length; index++) {
     const arg = args[index];
+    if (!literal && arg === '--') { literal = true; continue; }
+    if (literal) {
+      if (!positionalDone) {
+        args[index] = absolute(baseDir, arg);
+        notePath(args[index], 'read', 'verify-build-project', 'directory');
+        positionalDone = true;
+      }
+      continue;
+    }
     const combined = arg.match(/^(--[a-z-]+)=(.*)$/);
     if (combined) {
       if (pathFlags.has(combined[1])) {
@@ -442,6 +477,29 @@ function normalizeVerifyBuild(args, baseDir, notePath) {
       positionalDone = true;
     }
   }
+}
+
+function insertBeforeTerminator(args, ...values) {
+  const terminator = args.indexOf('--');
+  args.splice(terminator === -1 ? args.length : terminator, 0, ...values);
+}
+
+function positionalIndexes(args, start, valueFlags = []) {
+  const consumesValue = new Set(valueFlags);
+  const indexes = [];
+  let literal = false;
+  for (let index = start; index < args.length; index++) {
+    const token = args[index];
+    if (!literal && token === '--') { literal = true; continue; }
+    if (!literal && typeof token === 'string' && token.startsWith('-')) {
+      const equals = token.indexOf('=');
+      const name = equals === -1 ? token : token.slice(0, equals);
+      if (equals === -1 && consumesValue.has(name)) index++;
+      continue;
+    }
+    indexes.push(index);
+  }
+  return indexes;
 }
 
 /** Normalize all project-relative paths named by the command policy. */
@@ -480,24 +538,20 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
   };
   switch (capability.pathPolicy) {
     case 'assets-dir':
-      outputPath = outputFlag(args, baseDir, 'assets');
+      outputPath = outputFlag(args, baseDir, 'assets', capability.options);
       // Canonical semantic argv gives equivalent default spellings and option
       // order one background identity. The output is already absolute here.
       args.splice(0, args.length, ...assetExportArgvFromRequest(parseAssetExportRequest(args)));
       markWrite(outputPath, 'asset-export-directory', 'directory');
       break;
     case 'export-image':
-      outputPath = outputFlag(args, baseDir, args[1] === 'node' ? 'node-export.png' : 'screenshot.png');
+      outputPath = outputFlag(args, baseDir,
+        args[1] === 'node' ? 'node-export.png' : 'screenshot.png', capability.options);
       markWrite(outputPath, 'export-image-output');
       break;
     case 'video-output': {
-      let format = 'mp4';
-      for (let index = 2; index < args.length; index++) {
-        const combined = args[index].match(/^(?:--format|-f)=(.+)$/);
-        if (combined) format = combined[1].toLowerCase();
-        if ((args[index] === '--format' || args[index] === '-f') && args[index + 1]) format = args[index + 1].toLowerCase();
-      }
-      outputPath = outputFlag(args, baseDir, `video.${format}`);
+      const format = String(flagValue(args, ['--format', '-f'], capability.options) || 'mp4').toLowerCase();
+      outputPath = outputFlag(args, baseDir, `video.${format}`, capability.options);
       markWrite(outputPath, 'video-output');
       break;
     }
@@ -511,15 +565,17 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'node-json-output': {
-      const output = optionalOutputFlag(args, baseDir);
+      const output = optionalOutputFlag(args, baseDir, capability.options);
       if (output) markWrite(output, 'node-json-output');
       break;
     }
     case 'design-doc': {
+      let literal = false;
       for (let index = 1; index < args.length; index++) {
         const arg = args[index];
-        if (VALUE_FLAGS.has(arg)) { index++; continue; }
-        if (arg.startsWith('-')) continue;
+        if (!literal && arg === '--') { literal = true; continue; }
+        if (!literal && VALUE_FLAGS.has(arg)) { index++; continue; }
+        if (!literal && arg.startsWith('-')) continue;
         args[index] = absolute(baseDir, arg);
         outputPath = args[index];
         markWrite(outputPath, 'design-document-output');
@@ -533,37 +589,40 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'map-file':
-      if (args[1] === 'storybook' && typeof args[2] === 'string' && !isUrl(args[2])) {
-        args[2] = absolute(baseDir, args[2]);
-        markRead(args[2], 'storybook-source', 'any');
+      if (args[1] === 'storybook') {
+        const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
+        if (typeof args[sourceIndex] === 'string' && !isUrl(args[sourceIndex])) {
+          args[sourceIndex] = absolute(baseDir, args[sourceIndex]);
+          markRead(args[sourceIndex], 'storybook-source', 'any');
+        }
       }
-      outputPath = outputFlag(args, baseDir, 'figma-map.json');
+      outputPath = outputFlag(args, baseDir, 'figma-map.json', capability.options);
       markWrite(outputPath, 'component-map-output');
       break;
     case 'design-link-registry': {
-      const supplied = pathFlag(args, ['--manifest'], baseDir);
+      const supplied = pathFlag(args, ['--manifest'], baseDir, capability.options);
       const manifest = supplied?.value || absolute(baseDir, 'figma-bridge.json');
-      if (!supplied) args.push('--manifest', manifest);
+      if (!supplied) insertBeforeTerminator(args, '--manifest', manifest);
       outputPath = manifest;
       if (['set', 'accept', 'configure'].includes(args[1])) markWrite(manifest, 'design-link-manifest');
       else if (['inspect', 'list'].includes(args[1])) markOptionalRead(manifest, 'design-link-manifest');
       else markRead(manifest, 'design-link-manifest');
       if (args[1] === 'accept') {
-        const compare = pathFlag(args, ['--compare'], baseDir);
+        const compare = pathFlag(args, ['--compare'], baseDir, capability.options);
         if (compare) markRead(compare.value, 'design-link-comparison');
       }
       break;
     }
     case 'design-contract': {
-      const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
+      const suppliedManifest = pathFlag(args, ['--manifest'], baseDir, capability.options);
       const manifest = suppliedManifest?.value || absolute(baseDir, 'figma-bridge.json');
-      if (!suppliedManifest) args.push('--manifest', manifest);
+      if (!suppliedManifest) insertBeforeTerminator(args, '--manifest', manifest);
       markRead(manifest, 'design-contract-manifest');
-      let file = pathFlag(args, ['--file'], baseDir)?.value;
+      let file = pathFlag(args, ['--file'], baseDir, capability.options)?.value;
       if (!file) {
         const slug = String(args[2] || 'entity').replace(/[^a-zA-Z0-9._-]+/g, '_');
         file = absolute(baseDir, path.join('design-contracts', `${slug}.json`));
-        args.push('--file', file);
+        insertBeforeTerminator(args, '--file', file);
       }
       if (args[1] === 'capture') markWrite(file, 'design-contract-file');
       else markRead(file, 'design-contract-file');
@@ -599,11 +658,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       // input in Commander. Keep its Plan honest: unused paths are neither
       // authorized nor reported as effects.
       if (initialRoute.reason === 'browser-capture-expression') break;
-      const icons = pathFlag(args, ['--icons'], baseDir);
+      const icons = pathFlag(args, ['--icons'], baseDir, capability.options);
       if (icons) markRead(icons.value, 'render-icons', 'directory');
-      const capture = pathFlag(args, ['--dom-capture'], baseDir);
+      const capture = pathFlag(args, ['--dom-capture'], baseDir, capability.options);
       if (capture) markRead(capture.value, 'dom-capture');
-      const suppliedManifest = pathFlag(args, ['--manifest'], baseDir);
+      const suppliedManifest = pathFlag(args, ['--manifest'], baseDir, capability.options);
       const manifest = suppliedManifest?.value || absolute(baseDir, 'figma-bridge.json');
       markOptionalRead(manifest, 'render-manifest');
       markOptionalRead(path.join(path.dirname(manifest), 'figma-map.json'), 'legacy-component-map');
@@ -625,12 +684,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           markRead(absolute(baseDir, localAsset), 'render-image');
         }
       }
-      if (args.includes('--verify')) {
+      if (hasOption(capability.options, '--verify')) {
         const request = finalRoute.kind === 'compound'
           ? semanticCompoundRenderRequestFromArgv(args)
           : null;
         const existingDirectory = request?.stages.verificationDirectory
-          || flagValue(args, '--verification-output-dir');
+          || flagValue(args, '--verification-output-dir', capability.options);
         artifactOutputs = [...planVerificationArtifacts({
           count: request?.roots.length || 1,
           ...(verificationArtifactNonce === undefined ? {} : { nonce: verificationArtifactNonce }),
@@ -676,9 +735,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           throw new Error('Node Text target projection disagrees with its closed request Interface.');
         }
         args.splice(0, args.length, ...nodeTextArgvFromRequest(parseNodeTextRequest(args)));
-      } else if (args[1] === 'set-image' && typeof args[3] === 'string') {
-        args[3] = absolute(baseDir, args[3]);
-        markRead(args[3], 'node-image');
+      } else if (args[1] === 'set-image') {
+        const imageIndex = positionalIndexes(args, 2)[1];
+        if (typeof args[imageIndex] === 'string') {
+          args[imageIndex] = absolute(baseDir, args[imageIndex]);
+          markRead(args[imageIndex], 'node-image');
+        }
       }
       break;
     }
@@ -697,18 +759,25 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'gradient-input': {
-      if (args[1] === 'extract' && typeof args[2] === 'string') {
-        args[2] = absolute(baseDir, args[2]);
-        markRead(args[2], 'gradient-image');
+      const [imageIndex] = positionalIndexes(args, 2, [
+        '--mode', '--apply-to', '--direction', '--stops', '--blur',
+      ]);
+      if (args[1] === 'extract' && typeof args[imageIndex] === 'string') {
+        args[imageIndex] = absolute(baseDir, args[imageIndex]);
+        markRead(args[imageIndex], 'gradient-image');
       }
       break;
     }
     case 'token-files': {
-      if (['import', 'sync', 'import-design-md'].includes(args[1]) && typeof args[2] === 'string') {
-        args[2] = absolute(baseDir, args[2]);
-        markRead(args[2], 'token-file');
+      const [fileIndex] = positionalIndexes(args, 2, [
+        '-c', '--collection', '--lockfile',
+      ]);
+      if (['import', 'sync', 'import-design-md'].includes(args[1])
+        && typeof args[fileIndex] === 'string') {
+        args[fileIndex] = absolute(baseDir, args[fileIndex]);
+        markRead(args[fileIndex], 'token-file');
       }
-      const lockfile = pathFlag(args, ['--lockfile'], baseDir);
+      const lockfile = pathFlag(args, ['--lockfile'], baseDir, capability.options);
       if (lockfile) {
         // A missing lockfile is valid on first sync, so authorize it as a
         // write target. Existing files are reopened securely by WorkspaceIO.
@@ -716,30 +785,37 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         else markRead(lockfile.value, 'token-lockfile');
       } else if (args[1] === 'sync') {
         // Sync persists its default lockfile beside the token file.
-        const defaultLock = absolute(baseDir, path.join(path.dirname(args[2]), 'figma-tokens.lock.json'));
+        if (typeof args[fileIndex] !== 'string') {
+          throw new Error('tokens sync requires one token file before policy planning.');
+        }
+        const defaultLock = absolute(baseDir,
+          path.join(path.dirname(args[fileIndex]), 'figma-tokens.lock.json'));
         markWrite(defaultLock, 'token-lockfile');
       }
       break;
     }
     case 'import-files': {
-      if (typeof args[1] === 'string' && !isUrl(args[1])) {
-        args[1] = absolute(baseDir, args[1]);
-        markRead(args[1], 'import-source', 'any');
+      const [sourceIndex] = positionalIndexes(args, 1, ['-c', '--collection', '--save']);
+      if (typeof args[sourceIndex] === 'string' && !isUrl(args[sourceIndex])) {
+        args[sourceIndex] = absolute(baseDir, args[sourceIndex]);
+        markRead(args[sourceIndex], 'import-source', 'any');
       }
-      const saved = pathFlag(args, ['--save'], baseDir);
+      const saved = pathFlag(args, ['--save'], baseDir, capability.options);
       if (saved) markWrite(saved.value, 'import-output');
       else markWrite(absolute(baseDir, 'DESIGN-storybook.md'), 'import-output');
       break;
     }
     case 'motion-inputs': {
-      if (args[1] === 'apply' && typeof args[2] === 'string' && !args[2].trimStart().startsWith('{')) {
-        args[2] = absolute(baseDir, args[2]);
-        markRead(args[2], 'motion-file');
+      const [motionInputIndex] = positionalIndexes(args, 2);
+      if (args[1] === 'apply' && typeof args[motionInputIndex] === 'string'
+        && !args[motionInputIndex].trimStart().startsWith('{')) {
+        args[motionInputIndex] = absolute(baseDir, args[motionInputIndex]);
+        markRead(args[motionInputIndex], 'motion-file');
       }
       break;
     }
     case 'spec-file': {
-      const supplied = pathFlag(args, ['-f', '--file'], baseDir);
+      const supplied = pathFlag(args, ['-f', '--file'], baseDir, capability.options);
       if (supplied) markRead(supplied.value, 'design-spec-file');
       else markRead(absolute(baseDir, '.'), 'design-spec-search', 'directory');
       break;
@@ -763,15 +839,15 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'kit-files': {
       if (args[1] === 'init') {
-        if (typeof args[2] === 'string' && !args[2].startsWith('-')) args[2] = absolute(baseDir, args[2]);
-        const projectRoot = args[2] || absolute(baseDir, '.');
-        let out = 'design';
-        for (let index = 2; index < args.length; index++) {
-          const combined = args[index].match(/^--out=(.*)$/);
-          if (combined) out = combined[1];
-          if (args[index] === '--out' && typeof args[index + 1] === 'string') out = args[index + 1];
+        const [projectIndex] = positionalIndexes(args, 2, [
+          '--out', '--storybook', '--node', '--manifest',
+        ]);
+        if (typeof args[projectIndex] === 'string') {
+          args[projectIndex] = absolute(baseDir, args[projectIndex]);
         }
-        const storybook = pathFlag(args, ['--storybook'], baseDir);
+        const projectRoot = args[projectIndex] || absolute(baseDir, '.');
+        const out = flagValue(args, '--out', capability.options) || 'design';
+        const storybook = pathFlag(args, ['--storybook'], baseDir, capability.options);
         if (storybook && isUrl(storybook.value)) {
           // URLs are external inputs, not workspace reads.
         } else if (storybook) markRead(storybook.value, 'storybook-source', 'any');
@@ -799,21 +875,33 @@ function backgroundJobIdentity(args, fileKey) {
   return JSON.stringify({ fileKey: fileKey || null, args });
 }
 
-function flagValue(args, flag) {
-  for (let index = 1; index < args.length; index++) {
-    const value = args[index];
-    if (value === flag) return args[index + 1] || null;
-    if (typeof value === 'string' && value.startsWith(`${flag}=`)) return value.slice(flag.length + 1) || null;
+function flagValue(args, flags, options) {
+  const names = Array.isArray(flags) ? flags : [flags];
+  const matches = optionEntries(options, names);
+  if (matches.length > 1) throw new Error(`Duplicate option ${matches[1].name}.`);
+  const entry = matches[0];
+  if (!entry) return null;
+  if (entry.inline) {
+    const value = args[entry.index].slice(args[entry.index].indexOf('=') + 1);
+    return value || null;
   }
-  return null;
+  const value = args[entry.index + 1];
+  return typeof value === 'string' && value !== '--' ? value : null;
 }
 
 /** External outbound access only; authenticated localhost transport is separate. */
-function networkEffect(args) {
+function networkEffect(args, capability) {
   if (args[0] === 'api' && args[1] === 'setup') return 'read';
-  if (args[0] === 'map' && args[1] === 'storybook' && isUrl(args[2] || '')) return 'read';
-  if (args[0] === 'import' && isUrl(args[1] || '')) return 'read';
-  if (args[0] === 'kit' && args[1] === 'init' && isUrl(flagValue(args, '--storybook') || '')) return 'read';
+  if (args[0] === 'map' && args[1] === 'storybook') {
+    const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
+    if (isUrl(args[sourceIndex] || '')) return 'read';
+  }
+  if (args[0] === 'import') {
+    const [sourceIndex] = positionalIndexes(args, 1, ['-c', '--collection', '--save']);
+    if (isUrl(args[sourceIndex] || '')) return 'read';
+  }
+  if (args[0] === 'kit' && args[1] === 'init'
+    && isUrl(flagValue(args, '--storybook', capability.options) || '')) return 'read';
   if ((args[0] === 'render' || args[0] === 'render-batch')
     && acceptsSemanticRenderArgv(args)
     && semanticRenderAssetIntentFromArgv(args).remoteCount > 0) return 'read';
@@ -821,14 +909,14 @@ function networkEffect(args) {
 }
 
 /** @param {readonly any[]} artifactOutputs */
-function sharedEffect(args, artifactOutputs = []) {
+function sharedEffect(args, artifactOutputs, capability) {
   if (artifactOutputs.some((output) => output.scope === 'private-temporary')) return 'write';
   if (args[0] === 'api') {
     if (args[1] === 'setup' || args[1] === 'index' || args[1] === 'context') return 'write';
     return 'read';
   }
   if (args[0] === 'history') {
-    if (args[1] === 'snapshot') return args.includes('--json') ? 'none' : 'write';
+    if (args[1] === 'snapshot') return hasOption(capability.options, '--json') ? 'none' : 'write';
     if (args[1] === 'list' || args[1] === 'diff') return 'read';
   }
   return 'none';
@@ -895,8 +983,9 @@ export function planFigmaCommand(rawArgs, {
   const effects = Object.freeze({
     figma: capability.mutatesDesign ? 'write' : capability.target === 'none' ? 'none' : 'read',
     workspace: capability.help ? 'none' : prepared.workspace,
-    network: capability.help ? 'none' : networkEffect(prepared.args),
-    shared: capability.help ? 'none' : sharedEffect(prepared.args, prepared.artifactOutputs),
+    network: capability.help ? 'none' : networkEffect(prepared.args, capability),
+    shared: capability.help ? 'none'
+      : sharedEffect(prepared.args, prepared.artifactOutputs, capability),
   });
   const target = capability.target === 'none'
     ? Object.freeze({ kind: 'none', fileKey: null, source: 'not-applicable' })

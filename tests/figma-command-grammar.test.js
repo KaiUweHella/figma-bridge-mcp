@@ -103,6 +103,19 @@ test('the option terminator keeps later help tokens in the command payload', () 
   }
 });
 
+test('the grammar resolves policy option facts only before the first terminator', () => {
+  const resolved = resolveFigmaCommandAction([
+    'tokens', 'sync', '--collection=Theme', 'tokens.json', '--apply', '--',
+    '--apply', '--lockfile', 'literal.json',
+  ]);
+  assert.equal(resolved.accepted, true);
+  assert.equal(resolved.options.terminatorIndex, 5);
+  assert.deepEqual(resolved.options.entries, [
+    { name: '--collection', index: 2, inline: true },
+    { name: '--apply', index: 4, inline: false },
+  ]);
+});
+
 test('every exposed grammar node has a stable closed projection', () => {
   const roots = listFigmaCommandGrammar();
   assert.ok(roots.length > 40);

@@ -7,6 +7,32 @@
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 
+const EMPTY_OPTION_FACTS = Object.freeze({
+  terminatorIndex: null,
+  entries: Object.freeze([]),
+});
+
+function optionFacts(args) {
+  if (!Array.isArray(args)) return EMPTY_OPTION_FACTS;
+  const entries = [];
+  let terminatorIndex = null;
+  for (let index = 1; index < args.length; index++) {
+    const token = args[index];
+    if (token === '--') {
+      terminatorIndex = index;
+      break;
+    }
+    if (typeof token !== 'string' || token === '-' || !token.startsWith('-')) continue;
+    const equals = token.indexOf('=');
+    entries.push(Object.freeze({
+      name: equals === -1 ? token : token.slice(0, equals),
+      index,
+      inline: equals !== -1,
+    }));
+  }
+  return Object.freeze({ terminatorIndex, entries: Object.freeze(entries) });
+}
+
 function hasHelpBeforeOptionTerminator(args, startIndex) {
   for (let index = startIndex; index < args.length; index++) {
     if (args[index] === '--') return false;
@@ -124,12 +150,13 @@ function childNamed(node, token) {
   return null;
 }
 
-function resolved(actionId, { help = false } = {}) {
+function resolved(actionId, { help = false, args = [] } = {}) {
   return Object.freeze({
     accepted: true,
     actionId: help ? `${actionId}.help` : actionId,
     help,
     reason: null,
+    options: optionFacts(args),
   });
 }
 
@@ -138,6 +165,7 @@ const REJECTED = Object.freeze({
   actionId: 'unknown',
   help: false,
   reason: 'unknown-action',
+  options: EMPTY_OPTION_FACTS,
 });
 const REJECTED_OPTION = Object.freeze({ ...REJECTED, reason: 'unknown-option' });
 
@@ -152,12 +180,15 @@ export function resolveFigmaCommandAction(args) {
 
   while (node.children) {
     const token = args[index];
-    if (token === undefined || HELP_TOKENS.has(token)) return resolved(path.join('.'), { help: true });
+    if (token === undefined || HELP_TOKENS.has(token)) {
+      return resolved(path.join('.'), { help: true, args });
+    }
     if (typeof token !== 'string') return REJECTED;
     if (token.startsWith('-')) {
       return node.positionalAction && node.positionalOptions.includes(token)
         ? resolved(`${path.join('.')}.${node.positionalAction}`, {
           help: hasHelpBeforeOptionTerminator(args, index + 1),
+          args,
         })
         : REJECTED_OPTION;
     }
@@ -166,6 +197,7 @@ export function resolveFigmaCommandAction(args) {
       if (node.positionalAction) {
         return resolved(`${path.join('.')}.${node.positionalAction}`, {
           help: hasHelpBeforeOptionTerminator(args, index + 1),
+          args,
         });
       }
       return REJECTED;
@@ -178,6 +210,7 @@ export function resolveFigmaCommandAction(args) {
 
   return resolved(path.join('.'), {
     help: hasHelpBeforeOptionTerminator(args, index),
+    args,
   });
 }
 
