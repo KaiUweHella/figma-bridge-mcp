@@ -172,6 +172,7 @@ create
       if (result) console.log(chalk.gray(result.trim()));
     } catch (e) {
       spinner.fail('Failed to create image: ' + e.message);
+      process.exitCode = 1;
     }
   });
 

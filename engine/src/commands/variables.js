@@ -311,6 +311,7 @@ return 'Created ' + totalSwatches + ' color swatches';
     } catch (error) {
       spinner.fail('Failed to create palette');
       console.error(chalk.red(error.message));
+      process.exitCode = 1;
     }
   });
 
@@ -325,6 +326,7 @@ variables
       vars = JSON.parse(json);
     } catch {
       console.log(chalk.red('Invalid JSON. Expected: [{"name": "color/red", "type": "COLOR", "value": "#ff0000"}, ...]'));
+      process.exitCode = 1;
       return;
     }
     if (!Array.isArray(vars)) {
@@ -420,6 +422,7 @@ return 'Deleted ' + deleted + ' variables and ' + cols.length + ' collections';
     } catch (error) {
       spinner.fail('Failed to delete variables');
       console.error(chalk.red(error.message));
+      process.exitCode = 1;
     }
   });
 

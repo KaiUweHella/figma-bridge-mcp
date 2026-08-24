@@ -165,6 +165,7 @@ analyze
         }
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
+        process.exitCode = 1;
       }
     }
   });
@@ -210,6 +211,7 @@ analyze
         }
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
+        process.exitCode = 1;
       }
     }
   });
@@ -255,6 +257,7 @@ analyze
         }
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
+        process.exitCode = 1;
       }
     }
   });
@@ -305,6 +308,7 @@ analyze
         }
       } catch (e) {
         console.log(chalk.red('✗ Analyze failed: ' + e.message));
+        process.exitCode = 1;
       }
     }
   });

@@ -560,6 +560,7 @@ program
       }
     } catch (e) {
       console.log(chalk.red('✗ ' + e.message));
+      process.exitCode = 1;
     }
   });
 

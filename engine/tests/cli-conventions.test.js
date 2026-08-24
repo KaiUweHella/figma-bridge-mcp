@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { detectWrapperSplit } from '../src/lib/jsx-split.js';
 
 const COMMANDS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
@@ -59,6 +60,57 @@ test('a11y checks fail loudly (no console.log for execution errors)', () => {
     'all six a11y subcommands route errors through handleEvalError');
   assert.equal((src.match(/options\.failOnIssues/g) || []).length, 4,
     'the four violation-reporting checks offer --fail-on-issues for CI');
+});
+
+test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
+  const offenders = [];
+  for (const [file, source] of sources) {
+    const sourceFile = ts.createSourceFile(
+      file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS,
+    );
+    const visit = (node) => {
+      if (ts.isCallExpression(node)
+        && ts.isPropertyAccessExpression(node.expression)
+        && node.expression.name.text === 'action') {
+        const action = node.arguments[0];
+        if (action && ts.isFunctionLike(action)) {
+          const visitAction = (child) => {
+            if (child !== action && ts.isFunctionLike(child)) return;
+            if (ts.isCatchClause(child)) {
+              const text = child.getText(sourceFile);
+              const surfacesFailure = /chalk\.red|spinner\.fail|console\.error/.test(text);
+              const ownsOutcome = /handleEvalError\s*\(|process\.(?:exitCode\s*=|exit\s*\()/.test(text);
+              if (surfacesFailure && !ownsOutcome) {
+                const line = sourceFile.getLineAndCharacterOfPosition(child.getStart(sourceFile)).line + 1;
+                offenders.push(`${file}:${line}`);
+              }
+            }
+            ts.forEachChild(child, visitAction);
+          };
+          visitAction(action);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  assert.deepEqual(offenders, [],
+    'a caught, user-visible failure must not let Commander finish with code 0');
+});
+
+test('the shared eval error reporter sets exitCode without terminating reusable code', () => {
+  const helperStart = cliCoreSource.indexOf('function handleEvalError');
+  const helperEnd = cliCoreSource.indexOf('\n}\n\nexport {', helperStart) + 2;
+  const helper = cliCoreSource.slice(helperStart, helperEnd);
+  assert.match(helper, /process\.exitCode = 1/);
+  assert.doesNotMatch(helper, /process\.exit\(/);
+
+  const cliCoreUrl = pathToFileURL(join(LIB_DIR, 'cli-core.js')).href;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { handleEvalError } from ${JSON.stringify(cliCoreUrl)}; handleEvalError(new Error('fixture failure'));`,
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /fixture failure/);
 });
 
 test('eval uses the one Daemon Client path and lets execution errors reject', () => {

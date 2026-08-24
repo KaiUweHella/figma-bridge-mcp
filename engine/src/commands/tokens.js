@@ -172,6 +172,7 @@ return 'Created ' + count + ' spacing variables';
       spinnerSucceed(spinner, result?.trim() || 'Created spacing scale');
     } catch (error) {
       spinner.fail('Failed to create spacing scale');
+      process.exitCode = 1;
     }
   });
 
@@ -215,6 +216,7 @@ return 'Created ' + count + ' radius variables';
       spinnerSucceed(spinner, result?.trim() || 'Created border radii');
     } catch (error) {
       spinner.fail('Failed to create radii');
+      process.exitCode = 1;
     }
   });
 
@@ -328,6 +330,7 @@ return { message: 'Imported ' + count + ' tokens into ' + collectionName, scopeQ
     } catch (error) {
       spinner.fail('Failed to import tokens');
       console.error(error.message);
+      process.exitCode = 1;
     }
   });
 
@@ -936,6 +939,7 @@ return { message: 'Created ' + type.toLowerCase() + ' token: ${name}', scopeQues
       printVariableScopeQuestions(payload?.scopeQuestions);
     } catch (error) {
       console.log(chalk.red(`✗ Failed to create token: ${name}`));
+      process.exitCode = 1;
     }
   });
 

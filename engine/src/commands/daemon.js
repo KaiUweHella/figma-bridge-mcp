@@ -175,6 +175,7 @@ daemon
       }
     } catch (e) {
       console.log(chalk.red('✗ Failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -260,6 +261,7 @@ daemon
         }
       } catch (e) {
         console.log(chalk.red('   ✗ Eval failed: ' + e.message.split('\n')[0]));
+        process.exitCode = 1;
       }
     } else {
       console.log(chalk.yellow('   ○ Skipped (daemon not running)'));

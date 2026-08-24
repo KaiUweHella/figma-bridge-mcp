@@ -196,6 +196,7 @@ motion
       reportApply(res, spinner);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -217,6 +218,7 @@ motion
       reportApply(res, spinner);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -240,6 +242,7 @@ motion
       reportApply(res, spinner);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -276,6 +279,7 @@ motion
       reportApply(res, spinner);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -298,6 +302,7 @@ motion
       }
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -341,6 +346,7 @@ return { nodeId: node.id, nodeName: node.name, descended: r.descended || false, 
       spinnerSucceed(spinner, `Applied style "${res.styleName.replace(/^motion\.preset_name\./, '')}" to ${res.nodeName}${via}`);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -369,6 +375,7 @@ return { nodeId: node.id, timelines: node.timelines };
       else spinnerSucceed(spinner, `Timeline: ${tl ? tl.duration + 's' : 'none'}`);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -401,6 +408,7 @@ return {
       }, null, 2));
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });
 
@@ -444,5 +452,6 @@ return { nodeId: node.id, nodeName: node.name };
       spinnerSucceed(spinner, `Cleared ${what} on ${res.nodeName}`);
     } catch (e) {
       spinner.fail(e.message);
+      process.exitCode = 1;
     }
   });

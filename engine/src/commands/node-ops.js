@@ -163,6 +163,7 @@ node
       }
     } catch (e) {
       console.log(chalk.red('✗ Convert failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -481,6 +482,7 @@ node
       console.log(chalk.green('✓'), `Moved "${r.name}" (${r.id})`);
     } catch (e) {
       console.log(chalk.red('✗ Move failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -520,6 +522,7 @@ node
       console.log(chalk.green('✓'), `Resized "${r.name}" to ${r.width}×${r.height}`);
     } catch (e) {
       console.log(chalk.red('✗ Resize failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -540,6 +543,7 @@ node
       console.log(chalk.green('✓'), `Renamed "${r.oldName}" → "${r.name}"`);
     } catch (e) {
       console.log(chalk.red('✗ Rename failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -601,6 +605,7 @@ node
       fill = generateFillCode(value, 'node');
     } catch (e) {
       console.log(chalk.red('✗ ' + e.message));
+      process.exitCode = 1;
       return;
     }
     const code = `(async () => {
@@ -617,6 +622,7 @@ node
       console.log(chalk.green('✓'), `Fill set on "${r.name}": ${r.fill}`);
     } catch (e) {
       console.log(chalk.red('✗ set-fill failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -645,6 +651,7 @@ node
       console.log(chalk.green('✓'), `Image set on "${r.name}" (${r.id}) from ${file}`);
     } catch (e) {
       console.log(chalk.red('✗ set-image failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 
@@ -669,6 +676,7 @@ node
       console.log(chalk.green(`✓ Deleted ${result} node(s)`));
     } catch (e) {
       console.log(chalk.red('✗ Delete failed: ' + e.message));
+      process.exitCode = 1;
     }
   });
 

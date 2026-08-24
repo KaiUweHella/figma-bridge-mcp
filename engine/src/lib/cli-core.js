@@ -594,7 +594,7 @@ async function checkConnection() {
 function handleEvalError(e) {
   console.error(chalk.red('✗'), e.message);
   try { apiDocs.suggestFromError(e.message); } catch { /* docs not installed, no-op */ }
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 export {

@@ -84,6 +84,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Legacy Commander Actions no longer print caught Plugin or validation errors
+  and then exit successfully. Every user-visible top-level catch now retains a
+  nonzero process outcome, while the shared reporter avoids hard process
+  termination so reusable cleanup and Adapter lifecycles can complete.
 - `node tree` now shares one bounded, Plan-owned read path between CLI and MCP.
   Options before a Figma URL preserve its target, depth zero is honored, and
   invalid requests or Plugin failures no longer appear as successful output.

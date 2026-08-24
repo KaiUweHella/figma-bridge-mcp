@@ -442,6 +442,7 @@ program
 
     } catch (error) {
       spinner.fail('Failed: ' + error.message);
+      process.exitCode = 1;
     }
   });
 

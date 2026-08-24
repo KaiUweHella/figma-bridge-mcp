@@ -36,6 +36,13 @@ tracked-job identity and Daemon Client targeting therefore describe the same
 invocation. An implicit target remains implicit so the Bridge Daemon can reject
 ambiguous multi-window execution rather than selecting an active file.
 
+During incremental migration, a legacy Commander Adapter may still catch and
+format an execution error locally, but it must retain a nonzero process outcome.
+The shared error reporter sets `process.exitCode` without terminating reusable
+code, and a source contract checks every user-visible top-level Action catch.
+Inner recovery catches that deliberately continue a successful command remain
+distinct; red failure output can never be the only failure signal.
+
 Tracked jobs do not imply a process Adapter. `export assets` is an in-process
 Command Application behind the same authentic plan used by Commander and MCP;
 the MCP Adapter alone owns deduplication, bounded waiting, polling and the
