@@ -199,6 +199,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 >
 > **Domain expert:** No. Node Tree is a bounded outline for fast discovery and follow-up node ids. Its depth and output are explicitly limited. Exact implementation facts come from Design Capture through Code Spec, while visual ground truth comes from the verification screenshot.
 
+> **Developer:** Is `node css` the same thing as exported design tokens?
+>
+> **Domain expert:** No. Native Inspect CSS is the bounded property map returned by Figma's `getCSSAsync()` for one target node. It is useful implementation evidence, but it neither replaces Design Capture nor claims token provenance. `export css` separately projects variable collections as CSS custom properties.
+
 > **Developer:** Can a command silently switch to another open file?
 >
 > **Domain expert:** No. Its Figma Target Context resolves once, then accompanies the Command Capability, audit entry, job identity and Daemon Client call. At the Plugin boundary a Dispatch Receipt binds that target and expected editor to the exact authenticated connection before mutation.

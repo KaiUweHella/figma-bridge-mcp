@@ -18,6 +18,27 @@ test('native CSS reads the same property map exposed by getCSSAsync', async () =
   assert.deepEqual(JSON.parse(formatNodeCss(result, { json: true })), result);
 });
 
+test('native CSS text neutralizes comment, control, and Bidi injection', () => {
+  const result = {
+    id: '1:2',
+    name: '*/\nPrivate\u202e',
+    type: 'FRAME',
+    css: { display: 'flex\nposition: fixed\u0000' },
+  };
+  const text = formatNodeCss(result);
+  assert.match(text, /^\/\* \* \/ Private /);
+  assert.match(text, /display: flex position: fixed ;$/);
+  for (const line of text.split('\n')) {
+    assert.doesNotMatch(line, /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+  }
+  assert.equal(JSON.parse(formatNodeCss(result, { json: true })).css.display,
+    'flex\nposition: fixed\u0000');
+  assert.throws(
+    () => formatNodeCss({ ...result, css: { 'display\nposition': 'fixed' } }),
+    /invalid or unbounded/,
+  );
+});
+
 test('JSON_REST_V1 is exported locally through the plugin', async () => {
   const expected = { id: '1:2', name: 'Card', type: 'FRAME', children: [] };
   let settings = null;

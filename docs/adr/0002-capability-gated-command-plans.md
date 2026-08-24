@@ -107,3 +107,11 @@ ID projection and URL target regardless of option order. Commander and
 `figma_run` share one bounded Node Tree Command Application, safe-read policy
 and decreasing deadline. Line, depth and total-output bounds are explicit and
 truthful; malformed results and Plugin failures cannot become successful text.
+
+Native Inspect `node css` is also a dedicated bounded read rather than a
+Commander-owned eval. Its closed request owns the required node, JSON/text
+projection and Figma URL target regardless of option order. Commander and
+`figma_run` execute one safe-read Command Plan and Node CSS Command
+Application with a decreasing deadline. Property count, names, values and
+metadata are bounded below the Plugin protocol cap; invalid or oversized
+results fail explicitly instead of being truncated into plausible CSS.

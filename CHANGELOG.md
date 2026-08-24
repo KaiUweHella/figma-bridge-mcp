@@ -7,6 +7,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed native Figma Inspect `node css` reads through one closed, bounded
+  Command Application shared by Commander and MCP. URL targeting, safe-read
+  retry, deadlines, output format and malformed-result handling now come from
+  the same authentic Command Plan.
 - Added versioned Dispatch Receipts for every authenticated Plugin execution.
   Requests now bind one handshake-signed connection epoch, file or draft
   session, expected editor and operation capability through the terminal

@@ -77,6 +77,10 @@ import {
   nodeTextPlanRoute,
 } from "../engine/src/application/node-text-command.js";
 import {
+  executeNodeCssPlan,
+  nodeCssPlanRoute,
+} from "../engine/src/application/node-css-command.js";
+import {
   executeNodeTreePlan,
   nodeTreePlanRoute,
 } from "../engine/src/application/node-tree-command.js";
@@ -1737,6 +1741,23 @@ export async function handleTool(name, rawArgs) {
             stderr: "",
             code: 0,
           };
+        });
+        return resultFromCli(res);
+      }
+      const nodeCssRoute = nodeCssPlanRoute(plan);
+      if (nodeCssRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeCssPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
         });
         return resultFromCli(res);
       }

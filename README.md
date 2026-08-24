@@ -289,8 +289,9 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   removed entirely; there is no code path to it.
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
   and migrated `figma_run` actions execute directly through value-returning
-  **Command Application Modules**. `export assets`, `node set-text`, Design
-  Link set/inspect, and Design Contract capture/check use the same
+  **Command Application Modules**. `export assets`, `node set-text`, bounded
+  `node tree`, native Inspect `node css`, Design Link set/inspect, and Design
+  Contract capture/check use the same
   Implementation from MCP and Commander. Other `figma_run` actions remain on
   the deliberately broad child-process compatibility Adapter while they
   migrate one vertical slice at a time. One
@@ -1367,7 +1368,9 @@ figma_run ["export", "node-json", "12:34", "-o", "facts/card.json"]
 
 `node css` calls `getCSSAsync()` and returns the declarations Figma exposes for
 its Inspect panel. This is deliberately separate from `export css`, which
-exports design-token custom properties. `export node-json` uses
+exports design-token custom properties. Its text and JSON projections share
+one target-bound, bounded safe-read Application; an oversized or malformed
+Plugin result is refused rather than silently truncated. `export node-json` uses
 `exportAsync({format:"JSON_REST_V1"})`: the shape resembles the REST file
 schema, but the bytes come from the live plugin document and need neither a
 token nor a network request.
