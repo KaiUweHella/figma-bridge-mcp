@@ -1386,11 +1386,14 @@ versions still requires the optional REST add-on.
 A snapshot stores one normalized record per node — geometry, layout, paints,
 typography, component keys — plus a content hash and a subtree hash, so the
 differ can report an untouched section instead of walking it. They live in
-`~/.figma-bridge-mcp/snapshots/<fileKey>/`, gzipped, newest 20 kept.
+`~/.figma-bridge-mcp/snapshots/<fileKey>/`, gzipped, newest 20 kept. The
+Structural Snapshot Store keeps its directories `0700` and files `0600`, and
+bounds both compressed and expanded data before parsing.
 
-Refs are `latest`, `previous`, an index from `history list`, a filename, or
-`live` for the document right now. The report separates **added**, **removed**,
-**replaced**, **moved** and **changed** — that last distinction is the one that
+Refs are `latest`, `previous`, a bounded index from `history list`, an exact or
+unique-prefix filename, or `live` for the document right now. Local refs never
+accept host paths or escape the owning file namespace. The report separates
+**added**, **removed**, **replaced**, **moved** and **changed** — that last distinction is the one that
 matters in practice: an agent that deletes a frame and re-renders it keeps the
 name path but gets new node ids, and without the replaced-detection every
 re-render would read as a hundred deletions. `--changelog` emits markdown

@@ -75,6 +75,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Structural history now persists through one private bounded Snapshot Store.
+  Normal `latest`, `previous`, index, filename-prefix, list, diff and changelog
+  flows remain available, while host paths, namespace collisions, symlinks,
+  changed inodes, timestamp overwrites and oversized/deep gzip JSON fail closed.
 - Top-level `inspect` now carries one authentic Command Plan through Commander,
   `figma_run` and `figma_inspect`. All three preserve the existing text, YAML,
   JSON and Spec formats while sharing closed node parsing, exact URL targeting,

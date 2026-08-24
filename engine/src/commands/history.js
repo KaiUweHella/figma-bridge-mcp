@@ -19,7 +19,7 @@ import {
 } from '../lib/cli-core.js';
 import { buildSnapshotEval, normalizeSnapshot } from '../lib/doc-snapshot.js';
 import {
-  saveSnapshot, listSnapshots, readSnapshot, resolveRef, snapshotDir,
+  snapshotStore,
 } from '../lib/snapshot-store.js';
 import { diffSnapshots, formatDiff, formatChangelog, isEmptyDiff } from '../lib/doc-diff.js';
 import { saveVersionCode } from '../lib/version-history.js';
@@ -77,7 +77,7 @@ historyCmd
         console.log(JSON.stringify(snap, null, 2));
         return;
       }
-      const { path, bytes: size, pruned } = saveSnapshot(snap);
+      const { path, bytes: size, pruned } = snapshotStore.save(snap);
       console.log(chalk.green('✓'), `Snapshot saved — ${snap.nodeCount} nodes, ${bytes(size)}`);
       console.log(chalk.gray(`  root:  ${snap.rootName} (${snap.rootId})`));
       if (snap.label) console.log(chalk.gray(`  label: ${snap.label}`));
@@ -102,16 +102,16 @@ historyCmd
     } catch (e) {
       handleEvalError(e);
     }
-    const snaps = listSnapshots(fileKey);
+    const snaps = snapshotStore.list(fileKey);
     if (!snaps.length) {
       console.log(chalk.yellow('No snapshots yet for this file.'));
       console.log(chalk.gray('  Record one with: figma_run ["history","snapshot"]'));
       return;
     }
-    console.log(chalk.white(`${snaps.length} snapshot(s) in ${snapshotDir(fileKey)}\n`));
+    console.log(chalk.white(`${snaps.length} snapshot(s) in ${snapshotStore.directory(fileKey)}\n`));
     snaps.forEach((s, i) => {
       let meta = {};
-      try { meta = readSnapshot(s.path); } catch { /* unreadable file: still list it */ }
+      try { meta = snapshotStore.read(s); } catch { /* unreadable file: still list it */ }
       const parts = [
         chalk.gray(String(i).padStart(2)),
         meta.takenAt || s.file,
@@ -150,9 +150,9 @@ historyCmd
       if (ref === 'live') {
         return capture({ nodeId: options.node, depth: options.depth, label: 'live' });
       }
-      const path = resolveRef(ref, fileKey);
-      if (!path) {
-        const available = listSnapshots(fileKey);
+      const snapshotRef = snapshotStore.resolve(ref, fileKey);
+      if (!snapshotRef) {
+        const available = snapshotStore.list(fileKey);
         console.error(chalk.red(`✗ No snapshot matches "${ref}" (${side} side).`));
         if (!available.length) {
           console.error(chalk.yellow('  There are no snapshots for this file yet — run: figma_run ["history","snapshot"]'));
@@ -163,9 +163,9 @@ historyCmd
         process.exit(1);
       }
       try {
-        return readSnapshot(path);
+        return snapshotStore.read(snapshotRef);
       } catch (e) {
-        console.error(chalk.red(`✗ Could not read snapshot ${path}: ${e.message}`));
+        console.error(chalk.red(`✗ Could not read snapshot ${snapshotRef.file}: ${e.message}`));
         process.exit(1);
       }
     };

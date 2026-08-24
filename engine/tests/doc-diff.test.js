@@ -3,14 +3,20 @@
 // proven on plain objects and only the capture step needs a live document.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import {
+  existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync,
+} from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   normalizeSnapshot, normalizeRestDocument, buildSnapshotEval, hashOf,
 } from '../src/lib/doc-snapshot.js';
 import { diffSnapshots, formatDiff, formatChangelog, isEmptyDiff } from '../src/lib/doc-diff.js';
-import { saveSnapshot, listSnapshots, readSnapshot, resolveRef } from '../src/lib/snapshot-store.js';
+import {
+  createSnapshotStore,
+  MAX_SNAPSHOT_COMPRESSED_BYTES,
+} from '../src/lib/snapshot-store.js';
 
 // A tiny document: page → Hero → [Title, Button]
 function rawDoc(overrides = {}) {
@@ -244,21 +250,25 @@ test('buildSnapshotEval targets the page by default and a node when asked', () =
 test('the store saves, lists, reads back and resolves refs', () => {
   const root = mkdtempSync(join(tmpdir(), 'figma-snap-'));
   try {
+    const store = createSnapshotStore({ root });
     const a = snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z', label: 'morning' });
     const b = snap(undefined, { takenAt: '2026-08-04T18:00:00.000Z', label: 'evening' });
-    saveSnapshot(a, { root });
-    const saved = saveSnapshot(b, { root });
+    store.save(a);
+    const saved = store.save(b);
     assert.ok(existsSync(saved.path));
+    assert.equal(statSync(saved.path).mode & 0o777, 0o600);
+    assert.equal(statSync(store.directory('FILEKEY123')).mode & 0o777, 0o700);
 
-    const list = listSnapshots('FILEKEY123', { root });
+    const list = store.list('FILEKEY123');
     assert.equal(list.length, 2);
-    assert.equal(readSnapshot(list[0].path).label, 'evening', 'newest first');
+    assert.equal(store.read(list[0]).label, 'evening', 'newest first');
 
-    assert.equal(readSnapshot(resolveRef('latest', 'FILEKEY123', { root })).label, 'evening');
-    assert.equal(readSnapshot(resolveRef('previous', 'FILEKEY123', { root })).label, 'morning');
-    assert.equal(readSnapshot(resolveRef('1', 'FILEKEY123', { root })).label, 'morning');
-    assert.equal(resolveRef('nope', 'FILEKEY123', { root }), null);
-    assert.equal(resolveRef('latest', 'OTHERFILE', { root }), null, 'file keys are isolated');
+    assert.equal(store.read(store.resolve('latest', 'FILEKEY123')).label, 'evening');
+    assert.equal(store.read(store.resolve('previous', 'FILEKEY123')).label, 'morning');
+    assert.equal(store.read(store.resolve('1', 'FILEKEY123')).label, 'morning');
+    assert.equal(store.read(store.resolve('2026-08-04T18', 'FILEKEY123')).label, 'evening');
+    assert.equal(store.resolve('nope', 'FILEKEY123'), null);
+    assert.equal(store.resolve('latest', 'OTHERFILE'), null, 'file keys are isolated');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -267,18 +277,19 @@ test('the store saves, lists, reads back and resolves refs', () => {
 test('the store prunes to the keep limit but never the newest', () => {
   const root = mkdtempSync(join(tmpdir(), 'figma-snap-'));
   try {
+    const store = createSnapshotStore({ root });
     for (let i = 0; i < 5; i++) {
-      saveSnapshot(snap(undefined, { takenAt: `2026-08-0${i + 1}T10:00:00.000Z` }), { root, keep: 3 });
+      store.save(snap(undefined, { takenAt: `2026-08-0${i + 1}T10:00:00.000Z` }), { keep: 3 });
     }
-    const list = listSnapshots('FILEKEY123', { root });
+    const list = store.list('FILEKEY123');
     assert.equal(list.length, 3);
-    assert.equal(readSnapshot(list[0].path).takenAt, '2026-08-05T10:00:00.000Z');
+    assert.equal(store.read(list[0]).takenAt, '2026-08-05T10:00:00.000Z');
 
     // A budget smaller than one snapshot must still leave the newest in place.
-    saveSnapshot(snap(undefined, { takenAt: '2026-08-06T10:00:00.000Z' }), { root, keep: 3, budgetBytes: 1 });
-    const after = listSnapshots('FILEKEY123', { root });
+    store.save(snap(undefined, { takenAt: '2026-08-06T10:00:00.000Z' }), { keep: 3, budgetBytes: 1 });
+    const after = store.list('FILEKEY123');
     assert.equal(after.length, 1);
-    assert.equal(readSnapshot(after[0].path).takenAt, '2026-08-06T10:00:00.000Z');
+    assert.equal(store.read(after[0]).takenAt, '2026-08-06T10:00:00.000Z');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -287,11 +298,124 @@ test('the store prunes to the keep limit but never the newest', () => {
 test('a file key from Figma cannot escape the snapshot directory', () => {
   const root = mkdtempSync(join(tmpdir(), 'figma-snap-'));
   try {
+    const store = createSnapshotStore({ root });
     const evil = snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z' });
     evil.fileKey = '../../../etc/passwd';
-    const { path } = saveSnapshot(evil, { root });
+    const { path } = store.save(evil);
     assert.ok(path.startsWith(root), `snapshot escaped its root: ${path}`);
     assert.doesNotMatch(path, /\.\./);
+
+    const other = snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z' });
+    other.fileKey = '..//../etc/passwd';
+    store.save(other);
+    assert.notEqual(store.directory(evil.fileKey), store.directory(other.fileKey),
+      'distinct hostile keys must not collapse into one namespace');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the store rejects host paths, traversal, ambiguous refs and symlink leaves', () => {
+  const root = mkdtempSync(join(tmpdir(), 'figma-snap-policy-'));
+  const outside = mkdtempSync(join(tmpdir(), 'figma-snap-outside-'));
+  try {
+    const store = createSnapshotStore({ root });
+    store.save(snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z' }));
+    store.save(snap(undefined, { takenAt: '2026-08-04T18:00:00.000Z' }));
+    for (const ref of ['/etc/passwd', '../outside.json.gz', 'nested/file.json.gz']) {
+      assert.throws(() => store.resolve(ref, 'FILEKEY123'), /snapshot ref rejected/);
+    }
+    assert.throws(() => store.resolve('2026-08-04', 'FILEKEY123'), /ambiguous/);
+
+    const external = join(outside, '2026-08-05T10-00-00-000Z.json.gz');
+    writeFileSync(external, gzipSync('{}'));
+    symlinkSync(external, join(store.directory('FILEKEY123'), '2026-08-05T10-00-00-000Z.json.gz'));
+    assert.equal(store.list('FILEKEY123').length, 2, 'symlink leaves never become snapshot refs');
+    assert.equal(store.resolve('2026-08-05', 'FILEKEY123'), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('the store rejects a symlinked snapshot namespace before publication', () => {
+  const root = mkdtempSync(join(tmpdir(), 'figma-snap-parent-'));
+  const outside = mkdtempSync(join(tmpdir(), 'figma-snap-parent-outside-'));
+  try {
+    symlinkSync(outside, join(root, 'snapshots'), 'dir');
+    const store = createSnapshotStore({ root });
+    assert.throws(
+      () => store.save(snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z' })),
+      /escaped its private namespace/,
+    );
+    assert.equal(existsSync(join(outside, 'FILEKEY123')), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('the store bounds compressed and expanded bytes before JSON parsing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'figma-snap-limits-'));
+  try {
+    const store = createSnapshotStore({ root, limits: { expandedBytes: 4096 } });
+    store.save(snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z' }));
+    const dir = store.directory('FILEKEY123');
+    const expanded = join(dir, '2026-08-05T10-00-00-000Z.json.gz');
+    writeFileSync(expanded, gzipSync(JSON.stringify({ value: 'x'.repeat(8192) })), { mode: 0o600 });
+    assert.throws(() => store.read(store.resolve('2026-08-05', 'FILEKEY123')), /expanded byte limit/);
+
+    const compressed = join(dir, '2026-08-06T10-00-00-000Z.json.gz');
+    writeFileSync(compressed, Buffer.alloc(MAX_SNAPSHOT_COMPRESSED_BYTES + 1), { mode: 0o600 });
+    assert.throws(() => store.read(store.resolve('2026-08-06', 'FILEKEY123')), /compressed byte limit/);
+
+    const nested = join(dir, '2026-08-07T10-00-00-000Z.json.gz');
+    writeFileSync(nested, gzipSync('{"a":{"b":{"c":{"d":{"e":1}}}}}'), { mode: 0o600 });
+    const shallowStore = createSnapshotStore({ root, limits: { depth: 3 } });
+    assert.throws(
+      () => shallowStore.read(shallowStore.resolve('2026-08-07', 'FILEKEY123')),
+      /structural limits/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('snapshot publication never overwrites an existing timestamp collision', () => {
+  const root = mkdtempSync(join(tmpdir(), 'figma-snap-collision-'));
+  try {
+    const store = createSnapshotStore({ root });
+    const first = snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z', label: 'first' });
+    const saved = store.save(first);
+    const before = readFileSync(saved.path);
+    assert.throws(
+      () => store.save(snap(undefined, { takenAt: first.takenAt, label: 'second' })),
+      /already exists/,
+    );
+    assert.deepEqual(readFileSync(saved.path), before);
+    const invalid = snap(undefined, { takenAt: '2026-08-05T10:00:00.000Z' });
+    invalid.takenAt = '../../outside';
+    assert.throws(() => store.save(invalid), /canonical UTC timestamp/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('snapshot reads require an owned unchanged descriptor and redact host failures', () => {
+  const root = mkdtempSync(join(tmpdir(), 'figma-snap-descriptor-'));
+  try {
+    const store = createSnapshotStore({ root });
+    store.save(snap(undefined, { takenAt: '2026-08-04T10:00:00.000Z' }));
+    const ref = store.resolve('latest', 'FILEKEY123');
+    assert.throws(() => store.read({ ...ref }), /requires a ref resolved by this Snapshot Store/);
+
+    rmSync(ref.path);
+    writeFileSync(ref.path, gzipSync(JSON.stringify({ replaced: true })), { mode: 0o600 });
+    let failure;
+    try { store.read(ref); } catch (error) { failure = error; }
+    assert.match(failure?.message || '', /changed while it was opened/);
+    assert.doesNotMatch(failure?.message || '', new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      'store errors must not expose their host root');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -37,6 +37,14 @@ directory. Inline Base64 declares no file. Bounded PNG IHDR dimensions stay
 distinct from logical node geometry and requested/applied scale.
 _Avoid_: screenshot temp file, incidental render output
 
+**Structural Snapshot Store**:
+The sole private shared-state Module for local structural history. It maps one
+Figma file identity to one collision-resistant namespace, publishes canonical
+timestamp snapshots with private permissions, and returns opaque refs for
+bounded listing, resolution and reads. Host paths, symlinks and arbitrary
+objects never become snapshot authority.
+_Avoid_: history folder, gzip helper, snapshot path
+
 **Design Contract**:
 A reviewed, repository-owned projection of one Design Entity's complete Design Capture. Its canonical layer removes volatile Figma handles for exact drift detection; its semantic rules enforce component existence, variant axes and exhaustiveness, token-binding floors, geometry tolerances and prototype transitions. Incomplete captures cannot become contracts.
 _Avoid_: screenshot snapshot, prose guideline, node-id fixture

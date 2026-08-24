@@ -90,6 +90,18 @@ test('supported Figma Commands never implement or spawn a daemon transport', () 
   }
 });
 
+test('history delegates private structural persistence to the Snapshot Store', () => {
+  const src = sources.get('history.js');
+  assert.ok(src, 'history.js exists');
+  assert.match(src, /import\s*\{\s*snapshotStore,?\s*\}\s*from '\.\.\/lib\/snapshot-store\.js'/);
+  for (const operation of ['save', 'list', 'resolve', 'read', 'directory']) {
+    assert.match(src, new RegExp(`snapshotStore\\.${operation}\\(`),
+      `history must use Snapshot Store ${operation}`);
+  }
+  assert.doesNotMatch(src, /node:fs|node:zlib|readFileSync|writeFileSync|gunzipSync|gzipSync/,
+    'the Command Adapter must not regain direct shared-state persistence');
+});
+
 test('asset export Adapter delegates one Command Application to Manifest v2', () => {
   const adapter = sources.get('export-eval.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'asset-export-command.js'), 'utf8');
