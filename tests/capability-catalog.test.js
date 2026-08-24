@@ -139,6 +139,41 @@ test('Node Text closes and canonicalizes one policy-identical CLI/MCP request', 
   }
 });
 
+test('Inspect closes one policy-identical CLI/MCP read without losing formats or URL targets', () => {
+  const url = 'https://www.figma.com/design/FILEA/Inspect-Lab?node-id=12-34';
+  for (const input of [
+    ['inspect', url, '--format', 'yaml'],
+    ['inspect', '--json', url],
+    ['inspect', url, '--json'],
+    ['inspect', url, '--spec', '--format=yaml'],
+  ]) {
+    const mcp = planFigmaCommand(input, { adapter: 'mcp' });
+    const cli = planFigmaCommand(input, { adapter: 'cli' });
+    const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+    const { adapter: _cliAdapter, ...cliPolicy } = cli;
+    assert.equal(mcp.allowed, true, input.join(' '));
+    assert.equal(cli.allowed, true, input.join(' '));
+    assert.deepEqual(cliPolicy, mcpPolicy, input.join(' '));
+    assert.equal(mcp.target.fileKey, 'FILEA');
+    assert.equal(mcp.target.source, 'figma-url');
+    assert.equal(mcp.argv[1], '12:34');
+    assert.equal(mcp.execution.retry, 'safe-read');
+    assert.equal(mcp.execution.timeout, 'default');
+    assert.deepEqual(mcp.execution.okExitCodes, [0]);
+  }
+
+  for (const args of [
+    ['inspect'],
+    ['inspect', '1:2', '3:4'],
+    ['inspect', '1:2', '--future', 'private-value'],
+    ['inspect', '1:2', '--format', 'toml'],
+  ]) {
+    const rejected = planFigmaCommand(args);
+    assert.equal(rejected.allowed, false, args.join(' '));
+    assert.equal(rejected.id, 'unknown', args.join(' '));
+  }
+});
+
 test('every exposed command root owns a closed URL target projection', () => {
   assert.deepEqual(
     Object.keys(FIGMA_URL_TARGET_ROOTS).sort(),
@@ -498,6 +533,7 @@ test('catalog reports workspace, network and shared-state effects independently 
 
 test('cross-Adapter conformance keeps policy identical while migration exposure stays explicit', () => {
   const cases = [
+    ['inspect', '1:2', '--format', 'yaml'],
     ['link', 'inspect', '1:2'],
     ['link', 'set', '1:2', 'ui.button'],
     ['export', 'assets', '1:2'],
@@ -513,7 +549,7 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     assert.equal(mcpAdapter, 'mcp');
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
-    if (['export.assets', 'link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    if (['export.assets', 'inspect', 'link.inspect', 'link.set'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
     else assert.equal(cliAllowed, false);
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');

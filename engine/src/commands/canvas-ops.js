@@ -1,7 +1,12 @@
 // Commands: canvas-ops (extracted from index.js)
 import chalk from 'chalk';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import { pageLookupCode } from '../lib/eval-snippets.js';
-import { executeInspect } from '../application/inspect-command.js';
+import {
+  executeInspectPlan,
+  inspectPlanningArgvFromRequest,
+} from '../application/inspect-command.js';
 import {
   program,
   buildNodeSelector,
@@ -311,15 +316,26 @@ program
   .option('--json', 'Output as JSON (machine-readable)')
   .option('-f, --format <fmt>', 'yaml | json — structured output (yaml is the token-cheaper default for agents)')
   .option('--spec', 'Output only the absolute-positioning spec block (compact)')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
     const format = options.format
       ? String(options.format).toLowerCase()
       : options.json ? 'json' : options.spec ? 'spec' : 'text';
     try {
-      const result = await executeInspect({ nodeId, format }, {
-        evaluate: (code) => daemonExec('eval', { code }),
+      const plan = planFigmaCommand(inspectPlanningArgvFromRequest({ nodeId, format }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeInspectPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
       if (result.stderr) console.error(chalk.yellow(result.stderr));
       console.log(result.stdout);
     } catch (error) {

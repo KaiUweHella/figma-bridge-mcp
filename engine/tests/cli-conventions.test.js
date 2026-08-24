@@ -145,6 +145,24 @@ test('node set-text delegates one non-retrying Command Application', () => {
   );
 });
 
+test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const start = adapter.indexOf(".command('inspect <nodeId>')");
+  const end = adapter.indexOf('// ============ FIND ============', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/,
+    'Commander must reject excess Inspect positionals before readiness');
+  assert.match(action, /planFigmaCommand\(inspectPlanningArgvFromRequest\(\{ nodeId, format \}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeInspectPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.doesNotMatch(action, /checkConnection\(|executeInspect\(\{/,
+    'Commander must not retain Inspect readiness or execution logic');
+});
+
 test('simple render delegates one non-retrying Semantic Render Application', () => {
   const adapter = sources.get('render.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'semantic-render-command.js'), 'utf8');

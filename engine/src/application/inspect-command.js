@@ -6,8 +6,17 @@ import { normalizeNodeId } from '../lib/node-id.js';
 import { componentContextExpr } from '../lib/eval-snippets.js';
 import { paintsSnippetJs } from '../lib/paint-css.js';
 import { toYaml } from '../lib/yaml.js';
+import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
+import {
+  INSPECT_FORMATS,
+  inspectArgvFromRequest,
+  inspectPlanningArgvFromRequest,
+  parseInspectRequest,
+} from './inspect-request.js';
 
-export const INSPECT_FORMATS = ['text', 'spec', 'yaml', 'json'];
+export { INSPECT_FORMATS, inspectArgvFromRequest, inspectPlanningArgvFromRequest } from './inspect-request.js';
+
+const INSPECT_APPLICATION_ID = 'inspect';
 
 function normalizedRequest(request = {}) {
   if (typeof request.nodeId !== 'string' || !request.nodeId.trim()) {
@@ -146,4 +155,22 @@ export async function executeInspect(request, adapters = {}) {
     stderr: input.warning ? `⚠ ${input.warning}` : '',
     result: value,
   };
+}
+
+/** Select the exact execution Seam for one authentic Command Plan. */
+export function inspectPlanRoute(plan) {
+  if (!isFigmaCommandPlan(plan)) {
+    throw new TypeError('Inspect routing requires a Command Plan created by the Capability Catalog.');
+  }
+  return plan.allowed && plan.id === INSPECT_APPLICATION_ID
+    ? 'command-application'
+    : 'not-inspect';
+}
+
+/** Execute Inspect only from the closed argv owned by an authentic Plan. */
+export async function executeInspectPlan(plan, adapters = {}) {
+  if (inspectPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Inspect Command Application.`);
+  }
+  return executeInspect(parseInspectRequest(plan.argv), adapters);
 }

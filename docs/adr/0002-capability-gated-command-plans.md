@@ -62,3 +62,11 @@ settles before mutation, and invalid post-dispatch results cannot become code-0
 success. Only the closed request's node-id field may contribute a Figma URL
 file identity to the Figma Target Context; text payload never retargets the
 write, while canonical argv retains only the semantic node id.
+
+The representative top-level read, `inspect`, uses the same boundary rather
+than treating a value-returning implementation alone as a completed migration.
+Its closed request Interface preserves the established text, YAML, JSON and
+Spec formats, accepts Commander options before or after the node, and projects
+Figma URL identity only from that typed node field. Commander, `figma_run` and
+`figma_inspect` execute the same authentic Plan, bounded readiness step,
+decreasing deadline and safe-read retry policy without re-entering Commander.

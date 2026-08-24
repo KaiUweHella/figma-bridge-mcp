@@ -479,6 +479,43 @@ test('figma_run keeps Asset Export polling around the shared in-process Applicat
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Asset Export must not re-enter Commander');
 });
 
+test('figma_run and figma_inspect share the Plan-bound Inspect Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const runStart = source.indexOf('case "figma_run"');
+  const inspectToolStart = source.indexOf('case "figma_inspect"');
+  const inspectRouteStart = source.indexOf('const inspectRoute = inspectPlanRoute(plan)', runStart);
+  const runSlice = source.slice(inspectRouteStart, source.indexOf('if (semanticRenderApplication)', inspectRouteStart));
+  const toolSlice = source.slice(inspectToolStart, source.indexOf('case "figma_reference"', inspectToolStart));
+  for (const slice of [runSlice, toolSlice]) {
+    assert.match(slice, /compatibilityFallback:\s*false/);
+    assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+    assert.match(slice, /executeInspectPlan\(plan/);
+    assert.doesNotMatch(slice, /runCliPlan\(/, 'Inspect must not re-enter Commander');
+  }
+});
+
+test('figma_run rejects malformed Inspect argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['inspect'],
+    ['inspect', '1:2', '3:4'],
+    ['inspect', '1:2', '--future', 'private-value'],
+    ['inspect', '1:2', '--format', 'toml'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_inspect rejects a malformed typed node before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_inspect', { nodeId: 'not-a-node' });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /nodeId must be a bounded Figma node id/i);
+});
+
 test('figma_run denies an unknown nested command before write confirmation', async () => {
   const { handleTool } = await import('../src/server.js');
   const result = await handleTool('figma_run', { args: ['node', 'future-action', 'private-value'] });

@@ -35,7 +35,11 @@ import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
 import { diffSnapshots, formatDiff, formatChangelog } from "../engine/src/lib/doc-diff.js";
 import { DEFAULT_SPEC_FORMAT, parseSpecModel, serializeSpecModel } from "../engine/src/lib/spec-format.js";
 import { executeCodeSpec } from "../engine/src/application/code-spec-command.js";
-import { executeInspect } from "../engine/src/application/inspect-command.js";
+import {
+  executeInspectPlan,
+  inspectPlanningArgvFromRequest,
+  inspectPlanRoute,
+} from "../engine/src/application/inspect-command.js";
 import { executeScreenshot } from "../engine/src/application/screenshot-command.js";
 import {
   designLinkFileKeyFromArgv,
@@ -1716,6 +1720,23 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const inspectRoute = inspectPlanRoute(plan);
+      if (inspectRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeInspectPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, preparedSemanticRender);
       }
@@ -2011,11 +2032,25 @@ export async function handleTool(name, rawArgs) {
       if (typeof nodeId !== "string" || nodeId.length === 0) {
         return errorResult("nodeId must be a non-empty string.");
       }
-      const args = ["inspect", nodeId, "--format", "yaml"];
-      const res = await runInProcessCommand(args, { fileKey: input.fileKey },
-        ({ fileKey, expectedEditor, timeoutMs }) => executeInspect({ nodeId, format: "yaml" }, {
-          evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
-        }));
+      let args;
+      try {
+        args = inspectPlanningArgvFromRequest({ nodeId, format: "yaml" });
+      } catch (error) {
+        return errorResult(error?.message || String(error));
+      }
+      const res = await runInProcessCommand(args, {
+        fileKey: input.fileKey,
+        compatibilityFallback: false,
+      }, async ({ plan, fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeInspectPlan(plan, {
+          evaluate: (code) => evaluateFigma(code, {
+            fileKey,
+            expectedEditor,
+            timeoutMs: Math.max(1, deadline - Date.now()),
+          }),
+        });
+      });
       return resultFromCli(res);
     }
 

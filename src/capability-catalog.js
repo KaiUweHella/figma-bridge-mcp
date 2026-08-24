@@ -14,6 +14,12 @@ import {
 import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
 import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
 import {
+  acceptsInspectArgv,
+  inspectArgvFromRequest,
+  inspectFigmaUrlFileKeyFromArgv,
+  parseInspectRequest,
+} from '../engine/src/application/inspect-request.js';
+import {
   acceptsNodeTextArgv,
   nodeTextFigmaUrlFileKeyFromArgv,
   nodeTextArgvFromRequest,
@@ -70,7 +76,7 @@ const COMMANDS = Object.freeze({
   canvas: readGroup('Inspect pages or mutate the canvas', ['info', 'pages', 'page', 'next']),
   find: { summary: 'Find nodes by name', mutation: 'read' },
   verify: { summary: 'Capture a verification screenshot', mutation: 'read', path: 'verify-image', retry: 'safe-read' },
-  inspect: { summary: 'Inspect one node as structured facts', mutation: 'read', retry: 'safe-read' },
+  inspect: { summary: 'Inspect one node as structured facts', mutation: 'read', retry: 'safe-read', path: 'inspect-input' },
   export: { summary: 'Export design facts, images and assets', mutation: 'read' },
   gradient: { summary: 'Extract and apply gradients', mutation: 'gradient', target: 'conditional', path: 'gradient-input' },
   pin: { summary: 'Pin nodes to parent edges', mutation: 'write' },
@@ -107,7 +113,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch',
+  'contract.capture', 'contract.check', 'export.assets', 'inspect', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -220,6 +226,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
@@ -373,7 +382,7 @@ function normalizeVerifyBuild(args, baseDir, notePath) {
 function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget = true } = {}) {
   const args = [...rawArgs];
   const capability = commandCapability(args);
-  const figmaUrlFileKey = projectUrlTarget && capability.available && !capability.help
+  let figmaUrlFileKey = projectUrlTarget && capability.available && !capability.help
     ? projectFigmaUrlFileKey(rawArgs, capability.actionId)
     : null;
   let outputPath = null;
@@ -550,6 +559,15 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), { projectUrlTarget
         args[3] = absolute(baseDir, args[3]);
         markRead(args[3], 'node-image');
       }
+      break;
+    }
+    case 'inspect-input': {
+      const closedInspectFileKey = inspectFigmaUrlFileKeyFromArgv(args);
+      // Commander accepts options before or after the positional node. The
+      // typed request, rather than a fixed argv index, therefore owns target
+      // projection for this migrated Command Application.
+      if (projectUrlTarget) figmaUrlFileKey = closedInspectFileKey;
+      args.splice(0, args.length, ...inspectArgvFromRequest(parseInspectRequest(args)));
       break;
     }
     case 'gradient-input': {

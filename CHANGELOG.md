@@ -75,6 +75,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Top-level `inspect` now carries one authentic Command Plan through Commander,
+  `figma_run` and `figma_inspect`. All three preserve the existing text, YAML,
+  JSON and Spec formats while sharing closed node parsing, exact URL targeting,
+  bounded readiness, one decreasing deadline and the same safe-read retry path.
 - Plugin execution now rejects stale connections, wrong files and wrong
   editors before mutation. Reconnected UI results cannot settle newer work,
   multi-window metadata stays pinned to the connection selected at dispatch,
