@@ -92,12 +92,17 @@ test('supported Figma Commands never implement or spawn a daemon transport', () 
 
 test('history delegates private structural persistence to the Snapshot Store', () => {
   const src = sources.get('history.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'history-command.js'), 'utf8');
   assert.ok(src, 'history.js exists');
-  assert.match(src, /import\s*\{\s*snapshotStore,?\s*\}\s*from '\.\.\/lib\/snapshot-store\.js'/);
-  for (const operation of ['save', 'list', 'resolve', 'read', 'directory']) {
-    assert.match(src, new RegExp(`snapshotStore\\.${operation}\\(`),
-      `history must use Snapshot Store ${operation}`);
+  assert.match(src, /executeHistoryPlan\(/);
+  assert.doesNotMatch(src, /snapshotStore\./,
+    'Commander must not own Structural Snapshot Store operations');
+  for (const operation of ['save', 'list', 'resolve', 'read']) {
+    assert.match(application, new RegExp(`store\\.${operation}\\(`),
+      `History Application must use Snapshot Store ${operation}`);
   }
+  assert.doesNotMatch(application, /store\.directory\(/,
+    'History results must not expose the private Snapshot Store directory');
   assert.doesNotMatch(src, /node:fs|node:zlib|readFileSync|writeFileSync|gunzipSync|gzipSync/,
     'the Command Adapter must not regain direct shared-state persistence');
 });

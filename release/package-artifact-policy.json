@@ -22,6 +22,8 @@
     "engine/src/application/design-contract-request.js",
     "engine/src/application/design-link-command.js",
     "engine/src/application/design-link-request.js",
+    "engine/src/application/history-command.js",
+    "engine/src/application/history-request.js",
     "engine/src/application/inspect-command.js",
     "engine/src/application/inspect-request.js",
     "engine/src/application/node-text-command.js",

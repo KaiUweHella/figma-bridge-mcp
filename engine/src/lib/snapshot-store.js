@@ -335,7 +335,12 @@ export function createSnapshotStore({ root = STATE_DIR, limits = {} } = {}) {
     const saved = list(snapshot.fileKey).find((item) => item.file === filename);
     if (!saved) reject('published snapshot could not be resolved');
     const pruned = prune(snapshot.fileKey, { keep, budgetBytes });
-    return Object.freeze({ path: destination, bytes: payload.length, pruned: Object.freeze(pruned) });
+    return Object.freeze({
+      file: filename,
+      path: destination,
+      bytes: payload.length,
+      pruned: Object.freeze(pruned),
+    });
   }
 
   function guarded(operation, reason) {

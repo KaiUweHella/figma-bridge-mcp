@@ -9,6 +9,10 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'figma-command-application-'));
 const auditFile = join(dir, 'audit.log');
 process.env.AUDIT_LOG_PATH = auditFile;
+process.env.PLUGIN_KEY_FILE = join(dir, 'plugin-key');
+process.env.DAEMON_TOKEN_FILE = join(dir, 'daemon-token');
+process.env.DAEMON_PORT_FILE = join(dir, 'daemon-port');
+process.env.DAEMON_PID_FILE = join(dir, 'daemon.pid');
 
 test('in-process command uses one allowlist, targeting and audit lifecycle', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
@@ -307,7 +311,10 @@ test('missing daemon token does not spend time in readiness wait', async () => {
   await assert.rejects(
     () => runInProcessCommand(
       ['export', 'code-spec', '12:34'],
-      { waitUntilReady: async () => { waits++; return true; } },
+      {
+        compatibilityFallback: false,
+        waitUntilReady: async () => { waits++; return true; },
+      },
       async () => { throw new DaemonClientError('token missing', { kind: 'missing-token' }); },
     ),
   );

@@ -49,6 +49,11 @@ import {
   screenshotPlanningArgvFromRequest,
 } from "../engine/src/application/screenshot-command.js";
 import {
+  executeHistoryPlan,
+  historyPlanRoute,
+  historyPlanningArgvFromRequest,
+} from "../engine/src/application/history-command.js";
+import {
   designLinkFileKeyFromArgv,
   designLinkPlanRoute,
   designLinkRequestFromArgv,
@@ -1788,6 +1793,24 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const historyRoute = historyPlanRoute(plan);
+      if (historyRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeHistoryPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, preparedSemanticRender);
       }
@@ -1933,14 +1956,30 @@ export async function handleTool(name, rawArgs) {
           }
         }
 
-        // Local snapshots and the live document go through the engine, which
-        // owns the plugin bridge.
-        const args = ["history", "diff", from, to];
-        if (typeof d.nodeId === "string" && d.nodeId) args.push("--node", d.nodeId);
-        if (d.changelog === true) args.push("--changelog");
-        // Exit 1 means "the design differs", which is the answer, not an error.
-        // The Command Capability owns that accepted outcome.
-        const res = await runCli(args, { fileKey: input.fileKey });
+        // Local snapshots and live capture share the same value-returning
+        // History Application as Commander; MCP does not respawn Commander.
+        const request = {
+          action: "diff", from, to,
+          nodeId: typeof d.nodeId === "string" ? d.nodeId : "",
+          format: d.changelog === true ? "changelog" : "text",
+        };
+        const plan = planFigmaCommand(historyPlanningArgvFromRequest(request), {
+          fileKey: input.fileKey,
+          workspaceDir: WORKSPACE_IO.roots[0],
+          workspaceIO: WORKSPACE_IO,
+        });
+        const res = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+          async ({ fileKey, expectedEditor, deadline }) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            return executeHistoryPlan(plan, {
+              workspaceIO: WORKSPACE_IO,
+              evaluate: (code) => evaluateFigma(code, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              }),
+            });
+          });
         return textResult(res.stdout || res.stderr || "No output.");
       }
 

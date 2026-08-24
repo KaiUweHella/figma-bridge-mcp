@@ -337,6 +337,36 @@ test('figma_run routes Node Text through the shared non-retrying Application', (
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Text must not re-enter Commander');
 });
 
+test('figma_run and figma_history share the Plan-bound History Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const runStart = source.indexOf('const historyRoute = historyPlanRoute(plan)');
+  const runEnd = source.indexOf('if (semanticRenderApplication)', runStart);
+  const dedicatedStart = source.indexOf('case "figma_history"');
+  const dedicatedEnd = source.indexOf('// Entirely MCP-side', dedicatedStart);
+  for (const slice of [source.slice(runStart, runEnd), source.slice(dedicatedStart, dedicatedEnd)]) {
+    assert.match(slice, /runInProcessCommandPlan\(plan/);
+    assert.match(slice, /compatibilityFallback:\s*false/);
+    assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+    assert.match(slice, /executeHistoryPlan\(plan/);
+    assert.doesNotMatch(slice, /runCli(?:Plan)?\(/,
+      'local History must not re-enter Commander');
+  }
+});
+
+test('figma_run rejects malformed History argv before readiness or shared-state access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['history', 'list', 'extra'],
+    ['history', 'snapshot', '--depth', '-1'],
+    ['history', 'diff', 'latest', 'live', '--json', '--changelog'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /Plugin not connected|figma_connect/);
+  }
+});
+
 test('figma_run and figma_render share simple and compound non-retrying Semantic Render Applications', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const helperStart = source.indexOf('async function runSemanticRenderApplication');

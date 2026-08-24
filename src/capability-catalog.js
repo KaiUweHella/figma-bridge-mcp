@@ -26,6 +26,12 @@ import {
   parseInspectRequest,
 } from '../engine/src/application/inspect-request.js';
 import {
+  acceptsHistoryArgv,
+  historyArgvFromRequest,
+  historyFigmaUrlFileKeyFromArgv,
+  parseHistoryRequest,
+} from '../engine/src/application/history-request.js';
+import {
   acceptsNodeTextArgv,
   nodeTextFigmaUrlFileKeyFromArgv,
   nodeTextArgvFromRequest,
@@ -129,7 +135,9 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
-  'contract.capture', 'contract.check', 'export.assets', 'export.code-spec', 'inspect', 'link.inspect', 'link.set', 'node.set-text', 'render', 'render-batch', 'verify',
+  'contract.capture', 'contract.check', 'export.assets', 'export.code-spec',
+  'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
+  'link.set', 'node.set-text', 'render', 'render-batch', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -249,6 +257,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'history' && ['snapshot', 'list', 'diff'].includes(args[1])
+    && !action.help && !acceptsHistoryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'verify' && !action.help && !acceptsScreenshotArgv(args)) {
@@ -687,9 +699,19 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'history-output': {
-      if (args[1] === 'diff') {
-        const changelog = pathFlag(args, ['--changelog'], baseDir);
-        if (changelog) markWrite(changelog.value, 'history-changelog');
+      if (['snapshot', 'list', 'diff'].includes(args[1])) {
+        const request = parseHistoryRequest(args);
+        const closedFileKey = historyFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget && closedFileKey !== figmaUrlFileKey) {
+          throw new Error('History target projection disagrees with its closed request Interface.');
+        }
+        const normalized = request.action === 'diff' && request.changelogPath
+          ? { ...request, changelogPath: absolute(baseDir, request.changelogPath) }
+          : request;
+        args.splice(0, args.length, ...historyArgvFromRequest(normalized));
+        if (normalized.action === 'diff' && normalized.changelogPath) {
+          markWrite(normalized.changelogPath, 'history-changelog');
+        }
       }
       break;
     }
@@ -760,7 +782,7 @@ function sharedEffect(args, artifactOutputs = []) {
     return 'read';
   }
   if (args[0] === 'history') {
-    if (args[1] === 'snapshot') return 'write';
+    if (args[1] === 'snapshot') return args.includes('--json') ? 'none' : 'write';
     if (args[1] === 'list' || args[1] === 'diff') return 'read';
   }
   return 'none';

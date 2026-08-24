@@ -92,3 +92,11 @@ Verification evidence never derives raster dimensions from logical node
 geometry. The shared Application validates the bounded PNG signature and IHDR
 before persistence and result projection, exposing exact pixel dimensions,
 logical node dimensions and requested/applied scale as distinct facts.
+
+Local structural history follows the same boundary. `history snapshot`,
+`history list` and `history diff` use one closed request Interface and History
+Command Application from Commander, `figma_run` and `figma_history`. The Plan
+owns optional node targeting, exact local/shared and workspace effects,
+changelog output paths, deadlines and the diff finding code. Snapshot
+publication and reads remain behind the Structural Snapshot Store; JSON-only
+snapshot preview declares no shared-state write and does not persist.

@@ -79,6 +79,13 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   Normal `latest`, `previous`, index, filename-prefix, list, diff and changelog
   flows remain available, while host paths, namespace collisions, symlinks,
   changed inodes, timestamp overwrites and oversized/deep gzip JSON fail closed.
+- `history snapshot`, `history list` and `history diff` now share one closed
+  request Interface and value-returning Command Application across Commander,
+  `figma_run` and `figma_history`. Changelog paths, targets, shared-state
+  effects, deadlines and accepted diff outcomes come from the same Command
+  Plan; JSON-only snapshot previews correctly declare no shared-state write.
+- Structural history results expose reusable snapshot refs instead of private
+  host paths or file-key namespaces.
 - Top-level `inspect` now carries one authentic Command Plan through Commander,
   `figma_run` and `figma_inspect`. All three preserve the existing text, YAML,
   JSON and Spec formats while sharing closed node parsing, exact URL targeting,
