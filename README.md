@@ -290,8 +290,9 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
   and migrated `figma_run` actions execute directly through value-returning
   **Command Application Modules**. `export assets`, `node set-text`, bounded
-  `node tree`, direct `node bindings`, native Inspect `node css`, Design Link
-  set/inspect, and Design Contract capture/check use the same
+  `node tree`, current-page Node Discovery through `find`, direct
+  `node bindings`, native Inspect `node css`, Design Link set/inspect, and
+  Design Contract capture/check use the same
   Implementation from MCP and Commander. Other `figma_run` actions remain on
   the deliberately broad child-process compatibility Adapter while they
   migrate one vertical slice at a time. One
@@ -455,6 +456,13 @@ CLI and MCP. Page listing is a bounded safe read; switching is explicit,
 non-retrying, and resolves only an id, exact name, or unique substring. It
 changes the active editor page without modifying document content, while
 ambiguous names fail instead of selecting a page by guesswork.
+
+Top-level `find` provides bounded Node Discovery on the fully loaded current
+page across CLI and MCP. Case-insensitive partial-name matching, the optional
+node-type filter and a 1–200 result limit are parsed as inert data before
+readiness. Search stops immediately when the result limit is reached and after
+100,000 visited nodes; either bound is reported so follow-up reads never rely
+on a silently incomplete node-id list.
 
 The mutating `canvas page-create` and `canvas page-divider` commands share a
 separate non-retrying Page Structure path. Duplicate page names and divider

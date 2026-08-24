@@ -19,6 +19,10 @@ import {
   pageStructurePlanningArgvFromRequest,
 } from '../application/page-structure-command.js';
 import {
+  executeNodeDiscoveryPlan,
+  nodeDiscoveryPlanningArgvFromRequest,
+} from '../application/node-discovery-command.js';
+import {
   program,
   buildNodeSelector,
   checkConnection,
@@ -76,6 +80,23 @@ async function runPageStructureCommand(request) {
     async ({ fileKey, deadline }) => {
       await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
       return executePageStructurePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
+async function runNodeDiscoveryCommand(request) {
+  const plan = planFigmaCommand(nodeDiscoveryPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeNodeDiscoveryPlan(plan, {
         evaluate: (code) => daemonExec('eval', {
           code,
           ...(fileKey ? { fileKey } : {}),
@@ -360,21 +381,17 @@ program
   .description('Find nodes by name (partial match)')
   .option('-t, --type <type>', 'Filter by type (FRAME, TEXT, RECTANGLE, etc.)')
   .option('-l, --limit <n>', 'Limit results', '20')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
-    await checkConnection();
-    let code = `(function() {
-const results = [];
-function search(node) {
-  if (node.name && node.name.toLowerCase().includes(${JSON.stringify(name.toLowerCase())})) {
-    ${options.type ? `if (node.type === ${JSON.stringify(options.type.toUpperCase())})` : ''}
-    results.push({ id: node.id, name: node.name, type: node.type });
-  }
-  if (node.children && results.length < ${options.limit}) {
-    node.children.forEach(search);
-  }
-}
-search(figma.currentPage);
-return results.length === 0 ? 'No nodes found matching "${name}"' : results.slice(0, ${options.limit}).map(r => r.id + ' [' + r.type + '] ' + r.name).join('\\n');
-})()`;
-    await evalPrint(code);
+    try {
+      const result = await runNodeDiscoveryCommand({
+        query: name,
+        type: options.type || null,
+        limit: options.limit,
+      });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });

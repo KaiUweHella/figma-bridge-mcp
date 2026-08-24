@@ -56,6 +56,11 @@ import {
   parseNodeTreeRequest,
 } from '../engine/src/application/node-tree-request.js';
 import {
+  acceptsNodeDiscoveryArgv,
+  nodeDiscoveryArgvFromRequest,
+  parseNodeDiscoveryRequest,
+} from '../engine/src/application/node-discovery-request.js';
+import {
   acceptsCanvasAwarenessArgv,
   canvasAwarenessArgvFromRequest,
   parseCanvasAwarenessRequest,
@@ -129,7 +134,7 @@ const COMMANDS = Object.freeze({
   annotate: readGroup('Inspect or manage annotations and categories', ['list', 'categories']),
   a11y: { summary: 'Run accessibility checks', mutation: 'read' },
   canvas: readGroup('Inspect pages or mutate the canvas', ['info', 'pages', 'page', 'next']),
-  find: { summary: 'Find nodes by name', mutation: 'read' },
+  find: { summary: 'Find nodes by name', mutation: 'read', retry: 'safe-read', path: 'node-discovery-input' },
   verify: { summary: 'Capture a verification screenshot', mutation: 'read', path: 'verify-image', retry: 'safe-read' },
   inspect: { summary: 'Inspect one node as structured facts', mutation: 'read', retry: 'safe-read', path: 'inspect-input' },
   export: { summary: 'Export design facts, images and assets', mutation: 'read' },
@@ -173,7 +178,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree',
+  'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
   'render', 'render-batch', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
@@ -327,6 +332,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'bindings' && !action.help && !acceptsNodeBindingsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'find' && !action.help && !acceptsNodeDiscoveryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -809,6 +817,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'page-structure-input': {
       args.splice(0, args.length,
         ...pageStructureArgvFromRequest(parsePageStructureRequest(args)));
+      break;
+    }
+    case 'node-discovery-input': {
+      args.splice(0, args.length,
+        ...nodeDiscoveryArgvFromRequest(parseNodeDiscoveryRequest(args)));
       break;
     }
     case 'inspect-input': {

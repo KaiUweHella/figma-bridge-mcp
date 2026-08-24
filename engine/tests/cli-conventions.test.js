@@ -286,6 +286,25 @@ test('top-level inspect delegates one Plan-bound safe-read Command Application',
     'Commander must not retain Inspect readiness or execution logic');
 });
 
+test('top-level find delegates one Plan-bound bounded Node Discovery Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const start = adapter.indexOf(".command('find <name>')");
+  const helperStart = adapter.indexOf('async function runNodeDiscoveryCommand');
+  const helperEnd = adapter.indexOf("canvas\n  .command('info')", helperStart);
+  const action = adapter.slice(helperStart, helperEnd) + adapter.slice(start);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(nodeDiscoveryPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeDiscoveryPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|evalPrint\(|function search\(|currentPage\)/,
+    'Commander must not retain Node Discovery readiness, traversal, or formatting logic');
+});
+
 test('canvas info and next delegate one Plan-bound Canvas Awareness Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

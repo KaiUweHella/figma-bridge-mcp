@@ -7,6 +7,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed top-level `find` through one closed, bounded Node Discovery Application
+  shared by Commander and MCP. The current page loads before traversal;
+  case-insensitive name queries, optional type filters and limits stay inert,
+  while result and 100,000-node traversal bounds are reported truthfully.
 - Routed `canvas page-create` and `canvas page-divider` through one closed,
   non-retrying Page Structure Application shared by Commander and MCP. Divider
   indexes now preflight before creation, and later-stage failures clean up the

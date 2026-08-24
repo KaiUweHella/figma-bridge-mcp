@@ -131,6 +131,15 @@ ID projection and URL target regardless of option order. Commander and
 and decreasing deadline. Line, depth and total-output bounds are explicit and
 truthful; malformed results and Plugin failures cannot become successful text.
 
+Top-level `find` is a separate Node Discovery read over the fully loaded current
+page. Its closed request owns the literal partial-name query, optional node type
+and bounded result count before readiness. Commander and `figma_run` share one
+safe-read Command Plan and Command Application; traversal stops at the requested
+result count or a fixed visit ceiling, and both conditions remain explicit in
+the output. Query and option values are data rather than generated executable
+fragments, malformed Plugin results fail, and the command never implies a
+cross-page Design Capture.
+
 The neighbouring `node bindings` discovery read is a separate Node Binding
 Facts Application rather than a partial Design Capture. Its closed request
 owns optional node/selection targeting, JSON/text projection and semantic URL
