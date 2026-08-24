@@ -4,7 +4,6 @@
 // validation. Commander and MCP remain presentation/transport Adapters.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { normalizeNodeId } from '../lib/node-id.js';
 import {
   MAX_NODE_TEXT_INPUT_CODE_UNITS,
   MAX_NODE_TEXT_NODE_ID_CODE_UNITS,
@@ -31,26 +30,7 @@ function jsString(value) {
 }
 
 function normalizedRequest(request) {
-  if (!request || typeof request !== 'object') {
-    throw new TypeError('Node Text request must be an object.');
-  }
-  if (typeof request.nodeId !== 'string' || request.nodeId.length === 0) {
-    throw new TypeError('Node Text node id must be a non-empty string.');
-  }
-  if (typeof request.text !== 'string') {
-    throw new TypeError('Node Text value must be a string.');
-  }
-  const nodeId = normalizeNodeId(request.nodeId).id;
-  if (nodeId.length === 0 || nodeId.length > MAX_NODE_TEXT_NODE_ID_CODE_UNITS) {
-    throw new Error(`Node Text node id must be at most ${MAX_NODE_TEXT_NODE_ID_CODE_UNITS} code units.`);
-  }
-  if (!NODE_TEXT_NODE_ID_PATTERN.test(nodeId)) {
-    throw new Error('Node Text node id must be a Figma node id or URL containing node-id.');
-  }
-  if (request.text.length > MAX_NODE_TEXT_INPUT_CODE_UNITS) {
-    throw new Error(`Node Text value must be at most ${MAX_NODE_TEXT_INPUT_CODE_UNITS} code units.`);
-  }
-  return { nodeId, text: request.text };
+  return parseNodeTextRequest(nodeTextArgvFromRequest(request));
 }
 
 /** Adapter helper for the bounded figma_run command surface. */

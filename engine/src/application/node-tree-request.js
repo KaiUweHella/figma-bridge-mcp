@@ -3,12 +3,10 @@
 // Commander and figma_run share this parser so optional node identity, depth,
 // output identity and URL-derived targeting are decided before readiness.
 
-import { normalizeNodeId } from '../lib/node-id.js';
+import { NodeReferenceError, parseNodeReference } from './node-reference.js';
 
 export const DEFAULT_NODE_TREE_DEPTH = 3;
 export const MAX_NODE_TREE_DEPTH = 64;
-const MAX_NODE_ID_CODE_UNITS = 512;
-const NODE_ID_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
 
 function requestError(message) {
   return new Error(`Invalid node tree command: ${message}.`);
@@ -27,16 +25,17 @@ function depthValue(value) {
 
 function nodeValue(value) {
   if (value == null) return { nodeId: null, fileKey: null, warning: '' };
-  const normalized = normalizeNodeId(value);
-  if (!normalized.id || normalized.id.length > MAX_NODE_ID_CODE_UNITS
-    || !NODE_ID_PATTERN.test(normalized.id)) {
+  try {
+    const reference = parseNodeReference(value);
+    return {
+      nodeId: reference.nodeId,
+      fileKey: reference.fileKey,
+      warning: reference.warning,
+    };
+  } catch (error) {
+    if (!(error instanceof NodeReferenceError)) throw error;
     throw requestError('nodeId must be a bounded Figma node id or URL containing node-id');
   }
-  return {
-    nodeId: normalized.id,
-    fileKey: normalized.fileKey || null,
-    warning: normalized.warning || '',
-  };
 }
 
 function parsedNodeTreeRequest(args) {
@@ -137,8 +136,9 @@ export function nodeTreeArgvFromRequest(request) {
 
 export function nodeTreePlanningArgvFromRequest(request) {
   const canonical = nodeTreeArgvFromRequest(request);
-  const input = typedRequest(request);
-  if (!input.fileKey) return canonical;
-  canonical[2] = String(request.nodeId).trim();
+  if (!request?.nodeId) return canonical;
+  const reference = parseNodeReference(request.nodeId);
+  if (!reference.fileKey) return canonical;
+  canonical[2] = reference.planningValue;
   return canonical;
 }

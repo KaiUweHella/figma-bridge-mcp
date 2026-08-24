@@ -24,3 +24,10 @@ its request Interface can distinguish node identity from payload. This keeps
 URL-shaped names usable and preserves ordinary single-window workflows; users
 can always provide the explicit file target when a command has no unambiguous
 URL-bearing identity field.
+
+Closed request Interfaces that share this syntax delegate to one internal Node
+Reference Module. It owns the common bound, accepted bare/dashed/instance-path
+forms, URL normalization, warning and file-target facts. Each Figma Command
+still owns whether a node is required, its positional arity, options and error
+prose. Canonical argv contains only the normalized node id; a URL survives only
+as the planning value long enough to resolve the Figma Target Context.

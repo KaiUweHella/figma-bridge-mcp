@@ -1,9 +1,6 @@
 // Closed request Interface for `node css`.
 
-import { normalizeNodeId } from '../lib/node-id.js';
-
-const MAX_NODE_ID_CODE_UNITS = 512;
-const NODE_ID_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+import { NodeReferenceError, parseNodeReference } from './node-reference.js';
 
 function requestError(message) {
   return new Error(`Invalid node css command: ${message}.`);
@@ -13,16 +10,17 @@ function nodeValue(value) {
   if (typeof value !== 'string' || !value.trim()) {
     throw requestError('nodeId is required');
   }
-  const normalized = normalizeNodeId(value.trim());
-  if (!normalized.id || normalized.id.length > MAX_NODE_ID_CODE_UNITS
-    || !NODE_ID_PATTERN.test(normalized.id)) {
+  try {
+    const reference = parseNodeReference(value);
+    return {
+      nodeId: reference.nodeId,
+      fileKey: reference.fileKey,
+      warning: reference.warning,
+    };
+  } catch (error) {
+    if (!(error instanceof NodeReferenceError)) throw error;
     throw requestError('nodeId must be a bounded Figma node id or URL containing node-id');
   }
-  return {
-    nodeId: normalized.id,
-    fileKey: normalized.fileKey || null,
-    warning: normalized.warning || '',
-  };
 }
 
 function parsedNodeCssRequest(args) {
@@ -90,7 +88,7 @@ export function nodeCssArgvFromRequest(request) {
 
 export function nodeCssPlanningArgvFromRequest(request) {
   const canonical = nodeCssArgvFromRequest(request);
-  const input = typedRequest(request);
-  if (input.fileKey) canonical[2] = String(request.nodeId).trim();
+  const reference = parseNodeReference(request.nodeId);
+  if (reference.fileKey) canonical[2] = reference.planningValue;
   return canonical;
 }

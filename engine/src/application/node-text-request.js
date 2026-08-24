@@ -3,13 +3,18 @@
 // Commander and MCP share this parser so positional arity, option rejection
 // and the `--` literal delimiter are decided before planning or dispatch.
 
-import { normalizeNodeId } from '../lib/node-id.js';
+import {
+  MAX_NODE_REFERENCE_CODE_UNITS,
+  NODE_REFERENCE_PATTERN,
+  NodeReferenceError,
+  parseNodeReference,
+} from './node-reference.js';
 
 // Keep the closed request Interface aligned with the shared execution wrapper.
 // Rejecting here is important: MCP confirmation happens before dispatch.
 export const MAX_NODE_TEXT_INPUT_CODE_UNITS = 200_000;
-export const MAX_NODE_TEXT_NODE_ID_CODE_UNITS = 512;
-export const NODE_TEXT_NODE_ID_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+export const MAX_NODE_TEXT_NODE_ID_CODE_UNITS = MAX_NODE_REFERENCE_CODE_UNITS;
+export const NODE_TEXT_NODE_ID_PATTERN = NODE_REFERENCE_PATTERN;
 
 function commandError(message) {
   return new Error(`Invalid node set-text command: ${message}.`);
@@ -18,6 +23,19 @@ function commandError(message) {
 function assertStringArguments(args) {
   if (args.some((value) => typeof value !== 'string')) {
     throw new TypeError('Node Text arguments must be strings.');
+  }
+}
+
+function nodeReference(value) {
+  try {
+    return parseNodeReference(value);
+  } catch (error) {
+    if (!(error instanceof NodeReferenceError)) throw error;
+    if (error.code === 'empty') throw commandError('nodeId must not be empty');
+    if (error.code === 'too-long') {
+      throw commandError(`nodeId must be at most ${MAX_NODE_TEXT_NODE_ID_CODE_UNITS} code units`);
+    }
+    throw commandError('nodeId must be a Figma node id or URL containing node-id');
   }
 }
 
@@ -50,22 +68,14 @@ function parsedNodeTextRequest(args) {
   if (positionals.length > 2) {
     throw commandError(`unexpected argument ${positionals[2]}`);
   }
-  const normalized = normalizeNodeId(positionals[0]);
-  const nodeId = normalized.id;
-  if (nodeId.length === 0) throw commandError('nodeId must not be empty');
-  if (nodeId.length > MAX_NODE_TEXT_NODE_ID_CODE_UNITS) {
-    throw commandError(`nodeId must be at most ${MAX_NODE_TEXT_NODE_ID_CODE_UNITS} code units`);
-  }
+  const normalized = nodeReference(positionals[0]);
+  const nodeId = normalized.nodeId;
   if (positionals[1].length > MAX_NODE_TEXT_INPUT_CODE_UNITS) {
     throw commandError(`text must be at most ${MAX_NODE_TEXT_INPUT_CODE_UNITS} code units`);
   }
-  if (!NODE_TEXT_NODE_ID_PATTERN.test(nodeId)) {
-    throw commandError('nodeId must be a Figma node id or URL containing node-id');
-  }
-
   return {
     nodeId,
-    fileKey: normalized.fileKey || null,
+    fileKey: normalized.fileKey,
     // Empty text is a real value. Arity, rather than truthiness, distinguishes
     // it from a missing positional.
     text: positionals[1],
@@ -103,24 +113,17 @@ function typedRequest(request) {
   if (typeof request.text !== 'string') {
     throw commandError('text must be a string');
   }
-  const nodeId = normalizeNodeId(request.nodeId).id;
-  if (nodeId.length === 0) throw commandError('nodeId must not be empty');
-  if (nodeId.length > MAX_NODE_TEXT_NODE_ID_CODE_UNITS) {
-    throw commandError(`nodeId must be at most ${MAX_NODE_TEXT_NODE_ID_CODE_UNITS} code units`);
-  }
+  const reference = nodeReference(request.nodeId);
   if (request.text.length > MAX_NODE_TEXT_INPUT_CODE_UNITS) {
     throw commandError(`text must be at most ${MAX_NODE_TEXT_INPUT_CODE_UNITS} code units`);
   }
-  if (!NODE_TEXT_NODE_ID_PATTERN.test(nodeId)) {
-    throw commandError('nodeId must be a Figma node id or URL containing node-id');
-  }
-  return request;
+  return { nodeId: reference.nodeId, text: request.text, reference };
 }
 
 /** Convert one typed Adapter request into canonical Command Plan argv. */
 export function nodeTextArgvFromRequest(request) {
   const input = typedRequest(request);
-  const args = ['node', 'set-text', normalizeNodeId(input.nodeId).id];
+  const args = ['node', 'set-text', input.nodeId];
   // The delimiter gives typed Adapters one explicit path for empty text and
   // for values Commander would otherwise interpret as help or an option.
   if (input.text.length === 0 || input.text.startsWith('-')) args.push('--');
@@ -135,8 +138,7 @@ export function nodeTextArgvFromRequest(request) {
  */
 export function nodeTextPlanningArgvFromRequest(request) {
   const input = typedRequest(request);
-  const args = nodeTextArgvFromRequest(input);
-  const normalized = normalizeNodeId(input.nodeId);
-  if (normalized.fileKey) args[2] = input.nodeId.trim();
+  const args = nodeTextArgvFromRequest(request);
+  if (input.reference.fileKey) args[2] = input.reference.planningValue;
   return args;
 }

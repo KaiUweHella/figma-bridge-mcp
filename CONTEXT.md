@@ -89,6 +89,10 @@ _Avoid_: tool prefix, Figma availability
 The immutable resolution of exactly one plugin file for a **Figma Command**, including whether the file came from an explicit key, a Figma URL in a Command Capability's closed semantic target field, a Design Link Registry, or the single connected window. Payload argv is never searched for targets.
 _Avoid_: fileKey parameter, current window
 
+**Node Reference**:
+The bounded semantic identity accepted by closed node-bearing Figma Command Interfaces. It canonicalizes bare, dashed, instance-path and Figma-URL forms for Plugin dispatch while retaining URL warning and file-target facts only for Command planning. Required or optional arity remains owned by each Figma Command.
+_Avoid_: raw node string, URL argument
+
 **Asset Policy**:
 The canonical classification of image fills, vector artwork and vector clusters shared by **Design Capture** projections and asset export. Node-side and plugin-side adapters apply the same policy implementation.
 _Avoid_: vector heuristic, exporter rule
