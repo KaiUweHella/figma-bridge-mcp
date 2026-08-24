@@ -25,6 +25,14 @@ const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 
 const UI = readFileSync(join(ROOT, 'plugin', 'ui.html'), 'utf8');
 const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 
+function pluginErrorMessage(error) {
+  const start = PLUGIN_CODE.indexOf('function errorMessage(');
+  const end = PLUGIN_CODE.indexOf('// --- Selection push', start);
+  assert.ok(start > 0, 'errorMessage() must exist in the shipped Plugin');
+  assert.ok(end > start, 'selection marker must follow errorMessage()');
+  return new Function(`${PLUGIN_CODE.slice(start, end)}; return errorMessage;`)()(error);
+}
+
 function uiPorts() {
   const m = UI.match(/const PORTS = \[([^\]]+)\]/);
   assert.ok(m, 'ui.html must declare a PORTS array');
@@ -74,6 +82,26 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.main, 'code.js');
   assert.equal(manifest.ui, 'ui.html');
   assert.equal(manifest.id, 'figma-bridge-mcp');
+});
+
+test('Figma document API timeout is not reported as a Bridge disconnect', () => {
+  const projected = pluginErrorMessage(new Error(
+    'Unable to establish connection to Figma after 10 seconds. Please check your internet connection.',
+  ));
+
+  assert.match(projected, /^Figma document API timed out after 10 seconds\./);
+  assert.match(projected, /local Bridge can remain connected/i);
+  assert.match(projected, /inspect the command outcome before retrying a write/i);
+  assert.doesNotMatch(projected, /check your internet connection/i);
+  assert.equal(
+    pluginErrorMessage('Unable to establish connection to Figma after 10 seconds. Please check your internet connection.'),
+    projected,
+    'Figma may reject with either an Error object or a string',
+  );
+});
+
+test('ordinary Plugin errors retain their original message', () => {
+  assert.equal(pluginErrorMessage(new Error('Node not found: 1:2')), 'Node not found: 1:2');
 });
 
 test('Dev Mode exposes a connectable read-only Inspect adapter', () => {

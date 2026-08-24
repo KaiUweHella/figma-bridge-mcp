@@ -2665,12 +2665,20 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
 // treats as SUCCESS (falsy error check) — a failing script read as "worked,
 // returned nothing".
 function errorMessage(error) {
-  if (error && typeof error.message === 'string' && error.message) return error.message;
+  let message;
+  if (error && typeof error.message === 'string' && error.message) message = error.message;
   try {
-    return typeof error === 'string' ? error : JSON.stringify(error) || String(error);
+    message ||= typeof error === 'string' ? error : JSON.stringify(error) || String(error);
   } catch (e) {
-    return String(error);
+    message ||= String(error);
   }
+  const figmaTimeout = message.match(
+    /^Unable to establish connection to Figma after (\d+(?:\.\d+)?) seconds?\. Please check your internet connection\.$/,
+  );
+  if (figmaTimeout) {
+    return `Figma document API timed out after ${figmaTimeout[1]} seconds. The local Bridge can remain connected; inspect the command outcome before retrying a write.`;
+  }
+  return message;
 }
 
 // --- Selection push (UI feature C) ---
