@@ -75,6 +75,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- `node tree` now shares one bounded, Plan-owned read path between CLI and MCP.
+  Options before a Figma URL preserve its target, depth zero is honored, and
+  invalid requests or Plugin failures no longer appear as successful output.
 - Numeric spacing and radius literals no longer make native Code-to-Figma fail
   when duplicate collections contain the same generated convenience-token
   name. Exact values remain unbound and visible in the Variable Report;

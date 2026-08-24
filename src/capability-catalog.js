@@ -38,6 +38,12 @@ import {
   parseNodeTextRequest,
 } from '../engine/src/application/node-text-request.js';
 import {
+  acceptsNodeTreeArgv,
+  nodeTreeArgvFromRequest,
+  nodeTreeFigmaUrlFileKeyFromArgv,
+  parseNodeTreeRequest,
+} from '../engine/src/application/node-tree-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -137,7 +143,7 @@ const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check', 'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.set-text', 'render', 'render-batch', 'verify',
+  'link.set', 'node.set-text', 'node.tree', 'render', 'render-batch', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -223,6 +229,7 @@ function specializedPolicy(name, entry, args) {
     }
   }
   if (name === 'link' && sub === 'inspect') retry = 'safe-read';
+  if (name === 'node' && sub === 'tree') retry = 'safe-read';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -254,6 +261,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'tree' && !action.help && !acceptsNodeTreeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
@@ -621,7 +631,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'node-inputs': {
-      if (args[1] === 'set-text') {
+      if (args[1] === 'tree') {
+        const closedNodeTreeFileKey = nodeTreeFigmaUrlFileKeyFromArgv(args);
+        // Tree options may precede the optional node. The typed request owns
+        // target projection instead of the legacy fixed argv position.
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeTreeFileKey;
+        args.splice(0, args.length, ...nodeTreeArgvFromRequest(parseNodeTreeRequest(args)));
+      } else if (args[1] === 'set-text') {
         // Equivalent node spellings and optional literal delimiters become
         // one semantic argv. The original input remains available separately
         // to Figma Target Context resolution for URL-derived file identity.

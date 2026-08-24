@@ -28,6 +28,8 @@
     "engine/src/application/inspect-request.js",
     "engine/src/application/node-text-command.js",
     "engine/src/application/node-text-request.js",
+    "engine/src/application/node-tree-command.js",
+    "engine/src/application/node-tree-request.js",
     "engine/src/application/screenshot-command.js",
     "engine/src/application/screenshot-request.js",
     "engine/src/application/semantic-render-command.js",

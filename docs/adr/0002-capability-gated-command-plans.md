@@ -100,3 +100,10 @@ owns optional node targeting, exact local/shared and workspace effects,
 changelog output paths, deadlines and the diff finding code. Snapshot
 publication and reads remain behind the Structural Snapshot Store; JSON-only
 snapshot preview declares no shared-state write and does not persist.
+
+The lightweight `node tree` outline read follows the same boundary without
+becoming a Design Capture. Its closed request owns the optional node, depth,
+ID projection and URL target regardless of option order. Commander and
+`figma_run` share one bounded Node Tree Command Application, safe-read policy
+and decreasing deadline. Line, depth and total-output bounds are explicit and
+truthful; malformed results and Plugin failures cannot become successful text.

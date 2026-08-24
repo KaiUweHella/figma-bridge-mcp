@@ -402,6 +402,9 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 Node ids are accepted in every form a user has at hand: `12:34`, the URL
 form `12-34`, or a full Figma URL (whose file key is checked against the files
 you actually have open — see [Several files at once](#several-files-at-once)).
+`figma_run` with `["node","tree",...]` is a fast bounded outline for discovery
+and follow-up node ids. It reports depth/output truncation explicitly; use
+`figma_spec` plus a screenshot for exact Figma-to-code implementation facts.
 
 Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on

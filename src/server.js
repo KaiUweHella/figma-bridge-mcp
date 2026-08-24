@@ -77,6 +77,10 @@ import {
   nodeTextPlanRoute,
 } from "../engine/src/application/node-text-command.js";
 import {
+  executeNodeTreePlan,
+  nodeTreePlanRoute,
+} from "../engine/src/application/node-tree-command.js";
+import {
   executePreparedCompoundSemanticRender,
   executePreparedSemanticRender,
   formatSemanticRenderResult,
@@ -1733,6 +1737,23 @@ export async function handleTool(name, rawArgs) {
             stderr: "",
             code: 0,
           };
+        });
+        return resultFromCli(res);
+      }
+      const nodeTreeRoute = nodeTreePlanRoute(plan);
+      if (nodeTreeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeTreePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
         });
         return resultFromCli(res);
       }

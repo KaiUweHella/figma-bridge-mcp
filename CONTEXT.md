@@ -195,6 +195,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 >
 > **Domain expert:** Ask for its Project Design Context. It projects the source, Figma node, Storybook link, current Round-trip Plan and exact next reads.
 
+> **Developer:** Is Node Tree the Figma-to-code source of truth?
+>
+> **Domain expert:** No. Node Tree is a bounded outline for fast discovery and follow-up node ids. Its depth and output are explicitly limited. Exact implementation facts come from Design Capture through Code Spec, while visual ground truth comes from the verification screenshot.
+
 > **Developer:** Can a command silently switch to another open file?
 >
 > **Domain expert:** No. Its Figma Target Context resolves once, then accompanies the Command Capability, audit entry, job identity and Daemon Client call. At the Plugin boundary a Dispatch Receipt binds that target and expected editor to the exact authenticated connection before mutation.

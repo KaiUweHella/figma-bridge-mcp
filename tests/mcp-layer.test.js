@@ -337,6 +337,32 @@ test('figma_run routes Node Text through the shared non-retrying Application', (
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Text must not re-enter Commander');
 });
 
+test('figma_run routes Node Tree through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeTreeRoute = nodeTreePlanRoute(plan)');
+  const end = source.indexOf('const inspectRoute = inspectPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeTreePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Tree must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Node Tree argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['node', 'tree', '1:2', '3:4'],
+    ['node', 'tree', '--future', 'private-value'],
+    ['node', 'tree', '--depth', '65'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run and figma_history share the Plan-bound History Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const runStart = source.indexOf('const historyRoute = historyPlanRoute(plan)');
