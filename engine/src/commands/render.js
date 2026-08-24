@@ -2,7 +2,7 @@
 import chalk from 'chalk';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
-import { readdirSync, writeFileSync } from 'fs';
+import { mkdtempSync, readdirSync, writeFileSync } from 'fs';
 import { FigmaClient } from '../lib/jsx-render.js';
 import { domCaptureToRenderPlan } from '../lib/dom-capture-to-jsx.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
@@ -15,8 +15,10 @@ import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/desig
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js';
 import {
+  executePreparedCompoundSemanticRender,
   executePreparedSemanticRender,
   formatSemanticRenderResult,
+  prepareCompoundSemanticRenderPlan,
   prepareSemanticRenderPlan,
   semanticRenderOutcomeCode,
   semanticRenderPlanRoute,
@@ -24,6 +26,8 @@ import {
 } from '../application/semantic-render-command.js';
 import {
   SEMANTIC_RENDER_DEVICE_PRESETS,
+  semanticCompoundRenderArgvFromRequest,
+  semanticCompoundRenderRequestFromArgv,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
   semanticRenderRequestFromArgv,
@@ -42,7 +46,6 @@ import {
   program,
   checkConnection,
   daemonExec,
-  detectWrapperSplit,
   fastEval,
   unescapeShell
 } from '../lib/cli-core.js';
@@ -244,7 +247,7 @@ function applyDevicePreset(jsx, presetName) {
   return jsx.replace(/<Frame\b/, `<Frame${inject} `);
 }
 
-function rawRenderArgv(rawProcessArgv = program.rawArgs) {
+function rawCommandArgv(commandName, rawProcessArgv = program.rawArgs) {
   const tokens = [...rawProcessArgv].slice(2);
   let commandIndex = -1;
   for (let index = 0; index < tokens.length; index++) {
@@ -252,10 +255,10 @@ function rawRenderArgv(rawProcessArgv = program.rawArgs) {
     if (tokens[index].startsWith('--figma-file=')) continue;
     if (!tokens[index].startsWith('-')) { commandIndex = index; break; }
   }
-  if (commandIndex === -1 || tokens[commandIndex] !== 'render') {
-    throw new Error('Could not recover the raw render request.');
+  if (commandIndex === -1 || tokens[commandIndex] !== commandName) {
+    throw new Error(`Could not recover the raw ${commandName} request.`);
   }
-  const args = ['render'];
+  const args = [commandName];
   let literal = false;
   for (let index = commandIndex + 1; index < tokens.length; index++) {
     const token = tokens[index];
@@ -269,6 +272,10 @@ function rawRenderArgv(rawProcessArgv = program.rawArgs) {
     args.push(token);
   }
   return args;
+}
+
+function rawRenderArgv(rawProcessArgv = program.rawArgs) {
+  return rawCommandArgv('render', rawProcessArgv);
 }
 
 function printSemanticRenderRows(rows) {
@@ -335,6 +342,45 @@ async function runSimpleSemanticRender(argv) {
       return {
         stdout: formatSemanticRenderResult(domainResult),
         stderr: '',
+        code: semanticRenderOutcomeCode(domainResult),
+      };
+    });
+  return { domainResult, execution };
+}
+
+async function runCompoundSemanticRender(argv) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli', workspaceDir: io.roots[0], workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  if (!plan.allowed) throw new Error('Compound Semantic Render request was denied by the Capability Catalog.');
+  if (semanticRenderPlanRoute(plan) !== 'compound-command-application') return null;
+  const prepared = prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io });
+  let domainResult = null;
+  let verificationDirectory = null;
+  const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      const remainingMs = () => Math.max(1, deadline - Date.now());
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      const evaluate = (code) => daemonExec('eval', {
+        code, ...(fileKey ? { fileKey } : {}),
+      }, remainingMs());
+      domainResult = await executePreparedCompoundSemanticRender(prepared, {
+        renderPlanBatch: (plans, options) => daemonExec('render-plan-batch', {
+          plans, options, ...(fileKey ? { fileKey } : {}),
+        }, remainingMs()),
+        evaluate,
+        inspectInventory: evaluate,
+        writeVerification: async ({ handle, base64 }) => {
+          verificationDirectory ||= mkdtempSync(join(tmpdir(), 'figma-bridge-verify-'));
+          const savePath = join(verificationDirectory, `root-${String(handle).replace(/:/g, '-')}.png`);
+          writeFileSync(savePath, Buffer.from(base64, 'base64'));
+          return savePath;
+        },
+      });
+      return {
+        stdout: formatSemanticRenderResult(domainResult), stderr: '',
         code: semanticRenderOutcomeCode(domainResult),
       };
     });
@@ -461,6 +507,8 @@ program
   .command('render [jsx]')
   .description('Render JSX or a measured browser DOM capture to Figma')
   .allowExcessArguments(false)
+  .option('-g, --gap <n>', 'Gap between auto-split roots')
+  .option('-d, --direction <dir>', 'Override auto-split direction: row or col')
   .option('-x <n>', 'X position')
   .option('-y <n>', 'Y position')
   .option('--no-smart-position', 'Disable auto-positioning')
@@ -494,6 +542,18 @@ program
         const simple = await runSimpleSemanticRender(simpleArgv);
         printSemanticRenderRows(semanticRenderResultRows(simple.domainResult));
         if (simple.execution.code !== 0) process.exitCode = simple.execution.code;
+        return;
+      }
+      if (originalRoute.kind === 'compound') {
+        const request = semanticCompoundRenderRequestFromArgv(originalArgv);
+        const compoundArgv = semanticCompoundRenderArgvFromRequest({
+          ...request,
+          sourceJsx: request.sourceJsx ? unescapeShell(request.sourceJsx) : null,
+          roots: request.roots.map((root) => unescapeShell(root)),
+        });
+        const compound = await runCompoundSemanticRender(compoundArgv);
+        printSemanticRenderRows(semanticRenderResultRows(compound.domainResult));
+        if (compound.execution.code !== 0) process.exitCode = compound.execution.code;
         return;
       }
     } catch (error) {
@@ -572,34 +632,6 @@ program
       process.exitCode = 1;
       return;
     }
-    // Auto-split: if the caller passed a layout-only outer Frame with N child
-    // Frames, treat it as render-batch. This is the canonical "N buttons / N
-    // cards" intent — independent items, not a single bagged Frame. Opt out
-    // with --keep-wrapper. Runs BEFORE preset/image/icon processing: those
-    // belong to the path that actually renders, and render-batch re-does
-    // them per child (an imgref: rewritten here would arrive in the batch
-    // without its bytes).
-    // Structural Gate is audit-only by policy. Keep the wrapper intact so its
-    // semantic model is inspected locally; auto-splitting would otherwise
-    // redispatch render-batch and turn a no-write request into Figma writes.
-    if (!options.structuralGate && !options.keepWrapper && !options.domCapture) {
-      const split = detectWrapperSplit(jsx);
-      if (split) {
-        console.log(chalk.gray(`↳ outer flex wrapper detected — splitting to ${split.children.length} standalone items (--keep-wrapper to opt out)`));
-        const args = [
-          'render-batch',
-          JSON.stringify(split.children),
-          '--direction', split.direction,
-        ];
-        if (options.asComponent) args.push('--as-component');
-        if (options.collection) args.push('--collection', options.collection);
-        if (options.preset) args.push('--preset', options.preset);
-        if (options.icons) args.push('--icons', options.icons);
-        await program.parseAsync(args, { from: 'user' });
-        return;
-      }
-    }
-
     if (options.preset && jsx) jsx = applyDevicePreset(jsx, options.preset);
     if (options.preset && adaptedRenderPlan) {
       console.log(chalk.gray(`↳ preset ${options.preset} ignored — DOM capture sets explicit measured w/h`));
@@ -777,134 +809,36 @@ program
   .argument('<jsxArray>', 'JSON array of JSX strings, e.g. \'["<Frame>...</Frame>","<Frame>...</Frame>"]\'')
   .option('-g, --gap <n>', 'Gap between frames', '40')
   .option('-d, --direction <dir>', 'Layout direction: row (horizontal) or col (vertical)', 'row')
+  .option('-x <n>', 'Explicit starting X position')
+  .option('-y <n>', 'Explicit starting Y position')
+  .option('--no-smart-position', 'Disable automatic start positioning')
   .option('--as-component', 'After rendering, convert each resulting frame to a Figma component')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
   .option('--preset <device>', `Root frame size preset per frame when the JSX sets no w/h: ${Object.keys(DEVICE_PRESETS).join(', ')}`)
   .option('--icons <dir>', 'Load project icons (*.svg) from a directory; <Icon name="file-basename"> renders them as real vectors')
+  .option('--manifest <file>', 'Design Link Registry used to resolve data-figma-component identities', 'figma-bridge.json')
+  .option('--resize-probe [delta]', 'Temporarily widen every rendered root, audit responsive descendants, then restore it')
+  .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this batch')
+  .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
   .action(async (jsxArrayStr, options) => {
     try {
-      let jsxArray = JSON.parse(jsxArrayStr);
-      if (!Array.isArray(jsxArray)) {
-        throw new Error('Argument must be a JSON array of JSX strings');
-      }
-      const imageCtx = newImageContext();
-      jsxArray = jsxArray.map(j => {
-        const jsx = options.preset ? applyDevicePreset(j, options.preset) : j;
-        return resolveLocalImages(jsx, imageCtx);
+      const originalArgv = rawCommandArgv('render-batch');
+      const request = semanticCompoundRenderRequestFromArgv(originalArgv);
+      const compoundArgv = semanticCompoundRenderArgvFromRequest({
+        ...request,
+        roots: request.roots.map((root) => unescapeShell(root)),
       });
-      const images = imageCtx.images;
-      const customIcons = options.icons ? loadIconDir(options.icons) : null;
-      warnUnknownProps(jsxArray);
-      printRepeatLint(jsxArray);
-      if (options.asComponent) jsxArray.forEach(warnUnnamedComponentTexts);
-
-      const gap = parseInt(options.gap) || 40;
-      const vertical = options.direction === 'col' || options.direction === 'column' || options.direction === 'vertical';
-
-      // ONE render path (see `render`): compile CLI-side, execute via a
-      // single eval — still one daemon roundtrip for the whole batch.
-      const client = new FigmaClient();
-      if (options.collection) client.setCollection(options.collection);
-      client.setImageData(images);
-      if (customIcons) client.setIcons(customIcons);
-      const renderPlans = jsxArray.map((jsx) => client.planJSX(jsx));
-      for (let index = 0; index < renderPlans.length; index++) {
-        if (!printSemanticAnalysis(renderPlans[index], `JSX ${index + 1}`)) {
-          process.exitCode = 1;
-          return;
-        }
-      }
-      await checkConnection();
-      const structuredSupport = renderPlans.map((plan) => inspectStructuredRenderPlan(plan));
-      let batchResult;
-      if (structuredSupport.every((support) => support.supported)) {
-        try {
-          batchResult = await daemonExec('render-plan-batch', { plans: renderPlans, options: { gap, vertical }, timeoutMs: 90000 });
-        } catch (error) {
-          const knownPreflightRejection = permitsCompatibilityRedispatch(error);
-          if (!knownPreflightRejection) throw error;
-          const code = await client.compileRenderPlans(renderPlans, { gap, vertical });
-          batchResult = await daemonExec('eval', { code, timeoutMs: 90000 });
-        }
-      } else {
-        const code = await client.compileRenderPlans(renderPlans, { gap, vertical });
-        batchResult = await daemonExec('eval', { code, timeoutMs: 90000 });
-      }
-      let results = batchResult;
-      // Unwrap the wrapped form returned when there are unresolved vars.
-      let unresolvedVars = null;
-      let createdVariables = null;
-      let scopeQuestions = null;
-      let variableReport = null;
-      let fallbackAnnotationReport = null;
-      if (results && !Array.isArray(results) && Array.isArray(results.frames)) {
-        unresolvedVars = results.unresolved;
-        createdVariables = results.createdVariables;
-        scopeQuestions = results.scopeQuestions;
-        variableReport = results.variableReport;
-        fallbackAnnotationReport = results.fallbackAnnotationReport;
-        results = results.frames;
-      }
-
-      if (Array.isArray(results)) {
-        results.forEach(r => {
-          console.log(chalk.green('✓ Rendered: ' + r.id + (r.name ? ' (' + r.name + ')' : '')));
-          printStructuralReport(r.structuralReport);
-        });
-        console.log(chalk.cyan(`\n${results.length} frames created`));
-        if (unresolvedVars && unresolvedVars.length > 0) {
-          console.log(chalk.yellow(`\n⚠ ${unresolvedVars.length} variable reference(s) could not be resolved:`));
-          console.log(chalk.yellow('  ' + unresolvedVars.join(', ')));
-          console.log(chalk.gray('  These bindings rendered as grey placeholders. Check figma_run ["var", "list"] (optionally with --collection).'));
-        }
-        printCreatedVariables(createdVariables);
-        printVariableScopeQuestions(scopeQuestions);
-        printVariableReport(variableReport);
-        printFallbackAnnotationReport(fallbackAnnotationReport);
-        await printReuseLint(jsxArray);
-
-        if (options.asComponent) {
-          const ids = results.map(r => r.id).filter(Boolean);
-          if (ids.length > 0) {
-            try {
-              const compInfo = await daemonExec('eval', { code:
-                `(async () => {
-                  const ids = ${JSON.stringify(ids)};
-                  const out = [];
-                  for (const id of ids) {
-                    const n = await figma.getNodeByIdAsync(id);
-                    if (!n) continue;
-                    const c = figma.createComponentFromNode(n);
-                    out.push({ id: c.id, name: c.name });
-                  }
-                  return out;
-                })()`
-              });
-              if (Array.isArray(compInfo)) {
-                compInfo.forEach(c => {
-                  console.log(chalk.green('✓ Converted to component: ' + c.id + (c.name ? ' (' + c.name + ')' : '')));
-                });
-                console.log(chalk.cyan(`\n${compInfo.length} components created`));
-              }
-            } catch (e) {
-              console.error(chalk.yellow('⚠ rendered, but to-component failed:'), e.message);
-            }
-          }
-        }
-
-        if (options.verify) {
-          for (const r of results) {
-            if (r && r.id) await verifyRendered(r.id);
-          }
-        }
-      } else {
-        console.log(chalk.red('✗ Batch render returned no frame results.'));
-        process.exitCode = 1;
-      }
-    } catch (e) {
-      console.log(chalk.red('✗ Batch render failed: ' + (e.stderr || e.message)));
+      const compound = await runCompoundSemanticRender(compoundArgv);
+      printSemanticRenderRows(semanticRenderResultRows(compound.domainResult));
+      if (compound.execution.code !== 0) process.exitCode = compound.execution.code;
+      return;
+    } catch (error) {
+      const message = error?.message || String(error);
+      console.error(chalk.red('✗'), message);
+      printRenderErrorHints(message);
       process.exitCode = 1;
+      return;
     }
   });
 

@@ -514,6 +514,31 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual([one.x, one.y, two.x, two.y], [0, 100, 144, 100]);
   });
 
+  it('preserves explicit compound placement and disables smart positioning without losing zero gap', async () => {
+    const client = new FigmaClient();
+    const plans = [
+      client.planJSX('<Frame name="One" w="120" h="80"/>'),
+      client.planJSX('<Frame name="Two" w="90" h="60"/>'),
+    ];
+    const figma = fakeFigma();
+    const result = await executeStructuredRenderPlanBatch(figma, plans, {
+      gap: 0, vertical: true, smart: false, x: -25, y: 20,
+    });
+    const one = figma.created.find((node) => node.name === 'One');
+    const two = figma.created.find((node) => node.name === 'Two');
+    assert.equal(result.mutationOutcome, 'completed');
+    assert.deepEqual([one.x, one.y, two.x, two.y], [-25, 20, -25, 100]);
+  });
+
+  it('rejects unknown or non-finite compound placement before creating canvas nodes', async () => {
+    const plan = new FigmaClient().planJSX('<Frame name="Never"/>');
+    for (const options of [{ future: true }, { x: Infinity }, { y: NaN }]) {
+      const figma = fakeFigma();
+      await assert.rejects(() => executeStructuredRenderPlanBatch(figma, [plan], options), /preflight failed/);
+      assert.equal(figma.currentPage.children.length, 0);
+    }
+  });
+
   it('preflights every batch plan and leaves no canvas roots for an unsupported plan', async () => {
     const client = new FigmaClient();
     const plans = [

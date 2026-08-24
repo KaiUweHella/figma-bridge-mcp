@@ -16,6 +16,13 @@ import {
 } from './semantic-render-plan.js';
 import { parseRichTextContent } from './rich-text.js';
 
+function resourceRecord(map) {
+  const record = Object.create(null);
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return record;
+  for (const [key, value] of Object.entries(map)) record[key] = value;
+  return record;
+}
+
 // NOTE: there is deliberately no built-in semantic color table here. An
 // unresolved `var:` reference falls back to neutral grey and is reported via
 // __unresolvedVars — the tool ships no design-system defaults of its own.
@@ -41,14 +48,14 @@ export class FigmaClient {
     // Local image bytes keyed by `imgref:<key>` markers in the JSX. The CLI
     // reads the files (this module stays I/O-free) and hands the base64 in;
     // codegen embeds it as figma.createImage(figma.base64Decode(...)).
-    this.imageData = {};
+    this.imageData = Object.create(null);
     // Project icon SVGs (name -> svg markup) from `render --icons <dir>`.
     // Highest priority in the icon lookup, before built-ins.
-    this.customIcons = {};
+    this.customIcons = Object.create(null);
     // Read-only projection of component Design Entities from the Registry.
     // Native instance swaps resolve through these durable handles; display
     // names never become identity.
-    this.componentLinks = {};
+    this.componentLinks = Object.create(null);
   }
 
   /** Pin variable lookups to a specific collection (by case-insensitive name match). */
@@ -58,17 +65,17 @@ export class FigmaClient {
 
   /** Provide base64 image data for imgref: markers (key -> base64 string). */
   setImageData(map) {
-    this.imageData = map || {};
+    this.imageData = resourceRecord(map);
   }
 
   /** Provide project icon SVGs (name -> svg markup). */
   setIcons(map) {
-    this.customIcons = map || {};
+    this.customIcons = resourceRecord(map);
   }
 
   /** Provide Registry Design Entity links (entity id -> published key/local id). */
   setComponentLinks(map) {
-    this.componentLinks = map || {};
+    this.componentLinks = resourceRecord(map);
   }
 
   // (The Chrome DevTools transport — listPages / isConnected / connect / send /
@@ -84,8 +91,15 @@ export class FigmaClient {
   /** Compile multiple already-validated plans without returning to their
    * authoring syntax. This keeps batch and single rendering on one contract. */
   async compileRenderPlans(plans, options = {}) {
-    const gap = options.gap || 40;
-    const vertical = options.vertical || false;
+    const gap = options.gap ?? 40;
+    const vertical = options.vertical === true;
+    const smart = options.smart !== false;
+    const startX = options.x === null || options.x === undefined ? null : Number(options.x);
+    const startY = options.y === null || options.y === undefined ? 100 : Number(options.y);
+    if (!Number.isFinite(Number(gap)) || Number(gap) < 0 || Number(gap) > 10_000
+      || (startX !== null && !Number.isFinite(startX)) || !Number.isFinite(startY)) {
+      throw new Error('Compound render placement options are invalid.');
+    }
 
     const parsed = plans.map((plan) => {
       assertSemanticRenderPlan(plan, { executable: true });
@@ -256,9 +270,9 @@ export class FigmaClient {
         ${anyUsesInstances ? this.generateInstanceHelperCode() : ''}
 
         // Calculate start position
-        let posX = 0, posY = 100;
+        let posX = ${startX === null ? 0 : startX}, posY = ${startY};
         const children = figma.currentPage.children;
-        if (children.length > 0) {
+        if (${startX === null && smart ? 'true' : 'false'} && children.length > 0) {
           let maxRight = 0;
           children.forEach(n => {
             const right = n.x + (n.width || 0);

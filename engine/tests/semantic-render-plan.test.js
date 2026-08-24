@@ -203,6 +203,13 @@ describe('Semantic Render Plan', () => {
     assert.match(code, /f0\.name = "One"/);
     assert.match(code, /f1\.name = "Two"/);
     assert.match(code, /posX \+= f0\.width \+ 24/);
+
+    const explicit = await client.compileRenderPlans(plans, {
+      gap: 0, vertical: true, smart: false, x: -25, y: 20,
+    });
+    assert.match(explicit, /let posX = -25, posY = 20/);
+    assert.match(explicit, /if \(false && children\.length > 0\)/);
+    assert.match(explicit, /posY \+= f0\.height \+ 0/);
   });
 });
 

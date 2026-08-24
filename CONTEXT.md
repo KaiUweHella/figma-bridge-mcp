@@ -113,8 +113,12 @@ _Avoid_: URL allowlist, fetch helper, SSRF filter
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
 _Avoid_: JSX tree, generated code, render payload
 
+**Compound Semantic Render Request**:
+The closed request for a bounded ordered set of **Semantic Render Plans** plus their shared placement and explicit follow-up stages. Wrapper auto-split, explicit batch, CLI and MCP adapt into the same request before readiness. Rendering, placement, component conversion, resize probing and verification retain one target, deadline, confirmation, Audit lifecycle and truthful partial Outcome; a post-dispatch failure never selects another executor.
+_Avoid_: recursive render, batch helper, render loop
+
 **Semantic Render Outcome**:
-The closed, versioned and deeply bounded result of one simple Semantic Render Command. It retains only created-root identity, executor and structural facts, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
+The closed, versioned and deeply bounded result of one simple or compound Semantic Render Command. It retains only created-root identity, executor and structural facts, explicit compound-stage progress, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
 _Avoid_: render response, console result, Plugin result
 
 **Figma Render Executor**:
@@ -194,6 +198,10 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** Can CLI and MCP disagree about whether a render completed with structural findings?
 >
 > **Domain expert:** No. Both format one Semantic Render Outcome. Its closed status produces the MCP structured result, human text, accepted process code and Audit completion; a malformed Plugin response never becomes success.
+
+> **Developer:** Does wrapper auto-split lose options or start a second command?
+>
+> **Domain expert:** No. Auto-split and explicit batch adapt into one Compound Semantic Render Request. Every root is prepared before readiness, the native batch owns one mutation journal, and requested follow-up stages extend the same bounded Outcome without recursive command parsing or write retry.
 
 > **Developer:** How does a designer know that a rendered property is an approved approximation rather than an exact mapping?
 >

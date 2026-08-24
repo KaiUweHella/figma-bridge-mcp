@@ -337,7 +337,7 @@ test('figma_run routes Node Text through the shared non-retrying Application', (
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Text must not re-enter Commander');
 });
 
-test('figma_run and figma_render share one non-retrying Semantic Render Application', () => {
+test('figma_run and figma_render share simple and compound non-retrying Semantic Render Applications', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const helperStart = source.indexOf('async function runSemanticRenderApplication');
   const helperEnd = source.indexOf('/**\n * Resolve one figma_run Command Plan', helperStart);
@@ -346,7 +346,9 @@ test('figma_run and figma_render share one non-retrying Semantic Render Applicat
   assert.match(helper, /compatibilityFallback: false/);
   assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(helper, /executePreparedSemanticRender\(prepared/);
+  assert.match(helper, /executePreparedCompoundSemanticRender\(prepared/);
   assert.match(helper, /renderFigmaPlan\(renderPlan/);
+  assert.match(helper, /renderFigmaPlans\(renderPlans, options/);
   assert.match(helper, /formatSemanticRenderResult\(outcome\)/);
   assert.match(helper, /semanticRenderOutcomeCode\(outcome\)/);
   assert.match(helper, /structuredContent: outcome/,
@@ -356,6 +358,7 @@ test('figma_run and figma_render share one non-retrying Semantic Render Applicat
   assert.doesNotMatch(helper, /runCliPlan\(|runCli\(/);
 
   assert.match(source, /semanticRenderRoute === "command-application"[\s\S]*?runSemanticRenderApplication\(plan, input\.label, preparedSemanticRender\)/);
+  assert.match(source, /semanticRenderRoute === "compound-command-application"[\s\S]*?prepareCompoundSemanticRenderPlan\(plan/);
   const dedicatedStart = source.indexOf('case "figma_render"');
   const dedicatedEnd = source.indexOf('case "figma_selection"', dedicatedStart);
   const dedicated = source.slice(dedicatedStart, dedicatedEnd);
@@ -365,11 +368,12 @@ test('figma_run and figma_render share one non-retrying Semantic Render Applicat
   assert.doesNotMatch(dedicated, /runCli\(/, 'simple dedicated Render must not re-enter Commander');
 });
 
-test('figma_render exposes the complete typed simple-render request', async () => {
+test('figma_render exposes complete typed simple and compound requests', async () => {
   const { TOOLS, handleTool } = await import('../src/server.js');
   const schema = TOOLS.find((tool) => tool.name === 'figma_render').inputSchema.properties;
   for (const field of [
-    'jsx', 'keepWrapper', 'collection', 'preset', 'manifest',
+    'jsx', 'roots', 'keepWrapper', 'gap', 'direction', 'x', 'y', 'smartPosition',
+    'asComponent', 'verify', 'resizeProbe', 'collection', 'preset', 'manifest', 'icons',
     'approvedFallbacks', 'allowedFreePaths', 'confirm', 'label', 'fileKey',
   ]) assert.ok(schema[field], `figma_render schema misses ${field}`);
 
@@ -383,6 +387,20 @@ test('figma_render exposes the complete typed simple-render request', async () =
   });
   assert.equal(preview.isError, undefined);
   assert.match(preview.content[0].text, /Write-confirm mode is on/);
+
+  const compoundPreview = await handleTool('figma_render', {
+    roots: ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'],
+    gap: 0,
+    direction: 'col',
+    x: 10,
+    y: 20,
+    smartPosition: false,
+    asComponent: true,
+    verify: true,
+    resizeProbe: 120,
+  });
+  assert.equal(compoundPreview.isError, undefined);
+  assert.match(compoundPreview.content[0].text, /Write-confirm mode is on/);
 
   const malformed = await handleTool('figma_render', {
     jsx: '<Frame />', approvedFallbacks: [false],

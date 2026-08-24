@@ -1,4 +1,4 @@
-// Closed, versioned result contract for the simple Semantic Render Command.
+// Closed, versioned result contract for simple and compound Semantic Render.
 //
 // The Plugin response is an untrusted post-dispatch boundary. This module is
 // the only place where that response becomes an Application value. Adapters
@@ -46,8 +46,22 @@ const COMPLETED_MUTATION_FIELDS = new Set([
 ]);
 const EXECUTORS = Object.freeze({
   'structured-v1': Object.freeze({ kind: 'structured', version: 1 }),
+  'structured-batch-v1': Object.freeze({ kind: 'structured-batch', version: 1 }),
   'generated-eval-compatibility': Object.freeze({ kind: 'generated-eval-compatibility', version: 1 }),
+  'generated-eval-batch-compatibility': Object.freeze({ kind: 'generated-eval-batch-compatibility', version: 1 }),
 });
+const BATCH_TOP_LEVEL_FIELDS = new Set([
+  'frames', 'executor', 'unresolved', 'createdVariables', 'createdTextStyles',
+  'scopeQuestions', 'variableReport', 'textStyleReport', 'fallbackAnnotationReport',
+  'mutationOutcome', 'mutationReport',
+]);
+const COMPOUND_STAGE_KINDS = new Set([
+  'asset-preparation', 'render', 'placement', 'component-conversion',
+  'resize-probe', 'verification', 'structural-gate',
+]);
+const COMPOUND_STAGE_STATUSES = new Set([
+  'completed', 'completed-with-findings', 'failed', 'skipped',
+]);
 const FAILURE_KINDS = new Set([
   'authentication', 'validation', 'targeting', 'plugin-unavailable', 'plugin-capability',
   'plugin-protocol', 'plugin-timeout', 'plugin-result', 'timeout', 'execution',
@@ -80,7 +94,9 @@ function rejectUnknownFields(value, allowed, label) {
   }
 }
 
-function assertBoundedGraph(value, label = 'Plugin result') {
+function assertBoundedGraph(value, label = 'Plugin result', {
+  maxCollectionItems = MAX_SEMANTIC_RENDER_COLLECTION_ITEMS,
+} = {}) {
   const ancestors = new WeakSet();
   let collectionItems = 0;
   const visit = (item, depth) => {
@@ -102,7 +118,7 @@ function assertBoundedGraph(value, label = 'Plugin result') {
       throw resultError(`Semantic Render returned a ${label} collection beyond the item limit.`);
     }
     collectionItems += entries.length;
-    if (collectionItems > MAX_SEMANTIC_RENDER_COLLECTION_ITEMS) {
+    if (collectionItems > maxCollectionItems) {
       throw resultError(`Semantic Render returned a ${label} beyond the total collection limit.`);
     }
     for (const entry of entries) visit(entry, depth + 1);
@@ -332,6 +348,84 @@ function emptyResources() {
   });
 }
 
+function projectCompoundStages(value) {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value) || value.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
+    throw new TypeError('Semantic Render Outcome received invalid compound stages.');
+  }
+  const seen = new Set();
+  return Object.freeze(value.map((stage) => {
+    if (!isRecord(stage)) throw new TypeError('Semantic Render Outcome received an invalid compound stage.');
+    const allowed = new Set(['kind', 'status', 'attempted', 'completed', 'failed', 'handles', 'artifacts']);
+    if (Object.keys(stage).some((key) => !allowed.has(key))) {
+      throw new TypeError('Semantic Render Outcome received unknown compound stage facts.');
+    }
+    if (!COMPOUND_STAGE_KINDS.has(stage.kind) || seen.has(stage.kind)
+      || !COMPOUND_STAGE_STATUSES.has(stage.status)) {
+      throw new TypeError('Semantic Render Outcome received an invalid compound stage identity.');
+    }
+    seen.add(stage.kind);
+    const attempted = finiteCount(stage.attempted ?? 0, `stage ${stage.kind}.attempted`, 100);
+    const completed = finiteCount(stage.completed ?? 0, `stage ${stage.kind}.completed`, 100);
+    const failed = finiteCount(stage.failed ?? 0, `stage ${stage.kind}.failed`, 100);
+    if (completed + failed > attempted || (stage.status === 'failed' && failed < 1)
+      || (stage.status === 'skipped' && attempted !== 0)) {
+      throw new TypeError('Semantic Render Outcome received inconsistent compound stage counts.');
+    }
+    const handles = stringArray(stage.handles, `stage ${stage.kind} handles`);
+    if (handles.some((handle) => !NODE_ID.test(handle)
+      || Buffer.byteLength(handle, 'utf8') > MAX_SEMANTIC_RENDER_HANDLE_BYTES)) {
+      throw new TypeError('Semantic Render Outcome received an invalid compound stage handle.');
+    }
+    const artifacts = stringArray(stage.artifacts, `stage ${stage.kind} artifacts`);
+    return Object.freeze({
+      kind: stage.kind, status: stage.status, attempted, completed, failed,
+      handles, artifacts,
+    });
+  }));
+}
+
+function combinePlannedStructures(structures) {
+  if (!Array.isArray(structures) || !structures.length || structures.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
+    throw new TypeError('Semantic Render Outcome requires one planned structure per compound root.');
+  }
+  const totals = { grid: 0, flex: 0, free: 0, absolute: 0 };
+  for (const structure of structures) {
+    const projected = projectPlannedStructure(structure);
+    for (const key of Object.keys(totals)) totals[key] += projected[key];
+  }
+  return projectPlannedStructure(totals);
+}
+
+function combineLiveStructures(reports) {
+  const present = reports.filter(Boolean);
+  if (!present.length) return null;
+  if (present.length !== reports.length) {
+    throw resultError('Semantic Render batch returned incomplete structural reports.');
+  }
+  const summary = {
+    nodes: 0, grids: 0, autoLayouts: 0, freeLayouts: 0, instances: 0, absoluteNodes: 0,
+  };
+  let mismatchCount = 0;
+  const mismatches = [];
+  for (let index = 0; index < reports.length; index++) {
+    const report = reports[index];
+    for (const key of Object.keys(summary)) summary[key] += report.summary[key];
+    mismatchCount += report.mismatchCount;
+    for (const mismatch of report.mismatches) {
+      if (mismatches.length >= MAX_STRUCTURAL_MISMATCHES) break;
+      mismatches.push(Object.freeze({ ...mismatch, path: `root[${index}].${mismatch.path}` }));
+    }
+  }
+  return Object.freeze({
+    version: 1,
+    passed: mismatchCount === 0,
+    summary: Object.freeze(summary),
+    mismatchCount,
+    mismatches: Object.freeze(mismatches),
+  });
+}
+
 function finalizeOutcome(outcome) {
   assertBoundedGraph(outcome, 'Semantic Render Outcome');
   const frozen = Object.freeze(outcome);
@@ -384,14 +478,132 @@ export function projectSemanticRenderOutcome(value, { executor, structure, notic
     }),
     overflow,
     mutation,
+    stages: Object.freeze([]),
     notices: projectNotices(notices),
     failure: null,
   };
   return finalizeOutcome(outcome);
 }
 
+function projectBatchFrame(frame, { native }) {
+  if (!isRecord(frame)) throw resultError('Semantic Render batch returned an invalid frame result.');
+  rejectUnknownFields(frame, TOP_LEVEL_FIELDS, 'batch frame');
+  if (native && frame.executor !== 'structured-v1') {
+    throw resultError('Semantic Render batch returned the wrong frame executor identity.');
+  }
+  if (!native && frame.executor !== undefined) {
+    throw resultError('Semantic Render compatibility batch returned an unexpected frame executor identity.');
+  }
+  if (frame.mutationOutcome !== undefined || frame.mutationReport !== undefined) {
+    throw resultError('Semantic Render batch returned per-frame mutation facts outside the batch journal.');
+  }
+  const live = projectStructuralReport(frame.structuralReport, { required: native });
+  // Validate every per-frame resource fact even though the batch envelope is
+  // the canonical aggregate exposed to callers.
+  stringArray(frame.unresolved, 'batch frame unresolved variables');
+  stringArray(frame.createdVariables, 'batch frame created variables');
+  stringArray(frame.createdTextStyles, 'batch frame created Text Styles');
+  projectVariableReport(frame.variableReport);
+  projectTextStyleReport(frame.textStyleReport);
+  projectFallbackReport(frame.fallbackAnnotationReport);
+  projectScopeQuestions(frame.scopeQuestions);
+  const overflow = frame.overflow === undefined ? null : finiteNumber(frame.overflow, 'batch frame overflow');
+  return Object.freeze({ root: rootFromPlugin(frame), live, overflow });
+}
+
+/**
+ * Project one journaled native/compatibility batch plus its explicit stages.
+ * @param {any} value
+ * @param {{
+ *   executor?: string,
+ *   structures?: readonly any[],
+ *   notices?: readonly any[],
+ *   stages?: readonly any[],
+ *   rootHandles?: readonly string[] | null,
+ * }} [options]
+ */
+export function projectSemanticRenderBatchOutcome(value, {
+  executor, structures, notices = [], stages = [], rootHandles = null,
+} = {}) {
+  assertBoundedGraph(value, 'Plugin batch result', { maxCollectionItems: 10_000 });
+  const native = executor === 'structured-batch-v1';
+  if (!native && executor !== 'generated-eval-batch-compatibility') {
+    throw new TypeError('Semantic Render batch Outcome requires a known executor.');
+  }
+  const envelope = Array.isArray(value) ? { frames: value } : value;
+  if (!isRecord(envelope)) throw resultError('Semantic Render batch returned no structured result.');
+  rejectUnknownFields(envelope, BATCH_TOP_LEVEL_FIELDS, 'batch result');
+  if (!Array.isArray(envelope.frames) || envelope.frames.length !== structures?.length
+    || envelope.frames.length < 1 || envelope.frames.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
+    throw resultError('Semantic Render batch returned missing or excess frame results.');
+  }
+  if (native && envelope.executor !== 'structured-batch-v1') {
+    throw resultError('Semantic Render batch returned the wrong executor identity.');
+  }
+  if (!native && envelope.executor !== undefined) {
+    throw resultError('Semantic Render compatibility batch returned an unexpected executor identity.');
+  }
+  if (native && (envelope.mutationOutcome !== 'completed' || envelope.mutationReport === undefined)) {
+    throw resultError('Semantic Render batch returned incomplete mutation outcome facts.');
+  }
+  if (!native && ((envelope.mutationOutcome === undefined) !== (envelope.mutationReport === undefined))) {
+    throw resultError('Semantic Render compatibility batch returned incomplete mutation outcome facts.');
+  }
+  if (envelope.mutationOutcome !== undefined && envelope.mutationOutcome !== 'completed') {
+    throw resultError('Semantic Render batch returned an inconsistent mutation outcome.');
+  }
+  const mutation = projectCompletedMutation(
+    envelope.mutationReport,
+    native ? 'structured-v1' : 'generated-eval-batch-compatibility',
+  );
+  const frames = envelope.frames.map((frame) => projectBatchFrame(frame, { native }));
+  if (rootHandles !== null) {
+    if (!Array.isArray(rootHandles) || rootHandles.length !== frames.length) {
+      throw new TypeError('Semantic Render batch root overrides must match every frame.');
+    }
+    for (let index = 0; index < rootHandles.length; index++) {
+      const handle = requiredString(rootHandles[index], 'compound root override');
+      if (!NODE_ID.test(handle) || Buffer.byteLength(handle, 'utf8') > MAX_SEMANTIC_RENDER_HANDLE_BYTES) {
+        throw new TypeError('Semantic Render batch received an invalid root override.');
+      }
+      frames[index] = Object.freeze({
+        ...frames[index],
+        root: Object.freeze({ ...frames[index].root, handle }),
+      });
+    }
+  }
+  const live = combineLiveStructures(frames.map((frame) => frame.live));
+  const overflowPixels = frames.map((frame) => frame.overflow).filter((item) => item !== null);
+  const outcomeStages = projectCompoundStages(stages);
+  return finalizeOutcome({
+    schemaVersion: SEMANTIC_RENDER_OUTCOME_SCHEMA,
+    kind: SEMANTIC_RENDER_OUTCOME_KIND,
+    status: live?.passed === false || outcomeStages.some((stage) => stage.status === 'completed-with-findings')
+      ? 'completed-with-findings' : 'completed',
+    roots: Object.freeze(frames.map((frame) => frame.root)),
+    executor: EXECUTORS[executor],
+    structure: Object.freeze({ planned: combinePlannedStructures(structures), live }),
+    resources: Object.freeze({
+      unresolvedVariables: stringArray(envelope.unresolved, 'unresolved variables'),
+      createdVariables: stringArray(envelope.createdVariables, 'created variables'),
+      createdTextStyles: stringArray(envelope.createdTextStyles, 'created Text Styles'),
+      variableReport: projectVariableReport(envelope.variableReport),
+      textStyleReport: projectTextStyleReport(envelope.textStyleReport),
+      fallbackAnnotationReport: projectFallbackReport(envelope.fallbackAnnotationReport),
+      scopeQuestions: projectScopeQuestions(envelope.scopeQuestions),
+    }),
+    overflow: overflowPixels.length ? Object.freeze({ pixels: Math.max(...overflowPixels) }) : null,
+    mutation,
+    stages: outcomeStages,
+    notices: projectNotices(notices),
+    failure: null,
+  });
+}
+
 /** Project only closed failure facts. Error prose, stacks and request inputs are excluded. */
-export function projectSemanticRenderFailureOutcome(error, { executor, structure }) {
+export function projectSemanticRenderFailureOutcome(error, {
+  executor, structure, partialOutcome = null, stages = [],
+}) {
   const failure = Object.freeze({
     kind: FAILURE_KINDS.has(error?.kind) ? error.kind : 'execution',
     phase: FAILURE_PHASES.has(error?.phase) ? error.phase : 'plugin-execution',
@@ -400,16 +612,20 @@ export function projectSemanticRenderFailureOutcome(error, { executor, structure
       ? error.dispatchState
       : error?.outcome === 'not-dispatched' ? 'not-dispatched' : 'unknown',
   });
+  if (partialOutcome !== null) assertSemanticRenderOutcome(partialOutcome);
+  const planned = partialOutcome?.structure?.planned
+    || (Array.isArray(structure) ? combinePlannedStructures(structure) : projectPlannedStructure(structure));
   return finalizeOutcome({
     schemaVersion: SEMANTIC_RENDER_OUTCOME_SCHEMA,
     kind: SEMANTIC_RENDER_OUTCOME_KIND,
     status: 'failed',
-    roots: Object.freeze([]),
-    executor: EXECUTORS[executor] || null,
-    structure: Object.freeze({ planned: projectPlannedStructure(structure), live: null }),
-    resources: emptyResources(),
-    overflow: null,
-    mutation: parseStructuredMutationReport(error?.mutationReport),
+    roots: partialOutcome?.roots || Object.freeze([]),
+    executor: partialOutcome?.executor || EXECUTORS[executor] || null,
+    structure: partialOutcome?.structure || Object.freeze({ planned, live: null }),
+    resources: partialOutcome?.resources || emptyResources(),
+    overflow: partialOutcome?.overflow || null,
+    mutation: parseStructuredMutationReport(error?.mutationReport) || partialOutcome?.mutation || null,
+    stages: projectCompoundStages(stages),
     notices: Object.freeze([]),
     failure,
   });

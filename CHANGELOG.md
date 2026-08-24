@@ -25,6 +25,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   numeric and handle bounds now reject malformed post-dispatch Plugin results;
   MCP structured content, text, JSON/YAML, Audit and process codes derive from
   the same root, structural, resource and rollback facts.
+- Added one Compound Semantic Render Application for wrapper auto-split and
+  explicit batch requests across Commander, `figma_run` and `figma_render`.
+  Shared options and assets are prepared before readiness, native rendering
+  dispatches one journaled batch, and conversion, resize and verification
+  stages report bounded exact partial progress without recursive parsing or
+  post-dispatch retry.
 
 - Added Safe-Mode Commands for duplicating cloneable canvas nodes (including
   Sections), reparenting nodes with explicit child order, setting instance

@@ -1,11 +1,11 @@
-// Value-returning Command Application for a simple single-root Semantic Render.
+// Value-returning Command Application for simple and compound Semantic Render.
 //
-// JSX is an input Adapter into one validated Semantic Render Plan. Commander,
-// figma_run and figma_render share this preparation, native/compatibility
-// selection, result projection and formatter. Compound Render modes remain a
-// named Commander compatibility Adapter until their effects are explicit.
+// JSX and explicit batches adapt into validated Semantic Render Plans.
+// Commander, figma_run and figma_render share preparation,
+// native/compatibility selection, bounded stages, projection and formatting.
 
-import { dirname } from 'node:path';
+import { basename, dirname, extname, isAbsolute, resolve } from 'node:path';
+import { readdirSync } from 'node:fs';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { FigmaClient } from '../lib/jsx-render.js';
 import {
@@ -23,21 +23,27 @@ import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js'
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import {
   assertSemanticRenderOutcome,
+  projectSemanticRenderBatchOutcome,
   projectSemanticRenderFailureOutcome,
   projectSemanticRenderOutcome,
 } from '../lib/semantic-render-outcome.js';
 import {
   SEMANTIC_RENDER_DEVICE_PRESETS,
+  semanticCompoundRenderRequestFromArgv,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
   semanticRenderRequestFromArgv,
 } from './semantic-render-request.js';
+import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
+import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
 
 export { semanticRenderArgvFromRequest } from './semantic-render-request.js';
 export { semanticRenderOutcomeCode } from '../lib/semantic-render-outcome.js';
 
 const APPLICATION_ID = 'render';
+const APPLICATION_IDS = new Set([APPLICATION_ID, 'render-batch']);
 const PREPARED_RENDER_REQUESTS = new WeakSet();
+const PREPARED_COMPOUND_RENDER_REQUESTS = new WeakSet();
 const MAX_EVIDENCE_ITEMS = 100;
 const MAX_EVIDENCE_STRING_CODE_POINTS = 512;
 
@@ -156,9 +162,11 @@ export function semanticRenderPlanRoute(plan) {
   if (!isFigmaCommandPlan(plan)) {
     throw new TypeError('Semantic Render routing requires a Command Plan created by the Capability Catalog.');
   }
-  if (!plan.allowed || plan.id !== APPLICATION_ID) return 'not-render';
+  if (!plan.allowed || !APPLICATION_IDS.has(plan.id)) return 'not-render';
   const route = semanticRenderArgvRoute([...plan.argv]);
-  return route.kind === 'simple' ? 'command-application' : 'commander-compatibility';
+  if (route.kind === 'simple') return 'command-application';
+  if (route.kind === 'compound') return 'compound-command-application';
+  return route.kind === 'help' ? 'not-render' : 'commander-compatibility';
 }
 
 /** Parse JSX and prepare the exact native or generated execution decision. */
@@ -184,6 +192,407 @@ export function prepareSemanticRenderPlan(plan, adapters = {}) {
   const prepared = Object.freeze({ request, client, renderPlan, support, evidence, jsx: preset.jsx });
   PREPARED_RENDER_REQUESTS.add(prepared);
   return prepared;
+}
+
+function loadCompoundIcons(directory, io) {
+  if (!directory) return Object.freeze({});
+  const accepted = io.authorizePath(directory, {
+    access: 'read', role: 'render-icons', kind: 'directory',
+  });
+  const files = readdirSync(accepted.canonical);
+  if (files.length > 10_000) throw preflightError('Semantic Render icon directory exceeds 10,000 entries.');
+  const icons = Object.create(null);
+  for (const file of files) {
+    if (extname(file).toLowerCase() !== '.svg') continue;
+    const full = resolve(accepted.canonical, file);
+    const svg = io.readText(full, { role: 'render-icon', maxBytes: 100 * 1024 });
+    icons[basename(file, extname(file))] = svg;
+  }
+  return Object.freeze(icons);
+}
+
+function resolveCompoundImages(roots, io) {
+  const images = {};
+  const paths = new Map();
+  const notes = [];
+  const rewritten = roots.map((jsx) => jsx.replace(
+    /\b(src|image)\s*=\s*(?:"([^"]+)"|{\s*"([^"]+)"\s*}|{\s*'([^']+)'\s*}|{\s*([^{}"']+?)\s*})/g,
+    (full, attribute, quoted, doubleExpression, singleExpression, bareExpression) => {
+      const value = (quoted ?? doubleExpression ?? singleExpression ?? bareExpression).trim();
+      if (/^(?:https?:|imgref:|data:)/i.test(value) || !/\.(?:png|jpe?g|gif|webp)$/i.test(value)) return full;
+      const input = isAbsolute(value) ? value : resolve(io.roots[0], value);
+      let key = paths.get(input);
+      if (key === undefined) {
+        const accepted = io.authorizePath(input, { access: 'read', role: 'render-image', kind: 'file' });
+        const size = accepted.metadata.size;
+        if (size > IMAGE_HARD_LIMIT) {
+          throw preflightError(`Semantic Render image exceeds ${IMAGE_HARD_LIMIT} bytes.`);
+        }
+        key = `img${paths.size}`;
+        paths.set(input, key);
+        images[key] = io.read(accepted.canonical, {
+          role: 'render-image', maxBytes: IMAGE_HARD_LIMIT,
+        }).toString('base64');
+        if (size > IMAGE_WARN_LIMIT) {
+          notes.push(Object.freeze({
+            tone: 'warning',
+            text: `Render image ${key} is ${(size / 1048576).toFixed(1)} MB; downscaling will make the Plugin Bridge faster.`,
+          }));
+        }
+      }
+      return `${attribute}="imgref:${key}"`;
+    },
+  ));
+  return Object.freeze({
+    roots: Object.freeze(rewritten), images: Object.freeze(images),
+    imageCount: paths.size, notes: Object.freeze(notes),
+  });
+}
+
+/** Prepare every compound root and all local resources before readiness. */
+export function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
+  if (semanticRenderPlanRoute(plan) !== 'compound-command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the compound Semantic Render Command Application.`);
+  }
+  if (!adapters.workspaceIO) throw new TypeError('Compound Semantic Render requires a WorkspaceIO adapter.');
+  const request = semanticCompoundRenderRequestFromArgv([...plan.argv]);
+  const imagePreparation = resolveCompoundImages(request.roots, adapters.workspaceIO);
+  const icons = loadCompoundIcons(request.icons, adapters.workspaceIO);
+  const client = new FigmaClient();
+  if (request.collection) client.setCollection(request.collection);
+  client.setImageData(imagePreparation.images);
+  if (Object.keys(icons).length) client.setIcons(icons);
+  if (request.manifest) {
+    const registry = readDesignLinkRegistry(dirname(request.manifest), {
+      manifestPath: request.manifest,
+      io: adapters.workspaceIO,
+    }).registry;
+    client.setComponentLinks(componentLinksFromRegistry(registry));
+  }
+
+  const presetRoots = imagePreparation.roots.map((jsx) => devicePreset(jsx, request.preset));
+  const renderPlans = presetRoots.map(({ jsx }) => client.planJSX(jsx));
+  const evidence = renderPlans.map((renderPlan, index) => compileEvidence(
+    client, presetRoots[index].jsx, renderPlan, request, presetRoots[index].note,
+  ));
+  const supports = renderPlans.map((renderPlan) => inspectStructuredRenderPlan(renderPlan));
+  const notes = [
+    ...imagePreparation.notes,
+    ...evidence.flatMap((item, index) => item.warnings.map((warning) => Object.freeze({
+      tone: warning.tone,
+      text: boundedText(`root ${index + 1}: ${warning.text}`),
+    }))),
+  ].slice(0, MAX_EVIDENCE_ITEMS);
+  const prepared = Object.freeze({
+    request, client,
+    jsxRoots: Object.freeze(presetRoots.map(({ jsx }) => jsx)),
+    renderPlans: Object.freeze(renderPlans),
+    supports: Object.freeze(supports),
+    structures: Object.freeze(evidence.map((item) => item.structure)),
+    notes: Object.freeze(notes),
+    preparedAssets: Object.freeze({
+      localImages: imagePreparation.imageCount,
+      iconDirectory: request.icons ? 1 : 0,
+      remoteImages: request.assets.remoteCount,
+      embeddedImages: request.assets.embeddedCount,
+    }),
+  });
+  PREPARED_COMPOUND_RENDER_REQUESTS.add(prepared);
+  return prepared;
+}
+
+function compoundStage(kind, status, attempted, completed, failed = 0, handles = [], artifacts = []) {
+  return Object.freeze({ kind, status, attempted, completed, failed, handles, artifacts });
+}
+
+function componentConversionCode(handles) {
+  return `(async () => {
+    const ids = ${JSON.stringify(handles)};
+    const components = [];
+    for (let index = 0; index < ids.length; index++) {
+      try {
+        const node = await figma.getNodeByIdAsync(ids[index]);
+        if (!node) return { version: 1, components, failed: { index } };
+        const component = figma.createComponentFromNode(node);
+        components.push({ sourceId: ids[index], id: component.id, name: component.name });
+      } catch (_) {
+        return { version: 1, components, failed: { index } };
+      }
+    }
+    return { version: 1, components, failed: null };
+  })()`;
+}
+
+function verificationCode(handle) {
+  return `(async () => {
+    const node = await figma.getNodeByIdAsync(${JSON.stringify(handle)});
+    if (!node || !('exportAsync' in node)) return { version: 1, failed: true };
+    const maxDimension = Math.max(node.width || 100, node.height || 100);
+    const scale = maxDimension > 2000 ? 2000 / maxDimension : 1;
+    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
+    return { version: 1, failed: false, id: node.id,
+      width: Math.round((node.width || 100) * scale),
+      height: Math.round((node.height || 100) * scale),
+      base64: figma.base64Encode(bytes) };
+  })()`;
+}
+
+function stageFailure(kind, message = `${kind} failed`) {
+  return Object.assign(new Error(message), {
+    kind: 'plugin-result', phase: 'plugin-response',
+    outcome: 'unknown-after-dispatch', dispatchState: 'failed',
+  });
+}
+
+function validateComponentResult(value, expectedHandles) {
+  let bytes;
+  try { bytes = Buffer.byteLength(JSON.stringify(value), 'utf8'); }
+  catch { throw stageFailure('component-conversion', 'Component conversion returned an invalid result.'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || bytes > 128 * 1024
+    || value.version !== 1 || !Array.isArray(value.components)
+    || value.components.length > expectedHandles.length
+    || !Object.hasOwn(value, 'failed')
+    || Object.keys(value).some((key) => !['version', 'components', 'failed'].includes(key))) {
+    throw stageFailure('component-conversion', 'Component conversion returned an invalid result.');
+  }
+  const converted = [];
+  for (let index = 0; index < value.components.length; index++) {
+    const item = value.components[index];
+    if (!item || typeof item !== 'object' || Array.isArray(item)
+      || Object.keys(item).some((key) => !['sourceId', 'id', 'name'].includes(key))
+      || item.sourceId !== expectedHandles[index]
+      || typeof item.id !== 'string' || item.id.length > 128
+      || !/^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/.test(item.id)
+      || (item.name !== undefined && (typeof item.name !== 'string'
+        || Array.from(item.name).length > 512))) {
+      throw stageFailure('component-conversion', 'Component conversion returned invalid handle evidence.');
+    }
+    converted.push(item.id);
+  }
+  if (value.failed === null) {
+    if (converted.length !== expectedHandles.length) {
+      throw stageFailure('component-conversion', 'Component conversion omitted a result.');
+    }
+    return Object.freeze({ converted: Object.freeze(converted), failedIndex: null });
+  }
+  if (!value.failed || !Number.isSafeInteger(value.failed.index)
+    || value.failed.index !== converted.length || value.failed.index >= expectedHandles.length
+    || Object.keys(value.failed).some((key) => key !== 'index')) {
+    throw stageFailure('component-conversion', 'Component conversion returned inconsistent partial evidence.');
+  }
+  return Object.freeze({ converted: Object.freeze(converted), failedIndex: value.failed.index });
+}
+
+function validateResizeResult(value, handle) {
+  let bytes;
+  try { bytes = Buffer.byteLength(JSON.stringify(value), 'utf8'); }
+  catch { throw stageFailure('resize-probe', 'Resize probe returned an invalid result.'); }
+  if (bytes > 128 * 1024 || !value || value.version !== 1 || typeof value.passed !== 'boolean'
+    || value.root?.id !== handle || !value.summary || typeof value.summary !== 'object') {
+    throw stageFailure('resize-probe', 'Resize probe returned invalid bounded evidence.');
+  }
+  return value.passed;
+}
+
+function validateVerificationResult(value, handle) {
+  if (!value || value.version !== 1 || value.failed !== false || value.id !== handle
+    || !Number.isSafeInteger(value.width) || value.width < 1 || value.width > 2000
+    || !Number.isSafeInteger(value.height) || value.height < 1 || value.height > 2000
+    || typeof value.base64 !== 'string' || value.base64.length > 16 * 1024 * 1024
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.base64)) {
+    throw stageFailure('verification', 'Verification returned invalid bounded image evidence.');
+  }
+  return value;
+}
+
+/** Execute one prepared compound write and every requested follow-up exactly once. */
+export async function executePreparedCompoundSemanticRender(prepared, adapters = {}) {
+  if (!PREPARED_COMPOUND_RENDER_REQUESTS.has(prepared)) {
+    throw new TypeError('Compound Semantic Render execution requires a prepared request from this Application.');
+  }
+  if (typeof adapters.renderPlanBatch !== 'function' || typeof adapters.evaluate !== 'function') {
+    throw new TypeError('Compound Semantic Render requires renderPlanBatch and evaluate adapters.');
+  }
+  if (prepared.request.stages.verification && typeof adapters.writeVerification !== 'function') {
+    throw new TypeError('Compound Semantic Render verification requires a writeVerification adapter.');
+  }
+  const stages = [];
+  const assetCount = prepared.preparedAssets.localImages + prepared.preparedAssets.iconDirectory
+    + prepared.preparedAssets.remoteImages + prepared.preparedAssets.embeddedImages;
+  stages.push(compoundStage(
+    'asset-preparation', assetCount ? 'completed' : 'skipped',
+    assetCount ? Math.min(prepared.request.roots.length, 100) : 0,
+    assetCount ? Math.min(prepared.request.roots.length, 100) : 0,
+  ));
+  const attachFailure = (error, executor, partialOutcome = null) => {
+    const failure = /** @type {Error & { semanticRenderOutcome?: any }} */ (
+      error instanceof Error ? error : new Error(String(error || 'Compound Semantic Render failed'))
+    );
+    if (!failure.semanticRenderOutcome) {
+      failure.semanticRenderOutcome = projectSemanticRenderFailureOutcome(failure, {
+        executor, structure: prepared.structures, partialOutcome, stages,
+      });
+    }
+    return failure;
+  };
+
+  const options = {
+    gap: prepared.request.layout.gap,
+    vertical: prepared.request.layout.direction === 'col',
+    smart: prepared.request.placement.smart,
+    x: prepared.request.placement.x,
+    y: prepared.request.placement.y,
+  };
+  let raw;
+  let executor;
+  let compatibilityReason = null;
+  if (prepared.supports.every((support) => support.supported)) {
+    try {
+      raw = await adapters.renderPlanBatch(prepared.renderPlans, options);
+      executor = 'structured-batch-v1';
+    } catch (error) {
+      if (!permitsCompatibilityRedispatch(error)) {
+        stages.push(compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
+        throw attachFailure(error, 'structured-batch-v1');
+      }
+      compatibilityReason = 'Plugin did not advertise native compound Semantic Render before dispatch.';
+    }
+  } else {
+    compatibilityReason = `Native compound preflight unsupported: ${prepared.supports
+      .flatMap((support) => support.problems || []).slice(0, 5).map((problem) => boundedText(problem)).join('; ')}`;
+  }
+  if (compatibilityReason) {
+    executor = 'generated-eval-batch-compatibility';
+    try {
+      const code = await prepared.client.compileRenderPlans(prepared.renderPlans, options);
+      raw = await adapters.evaluate(code);
+    } catch (error) {
+      stages.push(compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
+      throw attachFailure(error, executor);
+    }
+  }
+  const notices = [...prepared.notes];
+  if (compatibilityReason) notices.push(Object.freeze({ tone: 'warning', text: boundedText(compatibilityReason) }));
+  stages.push(compoundStage('render', 'completed', prepared.renderPlans.length, prepared.renderPlans.length));
+  stages.push(compoundStage('placement', 'completed', prepared.renderPlans.length, prepared.renderPlans.length));
+
+  let outcome;
+  try {
+    outcome = projectSemanticRenderBatchOutcome(raw, {
+      executor, structures: prepared.structures, notices, stages,
+    });
+  } catch (error) {
+    stages.splice(-2, 2, compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
+    throw attachFailure(error, executor);
+  }
+  let handles = outcome.roots.map((root) => root.handle);
+  if (outcome.structure.live) {
+    stages.push(compoundStage(
+      'structural-gate', outcome.structure.live.passed ? 'completed' : 'completed-with-findings',
+      handles.length, handles.length, 0, handles,
+    ));
+  } else {
+    stages.push(compoundStage('structural-gate', 'skipped', 0, 0));
+  }
+
+  if (prepared.request.stages.componentConversion) {
+    let converted;
+    try {
+      converted = validateComponentResult(await adapters.evaluate(componentConversionCode(handles)), handles);
+    } catch (error) {
+      stages.push(compoundStage('component-conversion', 'failed', handles.length, 0, 1));
+      throw attachFailure(error, executor, outcome);
+    }
+    const nextHandles = [...converted.converted, ...handles.slice(converted.converted.length)];
+    if (converted.failedIndex !== null) {
+      stages.push(compoundStage(
+        'component-conversion', 'failed', converted.failedIndex + 1,
+        converted.converted.length, 1, [...converted.converted],
+      ));
+      const partial = projectSemanticRenderBatchOutcome(raw, {
+        executor, structures: prepared.structures, notices, stages, rootHandles: nextHandles,
+      });
+      throw attachFailure(stageFailure('component-conversion'), executor, partial);
+    }
+    handles = nextHandles;
+    stages.push(compoundStage(
+      'component-conversion', 'completed', handles.length, handles.length, 0, handles,
+    ));
+  } else {
+    stages.push(compoundStage('component-conversion', 'skipped', 0, 0));
+  }
+
+  if (prepared.request.stages.resizeProbe !== null) {
+    let findings = 0;
+    for (let index = 0; index < handles.length; index++) {
+      try {
+        if (!validateResizeResult(
+          await adapters.evaluate(semanticRootResizeProbeCode(handles[index], prepared.request.stages.resizeProbe)),
+          handles[index],
+        )) findings++;
+      } catch (error) {
+        stages.push(compoundStage('resize-probe', 'failed', index + 1, index, 1, handles.slice(0, index)));
+        const partial = projectSemanticRenderBatchOutcome(raw, {
+          executor, structures: prepared.structures, notices, stages, rootHandles: handles,
+        });
+        throw attachFailure(error, executor, partial);
+      }
+    }
+    stages.push(compoundStage(
+      'resize-probe', findings ? 'completed-with-findings' : 'completed',
+      handles.length, handles.length, 0, handles,
+    ));
+  } else {
+    stages.push(compoundStage('resize-probe', 'skipped', 0, 0));
+  }
+
+  if (prepared.request.stages.verification) {
+    const artifacts = [];
+    for (let index = 0; index < handles.length; index++) {
+      try {
+        const verified = validateVerificationResult(await adapters.evaluate(verificationCode(handles[index])), handles[index]);
+        const artifact = await adapters.writeVerification({
+          handle: handles[index], width: verified.width, height: verified.height, base64: verified.base64,
+        });
+        if (typeof artifact !== 'string' || !artifact || Array.from(artifact).length > 512) {
+          throw stageFailure('verification', 'Verification artifact Adapter returned an invalid path.');
+        }
+        artifacts.push(artifact);
+      } catch (error) {
+        stages.push(compoundStage('verification', 'failed', index + 1, index, 1, handles.slice(0, index), artifacts));
+        const partial = projectSemanticRenderBatchOutcome(raw, {
+          executor, structures: prepared.structures, notices, stages, rootHandles: handles,
+        });
+        throw attachFailure(error, executor, partial);
+      }
+    }
+    stages.push(compoundStage('verification', 'completed', handles.length, handles.length, 0, handles, artifacts));
+  } else {
+    stages.push(compoundStage('verification', 'skipped', 0, 0));
+  }
+
+  if (typeof adapters.inspectInventory === 'function') {
+    try {
+      const names = namedContainers(prepared.jsxRoots);
+      if (names.length) {
+        const inventory = await adapters.inspectInventory(cachedInventoryCode(true));
+        for (const finding of matchInventory(names, inventory).slice(0, 20)) {
+          notices.push(Object.freeze({ tone: 'warning', text: boundedText(`reuse: ${formatReuseWarning(finding)}`) }));
+        }
+      }
+    } catch {}
+  }
+  return projectSemanticRenderBatchOutcome(raw, {
+    executor, structures: prepared.structures,
+    notices: notices.slice(0, MAX_EVIDENCE_ITEMS), stages, rootHandles: handles,
+  });
+}
+
+export async function executeCompoundSemanticRenderPlan(plan, adapters = {}) {
+  return executePreparedCompoundSemanticRender(
+    prepareCompoundSemanticRenderPlan(plan, adapters), adapters,
+  );
 }
 
 /** Execute one prepared write, with compatibility only from proven preflight. */
@@ -290,7 +699,6 @@ export async function executeSemanticRenderPlan(plan, adapters = {}) {
 export function semanticRenderResultRows(result) {
   const outcome = assertSemanticRenderOutcome(result);
   if (outcome.status === 'failed') throw new TypeError('Semantic Render formatter cannot format a failed Outcome as success.');
-  const root = outcome.roots[0];
   const resources = outcome.resources;
   const structuralReport = outcome.structure.live;
   /** @type {SemanticRenderRow[]} */
@@ -299,12 +707,27 @@ export function semanticRenderResultRows(result) {
     text: `JSX structure: ${outcome.structure.planned.grid} Grid, ${outcome.structure.planned.flex} Auto Layout, ${outcome.structure.planned.free} explicit free, ${outcome.structure.planned.absolute} absolute`,
   }];
   rows.push(...outcome.notices.map((notice) => ({ tone: notice.tone, text: notice.text })));
-  rows.push({ tone: 'success', marker: '✓', markerTone: 'success', text: `Rendered: ${root.handle}` });
-  if (root.name) rows.push({ tone: 'muted', text: `name: ${root.name}` });
+  for (const root of outcome.roots) {
+    rows.push({ tone: 'success', marker: '✓', markerTone: 'success', text: `Rendered: ${root.handle}` });
+    if (root.name) rows.push({ tone: 'muted', text: `name: ${root.name}` });
+  }
+  if (outcome.roots.length > 1) rows.push({ tone: 'success', text: `${outcome.roots.length} roots created` });
   rows.push({
-    tone: outcome.executor.kind === 'structured' ? 'muted' : 'warning',
-    text: `executor: ${outcome.executor.kind === 'structured' ? `Semantic Render Plan v${outcome.executor.version}` : 'generated eval compatibility'}`,
+    tone: outcome.executor.kind.startsWith('structured') ? 'muted' : 'warning',
+    text: `executor: ${outcome.executor.kind.startsWith('structured')
+      ? `Semantic Render Plan v${outcome.executor.version}${outcome.executor.kind === 'structured-batch' ? ' batch' : ''}`
+      : 'generated eval compatibility'}`,
   });
+  for (const stage of outcome.stages || []) {
+    if (stage.status === 'skipped') continue;
+    const tone = stage.status === 'completed' ? 'muted'
+      : stage.status === 'completed-with-findings' ? 'warning' : 'error';
+    rows.push({
+      tone,
+      text: `${stage.kind}: ${stage.status} — ${stage.completed}/${stage.attempted} completed${stage.failed ? `, ${stage.failed} failed` : ''}`,
+    });
+    if (stage.artifacts.length) rows.push({ tone: 'muted', text: `${stage.kind} artifacts: ${stage.artifacts.join(', ')}` });
+  }
   if (structuralReport) {
     const summary = structuralReport.summary;
     const detail = `${summary.nodes} nodes, ${summary.grids} Grid, ${summary.autoLayouts} Auto Layout, ${summary.freeLayouts} free, ${summary.instances} instances, ${summary.absoluteNodes} absolute`;

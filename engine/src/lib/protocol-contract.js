@@ -120,10 +120,19 @@ export function validateExecPayload(value) {
       catch (error) { return `render plan batch item ${index + 1} is invalid: ${error.message}`; }
     }
     if (value.options != null && !isRecord(value.options)) return 'render plan batch options must be an object';
+    if (value.options && Object.keys(value.options).some((key) => !['gap', 'vertical', 'smart', 'x', 'y'].includes(key))) {
+      return 'render plan batch options contain an unknown field';
+    }
     if (value.options?.gap != null && (!Number.isFinite(Number(value.options.gap)) || Number(value.options.gap) < 0 || Number(value.options.gap) > 10000)) {
       return 'render plan batch gap must be between 0 and 10000';
     }
     if (value.options?.vertical != null && typeof value.options.vertical !== 'boolean') return 'render plan batch vertical must be boolean';
+    if (value.options?.smart != null && typeof value.options.smart !== 'boolean') return 'render plan batch smart must be boolean';
+    for (const key of ['x', 'y']) {
+      if (value.options?.[key] != null && !Number.isFinite(value.options[key])) {
+        return `render plan batch ${key} must be finite`;
+      }
+    }
     const sizeError = serializedLimitError(
       'render plan batch',
       { plans: value.plans, options: value.options || {} },

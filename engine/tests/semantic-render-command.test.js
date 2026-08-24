@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
+  executeCompoundSemanticRenderPlan,
   executeSemanticRenderPlan,
   formatSemanticRenderResult,
+  prepareCompoundSemanticRenderPlan,
   prepareSemanticRenderPlan,
   semanticRenderOutcomeCode,
   semanticRenderPlanRoute,
@@ -23,6 +25,8 @@ import {
 import YAML from 'yaml';
 import {
   acceptsSemanticRenderArgv,
+  semanticCompoundRenderArgvFromRequest,
+  semanticCompoundRenderRequestFromArgv,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
   semanticRenderPolicyFromArgv,
@@ -41,6 +45,17 @@ function workspace(t) {
 function renderPlan(t, argv = ['render', SIMPLE_JSX], options = {}) {
   const { root, io } = workspace(t);
   return {
+    io,
+    plan: planFigmaCommand(argv, {
+      adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A', ...options,
+    }),
+  };
+}
+
+function compoundPlan(t, argv, options = {}) {
+  const { root, io } = workspace(t);
+  return {
+    root,
     io,
     plan: planFigmaCommand(argv, {
       adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A', ...options,
@@ -73,6 +88,25 @@ function nativeResult(overrides = {}) {
       residueCount: 0,
       residue: [],
       residueTruncated: false,
+    },
+    ...overrides,
+  };
+}
+
+function nativeBatchResult(count = 2, overrides = {}) {
+  return {
+    frames: Array.from({ length: count }, (_, index) => nativeResult({
+      id: `${index + 10}:${index + 20}`,
+      name: `Card ${index + 1}`,
+      mutationOutcome: undefined,
+      mutationReport: undefined,
+    })),
+    executor: 'structured-batch-v1',
+    textStyleReport: { references: 0, reused: 0, created: 0, bound: 0 },
+    mutationOutcome: 'completed',
+    mutationReport: {
+      version: 1, outcome: 'completed', created: count * 2, removed: 0,
+      residueCount: 0, residue: [], residueTruncated: false,
     },
     ...overrides,
   };
@@ -131,12 +165,12 @@ test('Semantic Render request Interface closes argv before policy and preserves 
   }
 });
 
-test('simple and named compatibility Render modes remain explicitly reachable', (t) => {
+test('simple, compound and named compatibility Render modes remain explicitly reachable', (t) => {
   const cases = [
     { argv: ['render', SIMPLE_JSX], kind: 'simple', reason: null, write: true, target: 'figma' },
     {
       argv: ['render', '<Frame flex="row"><Frame name="Card 1"/><Frame name="Card 2"/></Frame>'],
-      kind: 'compatibility', reason: 'auto-split', write: true, target: 'figma',
+      kind: 'compound', reason: 'auto-split', write: true, target: 'figma',
     },
     {
       argv: ['render', '<Frame><Image src="photo.png"/></Frame>'],
@@ -184,13 +218,14 @@ test('simple and named compatibility Render modes remain explicitly reachable', 
       semanticRenderPlanRoute(plan),
       expected.kind === 'simple'
         ? 'command-application'
+        : expected.kind === 'compound' ? 'compound-command-application'
         : expected.kind === 'help' ? 'not-render' : 'commander-compatibility',
       expected.argv.join(' '),
     );
   }
 });
 
-test('render-batch remains an explicit writing compatibility command', (t) => {
+test('render-batch is owned by the compound Command Application', (t) => {
   const { root, io } = workspace(t);
   const plan = planFigmaCommand([
     'render-batch', JSON.stringify(['<Frame name="Card"><Text>One</Text></Frame>']),
@@ -202,7 +237,87 @@ test('render-batch remains an explicit writing compatibility command', (t) => {
   assert.equal(plan.effects.figma, 'write');
   assert.equal(plan.target.kind, 'plugin-file');
   assert.equal(plan.execution.retry, 'never');
-  assert.equal(semanticRenderPlanRoute(plan), 'not-render');
+  assert.equal(semanticRenderPlanRoute(plan), 'compound-command-application');
+});
+
+test('auto-split and explicit batch close the same option semantics', () => {
+  const wrapper = '<Frame flex="row"><Frame name="Card 1"><Image src={assets/photo.png}/></Frame><Frame name="Card 2"><Image src="https://images.example/card.png"/></Frame></Frame>';
+  const autoArgv = [
+    'render', wrapper, '--gap=0', '--direction=col', '-x10', '-y20',
+    '--no-smart-position', '--as-component', '--verify', '--resize-probe=180',
+    '--collection=Brand', '--preset=desktop', '--icons=icons', '--manifest=links.json',
+    '--approve-fallback=font.named-faces,root', '--allow-free-layout=root.free',
+  ];
+  const auto = semanticCompoundRenderRequestFromArgv(autoArgv);
+  assert.deepEqual(auto.layout, { direction: 'col', gap: 0 });
+  assert.deepEqual(auto.placement, { smart: false, x: 10, y: 20 });
+  assert.deepEqual(auto.stages, {
+    componentConversion: true, resizeProbe: 180, verification: true,
+  });
+  assert.deepEqual(auto.assets, {
+    localPaths: ['assets/photo.png'], remoteCount: 1, embeddedCount: 0,
+  });
+  assert.deepEqual(
+    semanticCompoundRenderRequestFromArgv(semanticCompoundRenderArgvFromRequest(auto)),
+    auto,
+  );
+
+  const explicit = semanticCompoundRenderRequestFromArgv([
+    'render-batch', JSON.stringify(auto.roots), ...autoArgv.slice(2),
+  ]);
+  assert.equal(explicit.source, 'explicit-batch');
+  assert.deepEqual(explicit.roots, auto.roots);
+  assert.deepEqual(explicit.layout, auto.layout);
+  assert.deepEqual(explicit.placement, auto.placement);
+  assert.deepEqual(explicit.stages, auto.stages);
+  assert.deepEqual(explicit.assets, auto.assets);
+
+  const wrapperOptOut = '<Frame flex="row"><Frame name="Card 1"/><Frame name="Card 2"/></Frame>';
+  assert.deepEqual(semanticRenderArgvRoute(['render', wrapperOptOut, '--keep-wrapper']), {
+    kind: 'simple', reason: null,
+  });
+  for (const malformed of [
+    ['render-batch', '[]'],
+    ['render-batch', '{}'],
+    ['render-batch', '["<Frame/>"]', '--direction=diagonal'],
+    ['render-batch', '["<Frame/>"]', '--gap=-1'],
+    ['render-batch', '["<Frame/>"]', '--verify', '--verify'],
+    ['render', SIMPLE_JSX, '--gap=20'],
+  ]) {
+    assert.equal(acceptsSemanticRenderArgv(malformed), false, malformed.join(' '));
+    assert.equal(planFigmaCommand(malformed).allowed, false, malformed.join(' '));
+  }
+});
+
+test('compound assets and verification are explicit Command Plan effects', (t) => {
+  const { root, io } = workspace(t);
+  mkdirSync(join(root, 'assets'));
+  mkdirSync(join(root, 'icons'));
+  writeFileSync(join(root, 'assets', 'photo.png'), Buffer.from([0, 1, 2, 3]));
+  writeFileSync(join(root, 'icons', 'check.svg'), '<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>');
+  writeFileSync(join(root, 'icons', '__proto__.svg'), '<svg viewBox="0 0 1 1"><path d="M1 1"/></svg>');
+  const wrapper = '<Frame flex="row"><Frame name="Card 1"><Image src={assets/photo.png}/></Frame><Frame name="Card 2"><Image src="https://images.example/card.png"/></Frame></Frame>';
+  const argv = ['render', wrapper, '--icons=icons', '--verify'];
+  const options = { workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A' };
+  const mcp = planFigmaCommand(argv, { ...options, adapter: 'mcp' });
+  const cli = planFigmaCommand(argv, { ...options, adapter: 'cli' });
+  assert.equal(semanticRenderPlanRoute(mcp), 'compound-command-application');
+  assert.deepEqual(mcp.effects, {
+    figma: 'write', workspace: 'read', network: 'read', shared: 'write',
+  });
+  const { adapter: mcpAdapter, ...mcpPlan } = mcp;
+  const { adapter: cliAdapter, ...cliPlan } = cli;
+  assert.equal(mcpAdapter, 'mcp');
+  assert.equal(cliAdapter, 'cli');
+  assert.deepEqual(cliPlan, mcpPlan);
+  const prepared = prepareCompoundSemanticRenderPlan(mcp, { workspaceIO: io });
+  assert.equal(prepared.preparedAssets.localImages, 1);
+  assert.equal(prepared.preparedAssets.remoteImages, 1);
+  assert.equal(prepared.preparedAssets.iconDirectory, 1);
+  assert.match(prepared.jsxRoots[0], /src="imgref:img0"/);
+  assert.doesNotMatch(prepared.jsxRoots[0], /assets\/photo\.png/);
+  assert.equal(Object.getPrototypeOf(prepared.client.customIcons), null);
+  assert.equal(Object.hasOwn(prepared.client.customIcons, '__proto__'), true);
 });
 
 test('CLI and MCP use one authentic canonical Semantic Render Command Plan', (t) => {
@@ -261,6 +376,220 @@ test('CLI and MCP use one authentic canonical Semantic Render Command Plan', (t)
     kind: 'compatibility', reason: 'image-resolution',
   });
   assert.ok(terminatedImage.argv.indexOf('--manifest') < terminatedImage.argv.indexOf('--'));
+});
+
+test('compound native rendering dispatches one journaled batch and returns one bounded Outcome', async (t) => {
+  const roots = [
+    '<Frame name="Card 1"><Text>One</Text></Frame>',
+    '<Frame name="Card 2"><Text>Two</Text></Frame>',
+  ];
+  const { plan, io } = compoundPlan(t, ['render-batch', JSON.stringify(roots), '--gap=0', '--direction=col']);
+  let nativeCalls = 0;
+  let evalCalls = 0;
+  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async (plans, options) => {
+      nativeCalls++;
+      assert.equal(plans.length, 2);
+      assert.deepEqual(options, { gap: 0, vertical: true, smart: true, x: null, y: null });
+      return nativeBatchResult(2);
+    },
+    evaluate: async () => { evalCalls++; throw new Error('must not evaluate'); },
+  });
+  assert.equal(nativeCalls, 1);
+  assert.equal(evalCalls, 0);
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(outcome.roots.map((root) => root.handle), ['10:20', '11:21']);
+  assert.deepEqual(outcome.executor, { kind: 'structured-batch', version: 1 });
+  assert.equal(outcome.mutation.outcome, 'completed');
+  assert.deepEqual(outcome.stages.map(({ kind, status }) => ({ kind, status })), [
+    { kind: 'asset-preparation', status: 'skipped' },
+    { kind: 'render', status: 'completed' },
+    { kind: 'placement', status: 'completed' },
+    { kind: 'structural-gate', status: 'completed' },
+    { kind: 'component-conversion', status: 'skipped' },
+    { kind: 'resize-probe', status: 'skipped' },
+    { kind: 'verification', status: 'skipped' },
+  ]);
+  assert.equal(semanticRenderOutcomeCode(outcome), 0);
+  assert.match(formatSemanticRenderResult(outcome), /2 roots created/);
+});
+
+test('compound follow-up stages preserve position, final handles and verification artifacts', async (t) => {
+  const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
+  const { plan, io } = compoundPlan(t, [
+    'render-batch', JSON.stringify(roots), '--gap=0', '--direction=col', '-x10', '-y20',
+    '--no-smart-position', '--as-component', '--resize-probe=120', '--verify',
+  ]);
+  const evaluations = [];
+  const written = [];
+  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async (_plans, options) => {
+      assert.deepEqual(options, { gap: 0, vertical: true, smart: false, x: 10, y: 20 });
+      return nativeBatchResult(2);
+    },
+    evaluate: async (code) => {
+      evaluations.push(code);
+      if (code.includes('createComponentFromNode')) {
+        return {
+          version: 1,
+          components: [
+            { sourceId: '10:20', id: '30:40', name: 'Card 1' },
+            { sourceId: '11:21', id: '31:41', name: 'Card 2' },
+          ],
+          failed: null,
+        };
+      }
+      const handle = code.includes('30:40') ? '30:40' : '31:41';
+      if (code.includes('exportAsync')) {
+        return { version: 1, failed: false, id: handle, width: 100, height: 80, base64: 'AA==' };
+      }
+      return { version: 1, passed: true, root: { id: handle }, summary: {} };
+    },
+    writeVerification: async ({ handle, base64 }) => {
+      assert.equal(base64, 'AA==');
+      const path = `/tmp/verify-${handle.replace(':', '-')}.png`;
+      written.push(path);
+      return path;
+    },
+  });
+  assert.equal(evaluations.length, 5, 'one conversion + two probes + two screenshots');
+  assert.deepEqual(outcome.roots.map((root) => root.handle), ['30:40', '31:41']);
+  assert.deepEqual(written, ['/tmp/verify-30-40.png', '/tmp/verify-31-41.png']);
+  assert.equal(outcome.stages.find((stage) => stage.kind === 'component-conversion').status, 'completed');
+  assert.equal(outcome.stages.find((stage) => stage.kind === 'resize-probe').status, 'completed');
+  assert.deepEqual(outcome.stages.find((stage) => stage.kind === 'verification').artifacts, written);
+});
+
+test('partial component conversion fails nonzero with exact known handles and no retry', async (t) => {
+  const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
+  const { plan, io } = compoundPlan(t, [
+    'render-batch', JSON.stringify(roots), '--as-component',
+  ]);
+  let nativeCalls = 0;
+  let evalCalls = 0;
+  await assert.rejects(() => executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => { nativeCalls++; return nativeBatchResult(2); },
+    evaluate: async () => {
+      evalCalls++;
+      return {
+        version: 1,
+        components: [{ sourceId: '10:20', id: '30:40', name: 'Card 1' }],
+        failed: { index: 1 },
+      };
+    },
+  }), (error) => {
+    const outcome = error.semanticRenderOutcome;
+    assert.equal(outcome.status, 'failed');
+    assert.deepEqual(outcome.roots.map((root) => root.handle), ['30:40', '11:21']);
+    assert.equal(outcome.mutation.outcome, 'completed');
+    assert.deepEqual(outcome.stages.at(-1), {
+      kind: 'component-conversion', status: 'failed', attempted: 2,
+      completed: 1, failed: 1, handles: ['30:40'], artifacts: [],
+    });
+    assert.throws(() => semanticRenderOutcomeCode(outcome), /has no accepted process code/);
+    return true;
+  });
+  assert.equal(nativeCalls, 1);
+  assert.equal(evalCalls, 1);
+});
+
+test('compound component conversion rejects oversized follow-up evidence without retry', async (t) => {
+  const { plan, io } = compoundPlan(t, [
+    'render-batch', JSON.stringify(['<Frame name="Card"/>']), '--as-component',
+  ]);
+  let nativeCalls = 0;
+  await assert.rejects(() => executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => { nativeCalls++; return nativeBatchResult(1); },
+    evaluate: async () => ({
+      version: 1,
+      components: [{ sourceId: '10:20', id: '30:40', name: 'x'.repeat(129 * 1024) }],
+      failed: null,
+    }),
+  }), (error) => error.kind === 'plugin-result'
+    && error.semanticRenderOutcome?.status === 'failed'
+    && error.semanticRenderOutcome?.stages.at(-1).kind === 'component-conversion');
+  assert.equal(nativeCalls, 1);
+});
+
+test('compound resize findings produce accepted code 1 while malformed batch results fail unknown', async (t) => {
+  const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
+  const finding = compoundPlan(t, [
+    'render-batch', JSON.stringify(roots), '--resize-probe=120',
+  ]);
+  const outcome = await executeCompoundSemanticRenderPlan(finding.plan, {
+    workspaceIO: finding.io,
+    renderPlanBatch: async () => nativeBatchResult(2),
+    evaluate: async (code) => ({
+      version: 1, passed: !code.includes('10:20'),
+      root: { id: code.includes('10:20') ? '10:20' : '11:21' }, summary: {},
+    }),
+  });
+  assert.equal(outcome.status, 'completed-with-findings');
+  assert.equal(outcome.stages.find((stage) => stage.kind === 'resize-probe').status, 'completed-with-findings');
+  assert.equal(semanticRenderOutcomeCode(outcome), 1);
+
+  const malformed = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
+  let evalCalls = 0;
+  await assert.rejects(() => executeCompoundSemanticRenderPlan(malformed.plan, {
+    workspaceIO: malformed.io,
+    renderPlanBatch: async () => nativeBatchResult(1),
+    evaluate: async () => { evalCalls++; return []; },
+  }), (error) => error.kind === 'plugin-result'
+    && error.semanticRenderOutcome?.status === 'failed'
+    && error.semanticRenderOutcome?.roots.length === 0
+    && error.semanticRenderOutcome?.stages.at(-1).kind === 'render');
+  assert.equal(evalCalls, 0, 'a malformed post-dispatch batch must never redispatch');
+});
+
+test('compound structural findings are an explicit accepted stage', async (t) => {
+  const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
+  const { plan, io } = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
+  const raw = nativeBatchResult(2);
+  raw.frames[0].structuralReport = {
+    version: 1,
+    passed: false,
+    summary: {
+      nodes: 1, grids: 0, autoLayouts: 0, freeLayouts: 1,
+      instances: 0, absoluteNodes: 0,
+    },
+    mismatchCount: 1,
+    mismatches: [{
+      path: 'root', fact: 'layout', expected: 'auto-layout', actual: 'free-layout',
+    }],
+  };
+  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => raw,
+    evaluate: async () => [],
+  });
+  assert.equal(outcome.status, 'completed-with-findings');
+  assert.equal(outcome.stages.find((stage) => stage.kind === 'structural-gate').status, 'completed-with-findings');
+  assert.equal(semanticRenderOutcomeCode(outcome), 1);
+});
+
+test('compound generated compatibility is chosen only from proven pre-dispatch capability failure', async (t) => {
+  const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
+  const { plan, io } = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
+  let nativeCalls = 0;
+  let evalCalls = 0;
+  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => { nativeCalls++; throw redispatchableCapabilityError(); },
+    evaluate: async (code) => {
+      evalCalls++;
+      assert.match(code, /const results = \[\]/);
+      return [{ id: '50:60', name: 'Card 1' }, { id: '51:61', name: 'Card 2' }];
+    },
+  });
+  assert.equal(nativeCalls, 1);
+  assert.equal(evalCalls, 1);
+  assert.deepEqual(outcome.executor, { kind: 'generated-eval-batch-compatibility', version: 1 });
+  assert.deepEqual(outcome.roots.map((root) => root.handle), ['50:60', '51:61']);
+  assert.equal(outcome.stages.find((stage) => stage.kind === 'structural-gate').status, 'skipped');
 });
 
 test('the native Semantic Render executor is dispatched exactly once without generated eval', async (t) => {

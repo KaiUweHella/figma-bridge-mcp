@@ -593,6 +593,21 @@ export async function renderFigmaPlan(plan, {
   });
 }
 
+/** Execute one validated compound Semantic Render request through the native
+ * journaled Plugin batch action. */
+export async function renderFigmaPlans(plans, batchOptions = {}, {
+  target,
+  fileKey,
+  expectedEditor,
+  timeoutMs = LONG_EXEC_TIMEOUT_MS,
+} = {}) {
+  return daemonClient().renderPlanBatch(plans, batchOptions, {
+    fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    expectedEditor,
+    timeoutMs,
+  });
+}
+
 const designCaptureModule = createDesignCaptureModule({
   maxEntries: Number(process.env.DESIGN_CAPTURE_CACHE_ENTRIES) || 8,
   maxBytes: Number(process.env.DESIGN_CAPTURE_CACHE_BYTES) || 8 * 1024 * 1024,

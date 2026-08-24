@@ -2570,7 +2570,18 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
       'Structured batch preflight failed',
     );
   }
-  const gap = structuredNumber(options.gap, 40);
+  if (!options || typeof options !== 'object' || Array.isArray(options)
+    || Object.keys(options).some((key) => !['gap', 'vertical', 'smart', 'x', 'y'].includes(key))) {
+    throw structuredExecutionError(
+      new Error('Structured batch options are invalid'),
+      await journal.rollback(),
+      'Structured batch preflight failed',
+    );
+  }
+  const batchOptions = /** @type {{
+    gap?: unknown, vertical?: unknown, smart?: unknown, x?: unknown, y?: unknown,
+  }} */ (options);
+  const gap = structuredNumber(batchOptions.gap, 40);
   if (gap < 0 || gap > 10000) {
     throw structuredExecutionError(
       new Error('Structured batch gap must be between 0 and 10000'),
@@ -2578,7 +2589,18 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
       'Structured batch preflight failed',
     );
   }
-  const vertical = options.vertical === true;
+  const vertical = batchOptions.vertical === true;
+  const smart = batchOptions.smart !== false;
+  const explicitX = batchOptions.x === null || batchOptions.x === undefined ? null : Number(batchOptions.x);
+  const explicitY = batchOptions.y === null || batchOptions.y === undefined ? null : Number(batchOptions.y);
+  if ((explicitX !== null && !Number.isFinite(explicitX))
+    || (explicitY !== null && !Number.isFinite(explicitY))) {
+    throw structuredExecutionError(
+      new Error('Structured batch position must be finite'),
+      await journal.rollback(),
+      'Structured batch preflight failed',
+    );
+  }
   const positionedPlans = plans.map((plan) => JSON.parse(JSON.stringify(plan)));
   let componentContexts;
   try {
@@ -2588,8 +2610,10 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
   }
 
   const existing = [...figmaApi.currentPage.children];
-  let x = existing.reduce((right, node) => Math.max(right, structuredNumber(node.x) + structuredNumber(node.width)), 0) + (existing.length ? 100 : 0);
-  let y = 100;
+  let x = explicitX ?? (smart
+    ? existing.reduce((right, node) => Math.max(right, structuredNumber(node.x) + structuredNumber(node.width)), 0) + (existing.length ? 100 : 0)
+    : 0);
+  let y = explicitY ?? 100;
   const frames = [];
   const createdVariables = new Set();
   const scopeQuestions = [];
@@ -2809,10 +2833,8 @@ figma.ui.onmessage = async (msg) => {
           timeoutPosted || execution.timedOut ? 'execution-timeout' : null,
         );
       } catch (error) {
-        const result = structuredRenderFailureResult(error, 'structured-v1');
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
-          ...(result ? { result } : {}),
           metadata: revisionMetadata(revisionBefore),
         });
         postLaneSettled(msg, 'failed', 'execution-error');
@@ -2843,7 +2865,7 @@ figma.ui.onmessage = async (msg) => {
         });
         postLaneSettled(msg, 'completed');
       } catch (error) {
-        const result = structuredRenderFailureResult(error, 'structured-batch-v1');
+        const result = structuredRenderFailureResult(error, 'structured-v1');
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
           ...(result ? { result } : {}),
@@ -2877,8 +2899,10 @@ figma.ui.onmessage = async (msg) => {
         });
         postLaneSettled(msg, 'completed');
       } catch (error) {
+        const result = structuredRenderFailureResult(error, 'structured-batch-v1');
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
+          ...(result ? { result } : {}),
           metadata: revisionMetadata(revisionBefore),
         });
         postLaneSettled(msg, 'failed', 'execution-error');

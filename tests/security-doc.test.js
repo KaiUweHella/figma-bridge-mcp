@@ -207,7 +207,7 @@ const EVIDENCE = Object.freeze([
       ],
       [
         "tests/mcp-layer.test.js",
-        "figma_run and figma_render share one non-retrying Semantic Render Application",
+        "figma_run and figma_render share simple and compound non-retrying Semantic Render Applications",
       ],
       [
         "tests/command-application.test.js",

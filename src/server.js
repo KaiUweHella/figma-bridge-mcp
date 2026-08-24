@@ -11,10 +11,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, renderFigmaPlan, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
+import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
   listFigmaCapabilities,
@@ -61,14 +61,17 @@ import {
   nodeTextPlanRoute,
 } from "../engine/src/application/node-text-command.js";
 import {
+  executePreparedCompoundSemanticRender,
   executePreparedSemanticRender,
   formatSemanticRenderResult,
+  prepareCompoundSemanticRenderPlan,
   prepareSemanticRenderPlan,
   semanticRenderArgvFromRequest,
   semanticRenderOutcomeCode,
   semanticRenderPlanRoute,
 } from "../engine/src/application/semantic-render-command.js";
 import {
+  MAX_COMPOUND_RENDER_ROOTS,
   MAX_SEMANTIC_RENDER_LIST_ITEMS,
   SEMANTIC_RENDER_DEVICE_PRESETS,
   semanticRenderArgvRoute,
@@ -221,7 +224,6 @@ export const TOOLS = [
         },
         label: {
           type: "string",
-          description: "Optional intent stored only as non-reversible audit metadata.",
         },
         fileKey: {
           type: "string",
@@ -238,33 +240,43 @@ export const TOOLS = [
   },
   {
     name: "figma_render",
-    description: "Render JSX into the open Figma design.",
+    description: "Render one JSX value or a mutually exclusive roots[] batch into the open Figma design.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
     inputSchema: {
       type: "object",
       properties: {
-        jsx: { type: "string", description: "JSX." },
-        keepWrapper: { type: "boolean", description: "Preserve the outer Frame." },
-        collection: { type: "string", minLength: 1, description: "Variable collection." },
+        jsx: { type: "string" },
+        roots: {
+          type: "array", minItems: 1, maxItems: MAX_COMPOUND_RENDER_ROOTS,
+          items: { type: "string", minLength: 1 },
+        },
+        keepWrapper: { type: "boolean" },
+        gap: { type: "number", minimum: 0, maximum: 10000 },
+        direction: { type: "string", enum: ["row", "col"] },
+        x: { type: "number" },
+        y: { type: "number" },
+        smartPosition: { type: "boolean" },
+        asComponent: { type: "boolean" },
+        verify: { type: "boolean" },
+        resizeProbe: { type: "number", minimum: 1, maximum: 2000 },
+        collection: { type: "string", minLength: 1 },
         preset: {
           type: "string",
           enum: Object.keys(SEMANTIC_RENDER_DEVICE_PRESETS),
-          description: "Root size if JSX omits w/h.",
         },
-        manifest: { type: "string", minLength: 1, description: "Registry path." },
+        manifest: { type: "string", minLength: 1 },
+        icons: { type: "string", minLength: 1 },
         approvedFallbacks: {
           type: "array",
           maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
           items: { type: "string", minLength: 1 },
-          description: "Approved fallback kinds/paths.",
         },
         allowedFreePaths: {
           type: "array",
           maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
           items: { type: "string", minLength: 1 },
-          description: "Approved free-layout paths.",
         },
         confirm: {
           type: "boolean",
@@ -276,7 +288,6 @@ export const TOOLS = [
         },
         fileKey: { type: "string", description: "Figma key/URL." },
       },
-      required: ["jsx"],
       additionalProperties: false,
     },
   },
@@ -1200,29 +1211,42 @@ async function runAssetExport(plan, label, { force = false } = {}) {
 
 async function runSemanticRenderApplication(plan, label, prepared) {
   let outcome = null;
+  let verificationDirectory = null;
+  const compound = semanticRenderPlanRoute(plan) === "compound-command-application";
   const res = await runInProcessCommandPlan(plan, {
     label,
     compatibilityFallback: false,
   }, async ({ fileKey, expectedEditor, deadline }) => {
     const remainingMs = () => Math.max(1, deadline - Date.now());
     await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
-    outcome = await executePreparedSemanticRender(prepared, {
+    const evaluate = (code) => evaluateFigma(code, {
+      fileKey,
+      expectedEditor,
+      timeoutMs: remainingMs(),
+    });
+    const adapters = {
       renderPlan: (renderPlan) => renderFigmaPlan(renderPlan, {
         fileKey,
         expectedEditor,
         timeoutMs: remainingMs(),
       }),
-      evaluate: (code) => evaluateFigma(code, {
+      renderPlanBatch: (renderPlans, options) => renderFigmaPlans(renderPlans, options, {
         fileKey,
         expectedEditor,
         timeoutMs: remainingMs(),
       }),
-      inspectInventory: (code) => evaluateFigma(code, {
-        fileKey,
-        expectedEditor,
-        timeoutMs: remainingMs(),
-      }),
-    });
+      evaluate,
+      inspectInventory: evaluate,
+      writeVerification: async ({ handle, base64 }) => {
+        verificationDirectory ||= mkdtempSync(join(tmpdir(), "figma-bridge-verify-"));
+        const savePath = join(verificationDirectory, `root-${String(handle).replace(/:/g, "-")}.png`);
+        writeFileSync(savePath, Buffer.from(base64, "base64"));
+        return savePath;
+      },
+    };
+    outcome = compound
+      ? await executePreparedCompoundSemanticRender(prepared, adapters)
+      : await executePreparedSemanticRender(prepared, adapters);
     return {
       stdout: formatSemanticRenderResult(outcome),
       stderr: "",
@@ -1334,13 +1358,20 @@ export function unknownParamError(toolName, input, tools = TOOLS) {
 }
 
 function semanticRenderToolArgv(input) {
-  if (typeof input.jsx !== "string" || input.jsx.length === 0) {
-    throw new Error("jsx must be a non-empty string.");
+  const hasJsx = typeof input.jsx === "string" && input.jsx.length > 0;
+  const hasRoots = Array.isArray(input.roots);
+  if (hasJsx === hasRoots) {
+    throw new Error("Pass exactly one of jsx or roots.");
+  }
+  if (hasRoots && (input.roots.length < 1 || input.roots.length > MAX_COMPOUND_RENDER_ROOTS
+    || input.roots.some((root) => typeof root !== "string" || root.length === 0))) {
+    throw new Error(`roots must contain 1 to ${MAX_COMPOUND_RENDER_ROOTS} non-empty JSX strings.`);
   }
   if (input.keepWrapper !== undefined && typeof input.keepWrapper !== "boolean") {
     throw new Error("keepWrapper must be a boolean.");
   }
-  for (const key of ["collection", "preset", "manifest"]) {
+  if (hasRoots && input.keepWrapper !== undefined) throw new Error("keepWrapper is available only with jsx.");
+  for (const key of ["collection", "preset", "manifest", "icons"]) {
     if (input[key] !== undefined && (typeof input[key] !== "string" || input[key].length === 0)) {
       throw new Error(`${key} must be a non-empty string.`);
     }
@@ -1352,15 +1383,35 @@ function semanticRenderToolArgv(input) {
       throw new Error(`${key} must contain at most ${MAX_SEMANTIC_RENDER_LIST_ITEMS} non-empty strings.`);
     }
   }
-  const args = ["render"];
+  for (const key of ["smartPosition", "asComponent", "verify"]) {
+    if (input[key] !== undefined && typeof input[key] !== "boolean") throw new Error(`${key} must be a boolean.`);
+  }
+  for (const key of ["gap", "x", "y", "resizeProbe"]) {
+    if (input[key] !== undefined && (typeof input[key] !== "number" || !Number.isFinite(input[key]))) {
+      throw new Error(`${key} must be a finite number.`);
+    }
+  }
+  if (input.direction !== undefined && !["row", "col"].includes(input.direction)) {
+    throw new Error("direction must be row or col.");
+  }
+  const args = hasRoots ? ["render-batch", JSON.stringify(input.roots)] : ["render"];
   if (input.keepWrapper === true) args.push("--keep-wrapper");
+  if (input.gap !== undefined) args.push(`--gap=${input.gap}`);
+  if (input.direction !== undefined) args.push(`--direction=${input.direction}`);
+  if (input.x !== undefined) args.push(`-x${input.x}`);
+  if (input.y !== undefined) args.push(`-y${input.y}`);
+  if (input.smartPosition === false) args.push("--no-smart-position");
+  if (input.asComponent === true) args.push("--as-component");
+  if (input.verify === true) args.push("--verify");
+  if (input.resizeProbe !== undefined) args.push(`--resize-probe=${input.resizeProbe}`);
   if (input.collection !== undefined) args.push(`--collection=${input.collection}`);
   if (input.preset !== undefined) args.push(`--preset=${input.preset}`);
   if (input.manifest !== undefined) args.push(`--manifest=${input.manifest}`);
+  if (input.icons !== undefined) args.push(`--icons=${input.icons}`);
   if (input.approvedFallbacks?.length) args.push(`--approve-fallback=${input.approvedFallbacks.join(",")}`);
   if (input.allowedFreePaths?.length) args.push(`--allow-free-layout=${input.allowedFreePaths.join(",")}`);
   // Typed JSX is always data, even when it happens to equal a CLI flag.
-  args.push("--", input.jsx);
+  if (hasJsx) args.push("--", input.jsx);
   const route = semanticRenderArgvRoute(args);
   return route.kind === "simple"
     ? semanticRenderArgvFromRequest(semanticRenderRequestFromArgv(args))
@@ -1587,10 +1638,14 @@ export async function handleTool(name, rawArgs) {
         return errorResult("force is only available for tracked Asset Export commands.");
       }
       const semanticRenderRoute = semanticRenderPlanRoute(plan);
+      const semanticRenderApplication = semanticRenderRoute === "command-application"
+        || semanticRenderRoute === "compound-command-application";
       let preparedSemanticRender = null;
-      if (semanticRenderRoute === "command-application") {
+      if (semanticRenderApplication) {
         try {
-          preparedSemanticRender = prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+          preparedSemanticRender = semanticRenderRoute === "compound-command-application"
+            ? prepareCompoundSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO })
+            : prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
         } catch (error) {
           return errorResult(error?.message || String(error));
         }
@@ -1661,7 +1716,7 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
-      if (semanticRenderRoute === "command-application") {
+      if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, preparedSemanticRender);
       }
       const res = await runCliPlan(plan, { label: input.label });
@@ -1689,10 +1744,14 @@ export async function handleTool(name, rawArgs) {
       });
       if (!plan.allowed) return errorResult("Invalid Semantic Render request.");
       const route = semanticRenderPlanRoute(plan);
+      const semanticRenderApplication = route === "command-application"
+        || route === "compound-command-application";
       let prepared = null;
-      if (route === "command-application") {
+      if (semanticRenderApplication) {
         try {
-          prepared = prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+          prepared = route === "compound-command-application"
+            ? prepareCompoundSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO })
+            : prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
         } catch (error) {
           return errorResult(error?.message || String(error));
         }
@@ -1700,7 +1759,7 @@ export async function handleTool(name, rawArgs) {
       if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
         return previewResult(args);
       }
-      if (route === "command-application") {
+      if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, prepared);
       }
       const res = await runCliPlan(plan, { label: input.label });

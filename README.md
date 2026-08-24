@@ -1450,6 +1450,12 @@ rather than a generic API failure.
   process code project the same root, structural, resource and mutation facts;
   stacks, source payloads, file keys, credentials and arbitrary fields cannot
   enter that result.
+- **One compound-render lifecycle** — wrapper auto-split and `render-batch`
+  use the same closed request through CLI and MCP. Gap/direction, placement,
+  presets, collections, Registry links, icons, fallbacks, local assets and
+  optional conversion/resize/verification stages are retained explicitly.
+  Roots prepare before readiness, the visible render dispatches once, and
+  bounded stage evidence preserves exact known partial handles on failure.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
 - **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
   (per-request HMAC over method/path/body, keyed with the session token, nonce

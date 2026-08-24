@@ -1,9 +1,10 @@
 // Closed request Interface for the `render` command family.
 //
-// The parser distinguishes the small single-root Command Application from
-// named compatibility modes, but validates both before MCP confirmation. That
-// keeps old Render utility reachable without letting unknown flags, excess
-// positionals or option-terminator payloads change write policy.
+// The parser distinguishes simple and compound Command Applications from
+// named compatibility modes, but validates every route before MCP
+// confirmation. That keeps old Render utility reachable without letting
+// unknown flags, excess positionals or option-terminator payloads change write
+// policy.
 
 import { detectWrapperSplit } from '../lib/jsx-split.js';
 import { parseResizeProbeDelta } from '../lib/semantic-resize-probe.js';
@@ -11,6 +12,8 @@ import { parseResizeProbeDelta } from '../lib/semantic-resize-probe.js';
 export const MAX_SEMANTIC_RENDER_JSX_CODE_UNITS = 200_000;
 export const MAX_SEMANTIC_RENDER_OPTION_CODE_UNITS = 16_384;
 export const MAX_SEMANTIC_RENDER_LIST_ITEMS = 100;
+export const MAX_COMPOUND_RENDER_ROOTS = 100;
+export const MAX_COMPOUND_RENDER_JSX_CODE_UNITS = 4_000_000;
 
 export const SEMANTIC_RENDER_DEVICE_PRESETS = Object.freeze({
   'macbook-14': Object.freeze([1512, 982]),
@@ -26,6 +29,10 @@ export const SEMANTIC_RENDER_DEVICE_PRESETS = Object.freeze({
 });
 
 const OPTION_SPECS = new Map([
+  ['-g', { key: 'gap', value: 'required' }],
+  ['--gap', { key: 'gap', value: 'required' }],
+  ['-d', { key: 'direction', value: 'required' }],
+  ['--direction', { key: 'direction', value: 'required' }],
   ['-x', { key: 'x', value: 'required', compatibility: 'post-positioning' }],
   ['-y', { key: 'y', value: 'required', compatibility: 'post-positioning' }],
   ['--no-smart-position', { key: 'noSmartPosition', value: 'none', compatibility: 'post-positioning' }],
@@ -41,6 +48,28 @@ const OPTION_SPECS = new Map([
   ['--print-browser-capture', { key: 'printBrowserCapture', value: 'optional', compatibility: 'browser-capture-expression' }],
   ['--structural-gate', { key: 'structuralGate', value: 'none', compatibility: 'structural-gate' }],
   ['--resize-probe', { key: 'resizeProbe', value: 'optional', compatibility: 'resize-probe' }],
+  ['--approve-fallback', { key: 'approveFallback', value: 'required' }],
+  ['--allow-free-layout', { key: 'allowFreeLayout', value: 'required' }],
+  ['--help', { key: 'help', value: 'none' }],
+  ['-h', { key: 'help', value: 'none' }],
+]);
+
+const BATCH_OPTION_SPECS = new Map([
+  ['-g', { key: 'gap', value: 'required' }],
+  ['--gap', { key: 'gap', value: 'required' }],
+  ['-d', { key: 'direction', value: 'required' }],
+  ['--direction', { key: 'direction', value: 'required' }],
+  ['-x', { key: 'x', value: 'required' }],
+  ['-y', { key: 'y', value: 'required' }],
+  ['--no-smart-position', { key: 'noSmartPosition', value: 'none' }],
+  ['--as-component', { key: 'asComponent', value: 'none' }],
+  ['-c', { key: 'collection', value: 'required' }],
+  ['--collection', { key: 'collection', value: 'required' }],
+  ['--verify', { key: 'verify', value: 'none' }],
+  ['--preset', { key: 'preset', value: 'required' }],
+  ['--icons', { key: 'icons', value: 'required' }],
+  ['--manifest', { key: 'manifest', value: 'required' }],
+  ['--resize-probe', { key: 'resizeProbe', value: 'optional' }],
   ['--approve-fallback', { key: 'approveFallback', value: 'required' }],
   ['--allow-free-layout', { key: 'allowFreeLayout', value: 'required' }],
   ['--help', { key: 'help', value: 'none' }],
@@ -75,15 +104,41 @@ function csv(value, label) {
   return unique;
 }
 
-function localOrRemoteImageIntent(jsx) {
+function imageIntent(jsx) {
+  const localPaths = [];
+  let remoteCount = 0;
+  let embeddedCount = 0;
   const attributes = String(jsx).matchAll(/\b(?:src|image)\s*=\s*(?:"([^"]*)"|{([^}]*)})/g);
   for (const match of attributes) {
     let value = (match[1] ?? match[2] ?? '').trim();
     const nestedQuote = /^(?:"([^"]*)"|'([^']*)')$/.exec(value);
     if (nestedQuote) value = nestedQuote[1] ?? nestedQuote[2];
-    if (/^(?:https?:|imgref:|data:)/i.test(value) || IMAGE_EXT.test(value)) return true;
+    if (/^https?:/i.test(value)) remoteCount++;
+    else if (/^(?:imgref:|data:)/i.test(value)) embeddedCount++;
+    else if (IMAGE_EXT.test(value)) localPaths.push(value);
   }
-  return false;
+  return Object.freeze({
+    localPaths: Object.freeze([...new Set(localPaths)]),
+    remoteCount,
+    embeddedCount,
+  });
+}
+
+function combinedImageIntent(roots) {
+  const localPaths = new Set();
+  let remoteCount = 0;
+  let embeddedCount = 0;
+  for (const root of roots) {
+    const intent = imageIntent(root);
+    for (const path of intent.localPaths) localPaths.add(path);
+    remoteCount += intent.remoteCount;
+    embeddedCount += intent.embeddedCount;
+  }
+  return Object.freeze({
+    localPaths: Object.freeze([...localPaths]),
+    remoteCount,
+    embeddedCount,
+  });
 }
 
 function normalizedOptionToken(token) {
@@ -93,11 +148,83 @@ function normalizedOptionToken(token) {
     return { name: combined[1], inlineValue: combined[2] };
   }
   // Commander accepts attached values for these short value flags.
-  const short = /^(-[xyc])(.+)$/.exec(token);
+  const short = /^(-[gdxyc])(.+)$/.exec(token);
   if (short && OPTION_SPECS.has(short[1])) {
     return { name: short[1], inlineValue: short[2] };
   }
   return null;
+}
+
+function normalizedBatchOptionToken(token) {
+  if (BATCH_OPTION_SPECS.has(token)) return { name: token, inlineValue: null };
+  const combined = /^(--[a-z][a-z-]*)=(.*)$/i.exec(token);
+  if (combined && BATCH_OPTION_SPECS.has(combined[1])) {
+    return { name: combined[1], inlineValue: combined[2] };
+  }
+  const short = /^(-[gdxyc])(.+)$/.exec(token);
+  if (short && BATCH_OPTION_SPECS.has(short[1])) {
+    return { name: short[1], inlineValue: short[2] };
+  }
+  return null;
+}
+
+function finiteOption(value, label, { min = -1_000_000, max = 1_000_000 } = {}) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) {
+    throw requestError(`${label} must be a finite number from ${min} to ${max}`);
+  }
+  return number;
+}
+
+function normalizeDirection(value) {
+  const direction = String(value || 'row').toLowerCase();
+  if (['row', 'horizontal'].includes(direction)) return 'row';
+  if (['col', 'column', 'vertical'].includes(direction)) return 'col';
+  throw requestError('--direction must be row or col');
+}
+
+function compoundRequest({ source, roots, sourceJsx = null, direction, values }) {
+  const total = roots.reduce((sum, root) => sum + root.length, 0);
+  if (!roots.length) throw requestError('compound render needs at least one JSX root');
+  if (roots.length > MAX_COMPOUND_RENDER_ROOTS) {
+    throw requestError(`compound render accepts at most ${MAX_COMPOUND_RENDER_ROOTS} roots`);
+  }
+  if (roots.some((root) => typeof root !== 'string' || root.length === 0
+    || root.length > MAX_SEMANTIC_RENDER_JSX_CODE_UNITS)) {
+    throw requestError(`every compound JSX root must contain 1 to ${MAX_SEMANTIC_RENDER_JSX_CODE_UNITS} code units`);
+  }
+  if (total > MAX_COMPOUND_RENDER_JSX_CODE_UNITS) {
+    throw requestError(`compound JSX must be at most ${MAX_COMPOUND_RENDER_JSX_CODE_UNITS} code units in total`);
+  }
+  const gap = finiteOption(values.gap ?? 40, '--gap', { min: 0, max: 10_000 });
+  const x = values.x === undefined ? null : finiteOption(values.x, '-x');
+  const y = values.y === undefined ? null : finiteOption(values.y, '-y');
+  const resizeDelta = values.resizeProbe === undefined
+    ? null
+    : parseResizeProbeDelta(values.resizeProbe);
+  return Object.freeze({
+    source,
+    sourceJsx,
+    roots: Object.freeze([...roots]),
+    layout: Object.freeze({ direction: normalizeDirection(direction), gap }),
+    placement: Object.freeze({
+      smart: values.noSmartPosition !== true,
+      x,
+      y,
+    }),
+    collection: values.collection || null,
+    preset: values.preset || null,
+    icons: values.icons || null,
+    manifest: values.manifest || null,
+    approvedFallbacks: Object.freeze(values.approveFallback || []),
+    allowedFreePaths: Object.freeze(values.allowFreeLayout || []),
+    stages: Object.freeze({
+      componentConversion: values.asComponent === true,
+      resizeProbe: resizeDelta,
+      verification: values.verify === true,
+    }),
+    assets: combinedImageIntent(roots),
+  });
 }
 
 function inspectRenderArgv(args) {
@@ -141,7 +268,7 @@ function inspectRenderArgv(args) {
     let value = normalized.inlineValue;
     if (value === null) {
       const next = args[index + 1];
-      const numericFlagValue = (spec.key === 'x' || spec.key === 'y')
+      const numericFlagValue = (spec.key === 'gap' || spec.key === 'x' || spec.key === 'y')
         && typeof next === 'string' && Number.isFinite(Number(next));
       const mayConsume = typeof next === 'string'
         && next !== '--'
@@ -203,13 +330,25 @@ function inspectRenderArgv(args) {
   if (values.domCapture !== undefined) {
     return Object.freeze({ kind: 'compatibility', reason: 'dom-capture', mutatesDesign: true, target: 'figma', values, jsx: jsx ?? null });
   }
+  const split = !values.keepWrapper ? detectWrapperSplit(jsx) : null;
+  if (split) {
+    const request = compoundRequest({
+      source: 'auto-split', roots: split.children, sourceJsx: jsx,
+      direction: values.direction || split.direction, values,
+    });
+    return Object.freeze({
+      kind: 'compound', reason: 'auto-split', mutatesDesign: true,
+      target: 'figma', values, jsx, request,
+    });
+  }
+  if (values.gap !== undefined || values.direction !== undefined) {
+    throw requestError('--gap and --direction require an auto-split wrapper');
+  }
   if (compatibility.size) {
     return Object.freeze({ kind: 'compatibility', reason: [...compatibility][0], mutatesDesign: true, target: 'figma', values, jsx });
   }
-  if (!values.keepWrapper && detectWrapperSplit(jsx)) {
-    return Object.freeze({ kind: 'compatibility', reason: 'auto-split', mutatesDesign: true, target: 'figma', values, jsx });
-  }
-  if (localOrRemoteImageIntent(jsx)) {
+  const assets = imageIntent(jsx);
+  if (assets.localPaths.length || assets.remoteCount || assets.embeddedCount) {
     return Object.freeze({ kind: 'compatibility', reason: 'image-resolution', mutatesDesign: true, target: 'figma', values, jsx });
   }
 
@@ -232,10 +371,82 @@ function inspectRenderArgv(args) {
   });
 }
 
+function inspectRenderBatchArgv(args) {
+  if (!Array.isArray(args) || args[0] !== 'render-batch') throw new Error('Expected a render-batch command.');
+  if (args.some((value) => typeof value !== 'string')) throw new TypeError('Render arguments must be strings.');
+  const values = {};
+  const positionals = [];
+  const seen = new Set();
+  let literal = false;
+  for (let index = 1; index < args.length; index++) {
+    const token = args[index];
+    if (!literal && token === '--') { literal = true; continue; }
+    if (literal || !token.startsWith('-') || token === '-') {
+      positionals.push(token);
+      continue;
+    }
+    const normalized = normalizedBatchOptionToken(token);
+    if (!normalized) throw requestError(`unknown option ${token}`);
+    const spec = BATCH_OPTION_SPECS.get(normalized.name);
+    if (seen.has(spec.key)) throw requestError(`duplicate option ${normalized.name}`);
+    seen.add(spec.key);
+    if (spec.value === 'none') {
+      if (normalized.inlineValue !== null) throw requestError(`${normalized.name} does not take a value`);
+      values[spec.key] = true;
+      continue;
+    }
+    let value = normalized.inlineValue;
+    if (value === null) {
+      const next = args[index + 1];
+      const numeric = ['gap', 'x', 'y'].includes(spec.key)
+        && typeof next === 'string' && Number.isFinite(Number(next));
+      const mayConsume = typeof next === 'string' && next !== '--'
+        && !normalizedBatchOptionToken(next) && (!next.startsWith('-') || numeric);
+      if (mayConsume) { value = next; index++; }
+      else if (spec.value === 'optional') value = true;
+      else throw requestError(`${normalized.name} requires a value`);
+    }
+    if (value !== true) boundedOption(value, normalized.name);
+    values[spec.key] = value;
+  }
+  if (values.help) {
+    return Object.freeze({ kind: 'help', reason: null, mutatesDesign: false, target: 'none', values });
+  }
+  if (positionals.length !== 1) {
+    throw requestError(positionals.length ? `unexpected argument ${positionals[1]}` : 'render-batch needs one JSON array');
+  }
+  if (positionals[0].length > MAX_COMPOUND_RENDER_JSX_CODE_UNITS + 100_000) {
+    throw requestError('render-batch JSON exceeds the compound request limit');
+  }
+  let roots;
+  try { roots = JSON.parse(positionals[0]); }
+  catch { throw requestError('render-batch argument must be valid JSON'); }
+  if (!Array.isArray(roots)) throw requestError('render-batch argument must be a JSON array');
+  if (values.preset !== undefined && !Object.hasOwn(SEMANTIC_RENDER_DEVICE_PRESETS, values.preset)) {
+    throw requestError(`unknown preset ${values.preset}`);
+  }
+  if (values.collection !== undefined) values.collection = boundedOption(values.collection.trim(), '--collection');
+  if (values.manifest !== undefined) values.manifest = boundedOption(values.manifest, '--manifest');
+  if (values.icons !== undefined) values.icons = boundedOption(values.icons, '--icons');
+  if (values.approveFallback !== undefined) values.approveFallback = csv(values.approveFallback, '--approve-fallback');
+  if (values.allowFreeLayout !== undefined) values.allowFreeLayout = csv(values.allowFreeLayout, '--allow-free-layout');
+  const request = compoundRequest({
+    source: 'explicit-batch', roots, direction: values.direction || 'row', values,
+  });
+  return Object.freeze({
+    kind: 'compound', reason: 'explicit-batch', mutatesDesign: true,
+    target: 'figma', values, request,
+  });
+}
+
+function inspectSemanticRenderArgv(args) {
+  return args?.[0] === 'render-batch' ? inspectRenderBatchArgv(args) : inspectRenderArgv(args);
+}
+
 /** Validate all currently supported Render syntax before confirmation. */
 export function acceptsSemanticRenderArgv(args) {
   try {
-    inspectRenderArgv(args);
+    inspectSemanticRenderArgv(args);
     return true;
   } catch {
     return false;
@@ -244,7 +455,7 @@ export function acceptsSemanticRenderArgv(args) {
 
 /** Closed policy projection used by the Capability Catalog. */
 export function semanticRenderPolicyFromArgv(args) {
-  const inspected = inspectRenderArgv(args);
+  const inspected = inspectSemanticRenderArgv(args);
   const reason = 'reason' in inspected ? inspected.reason : null;
   return Object.freeze({
     kind: inspected.kind,
@@ -264,11 +475,64 @@ export function semanticRenderRequestFromArgv(args) {
   return inspected.request;
 }
 
+/** Return the typed request only for auto-split or explicit batch rendering. */
+export function semanticCompoundRenderRequestFromArgv(args) {
+  const inspected = inspectSemanticRenderArgv(args);
+  if (inspected.kind !== 'compound') {
+    const reason = 'reason' in inspected ? inspected.reason : inspected.kind;
+    throw requestError(`request belongs to the ${reason || 'simple'} Render Adapter`);
+  }
+  return inspected.request;
+}
+
+/** Asset classification is policy input, never inferred after confirmation. */
+export function semanticRenderAssetIntentFromArgv(args) {
+  const inspected = inspectSemanticRenderArgv(args);
+  if (inspected.kind === 'compound') return inspected.request.assets;
+  const jsx = 'jsx' in inspected ? inspected.jsx || '' : '';
+  return imageIntent(jsx);
+}
+
 /** Route a valid Render argv without executing or reading external state. */
 export function semanticRenderArgvRoute(args) {
-  const inspected = inspectRenderArgv(args);
+  const inspected = inspectSemanticRenderArgv(args);
   const reason = 'reason' in inspected ? inspected.reason : null;
   return Object.freeze({ kind: inspected.kind, reason: reason || null });
+}
+
+function compoundOptions(request) {
+  const options = [];
+  if (request.layout.gap !== 40) options.push(`--gap=${request.layout.gap}`);
+  if (request.source === 'auto-split' || request.layout.direction !== 'row') {
+    options.push(`--direction=${request.layout.direction}`);
+  }
+  if (request.placement.x !== null) options.push(`-x${request.placement.x}`);
+  if (request.placement.y !== null) options.push(`-y${request.placement.y}`);
+  if (!request.placement.smart) options.push('--no-smart-position');
+  if (request.stages.componentConversion) options.push('--as-component');
+  if (request.stages.verification) options.push('--verify');
+  if (request.stages.resizeProbe !== null) options.push(`--resize-probe=${request.stages.resizeProbe}`);
+  if (request.collection) options.push(`--collection=${request.collection}`);
+  if (request.preset) options.push(`--preset=${request.preset}`);
+  if (request.icons) options.push(`--icons=${request.icons}`);
+  if (request.manifest) options.push(`--manifest=${request.manifest}`);
+  if (request.approvedFallbacks.length) options.push(`--approve-fallback=${request.approvedFallbacks.join(',')}`);
+  if (request.allowedFreePaths.length) options.push(`--allow-free-layout=${request.allowedFreePaths.join(',')}`);
+  return options;
+}
+
+/** Canonical argv for both compound entry points without changing their intent source. */
+export function semanticCompoundRenderArgvFromRequest(request) {
+  if (!request || typeof request !== 'object' || !Array.isArray(request.roots)) {
+    throw new TypeError('Compound Semantic Render request must be an object.');
+  }
+  const options = compoundOptions(request);
+  const args = request.source === 'auto-split'
+    ? ['render', request.sourceJsx, ...options]
+    : ['render-batch', JSON.stringify(request.roots), ...options];
+  const inspected = inspectSemanticRenderArgv(args);
+  if (inspected.kind !== 'compound') throw requestError('typed request is not a compound render');
+  return args;
 }
 
 /** Canonical argv for equivalent typed single-root requests. */
