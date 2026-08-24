@@ -88,6 +88,10 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   stays automatic and readable in a private temporary directory, explicit
   workspace saves still work through Workspace I/O, and inline Base64 plans no
   host file. One-root Render verification now shares the compound Application.
+- Verification results now read exact `pixelWidth` and `pixelHeight` evidence
+  from the bounded PNG IHDR instead of predicting pixels from node geometry.
+  Logical `nodeWidth`/`nodeHeight` and requested/applied scale remain separate;
+  compatibility `width`/`height`/`scale` fields stay available with exact values.
 - Plugin execution now rejects stale connections, wrong files and wrong
   editors before mutation. Reconnected UI results cannot settle newer work,
   multi-window metadata stays pinned to the connection selected at dispatch,

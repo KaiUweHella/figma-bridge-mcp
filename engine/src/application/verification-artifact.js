@@ -23,8 +23,12 @@ import path from 'node:path';
 export const VERIFICATION_ARTIFACT_ROLE = 'verification-image-output';
 export const MAX_VERIFICATION_ARTIFACTS = 100;
 export const MAX_VERIFICATION_ARTIFACT_BYTES = 16 * 1024 * 1024;
+export const MAX_VERIFICATION_BASE64_CODE_UNITS = 16 * 1024 * 1024;
+export const MAX_VERIFICATION_PNG_DIMENSION = 16_384;
+export const MAX_VERIFICATION_PNG_PIXELS = 64_000_000;
 const PRIVATE_DIRECTORY_PREFIX = 'figma-bridge-verify-';
 const SAFE_NONCE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function artifactError(reason, code = 'VERIFICATION_ARTIFACT_REJECTED') {
   const error = /** @type {Error & {code:string, kind:string}} */ (
@@ -34,6 +38,43 @@ function artifactError(reason, code = 'VERIFICATION_ARTIFACT_REJECTED') {
   error.code = code;
   error.kind = 'artifact-policy';
   return error;
+}
+
+/** Parse only the bounded PNG signature and mandatory IHDR dimensions. */
+export function inspectVerificationPng(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 24
+    || bytes.length > MAX_VERIFICATION_ARTIFACT_BYTES) {
+    throw artifactError(`PNG payload must be between 24 and ${MAX_VERIFICATION_ARTIFACT_BYTES} bytes`, 'VERIFICATION_ARTIFACT_BYTE_LIMIT');
+  }
+  if (!bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    throw artifactError('invalid PNG signature');
+  }
+  if (bytes.readUInt32BE(8) !== 13 || bytes.toString('ascii', 12, 16) !== 'IHDR') {
+    throw artifactError('PNG does not begin with the mandatory IHDR chunk');
+  }
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (width < 1 || height < 1
+    || width > MAX_VERIFICATION_PNG_DIMENSION
+    || height > MAX_VERIFICATION_PNG_DIMENSION
+    || width * height > MAX_VERIFICATION_PNG_PIXELS) {
+    throw artifactError('PNG dimensions exceed the verification evidence limit', 'VERIFICATION_ARTIFACT_DIMENSION_LIMIT');
+  }
+  return Object.freeze({ width, height });
+}
+
+/** Strictly decode one bounded canonical Base64 PNG and inspect its IHDR. */
+export function decodeVerificationPngBase64(value) {
+  if (typeof value !== 'string' || !value
+    || value.length > MAX_VERIFICATION_BASE64_CODE_UNITS
+    || value.length % 4 !== 0
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw artifactError('invalid bounded Base64 PNG');
+  }
+  const bytes = Buffer.from(value, 'base64');
+  if (bytes.toString('base64') !== value) throw artifactError('non-canonical Base64 PNG');
+  const dimensions = inspectVerificationPng(bytes);
+  return Object.freeze({ bytes, ...dimensions });
 }
 
 function countValue(value) {
@@ -195,9 +236,7 @@ export function createVerificationArtifactWriter(outputs, { workspaceIO = null }
     if (!Number.isSafeInteger(index) || index < 0 || index >= planned.length) {
       throw artifactError('artifact index is outside the owning Command Plan');
     }
-    if (!Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > MAX_VERIFICATION_ARTIFACT_BYTES) {
-      throw artifactError(`PNG payload must be between 1 and ${MAX_VERIFICATION_ARTIFACT_BYTES} bytes`, 'VERIFICATION_ARTIFACT_BYTE_LIMIT');
-    }
+    inspectVerificationPng(bytes);
     const output = planned[index];
     if (created.has(output.path)) throw artifactError('artifact was already persisted');
     if (output.scope === 'workspace') {

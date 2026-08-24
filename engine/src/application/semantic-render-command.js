@@ -36,6 +36,7 @@ import {
 } from './semantic-render-request.js';
 import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
 import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
+import { decodeVerificationPngBase64 } from './verification-artifact.js';
 
 export { semanticRenderArgvFromRequest } from './semantic-render-request.js';
 export { semanticRenderOutcomeCode } from '../lib/semantic-render-outcome.js';
@@ -301,8 +302,11 @@ export function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
   return prepared;
 }
 
-function compoundStage(kind, status, attempted, completed, failed = 0, handles = [], artifacts = []) {
-  return Object.freeze({ kind, status, attempted, completed, failed, handles, artifacts });
+function compoundStage(kind, status, attempted, completed, failed = 0, handles = [], artifacts = [], verification = undefined) {
+  return Object.freeze({
+    kind, status, attempted, completed, failed, handles, artifacts,
+    ...(verification === undefined ? {} : { verification }),
+  });
 }
 
 function componentConversionCode(handles) {
@@ -328,11 +332,12 @@ function verificationCode(handle) {
     const node = await figma.getNodeByIdAsync(${JSON.stringify(handle)});
     if (!node || !('exportAsync' in node)) return { version: 1, failed: true };
     const maxDimension = Math.max(node.width || 100, node.height || 100);
-    const scale = maxDimension > 2000 ? 2000 / maxDimension : 1;
-    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
+    const requestedScale = 1;
+    const appliedScale = maxDimension > 2000 ? 2000 / maxDimension : requestedScale;
+    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: appliedScale } });
     return { version: 1, failed: false, id: node.id,
-      width: Math.round((node.width || 100) * scale),
-      height: Math.round((node.height || 100) * scale),
+      nodeWidth: node.width || 100, nodeHeight: node.height || 100,
+      requestedScale, appliedScale,
       base64: figma.base64Encode(bytes) };
   })()`;
 }
@@ -397,13 +402,24 @@ function validateResizeResult(value, handle) {
 
 function validateVerificationResult(value, handle) {
   if (!value || value.version !== 1 || value.failed !== false || value.id !== handle
-    || !Number.isSafeInteger(value.width) || value.width < 1 || value.width > 2000
-    || !Number.isSafeInteger(value.height) || value.height < 1 || value.height > 2000
-    || typeof value.base64 !== 'string' || value.base64.length > 16 * 1024 * 1024
-    || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.base64)) {
+    || !Number.isFinite(value.nodeWidth) || value.nodeWidth < 0 || value.nodeWidth > 1_000_000
+    || !Number.isFinite(value.nodeHeight) || value.nodeHeight < 0 || value.nodeHeight > 1_000_000
+    || value.requestedScale !== 1
+    || !Number.isFinite(value.appliedScale) || value.appliedScale <= 0 || value.appliedScale > 1) {
     throw stageFailure('verification', 'Verification returned invalid bounded image evidence.');
   }
-  return value;
+  try {
+    const image = decodeVerificationPngBase64(value.base64);
+    return Object.freeze({
+      ...value,
+      bytes: image.bytes,
+      width: image.width,
+      height: image.height,
+      scale: value.appliedScale,
+    });
+  } catch {
+    throw stageFailure('verification', 'Verification returned invalid bounded PNG evidence.');
+  }
 }
 
 /** Execute one prepared compound write and every requested follow-up exactly once. */
@@ -549,25 +565,38 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
 
   if (prepared.request.stages.verification) {
     const artifacts = [];
+    const verification = [];
     for (let index = 0; index < handles.length; index++) {
       try {
         const verified = validateVerificationResult(await adapters.evaluate(verificationCode(handles[index])), handles[index]);
         const artifact = await adapters.writeVerification({
-          index, handle: handles[index], width: verified.width, height: verified.height, base64: verified.base64,
+          index, handle: handles[index], width: verified.width, height: verified.height, bytes: verified.bytes,
         });
         if (typeof artifact !== 'string' || !artifact || Array.from(artifact).length > 512) {
           throw stageFailure('verification', 'Verification artifact Adapter returned an invalid path.');
         }
         artifacts.push(artifact);
+        verification.push(Object.freeze({
+          artifact,
+          width: verified.width,
+          height: verified.height,
+          pixelWidth: verified.width,
+          pixelHeight: verified.height,
+          nodeWidth: verified.nodeWidth,
+          nodeHeight: verified.nodeHeight,
+          requestedScale: verified.requestedScale,
+          appliedScale: verified.appliedScale,
+          scale: verified.scale,
+        }));
       } catch (error) {
-        stages.push(compoundStage('verification', 'failed', index + 1, index, 1, handles.slice(0, index), artifacts));
+        stages.push(compoundStage('verification', 'failed', index + 1, index, 1, handles.slice(0, index), artifacts, verification));
         const partial = projectSemanticRenderBatchOutcome(raw, {
           executor, structures: prepared.structures, notices, stages, rootHandles: handles,
         });
         throw attachFailure(error, executor, partial);
       }
     }
-    stages.push(compoundStage('verification', 'completed', handles.length, handles.length, 0, handles, artifacts));
+    stages.push(compoundStage('verification', 'completed', handles.length, handles.length, 0, handles, artifacts, verification));
   } else {
     stages.push(compoundStage('verification', 'skipped', 0, 0));
   }
@@ -727,6 +756,12 @@ export function semanticRenderResultRows(result) {
       text: `${stage.kind}: ${stage.status} — ${stage.completed}/${stage.attempted} completed${stage.failed ? `, ${stage.failed} failed` : ''}`,
     });
     if (stage.artifacts.length) rows.push({ tone: 'muted', text: `${stage.kind} artifacts: ${stage.artifacts.join(', ')}` });
+    for (const evidence of stage.verification || []) {
+      rows.push({
+        tone: 'muted',
+        text: `verification raster: ${evidence.pixelWidth}×${evidence.pixelHeight}px; node: ${evidence.nodeWidth}×${evidence.nodeHeight}; scale requested ${evidence.requestedScale}, applied ${evidence.appliedScale}`,
+      });
+    }
   }
   if (structuralReport) {
     const summary = structuralReport.summary;

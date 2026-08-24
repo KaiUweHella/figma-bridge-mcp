@@ -87,3 +87,8 @@ Base64 are distinct Plan decisions; inline mode has no file output. Every
 persisted PNG is an exact Verification Artifact in `plan.outputs` before
 readiness. Private temporary paths use a command-owned namespace, while
 workspace paths remain behind Workspace I/O.
+
+Verification evidence never derives raster dimensions from logical node
+geometry. The shared Application validates the bounded PNG signature and IHDR
+before persistence and result projection, exposing exact pixel dimensions,
+logical node dimensions and requested/applied scale as distinct facts.

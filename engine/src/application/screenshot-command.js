@@ -7,6 +7,7 @@ import { normalizeNodeId } from '../lib/node-id.js';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import {
   createVerificationArtifactWriter,
+  decodeVerificationPngBase64,
   VERIFICATION_ARTIFACT_ROLE,
 } from './verification-artifact.js';
 import {
@@ -80,8 +81,7 @@ export function screenshotCode({ nodeId, scale, maxDimension, measure }) {
       measurement = walk(node, 3);
     }
     return { name: node.name, id: node.id,
-      width: Math.round(nodeWidth * finalScale), height: Math.round(nodeHeight * finalScale),
-      scale: Math.round(finalScale * 1000) / 1000,
+      nodeWidth, nodeHeight, appliedScale: finalScale,
       base64: figma.base64Encode(bytes), measure: measurement };
   })()`;
 }
@@ -99,13 +99,22 @@ export async function executeScreenshot(request, adapters = {}) {
   if (!result || typeof result.base64 !== 'string' || !result.base64 || !result.id) {
     throw new Error('screenshot returned no image data');
   }
-  if (result.base64.length > 16 * 1024 * 1024
-    || !/^[A-Za-z0-9+/]*={0,2}$/.test(result.base64)) {
-    throw new Error('screenshot returned invalid bounded image data');
+  let image;
+  try { image = decodeVerificationPngBase64(result.base64); }
+  catch { throw new Error('screenshot returned invalid bounded PNG data'); }
+  if (!Number.isFinite(result.nodeWidth) || result.nodeWidth < 0 || result.nodeWidth > 10_000_000
+    || !Number.isFinite(result.nodeHeight) || result.nodeHeight < 0 || result.nodeHeight > 10_000_000
+    || !Number.isFinite(result.appliedScale) || result.appliedScale <= 0 || result.appliedScale > 4) {
+    throw new Error('screenshot returned invalid bounded geometry evidence');
   }
   /** @type {Record<string, any>} */
   const metadata = {
-    name: result.name, id: result.id, width: result.width, height: result.height, scale: result.scale,
+    name: result.name, id: result.id,
+    width: image.width, height: image.height,
+    pixelWidth: image.width, pixelHeight: image.height,
+    nodeWidth: result.nodeWidth, nodeHeight: result.nodeHeight,
+    requestedScale: input.scale, appliedScale: result.appliedScale,
+    scale: result.appliedScale,
     ...(result.measure ? { measure: result.measure } : {}),
   };
   const savePath = input.savePath || (input.saveDefault
@@ -116,7 +125,7 @@ export async function executeScreenshot(request, adapters = {}) {
   }
   if (savePath) {
     if (typeof save !== 'function') throw new TypeError('executeScreenshot requires save(path, bytes) when savePath is set');
-    await save(savePath, Buffer.from(result.base64, 'base64'));
+    await save(savePath, image.bytes);
     metadata.saved = savePath;
   }
   if (input.includeBase64) metadata.base64 = result.base64;

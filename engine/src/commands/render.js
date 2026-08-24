@@ -39,6 +39,7 @@ import {
 } from '../../../src/engine.js';
 import {
   createVerificationArtifactWriter,
+  decodeVerificationPngBase64,
   VERIFICATION_ARTIFACT_ROLE,
 } from '../application/verification-artifact.js';
 import {
@@ -381,8 +382,7 @@ async function runCompoundSemanticRender(argv) {
         }, remainingMs()),
         evaluate,
         inspectInventory: evaluate,
-        writeVerification: ({ index, base64 }) =>
-          verificationWriter.write(index, Buffer.from(base64, 'base64')),
+        writeVerification: ({ index, bytes }) => verificationWriter.write(index, bytes),
       });
       return {
         stdout: formatSemanticRenderResult(domainResult), stderr: '',
@@ -493,15 +493,24 @@ async function verifyRendered(nodeId, plan) {
       const maxNodeDim = Math.max(nodeWidth, nodeHeight);
       if (maxNodeDim * finalScale > 2000) finalScale = 2000 / maxNodeDim;
       const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: finalScale } });
-      return { name: node.name, id: node.id, width: Math.round(nodeWidth * finalScale), height: Math.round(nodeHeight * finalScale), base64: figma.base64Encode(bytes) };
+      return { name: node.name, id: node.id, nodeWidth, nodeHeight,
+        requestedScale: 0.5, appliedScale: finalScale, base64: figma.base64Encode(bytes) };
     })()`);
     if (result && result.base64) {
+      const image = decodeVerificationPngBase64(result.base64);
       const writer = createVerificationArtifactWriter(
         plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE),
         { workspaceIO: workspaceIO() },
       );
-      const savePath = await writer.write(0, Buffer.from(result.base64, 'base64'));
-      console.log(JSON.stringify({ verify: { id: result.id, name: result.name, width: result.width, height: result.height, saved: savePath } }));
+      const savePath = await writer.write(0, image.bytes);
+      console.log(JSON.stringify({ verify: {
+        id: result.id, name: result.name,
+        width: image.width, height: image.height,
+        pixelWidth: image.width, pixelHeight: image.height,
+        nodeWidth: result.nodeWidth, nodeHeight: result.nodeHeight,
+        requestedScale: result.requestedScale, appliedScale: result.appliedScale,
+        scale: result.appliedScale, saved: savePath,
+      } }));
     } else if (result && result.error) {
       console.error(chalk.yellow('\u26a0 verify failed:'), result.error);
     }

@@ -356,7 +356,7 @@ function projectCompoundStages(value) {
   const seen = new Set();
   return Object.freeze(value.map((stage) => {
     if (!isRecord(stage)) throw new TypeError('Semantic Render Outcome received an invalid compound stage.');
-    const allowed = new Set(['kind', 'status', 'attempted', 'completed', 'failed', 'handles', 'artifacts']);
+    const allowed = new Set(['kind', 'status', 'attempted', 'completed', 'failed', 'handles', 'artifacts', 'verification']);
     if (Object.keys(stage).some((key) => !allowed.has(key))) {
       throw new TypeError('Semantic Render Outcome received unknown compound stage facts.');
     }
@@ -378,9 +378,40 @@ function projectCompoundStages(value) {
       throw new TypeError('Semantic Render Outcome received an invalid compound stage handle.');
     }
     const artifacts = stringArray(stage.artifacts, `stage ${stage.kind} artifacts`);
+    let verification;
+    if (stage.verification !== undefined) {
+      if (stage.kind !== 'verification' || !Array.isArray(stage.verification)
+        || stage.verification.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS
+        || stage.verification.length !== artifacts.length) {
+        throw new TypeError('Semantic Render Outcome received invalid verification evidence.');
+      }
+      verification = Object.freeze(stage.verification.map((item, index) => {
+        if (!isRecord(item)) throw new TypeError('Semantic Render Outcome received invalid verification evidence.');
+        const fields = new Set([
+          'artifact', 'width', 'height', 'pixelWidth', 'pixelHeight', 'nodeWidth', 'nodeHeight',
+          'requestedScale', 'appliedScale', 'scale',
+        ]);
+        if (Object.keys(item).some((key) => !fields.has(key))
+          || item.artifact !== artifacts[index]
+          || !Number.isSafeInteger(item.width) || item.width < 1 || item.width > 16_384
+          || !Number.isSafeInteger(item.height) || item.height < 1 || item.height > 16_384
+          || item.pixelWidth !== item.width || item.pixelHeight !== item.height
+          || finiteNumber(item.nodeWidth, 'verification nodeWidth') !== item.nodeWidth
+          || finiteNumber(item.nodeHeight, 'verification nodeHeight') !== item.nodeHeight
+          || typeof item.requestedScale !== 'number' || !Number.isFinite(item.requestedScale)
+          || item.requestedScale <= 0 || item.requestedScale > 4
+          || typeof item.appliedScale !== 'number' || !Number.isFinite(item.appliedScale)
+          || item.appliedScale <= 0 || item.appliedScale > 4
+          || item.scale !== item.appliedScale) {
+          throw new TypeError('Semantic Render Outcome received invalid verification evidence.');
+        }
+        return Object.freeze({ ...item });
+      }));
+    }
     return Object.freeze({
       kind: stage.kind, status: stage.status, attempted, completed, failed,
       handles, artifacts,
+      ...(verification === undefined ? {} : { verification }),
     });
   }));
 }

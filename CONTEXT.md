@@ -32,9 +32,9 @@ _Avoid_: walker output, cache entry
 **Verification Artifact**:
 A PNG evidence file whose exact path, scope, retention owner and output role are
 fixed by the owning **Command Plan** before Figma readiness or dispatch.
-Workspace artifacts persist through Workspace I/O; default temporary artifacts
-use one command-owned private directory and remain readable for the caller.
-Inline Base64 evidence is not a file and therefore declares no artifact.
+Workspace artifacts use Workspace I/O; temporary artifacts use one private
+directory. Inline Base64 declares no file. Bounded PNG IHDR dimensions stay
+distinct from logical node geometry and requested/applied scale.
 _Avoid_: screenshot temp file, incidental render output
 
 **Design Contract**:

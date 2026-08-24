@@ -16,9 +16,23 @@ import {
   parseScreenshotRequest,
   screenshotArgvFromRequest,
 } from '../src/application/screenshot-request.js';
+import {
+  inspectVerificationPng,
+  MAX_VERIFICATION_PNG_DIMENSION,
+} from '../src/application/verification-artifact.js';
 import { createWorkspaceIO } from '../src/lib/workspace-io.js';
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+function pngHeader(width, height) {
+  const bytes = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write('IHDR', 12, 'ascii');
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}
+
+const PNG = pngHeader(20, 7);
 
 test('screenshot Command Application captures and persists through adapters', async () => {
   let saved = null;
@@ -26,7 +40,10 @@ test('screenshot Command Application captures and persists through adapters', as
   const result = await executeScreenshot({ nodeId: '1-2', scale: 1, savePath: '/tmp/card.png' }, {
     evaluate: async (value) => {
       code = value;
-      return { name: 'Card', id: '1:2', width: 320, height: 180, scale: 1, base64: PNG.toString('base64') };
+      return {
+        name: 'Card', id: '1:2', nodeWidth: 320, nodeHeight: 180,
+        appliedScale: 1, base64: PNG.toString('base64'),
+      };
     },
     save: async (path, bytes) => { saved = { path, bytes }; },
   });
@@ -34,12 +51,19 @@ test('screenshot Command Application captures and persists through adapters', as
   assert.equal(saved.path, '/tmp/card.png');
   assert.deepEqual(saved.bytes, PNG);
   assert.deepEqual(JSON.parse(result.stdout), {
-    name: 'Card', id: '1:2', width: 320, height: 180, scale: 1, saved: '/tmp/card.png',
+    name: 'Card', id: '1:2', width: 20, height: 7,
+    pixelWidth: 20, pixelHeight: 7,
+    nodeWidth: 320, nodeHeight: 180,
+    requestedScale: 1, appliedScale: 1, scale: 1,
+    saved: '/tmp/card.png',
   });
 });
 
 test('default persistence and base64 are explicit Interface choices', async () => {
-  const capture = { name: 'Hero', id: '9:8', width: 100, height: 50, scale: 0.5, base64: PNG.toString('base64') };
+  const capture = {
+    name: 'Hero', id: '9:8', nodeWidth: 200, nodeHeight: 100,
+    appliedScale: 0.5, base64: PNG.toString('base64'),
+  };
   let path = '';
   const saved = await executeScreenshot({ nodeId: '9:8', saveDefault: true }, {
     evaluate: async () => capture,
@@ -50,6 +74,46 @@ test('default persistence and base64 are explicit Interface choices', async () =
   assert.equal(JSON.parse(saved.stdout).base64, undefined);
   const inline = await executeScreenshot({ nodeId: '9:8', includeBase64: true }, { evaluate: async () => capture });
   assert.equal(JSON.parse(inline.stdout).base64, capture.base64);
+});
+
+test('verification PNG inspection rejects malformed and oversized raster evidence', () => {
+  assert.deepEqual(inspectVerificationPng(PNG), { width: 20, height: 7 });
+  assert.throws(() => inspectVerificationPng(Buffer.alloc(24)), /invalid PNG signature/);
+  assert.throws(
+    () => inspectVerificationPng(pngHeader(MAX_VERIFICATION_PNG_DIMENSION + 1, 1)),
+    /dimensions exceed/,
+  );
+  assert.throws(() => inspectVerificationPng(pngHeader(10_000, 10_000)), /dimensions exceed/);
+});
+
+test('screenshot reports matching geometry and raster facts without conflating them', async () => {
+  const exact = pngHeader(160, 90);
+  const outcome = await executeScreenshot({ nodeId: '1:2', scale: 0.5, includeBase64: true }, {
+    evaluate: async () => ({
+      name: 'Exact', id: '1:2', nodeWidth: 320, nodeHeight: 180,
+      appliedScale: 0.5, base64: exact.toString('base64'),
+    }),
+  });
+  assert.deepEqual({
+    pixelWidth: outcome.result.pixelWidth,
+    pixelHeight: outcome.result.pixelHeight,
+    nodeWidth: outcome.result.nodeWidth,
+    nodeHeight: outcome.result.nodeHeight,
+    requestedScale: outcome.result.requestedScale,
+    appliedScale: outcome.result.appliedScale,
+  }, {
+    pixelWidth: 160, pixelHeight: 90, nodeWidth: 320, nodeHeight: 180,
+    requestedScale: 0.5, appliedScale: 0.5,
+  });
+  let saved = false;
+  await assert.rejects(() => executeScreenshot({ nodeId: '1:2', savePath: '/tmp/rejected.png' }, {
+    evaluate: async () => ({
+      name: 'Invalid', id: '1:2', nodeWidth: 20, nodeHeight: 20,
+      appliedScale: 0.5, base64: Buffer.alloc(24).toString('base64'),
+    }),
+    save: async () => { saved = true; },
+  }), /invalid bounded PNG data/);
+  assert.equal(saved, false, 'malformed PNG evidence is rejected before persistence');
 });
 
 test('screenshot validates deterministically and generated plugin code parses', async () => {
@@ -93,7 +157,10 @@ test('default screenshot persistence is an exact private Plan artifact', async (
   });
   assert.equal(plan.outputs.length, 1);
   assert.equal(plan.outputs[0].scope, 'private-temporary');
-  const capture = { name: 'Hero', id: '9:8', width: 100, height: 50, scale: 0.5, base64: PNG.toString('base64') };
+  const capture = {
+    name: 'Hero', id: '9:8', nodeWidth: 42, nodeHeight: 17,
+    appliedScale: 0.5, base64: PNG.toString('base64'),
+  };
   const result = await executeScreenshotPlan(plan, { workspaceIO: io, evaluate: async () => capture });
   const saved = JSON.parse(result.stdout).saved;
   assert.equal(saved, plan.outputs[0].path);
@@ -120,7 +187,7 @@ test('private verification artifacts reject a pre-positioned directory symlink',
   });
   symlinkSync(outside, dirname(plan.outputs[0].path), 'dir');
   const capture = {
-    name: 'Hero', id: '9:8', width: 100, height: 50, scale: 0.5,
+    name: 'Hero', id: '9:8', nodeWidth: 100, nodeHeight: 50, appliedScale: 0.5,
     base64: PNG.toString('base64'),
   };
   await assert.rejects(
@@ -147,7 +214,10 @@ test('workspace and inline screenshot plans declare only their real effects', as
   assert.deepEqual(workspace.outputs, [{
     role: 'verification-image-output', path: join(root, 'shot.png'), scope: 'workspace', cleanup: 'caller-owned',
   }]);
-  const capture = { name: 'Card', id: '1:2', width: 10, height: 10, scale: 0.5, base64: PNG.toString('base64') };
+  const capture = {
+    name: 'Card', id: '1:2', nodeWidth: 20, nodeHeight: 20,
+    appliedScale: 0.5, base64: PNG.toString('base64'),
+  };
   await executeScreenshotPlan(workspace, { workspaceIO: io, evaluate: async () => capture });
   assert.deepEqual(readFileSync(join(root, 'shot.png')), PNG);
   const inline = planFigmaCommand(['verify', '1:2', '--base64'], options);

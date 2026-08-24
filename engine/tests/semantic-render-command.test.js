@@ -481,12 +481,23 @@ test('compound follow-up stages preserve position, final handles and verificatio
       }
       const handle = code.includes('30:40') ? '30:40' : '31:41';
       if (code.includes('exportAsync')) {
-        return { version: 1, failed: false, id: handle, width: 100, height: 80, base64: 'AA==' };
+        const bytes = Buffer.alloc(24);
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+        bytes.writeUInt32BE(13, 8);
+        bytes.write('IHDR', 12, 'ascii');
+        bytes.writeUInt32BE(100, 16);
+        bytes.writeUInt32BE(80, 20);
+        return {
+          version: 1, failed: false, id: handle,
+          nodeWidth: 101, nodeHeight: 81, requestedScale: 1, appliedScale: 1,
+          base64: bytes.toString('base64'),
+        };
       }
       return { version: 1, passed: true, root: { id: handle }, summary: {} };
     },
-    writeVerification: async ({ handle, base64 }) => {
-      assert.equal(base64, 'AA==');
+    writeVerification: async ({ handle, bytes, width, height }) => {
+      assert.equal(Buffer.isBuffer(bytes), true);
+      assert.deepEqual({ width, height }, { width: 100, height: 80 });
       const path = `/tmp/verify-${handle.replace(':', '-')}.png`;
       written.push(path);
       return path;
@@ -497,7 +508,33 @@ test('compound follow-up stages preserve position, final handles and verificatio
   assert.deepEqual(written, ['/tmp/verify-30-40.png', '/tmp/verify-31-41.png']);
   assert.equal(outcome.stages.find((stage) => stage.kind === 'component-conversion').status, 'completed');
   assert.equal(outcome.stages.find((stage) => stage.kind === 'resize-probe').status, 'completed');
-  assert.deepEqual(outcome.stages.find((stage) => stage.kind === 'verification').artifacts, written);
+  const verification = outcome.stages.find((stage) => stage.kind === 'verification');
+  assert.deepEqual(verification.artifacts, written);
+  assert.deepEqual(verification.verification, written.map((artifact) => ({
+    artifact, width: 100, height: 80, pixelWidth: 100, pixelHeight: 80,
+    nodeWidth: 101, nodeHeight: 81,
+    requestedScale: 1, appliedScale: 1, scale: 1,
+  })));
+});
+
+test('compound verification rejects malformed PNG evidence before artifact persistence', async (t) => {
+  const { plan, io } = compoundPlan(t, [
+    'render-batch', '["<Frame name=\\"Card\\"/>"]', '--verify',
+  ]);
+  let writes = 0;
+  await assert.rejects(() => executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => nativeBatchResult(1),
+    evaluate: async () => ({
+      version: 1, failed: false, id: '10:20',
+      nodeWidth: 100, nodeHeight: 80, requestedScale: 1, appliedScale: 1,
+      base64: Buffer.alloc(24).toString('base64'),
+    }),
+    writeVerification: async () => { writes++; return '/tmp/must-not-exist.png'; },
+  }), (error) => error.kind === 'plugin-result'
+    && /invalid bounded PNG evidence/.test(error.message)
+    && error.semanticRenderOutcome?.stages.at(-1).kind === 'verification');
+  assert.equal(writes, 0);
 });
 
 test('partial component conversion fails nonzero with exact known handles and no retry', async (t) => {

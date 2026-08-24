@@ -459,7 +459,7 @@ export const TOOLS = [
         },
         scale: {
           type: "number",
-          description: "Export scale (default 0.5, capped at 2000px max dimension). Read the PNG for exact raster dimensions; the result also reports the applied scale.",
+          description: "Requested scale (default 0.5; 2000px cap). Returns exact PNG pixelWidth/pixelHeight, logical nodeWidth/nodeHeight, and requested/applied scales.",
         },
         fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
       },
@@ -1257,8 +1257,7 @@ async function runSemanticRenderApplication(plan, label, prepared) {
       }),
       evaluate,
       inspectInventory: evaluate,
-      writeVerification: ({ index, base64 }) =>
-        verificationWriter.write(index, Buffer.from(base64, "base64")),
+      writeVerification: ({ index, bytes }) => verificationWriter.write(index, bytes),
     };
     outcome = compound
       ? await executePreparedCompoundSemanticRender(prepared, adapters)
@@ -2176,7 +2175,7 @@ export async function handleTool(name, rawArgs) {
       return textResult(
         (res.stdout || res.stderr || "") +
           `\n\nNow Read the PNG at ${savePath} to see the design.` +
-          `\n(width/height are estimates from Figma node geometry; read the PNG itself for exact raster pixels.)`,
+          `\n(pixelWidth/pixelHeight and compatibility width/height are exact PNG raster pixels; nodeWidth/nodeHeight are logical Figma geometry.)`,
       );
     }
 
