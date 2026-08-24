@@ -241,7 +241,7 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 
 > **Developer:** How can the agent tell whether a render reused tokens or created new ones?
 >
-> **Domain expert:** Every native render with variable intent returns one Variable Report: references, unique reused variables, created variables, bound properties, ambiguities and unsupported intents. Failed preflight uses the same vocabulary in its error and leaves both variables and canvas nodes untouched.
+> **Domain expert:** Every native render with variable intent returns one Variable Report: references, unique reused variables, created variables, bound properties, ambiguities and unsupported intents. Explicit `var:` ambiguity fails preflight without variables or canvas nodes. Ambiguity created only by optional tokenization of a numeric spacing/radius literal instead preserves the exact value unbound and succeeds with that decision visible in the same report.
 
 > **Developer:** Code-to-Figma can write a native effect. Does that mean Design-to-Code can safely rebuild it?
 >

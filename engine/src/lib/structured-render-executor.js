@@ -1293,7 +1293,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
       ? (intent.spec.fallback == null ? null : Number(intent.spec.fallback))
       : intent.spec.fallback;
     const mayCreate = fallback != null && (intent.type !== 'FLOAT' || Number.isFinite(fallback));
-    const collection = chooseCollection(requestedCollection, mayCreate, label);
+    let collection = chooseCollection(requestedCollection, mayCreate, label);
     if (requestedCollection && !collection && failures.some((failure) => failure.startsWith(`${label}: collection`) && failure.includes('ambiguous'))) return null;
     const scoped = collection ? variables.filter((variable) => variable.variableCollectionId === collection.id) : requestedCollection ? [] : variables;
     let candidates;
@@ -1311,6 +1311,10 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
       if (!candidates.length) candidates = scoped.filter((variable) => variable.name.split('/').slice(-1)[0] === intent.spec.name);
     }
     if (candidates.length > 1) {
+      if (intent.generated) {
+        report.ambiguous++;
+        return { variable: null, value: fallback, unbound: 'ambiguous' };
+      }
       failures.push(`${label}: variable is ambiguous (${candidates.map((item) => item.name).join(', ')})`);
       return null;
     }
@@ -1320,14 +1324,27 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
         failures.push(`${label}: expected ${intent.type}, found ${variable.resolvedType}`);
         return null;
       }
+      const value = variableValue(variable);
+      if (intent.generated && value !== fallback) {
+        report.unsupported++;
+        return { variable: null, value: fallback, unbound: 'value-mismatch' };
+      }
       reusedVariableIds.add(variable.id);
-      return { variable, value: variableValue(variable) };
+      return { variable, value };
     }
     if (!mayCreate) {
       failures.push(`${label}: missing ${intent.type} variable and no usable fallback was supplied`);
       return null;
     }
     const targetName = requestedCollection || 'Tokens';
+    if (intent.generated && !requestedCollection) {
+      const defaultCollections = collections.filter((candidate) => candidate.name.toLowerCase() === 'tokens');
+      if (defaultCollections.length > 1) {
+        report.ambiguous++;
+        return { variable: null, value: fallback, unbound: 'ambiguous-collection' };
+      }
+      collection = defaultCollections[0] || null;
+    }
     const identity = `${targetName.toLowerCase()}:${intent.spec.name}`;
     const priorType = plannedNames.get(identity);
     if (priorType && priorType !== intent.type) {
@@ -1490,13 +1507,14 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
     const resolution = resolutions.get(intent);
     if (!resolution) continue;
     const final = resolution.pendingKey ? pending.get(resolution.pendingKey) : resolution;
+    if (!final?.variable) continue;
     if (!bindings.has(intent.node)) bindings.set(intent.node, new Map());
     bindings.get(intent.node).set(intent.key, { variable: final.variable, value: final.value });
   }
   Object.assign(report, {
     reused: reusedVariableIds.size,
     created: createdVariables.length,
-    bound: intents.length,
+    bound: intents.length - report.ambiguous - report.unsupported,
   });
   return { bindings, createdVariables: createdVariables.sort(), scopeQuestions, fontNames, runFontNames, variableReport: report };
 }
@@ -1931,8 +1949,11 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
       // detaches a Text Style when fontSize/fontName/lineHeight is assigned
       // after setTextStyleIdAsync, even when the value is identical.
       if (textStyle) {
-        try { await created.setTextStyleIdAsync(textStyle.id); }
-        catch { created.textStyleId = textStyle.id; }
+        if (typeof created.setTextStyleIdAsync === 'function') {
+          await created.setTextStyleIdAsync(textStyle.id);
+        } else {
+          created.textStyleId = textStyle.id;
+        }
         // Node-level token/color intent remains an explicit style override.
         for (const field of ['fontSize', 'fontFamily', 'fontStyle', 'fontWeight', 'lineHeight', 'letterSpacing', 'paragraphSpacing', 'paragraphIndent']) {
           bindScalar(semanticNode, field, created, field);

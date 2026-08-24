@@ -184,8 +184,10 @@ function numericReport(value, label, fields) {
 
 function projectVariableReport(value) {
   const report = numericReport(value, 'variableReport', VARIABLE_REPORT_FIELDS);
-  if (report && (report.bound !== report.references || report.ambiguous !== 0
-    || report.unsupported !== 0 || report.reused + report.created > report.references)) {
+  const unbound = report ? report.references - report.bound : 0;
+  if (report && (report.bound > report.references
+    || report.ambiguous + report.unsupported !== unbound
+    || report.reused + report.created > report.bound)) {
     throw resultError('Semantic Render returned an inconsistent variableReport.');
   }
   return report;

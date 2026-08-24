@@ -782,6 +782,13 @@ export function semanticRenderResultRows(result) {
   if (resources.variableReport) {
     const report = resources.variableReport;
     rows.push({ tone: 'muted', text: `variable report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound, ${report.ambiguous} ambiguous, ${report.unsupported} unsupported` });
+    const unbound = report.references - report.bound;
+    if (unbound) {
+      rows.push({
+        tone: 'warning',
+        text: `${unbound} generated literal binding(s) left unbound; exact literal values were preserved.`,
+      });
+    }
   }
   if (resources.textStyleReport) {
     const report = resources.textStyleReport;

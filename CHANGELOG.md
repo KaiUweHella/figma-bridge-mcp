@@ -75,6 +75,13 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Numeric spacing and radius literals no longer make native Code-to-Figma fail
+  when duplicate collections contain the same generated convenience-token
+  name. Exact values remain unbound and visible in the Variable Report;
+  explicit ambiguous `var:` references still fail closed.
+- Native Text Style assignment now stays on Figma's asynchronous API whenever
+  that API is available, so dynamic-page Plugins no longer fall through to a
+  prohibited synchronous setter after an async rejection.
 - Structural history now persists through one private bounded Snapshot Store.
   Normal `latest`, `previous`, index, filename-prefix, list, diff and changelog
   flows remain available, while host paths, namespace collisions, symlinks,

@@ -957,3 +957,22 @@ test('formatter preserves actionable variable, scope and overflow guidance', asy
   assert.match(output, /Limit Body to TEXT_CONTENT\?/);
   assert.match(output, /shrink a child or raise the frame height/);
 });
+
+test('bounded Outcome preserves successful unbound generated literal evidence', async (t) => {
+  const { plan, io } = renderPlan(t);
+  const result = await executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async () => nativeResult({
+      variableReport: {
+        references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
+      },
+    }),
+    evaluate: async () => { throw new Error('must not run'); },
+  });
+
+  assert.deepEqual(result.resources.variableReport, {
+    references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
+  });
+  assert.match(formatSemanticRenderResult(result),
+    /4 generated literal binding\(s\) left unbound; exact literal values were preserved/);
+});

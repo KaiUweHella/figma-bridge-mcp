@@ -147,6 +147,17 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual(second.textStyleReport, { references: 1, reused: 1, created: 0, bound: 1 });
   });
 
+  it('never falls through to synchronous Text Style assignment after an async rejection', async () => {
+    const figma = fakeFigma({
+      setTextStyleIdAsync: async () => { throw new Error('async Text Style rejected'); },
+    });
+    const plan = new FigmaClient().planJSX('<Frame><Text>Async only</Text></Frame>');
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /async Text Style rejected/);
+    assert.equal(figma.currentPage.children.length, 0);
+    assert.ok(figma.created.every((node) => node.removed === true));
+  });
+
   it('stops when an explicit named Text Style exists with conflicting typography', async () => {
     const conflicting = {
       id: 'text-style:existing', name: 'Typography/Eyebrow',
@@ -1078,6 +1089,97 @@ describe('structured Semantic Render Plan executor', () => {
     });
   });
 
+  it('keeps generated numeric literals exact and unbound across duplicate collections', async () => {
+    const tokens = { id: 'collection:tokens', name: 'Tokens', modes: [{ modeId: 'mode:tokens', name: 'Default' }] };
+    const product = { id: 'collection:product', name: 'Product', modes: [{ modeId: 'mode:product', name: 'Default' }] };
+    const tokenSpace = fakeVariable('space/16px', 'FLOAT', 16, ['GAP'], tokens.id);
+    const productSpace = fakeVariable('space/16px', 'FLOAT', 16, ['GAP'], product.id);
+    const figma = fakeFigma({
+      variables: [tokenSpace, productSpace],
+      collections: [tokens, product],
+    });
+    const plan = new FigmaClient().planJSX('<Frame name="Literal padding" p="16"><Text>Exact</Text></Frame>');
+
+    const result = await executeStructuredRenderPlan(figma, plan);
+    const frame = figma.created.find((node) => node.name === 'Literal padding');
+
+    assert.deepEqual([
+      frame.paddingTop, frame.paddingRight, frame.paddingBottom, frame.paddingLeft,
+    ], [16, 16, 16, 16]);
+    assert.deepEqual(frame.boundVariables, {});
+    assert.deepEqual(result.variableReport, {
+      references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
+    });
+  });
+
+  it('uses an explicit collection to disambiguate generated literal bindings', async () => {
+    const tokens = { id: 'collection:tokens', name: 'Tokens', modes: [{ modeId: 'mode:tokens', name: 'Default' }] };
+    const product = { id: 'collection:product', name: 'Product', modes: [{ modeId: 'mode:product', name: 'Default' }] };
+    const tokenSpace = fakeVariable('space/16px', 'FLOAT', 16, ['GAP'], tokens.id);
+    const productSpace = fakeVariable('space/16px', 'FLOAT', 16, ['GAP'], product.id);
+    const figma = fakeFigma({ variables: [tokenSpace, productSpace], collections: [tokens, product] });
+    const client = new FigmaClient();
+    client.setCollection('Product');
+
+    const result = await executeStructuredRenderPlan(
+      figma,
+      client.planJSX('<Frame name="Product literal" p="16"><Text>Exact</Text></Frame>'),
+    );
+    const frame = figma.created.find((node) => node.name === 'Product literal');
+
+    assert.deepEqual(frame.boundVariables, {
+      paddingTop: productSpace.id,
+      paddingRight: productSpace.id,
+      paddingBottom: productSpace.id,
+      paddingLeft: productSpace.id,
+    });
+    assert.deepEqual(result.variableReport, {
+      references: 4, reused: 1, created: 0, bound: 4, ambiguous: 0, unsupported: 0,
+    });
+  });
+
+  it('keeps a generated literal unbound when its sole generated name has the wrong value', async () => {
+    const wrong = fakeVariable('space/16px', 'FLOAT', 12, ['GAP']);
+    const figma = fakeFigma({ variables: [wrong] });
+    const plan = new FigmaClient().planJSX('<Frame name="Wrong generated value" p="16" />');
+
+    const result = await executeStructuredRenderPlan(figma, plan);
+    const frame = figma.created.find((node) => node.name === 'Wrong generated value');
+
+    assert.deepEqual([
+      frame.paddingTop, frame.paddingRight, frame.paddingBottom, frame.paddingLeft,
+    ], [16, 16, 16, 16]);
+    assert.deepEqual(frame.boundVariables, {});
+    assert.deepEqual(result.variableReport, {
+      references: 4, reused: 0, created: 0, bound: 0, ambiguous: 0, unsupported: 4,
+    });
+  });
+
+  it('applies the same unbound generated-literal policy to a native batch', async () => {
+    const tokens = { id: 'collection:tokens', name: 'Tokens', modes: [{ modeId: 'mode:tokens', name: 'Default' }] };
+    const product = { id: 'collection:product', name: 'Product', modes: [{ modeId: 'mode:product', name: 'Default' }] };
+    const variables = [
+      fakeVariable('space/16px', 'FLOAT', 16, ['GAP'], tokens.id),
+      fakeVariable('space/16px', 'FLOAT', 16, ['GAP'], product.id),
+    ];
+    const figma = fakeFigma({ variables, collections: [tokens, product] });
+    const client = new FigmaClient();
+    const plans = [
+      client.planJSX('<Frame name="Batch literal A" p="16" />'),
+      client.planJSX('<Frame name="Batch literal B" p="16" />'),
+    ];
+
+    const result = await executeStructuredRenderPlanBatch(figma, plans);
+    const frames = figma.created.filter((node) => node.name.startsWith('Batch literal'));
+
+    assert.equal(frames.length, 2);
+    assert.equal(frames.every((frame) => frame.paddingTop === 16
+      && Object.keys(frame.boundVariables).length === 0), true);
+    assert.deepEqual(result.variableReport, {
+      references: 8, reused: 0, created: 0, bound: 0, ambiguous: 8, unsupported: 0,
+    });
+  });
+
   it('keeps existing FLOAT scopes and auto-scopes only newly created semantic namespaces', async () => {
     const existing = fakeVariable('spacing/md', 'FLOAT', 14, ['ALL_SCOPES']);
     const figma = fakeFigma({ variables: [existing] });
@@ -1236,7 +1338,7 @@ function fakeVariable(name, resolvedType, value, scopes = ['ALL_SCOPES'], collec
   };
 }
 
-function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, mutationCheckpoint = null, removeHook = null } = {}) {
+function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, setTextStyleIdAsync = null, mutationCheckpoint = null, removeHook = null } = {}) {
   let id = 0;
   let imageId = 0;
   const created = [];
@@ -1281,7 +1383,10 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
     setPluginData(key, value) { this.pluginData[key] = String(value); },
     getPluginData(key) { return this.pluginData[key] || ''; },
     setBoundVariable(field, variable) { this.boundVariables[field] = variable.id || variable; },
-    async setTextStyleIdAsync(styleId) { this.textStyleId = styleId; },
+    async setTextStyleIdAsync(styleId) {
+      if (setTextStyleIdAsync) return setTextStyleIdAsync(this, styleId);
+      this.textStyleId = styleId;
+    },
     rangeStyles: [],
     setRangeFontName(start, end, value) { this.rangeStyles.push({ method: 'fontName', start, end, value }); },
     setRangeFontSize(start, end, value) { this.rangeStyles.push({ method: 'fontSize', start, end, value }); },

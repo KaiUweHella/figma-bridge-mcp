@@ -1047,6 +1047,11 @@ to Figma's `GAP` consumers only. `radius/*` and `radii/*` variables are scoped
 to `CORNER_RADIUS` only. The inference is deliberately namespace-exact:
 names such as `spacingFactor` are left at Figma's default scope, and rendering
 does not silently change the scopes of existing user or library variables.
+Numeric spacing and radius literals may reuse an exact generated variable only
+when its identity and value are unambiguous. If duplicate collections expose
+the same generated name, the native renderer keeps the exact visual literal
+unbound and reports that decision; explicit `var:` references still fail
+closed until their collection identity is resolved.
 Other new COLOR, FLOAT, or STRING variables surface `SCOPE DECISION REQUIRED`
 with only the compatible Figma choices. The agent should ask before narrowing
 them; inspect the catalog with `figma_reference {name:"variable-scopes"}` and
