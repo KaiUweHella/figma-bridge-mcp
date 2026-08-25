@@ -47,6 +47,11 @@ test('Variable Facts request closes and canonicalizes one query and optional col
   ]), { variable: 'space/md', collection: 'Primitives' });
   assert.deepEqual(variableFactsArgvFromRequest({ variable: 'space/md', collection: 'Primitives' }),
     ['var', 'show', 'space/md', '--collection', 'Primitives']);
+  assert.deepEqual(variableFactsArgvFromRequest({ variable: '-space/md', collection: '-Tokens' }),
+    ['var', 'show', '--collection=-Tokens', '--', '-space/md']);
+  assert.deepEqual(parseVariableFactsRequest(
+    variableFactsArgvFromRequest({ variable: '-space/md', collection: '-Tokens' }),
+  ), { variable: '-space/md', collection: '-Tokens' });
   assert.deepEqual(parseVariableFactsRequest(['var', 'show', '-cPrimitives', 'space/md']),
     { variable: 'space/md', collection: 'Primitives' });
   assert.deepEqual(parseVariableFactsRequest(['var', 'show', ' space/md ']),

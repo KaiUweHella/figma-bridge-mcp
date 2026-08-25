@@ -179,6 +179,15 @@ Ambiguous names and invalid or oversized results fail instead of selecting or
 truncating. Consumer-specific resolution and all variable mutations remain
 separate Commands.
 
+`var resolve` owns the adjacent Resolved Variable Value read. Its closed
+request keeps variable and collection queries as payload while one semantic
+Node Reference alone may project a Figma URL target. Commander and `figma_run`
+execute one target-bound safe-read Command Plan and Variable Resolution
+Application. The versioned result preserves variable, collection and consumer
+identity plus the official typed `resolveForConsumer` value within explicit
+string and serialized-size limits. It neither claims the variable is directly
+bound to the consumer nor replaces authored mode metadata from Variable Facts.
+
 Current-page Canvas Awareness follows the same rule for `canvas info` and
 `canvas next`. Their closed request Interface owns the complete option surface,
 including bounded numeric gaps and the `right|below` direction. Commander and

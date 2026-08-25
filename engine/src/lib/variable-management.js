@@ -196,15 +196,6 @@ return __variableFacts(target);
 })()`;
 }
 
-function variableResolveCode({ variable, collection = null, nodeId }) {
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
-const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-if (!node || node.type === 'DOCUMENT' || node.type === 'PAGE') throw new Error('Scene node not found: ${String(nodeId)}');
-return { variable: await __variableFacts(target), consumer: { id: node.id, name: node.name, type: node.type }, resolved: target.resolveForConsumer(node) };
-})()`;
-}
-
 function variablePublishStatusCode({ variable, collection = null }) {
   return `(async () => {${variableHelpersCode()}
 const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
@@ -276,6 +267,6 @@ export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
   collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
   collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes, parseVariableLiteral, parseVariableType,
-  variableCodeSyntaxCode, variablePublishStatusCode, variableResolveCode,
+  variableCodeSyntaxCode, variablePublishStatusCode,
   variableSetValueCode, variableUpdateCode,
 };

@@ -42,6 +42,15 @@ metadata, not a consumer-specific resolved value or permission to mutate a
 variable.
 _Avoid_: variable dump, resolved token value, variable edit
 
+**Resolved Variable Value**:
+The exact, versioned and bounded result of resolving one local Figma variable
+for one explicit Scene Node. It preserves variable, collection and consumer
+identity together with Figma's official typed `resolveForConsumer` value
+through one shared safe-read Command Application. It is consumer-context
+evidence, not authored mode metadata, a direct-binding claim or permission to
+mutate the variable or node.
+_Avoid_: resolved token dump, inferred binding, global token value
+
 **Node Discovery**:
 The bounded depth-first search of the fully loaded current Figma page by
 case-insensitive partial node name and optional node type. It returns stable

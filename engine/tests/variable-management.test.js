@@ -3,7 +3,7 @@ import test from 'node:test';
 import { variableFactsCode } from '../src/application/variable-facts-command.js';
 import {
   collectionExtendCode, collectionModeCode, collectionUpdateCode, parseBoolean, parseCodePlatform,
-  parseScopes, variableCodeSyntaxCode, variableResolveCode, variableSetValueCode,
+  parseScopes, variableCodeSyntaxCode, variableSetValueCode,
   variableUpdateCode,
 } from '../src/lib/variable-management.js';
 
@@ -81,12 +81,10 @@ test('variable values parse by resolved type and aliases use createVariableAlias
   assert.deepEqual(variable.valuesByMode['M:1'], { type: 'VARIABLE_ALIAS', id: 'V:1' });
 });
 
-test('code syntax, consumer resolution, collection metadata, and modes stay plugin-first', async () => {
+test('code syntax, collection metadata, and modes stay plugin-first', async () => {
   const { collection, variable, figma } = fixture();
   const syntax = await execute(variableCodeSyntaxCode({ variable: 'V:1', platform: 'web', value: 'var(--space-md)' }), figma);
   assert.equal(syntax.codeSyntax.WEB, 'var(--space-md)');
-  const resolved = await execute(variableResolveCode({ variable: 'V:1', nodeId: '1:2' }), figma);
-  assert.equal(resolved.consumer.name, 'Card');
   await execute(collectionUpdateCode({ collection: 'Primitives', name: 'Core', hidden: true }), figma);
   assert.equal(collection.name, 'Core');
   const withMode = await execute(collectionModeCode({ collection: 'C:1', action: 'add', name: 'Dark' }), figma);

@@ -101,6 +101,10 @@ import {
   variableFactsPlanRoute,
 } from "../engine/src/application/variable-facts-command.js";
 import {
+  executeVariableResolutionPlan,
+  variableResolutionPlanRoute,
+} from "../engine/src/application/variable-resolution-command.js";
+import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
@@ -1865,6 +1869,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableFactsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableResolutionRoute = variableResolutionPlanRoute(plan);
+      if (variableResolutionRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableResolutionPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

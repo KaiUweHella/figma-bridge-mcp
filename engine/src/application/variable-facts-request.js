@@ -103,8 +103,16 @@ function typedRequest(request) {
 
 export function variableFactsArgvFromRequest(request) {
   const input = typedRequest(request);
+  const collectionArgs = input.collection === null ? [] : (
+    input.collection.startsWith('-')
+      ? [`--collection=${input.collection}`]
+      : ['--collection', input.collection]
+  );
+  if (input.variable.startsWith('-')) {
+    return ['var', 'show', ...collectionArgs, '--', input.variable];
+  }
   return [
     'var', 'show', input.variable,
-    ...(input.collection ? ['--collection', input.collection] : []),
+    ...collectionArgs,
   ];
 }

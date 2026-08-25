@@ -25,6 +25,8 @@
     "engine/src/application/prototype-inspection-request.js",
     "engine/src/application/variable-facts-command.js",
     "engine/src/application/variable-facts-request.js",
+    "engine/src/application/variable-resolution-command.js",
+    "engine/src/application/variable-resolution-request.js",
     "engine/src/application/code-spec-command.js",
     "engine/src/application/code-spec-request.js",
     "engine/src/application/design-capture.js",

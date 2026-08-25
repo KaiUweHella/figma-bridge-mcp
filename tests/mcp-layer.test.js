@@ -403,6 +403,35 @@ test('figma_run routes Variable Facts through the shared bounded-read Applicatio
     'Variable Facts must not re-enter Commander');
 });
 
+test('figma_run routes Variable Resolution through the shared target-bound Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const variableResolutionRoute = variableResolutionPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeVariableResolutionPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Variable Resolution must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Variable Resolution before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['var', 'resolve'],
+    ['var', 'resolve', 'space/md'],
+    ['var', 'resolve', 'space/md', 'not-a-node'],
+    ['var', 'resolve', 'space/md', '12:34', 'extra'],
+    ['var', 'resolve', 'space/md', '12:34', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Variable Facts before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

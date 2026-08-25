@@ -8,6 +8,10 @@ import {
   variableFactsArgvFromRequest,
 } from '../application/variable-facts-command.js';
 import {
+  executeVariableResolutionPlan,
+  variableResolutionPlanningArgvFromRequest,
+} from '../application/variable-resolution-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -23,7 +27,7 @@ import {
 import {
   parseBoolean, parseScopes, parseVariableLiteral, parseVariableType,
   variableCodeSyntaxCode, variablePublishStatusCode,
-  variableResolveCode, variableSetValueCode, variableUpdateCode,
+  variableSetValueCode, variableUpdateCode,
 } from '../lib/variable-management.js';
 
 // ============ VARIABLES ============
@@ -136,9 +140,32 @@ variables.command('code-syntax <variable> <platform> [value]')
 
 variables.command('resolve <variable> <nodeId>')
   .option('-c, --collection <collection>')
+  .allowExcessArguments(false)
   .action(async (variable, nodeId, options) => {
-    try { await checkConnection(); console.log(JSON.stringify(await fastEval(variableResolveCode({ variable, nodeId, collection: options.collection })), null, 2)); }
-    catch (error) { handleEvalError(error); }
+    try {
+      const plan = planFigmaCommand(variableResolutionPlanningArgvFromRequest({
+        variable,
+        nodeId,
+        collection: options.collection || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableResolutionPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables.command('publish-status <variable>')
