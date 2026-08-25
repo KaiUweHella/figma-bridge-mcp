@@ -10,7 +10,7 @@ import { browserDomCaptureScript } from '../lib/browser-dom-capture.js';
 import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-structural-gate.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
-import { cachedInventoryCode } from '../lib/component-inventory.js';
+import { cachedInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
 import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/design-link-registry.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import {
@@ -155,7 +155,9 @@ async function printReuseLint(jsxStrings) {
   try {
     const names = namedContainers(jsxStrings);
     if (names.length === 0) return;
-    const inventory = await daemonExec('eval', { code: cachedInventoryCode(true) });
+    const inventory = projectComponentInventory(
+      await daemonExec('eval', { code: cachedInventoryCode(true) }),
+    );
     for (const f of matchInventory(names, inventory)) {
       console.log(chalk.yellow('\n⚠ reuse: ') +
         chalk.yellow(formatReuseWarning(f).split('\n').join('\n  ')));

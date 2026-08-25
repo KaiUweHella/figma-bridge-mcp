@@ -42,6 +42,18 @@ is identity evidence for reuse and follow-up reads, not a Design Entity link,
 full component inventory or permission to mutate the instance.
 _Avoid_: component dump, name-based component identity, component mutation
 
+**Component Inventory**:
+The complete, versioned and bounded catalog of local Component Sets, their
+Variants and standalone Components for one current-page or all-page scan. It
+preserves file-local node ids, stable publish keys, page names, default
+Variant identity and axis values through one shared Plugin/host validation
+seam. Page, visit, set, Variant, standalone, axis, string and serialized-byte
+limits fail explicitly; the Inventory is never silently truncated into a
+plausibly complete library. It supports listing, Storybook mapping and
+advisory Render reuse checks, but name equality alone never authorizes Design
+Entity reuse.
+_Avoid_: component dump, partial catalog, unbounded library scan, name-based reuse permission
+
 **Style Facts**:
 The exact, versioned and deeply bounded read of one Figma PAINT, TEXT, EFFECT
 or GRID style by id or unambiguous local name. It preserves publishable

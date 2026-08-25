@@ -6,7 +6,7 @@ import {
   ensurePluginReadiness,
   runInProcessCommandPlan,
 } from '../../../src/engine.js';
-import { componentInventoryCode } from '../lib/component-inventory.js';
+import { componentInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
 import { parseVariantPairs, addVariantCode } from '../lib/variant-snippets.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
@@ -524,7 +524,7 @@ componentCmd
     await checkConnection();
     const code = componentInventoryCode(options.allPages);
     try {
-      const r = await daemonExec('eval', { code });
+      const r = projectComponentInventory(await daemonExec('eval', { code }));
       if (options.json) {
         console.log(JSON.stringify(r, null, 2));
         return;

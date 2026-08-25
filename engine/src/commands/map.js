@@ -14,7 +14,7 @@ import {
   daemonExec,
   handleEvalError,
 } from '../lib/cli-core.js';
-import { componentInventoryCode } from '../lib/component-inventory.js';
+import { componentInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
 import { fetchStorybookIndex, parseStorybookIndex } from '../code-import/storybook.js';
 import { matchComponents, mergeMaps } from '../lib/story-match.js';
 import { workspaceIO } from '../lib/workspace-io.js';
@@ -46,7 +46,9 @@ mapCmd
     // 2. Figma side: one eval — component inventory with stable keys.
     let inventory;
     try {
-      inventory = await daemonExec('eval', { code: componentInventoryCode(!options.currentPage) });
+      inventory = projectComponentInventory(
+        await daemonExec('eval', { code: componentInventoryCode(!options.currentPage) }),
+      );
     } catch (e) {
       handleEvalError(e);
       return;

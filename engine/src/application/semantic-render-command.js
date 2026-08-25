@@ -18,7 +18,7 @@ import {
   matchInventory,
   namedContainers,
 } from '../lib/render-lint.js';
-import { cachedInventoryCode } from '../lib/component-inventory.js';
+import { cachedInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import {
   assertSemanticRenderOutcome,
@@ -605,7 +605,9 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     try {
       const names = namedContainers(prepared.jsxRoots);
       if (names.length) {
-        const inventory = await adapters.inspectInventory(cachedInventoryCode(true));
+        const inventory = projectComponentInventory(
+          await adapters.inspectInventory(cachedInventoryCode(true)),
+        );
         for (const finding of matchInventory(names, inventory).slice(0, 20)) {
           notices.push(Object.freeze({ tone: 'warning', text: boundedText(`reuse: ${formatReuseWarning(finding)}`) }));
         }
@@ -699,7 +701,9 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
     try {
       const names = namedContainers([prepared.jsx]);
       if (names.length) {
-        const inventory = await adapters.inspectInventory(cachedInventoryCode(true));
+        const inventory = projectComponentInventory(
+          await adapters.inspectInventory(cachedInventoryCode(true)),
+        );
         for (const finding of matchInventory(names, inventory).slice(0, 20)) {
           warnings.push(Object.freeze({ tone: 'warning', text: boundedText(`reuse: ${formatReuseWarning(finding)}`) }));
         }
