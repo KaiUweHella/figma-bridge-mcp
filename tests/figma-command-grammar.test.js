@@ -57,6 +57,14 @@ test('inherited create escape hatches stay explicit and unavailable', () => {
   }
 });
 
+test('unsafe legacy variable bulk deletion stays explicit and unavailable', () => {
+  const variable = listFigmaCommandGrammar().find((node) => node.name === 'var');
+  const blocked = variable.children.find((node) => node.name === 'delete-all');
+  assert.equal(blocked.exposed, false);
+  assert.equal(resolveFigmaCommandAction(['var', 'delete-all']).accepted, false);
+  assert.equal(resolveFigmaCommandAction(['var', 'delete', 'space/md']).accepted, true);
+});
+
 test('invalid group options are denied without pretending they might write', () => {
   for (const args of [['node', '--future-option'], ['api', '--future-option']]) {
     const plan = planFigmaCommand(args);

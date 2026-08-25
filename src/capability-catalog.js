@@ -250,6 +250,29 @@ function hasOption(optionFacts, name) {
   return optionEntries(optionFacts, name).length > 0;
 }
 
+/**
+ * Temporary fail-closed gates for legacy mutations that cannot yet preserve a
+ * bounded, preflighted and recoverable outcome. Returned text is static and
+ * safe for user projection; no payload value is retained or interpolated.
+ */
+export function legacyCommandRiskGateReason(args) {
+  if (!Array.isArray(args)) return null;
+  if (args[0] === 'var' && args[1] === 'delete-all') {
+    return 'var delete-all is disabled: use exact var delete <names...> or ambiguity-aware col delete <collection>.';
+  }
+  const action = resolveFigmaCommandAction(args);
+  if (!action.accepted || action.help) return null;
+  if (action.actionId === 'tokens.rebind'
+    && hasOption(action.options, '--page') && hasOption(action.options, '--apply')) {
+    return 'tokens rebind --page --apply is disabled until page-wide rebinding has bounded preflight and rollback. Use --page without --apply for a dry run, or --node <id> --apply for a scoped write.';
+  }
+  if (['node.set', 'node.bind'].includes(action.actionId)
+    && hasOption(action.options, '--batch')) {
+    return `${action.actionId.replace('.', ' ')} --batch is disabled until the typed bounded mutation operation is available. Use one explicit node per command.`;
+  }
+  return null;
+}
+
 function mutatesDesign(entry, args, options) {
   if (!args.length) return false;
   const sub = args[1];
@@ -354,6 +377,7 @@ function commandCapability(args) {
   if (HELP_TOKENS.has(name)) return Object.freeze({ ...TOP_LEVEL_HELP, name });
   const entry = COMMANDS[name];
   if (!entry) return Object.freeze({ ...UNKNOWN, name });
+  if (legacyCommandRiskGateReason(args)) return Object.freeze({ ...UNKNOWN, name });
   const action = resolveFigmaCommandAction(args);
   if (!action.accepted) {
     return action.reason === 'unknown-option'

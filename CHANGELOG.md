@@ -116,6 +116,14 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   CSS emits `:root` plus named `data-figma-mode` scopes and never invents
   unauthored `clamp()` semantics.
 
+### Security
+
+- Disabled four unsafe Legacy bulk-write modes before Commander or MCP can
+  reach Plugin readiness: `var delete-all`, page-wide `tokens rebind --apply`,
+  and `node set|bind --batch`. Exact deletion, single-node mutation,
+  page-wide rebind dry-run and node-scoped rebind apply remain available while
+  typed bounded preflight and rollback/residue contracts are built.
+
 ### Fixed
 
 - Legacy Commander Actions no longer print caught Plugin or validation errors

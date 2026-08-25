@@ -243,7 +243,14 @@ const COMMAND_GRAMMAR = Object.freeze({
     prop: actionGroup('add list set delete'),
   }),
   tokens: actionGroup('spacing radii import sync overlap import-design-md add rebind'),
-  var: actionGroup('list create find show update set-value code-syntax resolve publish-status visualize create-batch delete delete-all'),
+  var: group({
+    ...actionGroup('list create find show update set-value code-syntax resolve publish-status visualize create-batch delete').children,
+    // The legacy implementation can delete every local variable and
+    // collection without an exact scope or complete preflight. Keep its real
+    // Commander path in the drift contract, but make it unreachable through
+    // the MCP grammar until SEC-15 supplies a safe replacement.
+    'delete-all': blockedAction(),
+  }),
   col: actionGroup('list create show update mode-add mode-rename mode-remove publish-status delete extend'),
   style: actionGroup('list show create update apply consumers publish-status delete bind-font unbind-font'),
   library: actionGroup('collections variables import-variable import-style import-component import-component-set'),

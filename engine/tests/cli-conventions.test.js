@@ -586,3 +586,30 @@ test('component prop set keeps a validated local id for INSTANCE_SWAP values', (
   assert.doesNotMatch(propSet, /parsed = component\.key;/,
     'a publish key is not a valid local INSTANCE_SWAP property value');
 });
+
+test('unsafe legacy bulk writes stop before connection or generated mutation code', () => {
+  const variables = sources.get('variables.js');
+  const deleteStart = variables.indexOf(".command('delete-all')");
+  const deleteEnd = variables.indexOf('// (The batch operations', deleteStart);
+  const deleteAll = variables.slice(deleteStart, deleteEnd);
+  assert.match(deleteAll, /delete-all is disabled/);
+  assert.match(deleteAll, /process\.exitCode = 1/);
+  assert.doesNotMatch(deleteAll, /checkConnection\(|daemonExec\(|\.remove\(/);
+
+  const tokens = sources.get('tokens.js');
+  const rebindStart = tokens.indexOf(".command('rebind <collection>')");
+  const rebind = tokens.slice(rebindStart);
+  assert.ok(rebind.indexOf('options.page && options.apply') < rebind.indexOf('await checkConnection()'));
+
+  const nodes = sources.get('node-ops.js');
+  for (const [action, endMarker] of [
+    [".command('bind [nodeId] [property] [varName]')", 'const SET_ENUMS'],
+    [".command('set [nodeId]')", null],
+  ]) {
+    const start = nodes.indexOf(action);
+    const end = endMarker ? nodes.indexOf(endMarker, start) : nodes.length;
+    const slice = nodes.slice(start, end);
+    assert.ok(slice.indexOf('if (options.batch)') < slice.indexOf('await checkConnection()'));
+    assert.match(slice, /process\.exitCode = 1/);
+  }
+});

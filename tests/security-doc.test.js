@@ -238,6 +238,27 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-BULK-GATES",
+    [
+      [
+        "tests/high-risk-command-gates.test.js",
+        "high-risk legacy write modes are denied by policy with static alternatives",
+      ],
+      [
+        "tests/high-risk-command-gates.test.js",
+        "direct Commander gates fail before connection or Plugin dispatch",
+      ],
+      [
+        "tests/high-risk-command-gates.test.js",
+        "Source MCP returns the same actionable denial before readiness",
+      ],
+      [
+        "tests/high-risk-command-gates.test.js",
+        "safe adjacent utility remains available and literal payload cannot trigger a gate",
+      ],
+    ],
+  ],
+  [
     "SEC-NO-SHELL",
     [
       [

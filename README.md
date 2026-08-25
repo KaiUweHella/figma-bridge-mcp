@@ -1150,8 +1150,10 @@ figma_run ["tokens", "rebind", "TARGET_COLLECTION", "--node", "12:34", "--apply"
 
 `node bind` attaches a variable to a property of an **existing** node — `fill`,
 `stroke`, `radius`, `gap`, `padding` (or one side), `opacity`, `stroke-width`,
-`width`, `height`. Its read counterpart is `node bindings`. Pass `--batch` with
-a JSON array to bind many properties or nodes in one call.
+`width`, `height`. Its read counterpart is `node bindings`. The legacy
+`--batch` mutation is currently disabled until it has a typed bounded request,
+complete preflight and truthful rollback/residue result; run one explicit node
+per command in the meantime.
 
 For a bounded machine-readable read, add `--json`:
 
@@ -1199,15 +1201,25 @@ card follows the target collection's values — no redesign. It plans by default
 with no counterpart in the target are listed and left pointing where they were,
 so a partial theme is a report rather than a half-broken design.
 
+Page-wide rebind remains available as a dry-run report, but `--page --apply` is
+temporarily disabled. A scoped `--node <id> --apply` write remains available;
+the page-wide write returns only after it has bounded traversal, exact
+collection resolution, complete preflight and rollback evidence.
+
 `node set` changes properties on nodes that already exist — `fill`, `stroke`,
 `strokeWidth`, `radius`, `opacity`, `x`, `y`, `width`/`height`, `name`,
-`visible` — one node at a time or many through `--batch`, which matters because
-the batch form is **one** round-trip:
+`visible` — one explicit node at a time:
 
 ```
 figma_run ["node", "set", "12:34", "--name", "Card", "--radius", "12"]
-figma_run ["node", "set", "--batch", "[{\"node\":\"12:35\",\"fill\":\"var:sage/50\",\"name\":\"Badge\"}]"]
 ```
+
+The legacy `node set --batch` path is disabled until FID-03 replaces it with a
+typed bounded mutation Operation that preflights all entries and can report
+rollback or residue without oversizing the Plugin response.
+
+`var delete-all` is also disabled. Use exact `var delete <names...>` or
+ambiguity-aware `col delete <collection>` so destructive scope is explicit.
 
 A colour takes a hex or `var:<name>`. The difference is not cosmetic: a hex is
 frozen, a `var:` reference stays **bound**, so a later `tokens rebind` can still

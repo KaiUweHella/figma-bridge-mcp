@@ -445,40 +445,12 @@ return { deleted, missing };
 
 variables
   .command('delete-all')
-  .description('Delete all local variables and collections')
+  .description('Disabled unsafe legacy bulk deletion; use exact var delete or col delete')
   .option('-c, --collection <name>', 'Only delete variables in this collection')
-  .action(async (options) => {
-    await checkConnection();
-    const spinner = progress('Deleting variables...').start();
-
-    const filterCode = options.collection
-      ? `cols = cols.filter(c => c.name.includes(${JSON.stringify(options.collection)}));`
-      : '';
-
-    const code = `(async () => {
-let cols = await figma.variables.getLocalVariableCollectionsAsync();
-${filterCode}
-let deleted = 0;
-for (const col of cols) {
-  const vars = await figma.variables.getLocalVariablesAsync();
-  const colVars = vars.filter(v => v.variableCollectionId === col.id);
-  for (const v of colVars) {
-    v.remove();
-    deleted++;
-  }
-  col.remove();
-}
-return 'Deleted ' + deleted + ' variables and ' + cols.length + ' collections';
-})()`;
-
-    try {
-      const result = await daemonExec('eval', { code }, 60000);
-      spinnerSucceed(spinner, result);
-    } catch (error) {
-      spinner.fail('Failed to delete variables');
-      console.error(chalk.red(error.message));
-      process.exitCode = 1;
-    }
+  .action(async () => {
+    console.error(chalk.red('✗ var delete-all is disabled.'));
+    console.error(chalk.gray('  Use var delete <exact names...> or col delete <exact collection>.'));
+    process.exitCode = 1;
   });
 
 // (The batch operations `delete-batch`, `bind-batch`, `set-batch` and

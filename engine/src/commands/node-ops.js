@@ -797,25 +797,17 @@ node
   .command('bind [nodeId] [property] [varName]')
   .description(`Bind a variable to a node property, by id. Properties: ${Object.keys(BIND_PROPS).join(', ')}. The read counterpart is \`node bindings\`.`)
   .option('-c, --collection <name>', 'Which collection the variable comes from (required when the name is not unique)')
-  .option('--batch <json>', 'Bind many at once: [{"node":"1:2","property":"fill","variable":"brand","collection":"TARGET_COLLECTION"}, …]')
+  .option('--batch <json>', 'Temporarily disabled until bounded typed batch mutation is available')
   .action(async (nodeId, property, varName, options) => {
+    if (options.batch) {
+      console.error(chalk.red('✗ node bind --batch is temporarily disabled.'));
+      console.error(chalk.gray('  Run one explicit node bind command per node.'));
+      process.exitCode = 1;
+      return;
+    }
     await checkConnection();
 
-    let entries;
-    if (options.batch) {
-      try {
-        entries = JSON.parse(options.batch);
-      } catch (e) {
-        console.error(chalk.red('✗'), `--batch is not valid JSON: ${e.message}`);
-        process.exit(1);
-      }
-      if (!Array.isArray(entries) || entries.length === 0) {
-        console.error(chalk.red('✗'), '--batch expects a non-empty JSON array');
-        process.exit(1);
-      }
-    } else {
-      entries = [{ node: nodeId, property, variable: varName }];
-    }
+    const entries = [{ node: nodeId, property, variable: varName }];
 
     let requests;
     try {
@@ -1178,33 +1170,26 @@ node
   .option('--inner-radius <n>', 'Star inner radius, 0–1')
   .option('--section-contents-hidden <bool>', 'Hide or reveal section contents')
   .option('-c, --collection <name>', 'Which collection var:<name> resolves in')
-  .option('--batch <json>', 'Many at once: [{"node":"1:2","name":"Card","fill":"var:sage/50"}, …]')
+  .option('--batch <json>', 'Temporarily disabled until bounded typed batch mutation is available')
   .action(async (nodeId, options) => {
+    if (options.batch) {
+      console.error(chalk.red('✗ node set --batch is temporarily disabled.'));
+      console.error(chalk.gray('  Run one explicit node set command per node.'));
+      process.exitCode = 1;
+      return;
+    }
     await checkConnection();
 
-    let entries;
-    if (options.batch) {
-      try {
-        entries = JSON.parse(options.batch);
-      } catch (e) {
-        console.error(chalk.red('✗'), `--batch is not valid JSON: ${e.message}`);
-        process.exit(1);
-      }
-      if (!Array.isArray(entries) || entries.length === 0) {
-        console.error(chalk.red('✗'), '--batch expects a non-empty JSON array');
-        process.exit(1);
-      }
-    } else {
-      if (!nodeId) {
-        console.error(chalk.red('✗'), 'Name a node id, or pass --batch.');
-        process.exit(1);
-      }
-      const single = { node: nodeId };
-      for (const key of Object.keys(SET_PROPS)) {
-        if (options[key] !== undefined) single[key] = options[key];
-      }
-      entries = [single];
+    if (!nodeId) {
+      console.error(chalk.red('✗'), 'Name one explicit node id.');
+      process.exitCode = 1;
+      return;
     }
+    const single = { node: nodeId };
+    for (const key of Object.keys(SET_PROPS)) {
+      if (options[key] !== undefined) single[key] = options[key];
+    }
+    const entries = [single];
 
     let requests;
     try {

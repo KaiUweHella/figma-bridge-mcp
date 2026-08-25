@@ -1074,6 +1074,12 @@ tokens
   .option('--page', 'Walk the entire current page instead of one node')
   .option('--apply', 'Actually rebind (default: show the plan only)')
   .action(async (collection, options) => {
+    if (options.page && options.apply) {
+      console.error(chalk.red('✗ Page-wide Token Rebind apply is temporarily disabled.'));
+      console.error(chalk.gray('  Use --page without --apply for a dry run, or --node <id> --apply for a scoped write.'));
+      process.exitCode = 1;
+      return;
+    }
     await checkConnection();
 
     if (!options.node && !options.page) {
