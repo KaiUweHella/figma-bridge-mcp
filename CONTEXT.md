@@ -52,6 +52,16 @@ Variable values, consumer discovery, binary asset retrieval, shader
 definitions, arbitrary Plugin data or a complete Design Capture.
 _Avoid_: style dump, flattened CSS style, resolved token value, style consumer scan
 
+**Layout Grid Facts**:
+The exact, versioned and deeply bounded read of layout guides on one explicit
+Figma frame-like node or the current selection. It preserves the linked Grid
+Style id, ROWS/COLUMNS/GRID union topology, colors, per-field Variable Aliases
+and Auto counts through one shared safe-read Command Application. Auto is the
+explicit scalar tag `{"$figmaScalar":"Infinity"}`, never lossy JSON `null`.
+It is node-side layout-guide evidence, not auto-layout GRID, a mutation or a
+complete Design Capture.
+_Avoid_: grid dump, null Auto count, auto-layout grid, grid mutation
+
 **Variable Facts**:
 The exact, versioned and deeply bounded read of one local Figma variable by id
 or unambiguous name, optionally scoped to one collection. It preserves authored

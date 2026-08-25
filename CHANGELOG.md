@@ -7,6 +7,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `grid list` through one exact, versioned and bounded Layout Grid Facts
+  Application shared by Commander and MCP. Node/selection targeting,
+  `gridStyleId`, exact ROWS/COLUMNS/GRID topology, colors and Variable Aliases
+  now cross one safe-read Plan, while Auto counts use the shared
+  `{ "$figmaScalar": "Infinity" }` contract instead of silently becoming
+  `null`.
 - Routed `style show` through one exact, versioned and deeply bounded Style
   Facts Application shared by Commander and MCP. PAINT, TEXT, EFFECT and GRID
   unions now preserve publishable Markdown/documentation metadata, nested

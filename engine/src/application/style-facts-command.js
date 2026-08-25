@@ -1,6 +1,8 @@
 // Exact bounded local Style Facts Command Application.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
+import { FIGMA_SCALAR_KEY, isFigmaPositiveInfinity } from './figma-scalar.js';
+import { isExactLayoutGridList } from './layout-grid-contract.js';
 import {
   parseStyleFactsRequest,
   styleFactsArgvFromRequest,
@@ -31,7 +33,6 @@ const EFFECT_TYPES = new Set([
   'DROP_SHADOW', 'INNER_SHADOW', 'LAYER_BLUR', 'BACKGROUND_BLUR',
   'NOISE', 'TEXTURE', 'GLASS', 'SHADER',
 ]);
-const GRID_PATTERNS = new Set(['ROWS', 'COLUMNS', 'GRID']);
 const TEXT_FIELDS = Object.freeze([
   'fontName', 'fontSize', 'textDecoration', 'textCase', 'letterSpacing',
   'lineHeight', 'leadingTrim', 'paragraphIndent', 'paragraphSpacing',
@@ -156,7 +157,7 @@ export function styleFactsCode(request) {
     else if (style.type === 'GRID') {
       payload.layoutGrids = style.layoutGrids.map((grid) => (
         (grid.pattern === 'ROWS' || grid.pattern === 'COLUMNS') && grid.count === Infinity
-          ? { ...grid, count: { $figmaScalar: 'Infinity' } }
+          ? { ...grid, count: { ${JSON.stringify(FIGMA_SCALAR_KEY)}: 'Infinity' } }
           : grid
       ));
     }
@@ -181,10 +182,6 @@ function exactKeys(value, keys) {
 
 function boundedString(value, limit = MAX_STYLE_FACTS_STRING_CODE_UNITS, { empty = true } = {}) {
   return typeof value === 'string' && value.length <= limit && (empty || value.length > 0);
-}
-
-function validTaggedScalar(value) {
-  return exactKeys(value, ['$figmaScalar']) && value.$figmaScalar === 'Infinity';
 }
 
 function boundedFigmaValue(value, depth, state) {
@@ -425,41 +422,14 @@ function validEffectList(value, state) {
 }
 
 function validGridList(value, state) {
-  return Array.isArray(value)
-    && value.length <= MAX_STYLE_FACTS_CONTAINER_ENTRIES
-    && value.every((grid) => {
-      if (!grid || typeof grid !== 'object' || Array.isArray(grid)
-        || !GRID_PATTERNS.has(grid.pattern)) return false;
-      if (grid.pattern === 'GRID') {
-        if (!exactOptionalKeys(grid, ['pattern', 'sectionSize'], [
-          'visible', 'color', 'boundVariables',
-        ]) || !finiteNumber(grid.sectionSize)
-          || (grid.boundVariables !== undefined
-            && !validAliasMap(grid.boundVariables, new Set(['sectionSize'])))) return false;
-      } else {
-        if (!exactOptionalKeys(grid, ['pattern', 'alignment', 'gutterSize', 'count'], [
-          'sectionSize', 'offset', 'visible', 'color', 'boundVariables',
-        ]) || !['MIN', 'MAX', 'STRETCH', 'CENTER'].includes(grid.alignment)
-          || !finiteNumber(grid.gutterSize)
-          || (grid.sectionSize !== undefined && !finiteNumber(grid.sectionSize))
-          || (grid.offset !== undefined && !finiteNumber(grid.offset))
-          || (grid.boundVariables !== undefined && !validAliasMap(
-            grid.boundVariables,
-            new Set(['sectionSize', 'count', 'offset', 'gutterSize']),
-          ))) return false;
-        const countIsFinite = typeof grid.count === 'number' && Number.isFinite(grid.count);
-        const countIsAuto = validTaggedScalar(grid.count)
-          && grid.count.$figmaScalar === 'Infinity';
-        if (!countIsFinite && !countIsAuto) return false;
-      }
-      if ((grid.visible !== undefined && typeof grid.visible !== 'boolean')
-        || (grid.color !== undefined && !validRgb(grid.color, { alpha: true }))) return false;
-      return boundedFigmaValue(
-        validTaggedScalar(grid.count) ? { ...grid, count: 0 } : grid,
-        1,
-        state,
-      );
-    });
+  return isExactLayoutGridList(value, {
+    maxEntries: MAX_STYLE_FACTS_CONTAINER_ENTRIES,
+    maxLabelCodeUnits: MAX_STYLE_FACTS_LABEL_CODE_UNITS,
+  }) && value.every((grid) => boundedFigmaValue(
+    isFigmaPositiveInfinity(grid.count) ? { ...grid, count: 0 } : grid,
+    1,
+    state,
+  ));
 }
 
 function validTextFacts(value, state) {
@@ -527,7 +497,7 @@ function validPayload(value, input) {
     ? {
       ...value,
       layoutGrids: value.layoutGrids.map((grid) => (
-        validTaggedScalar(grid.count) ? { ...grid, count: 0 } : grid
+        isFigmaPositiveInfinity(grid.count) ? { ...grid, count: 0 } : grid
       )),
     }
     : value;

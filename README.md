@@ -292,8 +292,9 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   **Command Application Modules**. `export assets`, `node set-text`, bounded
   `node tree`, current-page Node Discovery through `find`, direct
   `node bindings`, native Inspect `node css`, exact Prototype Inspection,
-  Component Identity Facts, Style Facts through `style show`, Variable Facts
-  through `var show`, Design Link set/inspect, and Design Contract capture/check
+  Component Identity Facts, Style Facts through `style show`, Layout Grid Facts
+  through `grid list`, Variable Facts through `var show`, Design Link
+  set/inspect, and Design Contract capture/check
   use the same Implementation from MCP and Commander.
   Other `figma_run` actions remain on the deliberately broad child-process
   compatibility Adapter while they migrate one vertical slice at a time. One
@@ -1364,6 +1365,7 @@ figma_run ["shader", "import", "<shader-id>"]
 figma_run ["shader", "apply", "12:34", "<shader-id>", "--field", "fill", "--properties", "{\"definition-id\":0.8}"]
 figma_run ["layout", "grid", "set", "12:34", "--rows", "2", "--columns", "3", "--row-gap", "12"]
 figma_run ["layout", "grid", "auto-flow", "12:34", "--auto-tracks", "rows", "--positioning", "row_auto_flow"]
+figma_run ["grid", "list", "12:34", "--json"]
 figma_run ["slot", "create", "12:37", "Content", "--settings", "{\"minChildren\":1,\"maxChildren\":3}"]
 figma_run ["slot", "validate", "12:37"]
 figma_run ["draw", "inspect", "12:38"]
@@ -1377,6 +1379,11 @@ and accepts only Figma's format-specific FPS values. Shader properties are
 keyed by definition ID, not display name, and an available shader must be
 imported before it is applied. `layout grid` means the auto-layout `GRID`
 model; the older top-level `grid` command remains layout-guide management.
+`grid list [nodeId]` is the exact bounded read for those layout guides and may
+use the current selection when the id is omitted. It preserves `gridStyleId`,
+all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count
+is returned as `{ "$figmaScalar": "Infinity" }`, never the lossy JSON value
+`null`; text output renders that value as `Auto`.
 Slots expose GA `SlotSettings`, preferred values, reset, and limit violations;
 JSX `<Slot>` now uses `ComponentNode.createSlot()` and validates configured
 limits after rendering. Draw commands cover text paths, repeat transform

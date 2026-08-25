@@ -110,6 +110,12 @@ import {
   styleFactsArgvFromRequest,
 } from '../engine/src/application/style-facts-request.js';
 import {
+  acceptsLayoutGridFactsArgv,
+  layoutGridFactsArgvFromRequest,
+  layoutGridFactsFigmaUrlFileKeyFromArgv,
+  parseLayoutGridFactsRequest,
+} from '../engine/src/application/layout-grid-facts-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -219,6 +225,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'component.main',
   'style.show',
+  'grid.list',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -369,6 +376,10 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'style-facts-input';
   }
+  if (name === 'grid' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'layout-grid-facts-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -448,6 +459,10 @@ function commandCapability(args) {
   }
   if (name === 'style' && args[1] === 'show'
     && !action.help && !acceptsStyleFactsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'grid' && args[1] === 'list'
+    && !action.help && !acceptsLayoutGridFactsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -929,6 +944,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'style-facts-input': {
       args.splice(0, args.length,
         ...styleFactsArgvFromRequest(parseStyleFactsRequest(args)));
+      break;
+    }
+    case 'layout-grid-facts-input': {
+      const closedFileKey = layoutGridFactsFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...layoutGridFactsArgvFromRequest(parseLayoutGridFactsRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {

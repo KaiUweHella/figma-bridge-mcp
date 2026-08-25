@@ -25,6 +25,10 @@ import {
   componentMainPlanningArgvFromRequest,
   executeComponentMainPlan,
 } from '../application/component-main-command.js';
+import {
+  executeLayoutGridFactsPlan,
+  layoutGridFactsPlanningArgvFromRequest,
+} from '../application/layout-grid-facts-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -384,33 +388,32 @@ gridCmd
 gridCmd
   .command('list [nodeId]')
   .description('List layout grids on a frame (or current selection)')
-  .action(async (nodeId) => {
-    await checkConnection();
-    const target = nodeId
-      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
-      : `figma.currentPage.selection[0]`;
-    const code = `(async () => {
-      const n = ${target};
-      if (!n) throw new Error('No node found');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support layout grids');
-      return { id: n.id, name: n.name, grids: n.layoutGrids };
-    })()`;
+  .option('--json', 'Print exact structured layout-grid facts')
+  .allowExcessArguments(false)
+  .action(async (nodeId, options) => {
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.bold(`${r.name} (${r.id})`));
-      if (!r.grids || r.grids.length === 0) {
-        console.log(chalk.gray('  (no layout grids)'));
-        return;
-      }
-      r.grids.forEach((g, i) => {
-        if (g.pattern === 'GRID') {
-          console.log(`  ${i + 1}. GRID  size=${g.sectionSize}px`);
-        } else {
-          console.log(`  ${i + 1}. ${g.pattern}  count=${g.count}  gutter=${g.gutterSize}  offset=${g.offset}  align=${g.alignment}`);
-        }
+      const plan = planFigmaCommand(layoutGridFactsPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+        json: options.json === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeLayoutGridFactsPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Layout Grid Facts failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

@@ -178,6 +178,14 @@ versioned, deeply bounded result. Non-JSON numeric values use the explicit
 Style Facts scalar tag instead of silently becoming `null`. Catalog and
 consumer scans remain separate Applications with their own fanout limits.
 
+`grid list` owns the node-side Layout Grid Facts read. Its closed request
+canonicalizes optional node/selection targeting and text/JSON projection before
+one safe-read Command Plan. Commander and `figma_run` share one versioned,
+bounded Application that preserves `gridStyleId`, the exact ROWS/COLUMNS/GRID
+union and Variable Alias topology. The official Auto count crosses JSON as the
+shared `{"$figmaScalar":"Infinity"}` value; every other non-finite value and
+every unknown union field fails before plausible output is returned.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one
