@@ -176,16 +176,6 @@ const __variableFacts = async (v) => {
 };`;
 }
 
-function collectionDeleteCode({ collection }) {
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveCollection(${JSON.stringify(collection)});
-if (target.remote) throw new Error('Remote collections cannot be deleted');
-const facts = { id: target.id, name: target.name, variableCount: target.variableIds.length };
-target.remove();
-return facts;
-})()`;
-}
-
 function collectionExtendCode({ collection, name }) {
   const extensionName = String(name || '').trim();
   if (!extensionName) throw new Error('Extension name is required');
@@ -210,7 +200,7 @@ return __collectionFacts(extended);
 
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
-  collectionDeleteCode, collectionExtendCode,
+  collectionExtendCode,
   normalizeVariableValue, parseBoolean,
   parseVariableLiteral, parseVariableType,
 };

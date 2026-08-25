@@ -25,6 +25,10 @@ import {
   executeCollectionModePlan,
 } from '../application/collection-mode-command.js';
 import {
+  collectionDeletePlanningArgvFromRequest,
+  executeCollectionDeletePlan,
+} from '../application/collection-delete-command.js';
+import {
   executeTokenPublishStatusPlan,
   tokenPublishStatusPlanningArgvFromRequest,
 } from '../application/token-publish-status-command.js';
@@ -53,9 +57,7 @@ import {
 } from '../lib/token-sync.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
-import {
-  collectionDeleteCode, collectionExtendCode,
-} from '../lib/variable-management.js';
+import { collectionExtendCode } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 
@@ -231,9 +233,27 @@ collections.command('publish-status <collection>')
   });
 collections.command('delete <collection>')
   .description('Delete one explicit local collection and its variables')
+  .allowExcessArguments(false)
   .action(async (collection) => {
-    try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionDeleteCode({ collection })), null, 2)); }
-    catch (error) { handleEvalError(error); }
+    try {
+      const plan = planFigmaCommand(collectionDeletePlanningArgvFromRequest({ collection }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionDeletePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 collections.command('extend <collection> <name>')
   .description('Create an Enterprise collection extension from a local collection or published collection key')

@@ -91,6 +91,11 @@ import {
   parseCollectionModeRequest,
 } from '../engine/src/application/collection-mode-request.js';
 import {
+  acceptsCollectionDeleteArgv,
+  collectionDeleteArgvFromRequest,
+  parseCollectionDeleteRequest,
+} from '../engine/src/application/collection-delete-request.js';
+import {
   acceptsPageNavigationArgv,
   pageNavigationArgvFromRequest,
   parsePageNavigationRequest,
@@ -329,6 +334,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.create',
   'col.update',
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
+  'col.delete',
   'component.main',
   'style.list',
   'style.create',
@@ -504,6 +510,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'col' && ['mode-add', 'mode-rename', 'mode-remove'].includes(sub)) {
     pathPolicy = 'collection-mode-input';
   }
+  if (name === 'col' && sub === 'delete') pathPolicy = 'collection-delete-input';
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
@@ -649,6 +656,10 @@ function commandCapability(args) {
   }
   if (name === 'col' && ['mode-add', 'mode-rename', 'mode-remove'].includes(args[1])
     && !action.help && !acceptsCollectionModeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'col' && args[1] === 'delete'
+    && !action.help && !acceptsCollectionDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && args[1] === 'inspect'
@@ -1319,6 +1330,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'collection-mode-input': {
       args.splice(0, args.length,
         ...collectionModeArgvFromRequest(parseCollectionModeRequest(args)));
+      break;
+    }
+    case 'collection-delete-input': {
+      args.splice(0, args.length,
+        ...collectionDeleteArgvFromRequest(parseCollectionDeleteRequest(args)));
       break;
     }
     case 'font-inspection-input': {

@@ -397,6 +397,19 @@ test('Collection Mode actions close policy-identical non-retrying writes', () =>
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Collection Delete closes one irreversible policy-identical non-retrying write', () => {
+  const cli = planFigmaCommand(['col', 'delete', 'Disposable'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['col', 'delete', '--', 'Disposable'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'col.delete');
+  for (const argv of [
+    ['col', 'delete'], ['col', 'delete', 'one', 'two'],
+    ['col', 'delete', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',

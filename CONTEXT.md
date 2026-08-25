@@ -235,6 +235,14 @@ mode and its values are deleted, so post-remove validation failure is reported
 as irreversible applied state rather than rollback.
 _Avoid_: collection mode eval, implicit mode match, retryable mode write, reversible removal claim
 
+**Collection Deletion**:
+The bounded, non-retrying and irreversible removal of one resolved local
+Variable Collection and every member Variable. It validates complete Collection
+Facts and exact local membership before removal, then proves both Collection and
+member ids absent. Failure distinguishes unchanged, partial residue and an
+applied irreversible deletion whose complete postcondition projection failed.
+_Avoid_: collection delete eval, inferred membership, retryable removal, rollback claim
+
 **Token Publish Status Facts**:
 The compact, versioned read of one Variable or Variable Collection's official
 UNPUBLISHED, CURRENT or CHANGED state. Variable queries may be scoped to one

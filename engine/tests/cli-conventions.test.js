@@ -713,6 +713,19 @@ test('col mode mutations delegate one Plan-bound action-specific non-retrying Ap
     'Commander must not retain Collection Mode execution or formatting logic');
 });
 
+test('col delete delegates one Plan-bound irreversible non-retrying Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf("collections.command('delete <collection>')");
+  const end = adapter.indexOf("collections.command('extend <collection> <name>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /collectionDeletePlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeCollectionDeletePlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|collectionDeleteCode\(/);
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
