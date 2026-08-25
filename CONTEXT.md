@@ -210,6 +210,19 @@ agent context, not a token mutation or permission for the input path to create
 its own Workspace root.
 _Avoid_: self-authorized DESIGN.md path, Figma-backed context read, raw document dump, unbounded prompt context
 
+**Portable Variable Snapshot**:
+The versioned, array-based DESIGN.md representation of local Figma Variable
+Collections, modes, Variables and authored values. Per-snapshot handles, not
+display names or array position, preserve duplicate identities, declared
+default modes and same- or cross-Collection Alias targets. The snapshot keeps
+all six Variable types, scopes, code syntax, descriptions and publishing
+visibility, and marks dropped chunks or unavailable external Alias targets
+explicitly. A complete snapshot is captured through one daemon-attested Figma
+document revision and is rejected if the generated DESIGN.md exceeds the same
+byte or structure budget used by its reader. Source Figma ids and publish keys
+are evidence only; they never become target identity in another file.
+_Avoid_: name-keyed variable map, first mode, alias by display name, silent partial capture, source id as mutation target
+
 **Token Preset Creation**:
 The bounded, non-retrying and journaled creation of the built-in neutral spacing
 or radius scale in one exact local Collection. It creates the Collection when

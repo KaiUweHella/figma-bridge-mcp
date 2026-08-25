@@ -15,6 +15,15 @@ import { assetPolicyPluginSource } from './lib/asset-policy.js';
 import { imageAssetBase } from './lib/asset-names.js';
 import { axisMetadataExpression } from './lib/font-introspection.js';
 import { DESIGN_ENTITY_PLUGIN_DATA_KEY } from './lib/design-link-registry.js';
+import {
+  MAX_VARIABLE_SNAPSHOT_COLLECTIONS,
+  MAX_VARIABLE_SNAPSHOT_MODES,
+  MAX_VARIABLE_SNAPSHOT_SERIALIZED_BYTES,
+  MAX_VARIABLE_SNAPSHOT_VARIABLES,
+  normalizeVariableSnapshotV2,
+} from './lib/variable-snapshot.js';
+import { DEFAULT_WORKSPACE_LIMITS, parseBoundedJson } from './lib/workspace-io.js';
+import { normalizeVariableValue } from './lib/variable-management.js';
 
 /** Eval snippet: list all pages of the open file. */
 export function listPagesCode() {
@@ -54,14 +63,20 @@ const VAR_EVAL_HELPERS = `
     };
     const readVarValues = async (v, modes) => {
       const values = {};
+      const exactValues = {};
       for (const m of modes) {
         const raw = v.valuesByMode[m.id];
         if (raw == null) continue;
-        if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') values[m.name] = { alias: await aliasName(raw.id) };
-        else if (v.resolvedType === 'COLOR' && raw && typeof raw === 'object' && 'r' in raw) values[m.name] = hex(raw);
-        else values[m.name] = raw;
+        if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') {
+          values[m.name] = { alias: await aliasName(raw.id) };
+          exactValues[m.id] = { alias: raw.id };
+        } else {
+          values[m.name] = v.resolvedType === 'COLOR' && raw && typeof raw === 'object' && 'r' in raw
+            ? hex(raw) : raw;
+          exactValues[m.id] = raw;
+        }
       }
-      return values;
+      return { values, exactValues };
     };`;
 
 export function variablesCode() {
@@ -76,9 +91,24 @@ export function variablesCode() {
         let v;
         try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) { continue; }
         if (!v) continue;
-        variables.push({ id: v.id, name: v.name, type: v.resolvedType, values: await readVarValues(v, modes) });
+        const captured = await readVarValues(v, modes);
+        variables.push({
+          id: v.id, key: v.key, name: v.name, type: v.resolvedType,
+          variableCollectionId: v.variableCollectionId,
+          description: v.description, hiddenFromPublishing: v.hiddenFromPublishing,
+          scopes: Array.from(v.scopes || []), codeSyntax: { ...(v.codeSyntax || {}) },
+          ...captured,
+        });
       }
-      out.push({ id: col.id, name: col.name, modes, variables });
+      out.push({
+        id: col.id, key: col.key, name: col.name,
+        defaultModeId: col.defaultModeId,
+        hiddenFromPublishing: col.hiddenFromPublishing,
+        modes, variables, expectedVariableCount: col.variableIds.length,
+        // Compatibility-only one-shot read: no daemon revision fence exists
+        // around this path, so it must never claim exact portable capture.
+        captureComplete: false,
+      });
     }
     return JSON.stringify(out);
   })()`;
@@ -92,9 +122,13 @@ export function variablesCode() {
  */
 export function variableCollectionsCode() {
   return `(async () => {
-    let cols = [];
-    try { cols = await figma.variables.getLocalVariableCollectionsAsync(); } catch (e) { return JSON.stringify([]); }
-    return JSON.stringify(cols.map(c => ({ id: c.id, name: c.name, modes: c.modes.map(m => ({ id: m.modeId, name: m.name })), variableIds: c.variableIds })));
+    const cols = await figma.variables.getLocalVariableCollectionsAsync();
+    return JSON.stringify(cols.map(c => ({
+      id: c.id, key: c.key, name: c.name, defaultModeId: c.defaultModeId,
+      hiddenFromPublishing: c.hiddenFromPublishing,
+      modes: c.modes.map(m => ({ id: m.modeId, name: m.name })),
+      variableIds: c.variableIds,
+    })));
   })()`;
 }
 
@@ -113,10 +147,207 @@ export function variableChunkCode(ids, modes) {
       let v;
       try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) { continue; }
       if (!v) continue;
-      variables.push({ id: v.id, name: v.name, type: v.resolvedType, values: await readVarValues(v, modes) });
+      const captured = await readVarValues(v, modes);
+      variables.push({
+        id: v.id, key: v.key, name: v.name, type: v.resolvedType,
+        variableCollectionId: v.variableCollectionId,
+        description: v.description, hiddenFromPublishing: v.hiddenFromPublishing,
+        scopes: Array.from(v.scopes || []), codeSyntax: { ...(v.codeSyntax || {}) },
+        ...captured,
+      });
     }
     return JSON.stringify(variables);
   })()`;
+}
+
+/** Accept one captured chunk only when it is the exact requested unique
+ * Collection-owned id partition. A same-length response is not evidence. */
+const CAPTURE_IDENTITY_LIMIT = 512;
+const CAPTURE_STRING_VALUE_LIMIT = 16_384;
+const CAPTURE_UNSAFE =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;
+
+function captureError(message) {
+  return Object.assign(new Error(`Invalid Variable Snapshot capture: ${message}.`), {
+    code: 'VARIABLE_CAPTURE_LIMIT',
+  });
+}
+
+function captureIdentity(value, role) {
+  if (typeof value !== 'string' || !value || value.length > CAPTURE_IDENTITY_LIMIT
+    || CAPTURE_UNSAFE.test(value)) throw captureError(`${role} is unsafe or too long`);
+  return value;
+}
+
+function capturePlain(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function captureClosed(value, keys) {
+  return capturePlain(value) && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function graphEntries(value) {
+  const stack = [value];
+  let entries = 0;
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || typeof current !== 'object') continue;
+    const children = Array.isArray(current) ? current : Object.values(current);
+    entries += children.length;
+    if (entries > DEFAULT_WORKSPACE_LIMITS.collectionEntries) {
+      throw captureError('source graph exceeds the Workspace collection-entry limit');
+    }
+    stack.push(...children);
+  }
+  return entries;
+}
+
+function boundedCapture(value, role) {
+  const serialized = JSON.stringify(value);
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_VARIABLE_SNAPSHOT_SERIALIZED_BYTES) {
+    throw captureError(`${role} exceeds the Variable Snapshot byte limit`);
+  }
+  try { parseBoundedJson(serialized, { role: 'variable-snapshot-capture' }); }
+  catch { throw captureError(`${role} exceeds the Workspace structure or byte limits`); }
+  return { bytes: Buffer.byteLength(serialized, 'utf8'), entries: graphEntries(value) };
+}
+
+/** Validate the complete lightweight catalog before the first value read. */
+export function exactVariableCatalog(catalog) {
+  if (!Array.isArray(catalog)
+    || catalog.length > MAX_VARIABLE_SNAPSHOT_COLLECTIONS) {
+    throw captureError(`at most ${MAX_VARIABLE_SNAPSHOT_COLLECTIONS} Collections are accepted`);
+  }
+  let modeCount = 0;
+  let variableCount = 0;
+  const variableIds = new Set();
+  const collectionIds = new Set();
+  const modeIds = new Set();
+  for (const collection of catalog) {
+    if (!captureClosed(collection, [
+      'id', 'key', 'name', 'defaultModeId', 'hiddenFromPublishing', 'modes', 'variableIds',
+    ])) throw captureError('Collection catalog row is not closed');
+    if (!Array.isArray(collection.modes) || !Array.isArray(collection.variableIds)) {
+      throw captureError('Collection catalog modes and variableIds must be arrays');
+    }
+    captureIdentity(collection.id, 'Collection source id');
+    captureIdentity(collection.key, 'Collection source key');
+    captureIdentity(collection.name, 'Collection name');
+    captureIdentity(collection.defaultModeId, 'Collection default mode id');
+    if (collectionIds.has(collection.id)) throw captureError('Collection source ids must be unique');
+    collectionIds.add(collection.id);
+    modeCount += collection.modes.length;
+    variableCount += collection.variableIds.length;
+    if (modeCount > MAX_VARIABLE_SNAPSHOT_MODES) {
+      throw captureError(`at most ${MAX_VARIABLE_SNAPSHOT_MODES} modes are accepted`);
+    }
+    if (variableCount > MAX_VARIABLE_SNAPSHOT_VARIABLES) {
+      throw captureError(`at most ${MAX_VARIABLE_SNAPSHOT_VARIABLES} Variables are accepted`);
+    }
+    for (const mode of collection.modes) {
+      if (!captureClosed(mode, ['id', 'name'])) throw captureError('mode catalog row is not closed');
+      captureIdentity(mode.id, 'mode source id');
+      captureIdentity(mode.name, 'mode name');
+      if (modeIds.has(mode.id)) throw captureError('mode source ids must be globally unique');
+      modeIds.add(mode.id);
+    }
+    for (const id of collection.variableIds) {
+      captureIdentity(id, 'Variable source id');
+      if (variableIds.has(id)) throw captureError('Variable source ids must be globally unique');
+      variableIds.add(id);
+    }
+  }
+  // Reuse the canonical v2 projection/normalizer for Collection metadata,
+  // mode topology, defaults, source-id uniqueness and source string bounds.
+  try {
+    const snapshot = buildVariableSnapshotV2(catalog.map((collection) => ({
+      ...collection, variables: [], expectedVariableCount: 0, captureComplete: true,
+    })));
+    if (snapshot.complete !== true) {
+      throw captureError('Collection catalog lacks exact typed evidence');
+    }
+  } catch { throw captureError('Collection catalog is incompatible with Variable Snapshot v2'); }
+  boundedCapture(catalog, 'Variable catalog');
+  return catalog;
+}
+
+function validateLegacyCapturedValues(variable, collection) {
+  if (!capturePlain(variable.values)) throw captureError('legacy value map must be an object');
+  const modeNames = new Set(collection.modes.map((mode) => mode.name));
+  for (const [modeName, value] of Object.entries(variable.values)) {
+    captureIdentity(modeName, 'legacy mode name');
+    if (!modeNames.has(modeName)) throw captureError('legacy value references an unknown mode');
+    if (capturePlain(value) && Object.hasOwn(value, 'alias')) {
+      if (!captureClosed(value, ['alias'])) throw captureError('legacy Alias value is not closed');
+      captureIdentity(value.alias, 'legacy Alias target');
+    } else {
+      if (typeof value === 'string' && value.length > CAPTURE_STRING_VALUE_LIMIT) {
+        throw captureError('legacy STRING value is too long');
+      }
+      try { normalizeVariableValue(value, variable.type); }
+      catch { throw captureError('legacy value is incompatible with its Variable type'); }
+    }
+  }
+}
+
+export function exactVariableChunk(expectedIds, collection, captured) {
+  if (!Array.isArray(expectedIds) || !expectedIds.length
+    || new Set(expectedIds).size !== expectedIds.length
+    || !Array.isArray(captured) || captured.length !== expectedIds.length) return null;
+  if (!collection || typeof collection.id !== 'string') return null;
+  const expected = new Set(expectedIds);
+  const received = new Set();
+  for (const variable of captured) {
+    if (!variable || typeof variable !== 'object' || Array.isArray(variable)
+      || !expected.has(variable.id) || received.has(variable.id)
+      || variable.variableCollectionId !== collection.id) return null;
+    received.add(variable.id);
+  }
+  if (received.size !== expected.size) return null;
+  for (const variable of captured) {
+    if (!captureClosed(variable, [
+      'id', 'key', 'name', 'type', 'variableCollectionId', 'description',
+      'hiddenFromPublishing', 'scopes', 'codeSyntax', 'values', 'exactValues',
+    ])) throw captureError('Variable chunk row is not closed');
+    validateLegacyCapturedValues(variable, collection);
+  }
+  try {
+    const snapshot = buildVariableSnapshotV2([{
+      ...collection,
+      variables: captured,
+      expectedVariableCount: captured.length,
+      captureComplete: true,
+    }]);
+    if (snapshot.complete !== true) {
+      throw captureError('Variable chunk lacks exact typed evidence');
+    }
+  } catch { throw captureError('Variable chunk is incompatible with Variable Snapshot v2'); }
+  const measurement = boundedCapture(captured, 'Variable chunk');
+  return Object.freeze({ variables: captured, ...measurement });
+}
+
+/** Prove that no Collection membership, mode topology or declared default
+ * changed across the chunked capture window. Order of Collections is not
+ * identity, while mode and membership order are authored Figma facts. */
+export function stableVariableCatalog(before, after) {
+  if (!Array.isArray(before) || !Array.isArray(after) || before.length !== after.length) return false;
+  const ids = new Set();
+  return before.every((collection) => {
+    if (!collection || typeof collection.id !== 'string' || ids.has(collection.id)) return false;
+    ids.add(collection.id);
+    const matches = after.filter((candidate) => candidate?.id === collection.id);
+    if (matches.length !== 1) return false;
+    const fresh = matches[0];
+    return fresh.key === collection.key
+      && fresh.name === collection.name
+      && fresh.defaultModeId === collection.defaultModeId
+      && fresh.hiddenFromPublishing === collection.hiddenFromPublishing
+      && JSON.stringify(fresh.modes) === JSON.stringify(collection.modes)
+      && JSON.stringify(fresh.variableIds) === JSON.stringify(collection.variableIds);
+  });
 }
 
 /**
@@ -1883,6 +2114,127 @@ export function buildVariableTokens(resolvedCollections = []) {
   return out;
 }
 
+/**
+ * Exact portable Variable Snapshot v2. Display names remain payload while
+ * per-snapshot handles carry Collection, mode, Variable and Alias identity.
+ * The legacy name-keyed `variables` block is emitted beside this contract
+ * during migration, but only this array-based shape can preserve duplicates.
+ */
+export function buildVariableSnapshotV2(collections = []) {
+  const collectionHandles = new Map();
+  const variableHandles = new Map();
+  const variableCollections = new Map();
+  const sourceModeIds = new Set();
+  const sourceVariableIds = new Set();
+  let complete = true;
+  collections.forEach((collection, collectionIndex) => {
+    if (typeof collection.id !== 'string' || !collection.id
+      || collectionHandles.has(collection.id)) {
+      throw new Error('Invalid Variable Snapshot capture: Collection source ids must be unique.');
+    }
+    const collectionHandle = `collection:${collectionIndex + 1}`;
+    collectionHandles.set(collection.id, collectionHandle);
+    if (typeof collection.name !== 'string'
+      || typeof collection.hiddenFromPublishing !== 'boolean'
+      || !Array.isArray(collection.modes)
+      || !Array.isArray(collection.variables)) complete = false;
+    if (!Number.isSafeInteger(collection.expectedVariableCount)
+      || collection.expectedVariableCount < 0
+      || collection.expectedVariableCount !== (collection.variables || []).length
+      || collection.captureComplete !== true) complete = false;
+    const ownModes = new Set();
+    for (const mode of collection.modes || []) {
+      if (typeof mode.id !== 'string' || !mode.id || sourceModeIds.has(mode.id)) {
+        throw new Error('Invalid Variable Snapshot capture: mode source ids must be unique.');
+      }
+      sourceModeIds.add(mode.id);
+      ownModes.add(mode.id);
+    }
+    if (!ownModes.has(collection.defaultModeId)) complete = false;
+    (collection.variables || []).forEach((variable, variableIndex) => {
+      if (typeof variable.id !== 'string' || !variable.id
+        || sourceVariableIds.has(variable.id)) {
+        throw new Error('Invalid Variable Snapshot capture: Variable source ids must be unique.');
+      }
+      sourceVariableIds.add(variable.id);
+      if (!variable.exactValues || typeof variable.exactValues !== 'object'
+        || Array.isArray(variable.exactValues)) complete = false;
+      if (typeof variable.description !== 'string'
+        || typeof variable.hiddenFromPublishing !== 'boolean'
+        || !Array.isArray(variable.scopes)
+        || !variable.codeSyntax || typeof variable.codeSyntax !== 'object'
+        || Array.isArray(variable.codeSyntax)) complete = false;
+      const variableHandle = `${collectionHandle}/variable:${variableIndex + 1}`;
+      variableHandles.set(variable.id, variableHandle);
+      variableCollections.set(variable.id, collectionHandle);
+    });
+  });
+
+  const projected = {
+    schemaVersion: 2,
+    kind: 'figma-variable-snapshot',
+    complete,
+    collections: collections.map((collection, collectionIndex) => {
+      const collectionHandle = collectionHandles.get(collection.id)
+        || `collection:${collectionIndex + 1}`;
+      const modes = (collection.modes || []).map((mode, modeIndex) => ({
+        handle: `${collectionHandle}/mode:${modeIndex + 1}`,
+        name: mode.name,
+        sourceId: mode.id,
+      }));
+      const modeHandles = new Map((collection.modes || []).map((mode, modeIndex) => [
+        mode.id, modes[modeIndex].handle,
+      ]));
+      const defaultMode = modeHandles.get(collection.defaultModeId) || null;
+      return {
+        handle: collectionHandle,
+        name: collection.name,
+        ...(collection.key ? { sourceKey: collection.key } : {}),
+        hiddenFromPublishing: collection.hiddenFromPublishing === true,
+        defaultMode,
+        modes: modes.map(({ sourceId: _sourceId, ...mode }) => mode),
+        variables: (collection.variables || []).map((variable, variableIndex) => {
+          const values = {};
+          for (const [modeId, raw] of Object.entries(variable.exactValues || {})) {
+            const modeHandle = modeHandles.get(modeId);
+            if (!modeHandle) {
+              throw new Error('Invalid Variable Snapshot capture: a Variable value references a foreign or missing mode.');
+            }
+            const rawIsObject = raw && typeof raw === 'object' && !Array.isArray(raw);
+            if (rawIsObject && Object.hasOwn(raw, 'alias')) {
+              if (Object.keys(raw).length !== 1 || typeof raw.alias !== 'string') {
+                throw new Error('Invalid Variable Snapshot capture: an Alias value is not a closed source fact.');
+              }
+              const target = variableHandles.get(raw.alias);
+              values[modeHandle] = target ? {
+                $alias: {
+                  status: 'local',
+                  collection: variableCollections.get(raw.alias),
+                  variable: target,
+                },
+              } : { $alias: { status: 'unresolved', sourceId: raw.alias } };
+            } else values[modeHandle] = raw;
+          }
+          return {
+            handle: variableHandles.get(variable.id)
+              || `${collectionHandle}/variable:${variableIndex + 1}`,
+            name: variable.name,
+            type: variable.type,
+            ...(variable.key ? { sourceKey: variable.key } : {}),
+            description: typeof variable.description === 'string' ? variable.description : '',
+            hiddenFromPublishing: variable.hiddenFromPublishing === true,
+            scopes: Array.isArray(variable.scopes) ? [...variable.scopes] : [],
+            codeSyntax: variable.codeSyntax && typeof variable.codeSyntax === 'object'
+              ? { ...variable.codeSyntax } : {},
+            values,
+          };
+        }),
+      };
+    }),
+  };
+  return normalizeVariableSnapshotV2(projected);
+}
+
 // ============ Markdown writer ============
 
 export const ALL_SECTIONS = [
@@ -1913,7 +2265,8 @@ export function generateDesignMd(extraction, options = {}) {
   const baseUnit = inferBaseUnit(census.spacing);
   const fonts = [...census.fonts];
   const hexToName = Object.fromEntries(Object.entries(colorNames).map(([n, h]) => [h, n]));
-  const resolvedVars = resolveAliases(extraction.variables || []);
+  const rawVars = extraction.variables || [];
+  const resolvedVars = resolveAliases(rawVars);
 
   const out = [];
   out.push(`# DESIGN.md -- ${extraction.fileName}`, '');
@@ -2073,7 +2426,10 @@ export function generateDesignMd(extraction, options = {}) {
         radius: Object.fromEntries(Object.entries(radiusNames).map(([n, v]) => [n, `${v}px`])),
         shadow: {},
         fonts,
-        ...(resolvedVars.length ? { variables: buildVariableTokens(resolvedVars) } : {}),
+        ...(resolvedVars.length ? {
+          variables: buildVariableTokens(resolvedVars),
+          variableSnapshot: buildVariableSnapshotV2(rawVars),
+        } : {}),
       };
       let i = 0;
       for (const [json] of [...census.shadows.entries()].sort((a, b) => b[1] - a[1])) {
@@ -2082,12 +2438,22 @@ export function generateDesignMd(extraction, options = {}) {
         i += 1;
         tokens.shadow[`shadow-${i}`] = `${e.type === 'INNER_SHADOW' ? 'inset ' : ''}${e.x}px ${e.y}px ${e.blur}px ${e.spread}px ${e.color}${e.a < 1 ? Math.round(e.a * 255).toString(16).padStart(2, '0') : ''}`;
       }
+      const serializedTokens = JSON.stringify(tokens, null, 2);
+      try {
+        parseBoundedJson(serializedTokens, { role: 'generated-design-token-block' });
+      } catch {
+        throw new Error('Generated DESIGN.md token data exceeds the safe import structure or byte limits.');
+      }
       out.push('```json design-tokens');
-      out.push(JSON.stringify(tokens, null, 2));
+      out.push(serializedTokens);
       out.push('```', '');
     }
   }
-  return out.join('\n');
+  const document = out.join('\n');
+  if (Buffer.byteLength(document, 'utf8') > DEFAULT_WORKSPACE_LIMITS.textBytes) {
+    throw new Error(`Generated DESIGN.md exceeds the ${DEFAULT_WORKSPACE_LIMITS.textBytes}-byte workspace limit.`);
+  }
+  return document;
 }
 
 /** Full uncompressed tree for one page (used by --split). */

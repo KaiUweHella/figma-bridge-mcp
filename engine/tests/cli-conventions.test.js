@@ -184,6 +184,28 @@ test('asset export Adapter delegates one Command Application to Manifest v2', ()
     'run-local filename ordinals and dedup maps must not return');
 });
 
+test('Variable Snapshot extraction pins every catalog and chunk read to one revision', () => {
+  const adapter = sources.get('extract.js');
+  assert.ok(adapter, 'extract.js exists');
+  assert.match(adapter, /createRevisionContext\(/);
+  assert.match(adapter, /daemonExecWithMetadata\('eval'/);
+  assert.match(adapter, /revisionContext\.accept\(response\.metadata/);
+  assert.match(adapter, /source\(\)\?\.proof !== 'document-revision'/);
+  const variableStart = adapter.indexOf("const wantsVariables");
+  const pageStart = adapter.indexOf('const results = []', variableStart);
+  const variableCapture = adapter.slice(variableStart, pageStart);
+  assert.doesNotMatch(variableCapture, /fastEval\(/,
+    'exact Variable reads must never fall back to result-only eval');
+  assert.doesNotMatch(variableCapture, /catch[^}]*= \[\]/s,
+    'a failed Variable catalog must not become an empty successful catalog');
+  assert.ok(variableCapture.indexOf('exactVariableCatalog(')
+    < variableCapture.indexOf('for (let ci = 0; ci < cols.length'),
+  'catalog count and topology bounds must apply before the first chunk loop');
+  assert.ok(variableCapture.indexOf('capturedBytes += exact.bytes')
+    < variableCapture.indexOf('collected.push(...exact.variables)'),
+  'aggregate byte and structure budgets must apply before retaining a chunk');
+});
+
 test('node set-text delegates one non-retrying Command Application', () => {
   const adapter = sources.get('node-ops.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'node-text-command.js'), 'utf8');

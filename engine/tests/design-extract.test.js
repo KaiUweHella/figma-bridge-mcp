@@ -304,7 +304,12 @@ test('generateDesignMd components section emits the Reuse line', () => {
 
 // ============ Variables capture ============
 
-import { variablesCode, variableCollectionsCode, variableChunkCode, resolveAliases, formatVarValue, buildVariableTokens, mdCell } from '../src/design-extract.js';
+import {
+  variablesCode, variableCollectionsCode, variableChunkCode, resolveAliases,
+  exactVariableCatalog, exactVariableChunk, stableVariableCatalog,
+  formatVarValue, buildVariableTokens,
+  buildVariableSnapshotV2, mdCell,
+} from '../src/design-extract.js';
 
 const FIXTURE_VARS = [
   {
@@ -356,6 +361,104 @@ test('variableChunkCode embeds the id slice + modes and is valid JS', () => {
   assert.match(code, /alias: await aliasName\(raw\.id\)/);
 });
 
+test('chunk capture requires the exact unique requested Collection membership', () => {
+  const collection = {
+    id: 'C:1', key: 'collection-key', name: 'Theme', defaultModeId: 'M:1',
+    hiddenFromPublishing: false, modes: [{ id: 'M:1', name: 'Mode' }],
+    variableIds: ['V:1', 'V:2'],
+  };
+  const exact = [
+    { id: 'V:2', key: 'key-2', name: 'two', type: 'FLOAT', variableCollectionId: 'C:1',
+      description: '', hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+      values: { Mode: 2 }, exactValues: { 'M:1': 2 } },
+    { id: 'V:1', key: 'key-1', name: 'one', type: 'FLOAT', variableCollectionId: 'C:1',
+      description: '', hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+      values: { Mode: 1 }, exactValues: { 'M:1': 1 } },
+  ];
+  assert.equal(exactVariableChunk(['V:1', 'V:2'], collection, exact).variables, exact);
+  for (const captured of [
+    [{ id: 'V:1', variableCollectionId: 'C:1' }, { id: 'V:1', variableCollectionId: 'C:1' }],
+    [{ id: 'V:1', variableCollectionId: 'C:1' }, { id: 'V:3', variableCollectionId: 'C:1' }],
+    [{ id: 'V:1', variableCollectionId: 'C:1' }, { id: 'V:2', variableCollectionId: 'C:2' }],
+    [{ id: 'V:1', variableCollectionId: 'C:1' }],
+  ]) assert.equal(exactVariableChunk(['V:1', 'V:2'], collection, captured), null);
+});
+
+test('Variable catalog count bounds fail before any value chunk can be accepted', () => {
+  const row = (index, variableIds = []) => ({
+    id: `C:${index}`, key: `key-${index}`, name: `Collection ${index}`,
+    defaultModeId: `M:${index}`, hiddenFromPublishing: false,
+    modes: [{ id: `M:${index}`, name: 'Mode' }], variableIds,
+  });
+  assert.throws(() => exactVariableCatalog(
+    Array.from({ length: 1_001 }, (_value, index) => row(index)),
+  ), /at most 1000 Collections/);
+  assert.throws(() => exactVariableCatalog([
+    row(1, Array.from({ length: 10_001 }, (_value, index) => `V:${index}`)),
+  ]), /at most 10000 Variables/);
+  const wrongBoolean = row(1);
+  wrongBoolean.hiddenFromPublishing = 'false';
+  assert.throws(() => exactVariableCatalog([wrongBoolean]),
+    (error) => error.code === 'VARIABLE_CAPTURE_LIMIT');
+  const wrongDefault = row(1);
+  wrongDefault.defaultModeId = 'M:missing';
+  assert.throws(() => exactVariableCatalog([wrongDefault]),
+    (error) => error.code === 'VARIABLE_CAPTURE_LIMIT');
+});
+
+test('Variable chunks reject open and oversized facts before aggregation', () => {
+  const collection = {
+    id: 'C:1', key: 'collection-key', name: 'Theme', defaultModeId: 'M:1',
+    hiddenFromPublishing: false, modes: [{ id: 'M:1', name: 'Mode' }],
+    variableIds: ['V:1'],
+  };
+  const variable = {
+    id: 'V:1', key: 'variable-key', name: 'one', type: 'STRING',
+    variableCollectionId: 'C:1', description: '', hiddenFromPublishing: false,
+    scopes: ['ALL_SCOPES'], codeSyntax: {}, values: { Mode: 'safe' },
+    exactValues: { 'M:1': 'safe' },
+  };
+  const open = { ...variable, surprise: true };
+  assert.throws(() => exactVariableChunk(['V:1'], collection, [open]),
+    (error) => error.code === 'VARIABLE_CAPTURE_LIMIT' && /not closed/.test(error.message));
+  const oversized = structuredClone(variable);
+  oversized.values.Mode = 'x'.repeat(16_385);
+  oversized.exactValues['M:1'] = oversized.values.Mode;
+  assert.throws(() => exactVariableChunk(['V:1'], collection, [oversized]),
+    (error) => error.code === 'VARIABLE_CAPTURE_LIMIT');
+  for (const mutate of [
+    (value) => { value.description = 123; },
+    (value) => { value.hiddenFromPublishing = 'false'; },
+    (value) => { value.scopes = 'ALL_SCOPES'; },
+    (value) => { value.codeSyntax = []; },
+    (value) => { value.exactValues = null; },
+  ]) {
+    const malformed = structuredClone(variable);
+    mutate(malformed);
+    assert.throws(() => exactVariableChunk(['V:1'], collection, [malformed]),
+      (error) => error.code === 'VARIABLE_CAPTURE_LIMIT');
+  }
+});
+
+test('chunk capture requires stable membership, modes and declared default afterward', () => {
+  const before = [{
+    id: 'C:1', key: 'key', name: 'Theme', defaultModeId: 'M:1',
+    hiddenFromPublishing: false, modes: [{ id: 'M:1', name: 'Light' }],
+    variableIds: ['V:1'],
+  }];
+  assert.equal(stableVariableCatalog(before, structuredClone(before)), true);
+  for (const mutate of [
+    (value) => { value[0].variableIds.push('V:2'); },
+    (value) => { value[0].modes[0].name = 'Changed'; },
+    (value) => { value[0].defaultModeId = 'M:2'; },
+    (value) => { value.push({ ...value[0], id: 'C:2' }); },
+  ]) {
+    const after = structuredClone(before);
+    mutate(after);
+    assert.equal(stableVariableCatalog(before, after), false);
+  }
+});
+
 test('resolveAliases swaps alias ids for the referenced variable name', () => {
   const resolved = resolveAliases(FIXTURE_VARS);
   const aliasVar = resolved[0].variables.find(v => v.name === 'button-default-fgColor');
@@ -383,6 +486,188 @@ test('buildVariableTokens keys by collection name with modes + variable map', ()
   assert.deepEqual(tokens['Acme Primitives'].modes, ['Light', 'Dark']);
   assert.equal(tokens['Acme Primitives'].variables['button-primary-bgColor-rest'].values.Light, '#1f883d');
   assert.equal(tokens['Acme Primitives'].variables['button-primary-bgColor-rest'].type, 'COLOR');
+});
+
+test('Variable Snapshot v2 preserves duplicate names, exact modes, metadata and all six types', () => {
+  const collections = [
+    {
+      id: 'C:1', key: 'collection-key-1', name: 'Theme', defaultModeId: 'M:dark',
+      hiddenFromPublishing: true, expectedVariableCount: 7, captureComplete: true,
+      modes: [
+        { id: 'M:light', name: 'Same' },
+        { id: 'M:dark', name: 'Same' },
+      ],
+      variables: [
+        { id: 'V:color', key: 'variable-key-color', name: 'duplicate', type: 'COLOR',
+          description: 'Color', hiddenFromPublishing: true, scopes: ['ALL_FILLS'],
+          codeSyntax: { WEB: '--color' }, exactValues: { 'M:light': { r: 1, g: 0, b: 0, a: 1 } } },
+        { id: 'V:float', name: 'duplicate', type: 'FLOAT', exactValues: { 'M:light': 8 } },
+        { id: 'V:string', name: 'string', type: 'STRING', exactValues: { 'M:light': 'Inter' } },
+        { id: 'V:boolean', name: 'boolean', type: 'BOOLEAN', exactValues: { 'M:light': false } },
+        { id: 'V:easing', name: 'easing', type: 'EASING', exactValues: {
+          'M:light': { type: 'CUSTOM_CUBIC_BEZIER', easingFunctionCubicBezier: {
+            x1: 0.1, y1: 0.2, x2: 0.3, y2: 1,
+          } },
+        } },
+        { id: 'V:timing', name: 'timing', type: 'TIMING', exactValues: { 'M:light': 200 } },
+        { id: 'V:alias', name: 'alias', type: 'COLOR', exactValues: {
+          'M:dark': { alias: 'V:target' },
+        } },
+      ],
+    },
+    {
+      id: 'C:2', name: 'Theme', defaultModeId: 'M:base',
+      modes: [{ id: 'M:base', name: 'Base' }], expectedVariableCount: 2,
+      captureComplete: true,
+      variables: [
+        { id: 'V:target', name: 'duplicate', type: 'COLOR', exactValues: {
+          'M:base': { r: 0, g: 0, b: 0, a: 1 },
+        } },
+        { id: 'V:external', name: 'external', type: 'COLOR', exactValues: {
+          'M:base': { alias: 'REMOTE:missing' },
+        } },
+      ],
+    },
+  ];
+  for (const collection of collections) {
+    collection.hiddenFromPublishing ??= false;
+    for (const variable of collection.variables) {
+      variable.description ??= '';
+      variable.hiddenFromPublishing ??= false;
+      variable.scopes ??= ['ALL_SCOPES'];
+      variable.codeSyntax ??= {};
+    }
+  }
+  const snapshot = buildVariableSnapshotV2(collections);
+  assert.equal(snapshot.schemaVersion, 2);
+  assert.equal(snapshot.kind, 'figma-variable-snapshot');
+  assert.equal(snapshot.complete, true);
+  assert.equal(snapshot.collections.length, 2);
+  assert.deepEqual(snapshot.collections.map((collection) => collection.name), ['Theme', 'Theme']);
+  assert.equal(snapshot.collections[0].defaultMode, 'collection:1/mode:2');
+  assert.deepEqual(snapshot.collections[0].modes.map((mode) => mode.name), ['Same', 'Same']);
+  assert.deepEqual(snapshot.collections[0].variables.map((variable) => variable.type),
+    ['COLOR', 'FLOAT', 'STRING', 'BOOLEAN', 'EASING', 'TIMING', 'COLOR']);
+  assert.deepEqual(snapshot.collections[0].variables.slice(0, 2).map((variable) => variable.name),
+    ['duplicate', 'duplicate']);
+  assert.deepEqual(snapshot.collections[0].variables[0], {
+    handle: 'collection:1/variable:1', name: 'duplicate', type: 'COLOR',
+    sourceKey: 'variable-key-color', description: 'Color', hiddenFromPublishing: true,
+    scopes: ['ALL_FILLS'], codeSyntax: { WEB: '--color' },
+    values: { 'collection:1/mode:1': { r: 1, g: 0, b: 0, a: 1 } },
+  });
+  assert.deepEqual(snapshot.collections[0].variables[6].values['collection:1/mode:2'], {
+    $alias: {
+      status: 'local', collection: 'collection:2', variable: 'collection:2/variable:1',
+    },
+  });
+  assert.deepEqual(snapshot.collections[1].variables[1].values['collection:2/mode:1'], {
+    $alias: { status: 'unresolved', sourceId: 'REMOTE:missing' },
+  });
+});
+
+test('Variable Snapshot v2 marks a partial chunk capture incomplete', () => {
+  const snapshot = buildVariableSnapshotV2([{
+    id: 'C:1', name: 'Partial', defaultModeId: 'M:1',
+    modes: [{ id: 'M:1', name: 'Mode' }], expectedVariableCount: 2,
+    captureComplete: true,
+    variables: [{ id: 'V:1', name: 'only', type: 'FLOAT', exactValues: { 'M:1': 1 } }],
+  }]);
+  assert.equal(snapshot.complete, false);
+});
+
+test('Variable Snapshot v2 refuses colliding native identities before handle projection', () => {
+  const base = {
+    id: 'C:1', name: 'Theme', defaultModeId: 'M:1', expectedVariableCount: 1,
+    captureComplete: true, modes: [{ id: 'M:1', name: 'Mode' }],
+    variables: [{ id: 'V:1', name: 'token', type: 'FLOAT', exactValues: { 'M:1': 8 } }],
+  };
+  assert.throws(() => buildVariableSnapshotV2([base, { ...structuredClone(base) }]),
+    /Collection source ids must be unique/);
+  const duplicateMode = structuredClone(base);
+  duplicateMode.modes.push({ id: 'M:1', name: 'Duplicate' });
+  assert.throws(() => buildVariableSnapshotV2([duplicateMode]), /mode source ids must be unique/);
+  const duplicateVariable = structuredClone(base);
+  duplicateVariable.variables.push({ ...duplicateVariable.variables[0] });
+  duplicateVariable.expectedVariableCount = 2;
+  assert.throws(() => buildVariableSnapshotV2([duplicateVariable]),
+    /Variable source ids must be unique/);
+});
+
+test('Variable Snapshot v2 never calls missing exact capture evidence complete', () => {
+  const complete = {
+    id: 'C:1', name: 'Theme', defaultModeId: 'M:1', expectedVariableCount: 1,
+    captureComplete: true, modes: [{ id: 'M:1', name: 'Mode' }],
+    variables: [{ id: 'V:1', name: 'token', type: 'FLOAT', exactValues: { 'M:1': 8 } }],
+  };
+  for (const mutate of [
+    (value) => { delete value.expectedVariableCount; },
+    (value) => { delete value.captureComplete; },
+    (value) => { delete value.defaultModeId; },
+    (value) => { delete value.variables[0].exactValues; value.variables[0].values = { Mode: 8 }; },
+    (value) => { delete value.variables[0].description; },
+    (value) => { delete value.variables[0].hiddenFromPublishing; },
+    (value) => { delete value.variables[0].scopes; },
+    (value) => { delete value.variables[0].codeSyntax; },
+  ]) {
+    const value = structuredClone(complete);
+    mutate(value);
+    const snapshot = buildVariableSnapshotV2([value]);
+    assert.equal(snapshot.complete, false);
+  }
+});
+
+test('Variable Snapshot v2 rejects foreign mode values and open Alias capture facts', () => {
+  const complete = {
+    id: 'C:1', name: 'Theme', hiddenFromPublishing: false,
+    defaultModeId: 'M:1', expectedVariableCount: 1, captureComplete: true,
+    modes: [{ id: 'M:1', name: 'Mode' }],
+    variables: [{
+      id: 'V:1', name: 'token', type: 'FLOAT', description: '',
+      hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+      exactValues: { 'M:1': 8 },
+    }],
+  };
+  const foreignMode = structuredClone(complete);
+  foreignMode.variables[0].exactValues = { 'M:foreign': 8 };
+  assert.throws(() => buildVariableSnapshotV2([foreignMode]), /foreign or missing mode/);
+
+  const openAlias = structuredClone(complete);
+  openAlias.variables[0].exactValues = { 'M:1': { alias: 'V:2', extra: true } };
+  assert.throws(() => buildVariableSnapshotV2([openAlias]), /not a closed source fact/);
+});
+
+test('generated DESIGN.md refuses output that its bounded reader cannot import', () => {
+  const longValue = 'x'.repeat(16_384);
+  const variables = Array.from({ length: 170 }, (_value, index) => ({
+    id: `V:${index}`, name: `string-${index}`, type: 'STRING', description: '',
+    hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+    values: { Mode: longValue }, exactValues: { 'M:1': longValue },
+  }));
+  const extraction = { ...EXTRACTION, variables: [{
+    id: 'C:1', name: 'Large', hiddenFromPublishing: false,
+    defaultModeId: 'M:1', modes: [{ id: 'M:1', name: 'Mode' }],
+    variables, expectedVariableCount: variables.length, captureComplete: true,
+  }] };
+  assert.throws(() => generateDesignMd(extraction, { sections: ['variables', 'tokens'] }),
+    /Generated DESIGN\.md exceeds/);
+});
+
+test('generated DESIGN.md carries v2 identity beside the bounded legacy reader', () => {
+  const md = generateDesignMd({ ...EXTRACTION, variables: [{
+    id: 'C:1', name: 'Theme', defaultModeId: 'M:1', expectedVariableCount: 1,
+    captureComplete: true,
+    modes: [{ id: 'M:1', name: 'Mode' }],
+    variables: [{ id: 'V:1', name: 'token', type: 'FLOAT', exactValues: { 'M:1': 8 }, values: { Mode: 8 } }],
+  }] });
+  const dir = mkdtempSync(join(tmpdir(), 'snapshot-v2-'));
+  const file = join(dir, 'DESIGN.md');
+  writeFileSync(file, md);
+  const parsed = parseDesignMd(file, { workspaceIO: createWorkspaceIO({ root: dir }) });
+  assert.equal(parsed.tokens.variableSnapshot.schemaVersion, 2);
+  assert.equal(parsed.tokens.variableSnapshot.collections[0].variables[0]
+    .values['collection:1/mode:1'], 8);
+  assert.equal(parsed.tokens.variables.Theme.variables.token.values.Mode, 8);
 });
 
 test('generateDesignMd emits the Variables section with a per-collection table', () => {

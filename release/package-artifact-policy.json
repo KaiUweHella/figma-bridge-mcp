@@ -253,6 +253,7 @@
     "engine/src/lib/token-sync.js",
     "engine/src/lib/variable-management.js",
     "engine/src/lib/variable-scope-policy.js",
+    "engine/src/lib/variable-snapshot.js",
     "engine/src/lib/variant-snippets.js",
     "engine/src/lib/verify-build.js",
     "engine/src/lib/version-history.js",

@@ -1,12 +1,16 @@
 // Command: extract — scan the open Figma file and write a DESIGN.md
 import chalk from 'chalk';
 import { join, dirname, resolve } from 'path';
-import { progress, program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
+import {
+  progress, program, checkConnection, daemonExecWithMetadata, fastEval, spinnerSucceed,
+} from '../lib/cli-core.js';
 import {
   listPagesCode, walkerCode, variableCollectionsCode, variableChunkCode,
-  generateDesignMd, generatePageStructureMd, estimateStructureTokens, ALL_SECTIONS,
+  exactVariableCatalog, exactVariableChunk, stableVariableCatalog, generateDesignMd,
+  generatePageStructureMd, estimateStructureTokens, ALL_SECTIONS,
 } from '../design-extract.js';
-import { workspaceIO } from '../lib/workspace-io.js';
+import { DEFAULT_WORKSPACE_LIMITS, workspaceIO } from '../lib/workspace-io.js';
+import { createRevisionContext } from '../lib/revision-context.js';
 
 const DEPTH_FLOOR = 3;
 // Variable values are fetched in bounded chunks so huge libraries (thousands
@@ -32,6 +36,16 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$
 function parseEvalResult(res) {
   if (typeof res === 'string') return JSON.parse(res);
   return res;
+}
+
+async function revisionedVariableEval(code, revisionContext, role) {
+  const fileKey = revisionContext.targetFileKey();
+  const response = await daemonExecWithMetadata('eval', {
+    code,
+    ...(fileKey ? { fileKey } : {}),
+  });
+  revisionContext.accept(response.metadata, role);
+  return parseEvalResult(response.result);
 }
 
 program
@@ -90,20 +104,22 @@ program
       // Authoritative token layer: the file's real variable collections.
       // Two-phase + chunked so it scales to large systems: list collections
       // (tiny), then fetch each collection's values in bounded, retryable
-      // chunks. Best-effort — older Figma builds / files without variables
-      // yield []. droppedVars counts any chunk skipped after exhausting retries
-      // so the summary can tell "no variables" apart from "some unreadable".
+      // chunks. Catalog reads fail closed so an unavailable Variable API can
+      // never masquerade as an empty file. droppedVars counts any value chunk
+      // skipped after bounded retries; v2 then remains explicitly incomplete.
       let variables = [];
       let droppedVars = 0;
-      const wantsVariables = !sections || sections.includes('variables');
+      const wantsVariables = !sections
+        || sections.includes('variables')
+        || sections.includes('tokens');
       if (wantsVariables) {
         spinner.text = 'Reading variable collections…';
-        let cols = [];
-        try {
-          cols = parseEvalResult(await fastEval(variableCollectionsCode())) || [];
-        } catch (e) {
-          cols = [];
-        }
+        const revisionContext = createRevisionContext();
+        const cols = exactVariableCatalog(await revisionedVariableEval(
+          variableCollectionsCode(), revisionContext, 'initial Variable catalog',
+        ));
+        let capturedBytes = 2;
+        let capturedEntries = 0;
         for (let ci = 0; ci < cols.length; ci++) {
           const col = cols[ci];
           const ids = col.variableIds || [];
@@ -113,10 +129,28 @@ program
             spinner.text = `Variables: ${col.name} (${i}/${ids.length})…`;
             const slice = ids.slice(i, i + chunk);
             try {
-              const got = parseEvalResult(await fastEval(variableChunkCode(slice, col.modes))) || [];
-              collected.push(...got);
+              const got = await revisionedVariableEval(
+                variableChunkCode(slice, col.modes), revisionContext,
+                `Variable chunk for Collection ${ci + 1}`,
+              );
+              const exact = exactVariableChunk(slice, col, got);
+              if (!exact) {
+                droppedVars += slice.length;
+                i += chunk;
+                continue;
+              }
+              capturedBytes += exact.bytes;
+              capturedEntries += exact.entries;
+              if (capturedBytes > DEFAULT_WORKSPACE_LIMITS.jsonBytes
+                || capturedEntries > DEFAULT_WORKSPACE_LIMITS.collectionEntries) {
+                throw Object.assign(new Error(
+                  'Variable capture exceeds the Workspace byte or structure limits.',
+                ), { code: 'VARIABLE_CAPTURE_LIMIT' });
+              }
+              collected.push(...exact.variables);
               i += chunk;
             } catch (e) {
+              if (e.code === 'VARIABLE_CAPTURE_LIMIT') throw e;
               if (/payload|too large|timeout/i.test(e.message) && chunk > VAR_CHUNK_FLOOR) {
                 chunk = Math.floor(chunk / 2);
                 continue;
@@ -125,7 +159,25 @@ program
               i += chunk; // skip this slice, keep going with the rest
             }
           }
-          variables.push({ id: col.id, name: col.name, modes: col.modes, variables: collected });
+          variables.push({
+            ...col,
+            variables: collected,
+            expectedVariableCount: ids.length,
+            captureComplete: false,
+          });
+        }
+        const freshCols = exactVariableCatalog(await revisionedVariableEval(
+          variableCollectionsCode(), revisionContext, 'final Variable catalog',
+        ));
+        const stableCatalog = stableVariableCatalog(cols, freshCols);
+        for (const collection of variables) {
+          collection.captureComplete = stableCatalog
+            && collection.variables.length === collection.expectedVariableCount;
+        }
+        if (revisionContext.source()?.proof !== 'document-revision') {
+          throw new Error(
+            'The connected Figma Bridge plugin cannot prove one document revision for an exact Variable Snapshot. Re-import or update the plugin, then retry.',
+          );
         }
       }
 
