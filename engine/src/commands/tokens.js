@@ -772,7 +772,7 @@ tokens
 
 tokens
   .command('import-design-md <file>')
-  .description('Import simple color, radius, and spacing tokens from DESIGN.md. Typography and shadows stay explicit context; extracted multi-Collection snapshots use their separate compatibility path.')
+  .description('Import exact portable Variable Snapshot v2 data or simple color, radius, and spacing tokens from DESIGN.md. Typography and shadows stay explicit context; legacy snapshots retain bounded compatibility behavior.')
   .option('-c, --collection <name>', 'Collection name (defaults to the design system name)')
   .option('--print-context', 'Just print the agent context summary, do not create variables')
   .option('--force-slash', 'Allow "/" in --collection for a simple single-Collection import')
@@ -815,7 +815,8 @@ tokens
       try {
         const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
           async ({ fileKey, deadline }) => {
-            if (prepared.kind === 'single-collection') {
+            if (prepared.kind === 'single-collection'
+              || prepared.kind === 'variable-snapshot-v2') {
               await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
             }
             return executeDesignMdImportPlan(plan, prepared, {

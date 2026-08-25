@@ -190,6 +190,10 @@ test('Variable Snapshot extraction pins every catalog and chunk read to one revi
   assert.match(adapter, /createRevisionContext\(/);
   assert.match(adapter, /daemonExecWithMetadata\('eval'/);
   assert.match(adapter, /revisionContext\.accept\(response\.metadata/);
+  assert.match(adapter, /parseEvalResult\(response\.value\)/,
+    'revisioned capture must consume the Daemon Client value field');
+  assert.doesNotMatch(adapter, /parseEvalResult\(response\.result\)/,
+    'the obsolete transport result field would turn every catalog into undefined');
   assert.match(adapter, /source\(\)\?\.proof !== 'document-revision'/);
   const variableStart = adapter.indexOf("const wantsVariables");
   const pageStart = adapter.indexOf('const results = []', variableStart);
@@ -874,7 +878,7 @@ test('tokens import-design-md print-context delegates one repository-only Applic
     'repository-only context must not require or dispatch to Figma');
 });
 
-test('simple DESIGN.md mutation delegates preflight and write to one Plan-bound Application', () => {
+test('exact v2 and simple DESIGN.md mutations delegate to one Plan-bound Application', () => {
   const adapter = sources.get('tokens.js');
   const start = adapter.indexOf(".command('import-design-md <file>')");
   const end = adapter.indexOf(".command('add <name> <value>')", start);
@@ -886,6 +890,7 @@ test('simple DESIGN.md mutation delegates preflight and write to one Plan-bound 
     < simpleBranch.indexOf('ensurePluginReadiness'));
   assert.match(simpleBranch, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(simpleBranch, /executeDesignMdImportPlan\(plan, prepared/);
+  assert.match(simpleBranch, /prepared\.kind === 'variable-snapshot-v2'/);
   assert.match(simpleBranch, /daemonExec\('eval'/);
   assert.doesNotMatch(simpleBranch,
     /checkConnection\(|variableImportCode|createVariableCollection\(|createVariable\(|modes\[0\]/,

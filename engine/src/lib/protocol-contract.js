@@ -5,7 +5,10 @@
 // daemon interprets any caller-controlled value.
 
 import { assertSemanticRenderPlan } from './semantic-render-plan.js';
-import { dispatchReceiptValidationError } from './dispatch-receipt.js';
+import {
+  createPreparedDispatchReceipt,
+  dispatchReceiptValidationError,
+} from './dispatch-receipt.js';
 import { typedReadRequestValidationError } from './typed-read-operations.js';
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -47,6 +50,40 @@ function serializedLimitError(label, value, limit, displayLimit) {
 function stringLimitError(label, value, limit, displayLimit = `${limit} bytes`) {
   if (typeof value !== 'string') return `${label} must be a string`;
   return byteLength(value) > limit ? `${label} exceeds the ${displayLimit} limit` : null;
+}
+
+/**
+ * Prove that one eval source fits both authenticated transport envelopes after
+ * JSON escaping. The placeholders use the largest accepted scalar identities,
+ * so callers can run this before target selection and Plugin readiness.
+ */
+export function evalTransportEnvelopeError(code) {
+  const rawError = stringLimitError(
+    'eval code', code, MAX_PROTOCOL_VALUE_BYTES, '5 MB protocol',
+  );
+  if (rawError) return rawError;
+  const maximumUuid = 'ffffffff-ffff-4fff-bfff-ffffffffffff';
+  const maximumFileKey = 'f'.repeat(64);
+  const common = {
+    code,
+    requireDocumentRevision: true,
+    timeoutMs: Number.MAX_SAFE_INTEGER,
+    deadlineAt: Number.MAX_SAFE_INTEGER,
+  };
+  const execError = serializedLimitError('eval request', {
+    action: 'eval', ...common, expectedEditor: 'figjam', fileKey: maximumFileKey,
+  }, MAX_EXEC_BODY_BYTES, '5 MiB HTTP body');
+  if (execError) return execError;
+  const dispatchReceipt = createPreparedDispatchReceipt({
+    requestId: maximumUuid,
+    connectionEpoch: maximumUuid,
+    fileKey: maximumFileKey,
+    editorType: 'figjam',
+    action: 'eval',
+  });
+  return serializedLimitError('eval Plugin message', {
+    action: 'eval', id: Number.MAX_SAFE_INTEGER, ...common, dispatchReceipt,
+  }, MAX_PLUGIN_MESSAGE_BYTES, '5 MiB Plugin message');
 }
 
 function messageIdError(value) {

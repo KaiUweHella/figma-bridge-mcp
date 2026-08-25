@@ -162,7 +162,7 @@ test('composite-only DESIGN.md remains useful context without Plugin evaluation'
   assert.match(result.stderr, /context-only/);
 });
 
-test('Variable Snapshots remain explicit on their separate compatibility route', async () => {
+test('legacy v1 Variable Snapshots remain explicit on their compatibility route', async () => {
   const { plan, workspaceIO } = planned({
     variables: {
       Theme: {
@@ -175,8 +175,60 @@ test('Variable Snapshots remain explicit on their separate compatibility route',
   assert.equal(prepared.kind, 'legacy-variable-snapshot');
   await assert.rejects(
     () => executeDesignMdImportPlan(plan, prepared, { evaluate: async () => '' }),
-    /separate migration path/,
+    /Legacy name-keyed Variable Snapshot.*compatibility path/,
   );
+});
+
+test('portable v2 snapshots take precedence over legacy v1 and reject incomplete before readiness', async () => {
+  const portable = {
+    schemaVersion: 2, kind: 'figma-variable-snapshot', complete: true,
+    collections: [{
+      handle: 'collection:one', name: 'Theme', hiddenFromPublishing: false,
+      defaultMode: 'collection:one/mode:base',
+      modes: [{ handle: 'collection:one/mode:base', name: 'Base' }],
+      variables: [{
+        handle: 'collection:one/variable:space', name: 'space/base', type: 'FLOAT',
+        description: '', hiddenFromPublishing: false, scopes: ['GAP'], codeSyntax: {},
+        values: { 'collection:one/mode:base': 8 },
+      }],
+    }],
+  };
+  const { plan, workspaceIO } = planned({
+    variableSnapshot: portable,
+    variables: { Legacy: { modes: ['Old'], variables: {} } },
+  });
+  const prepared = prepareDesignMdImportPlan(plan, { workspaceIO });
+  assert.equal(prepared.kind, 'variable-snapshot-v2');
+  let evaluated = false;
+  const result = await executeDesignMdImportPlan(plan, prepared, {
+    evaluate: async () => {
+      evaluated = true;
+      return JSON.stringify({ schemaVersion: 1, status: 'complete',
+        collections: 1, variables: 1, aliases: 0, residue: 0 });
+    },
+  });
+  assert.equal(evaluated, true);
+  assert.match(result.stdout, /Imported 1 Variable/);
+
+  const incomplete = structuredClone(portable);
+  incomplete.complete = false;
+  const rejected = planned({ variableSnapshot: incomplete, variables: {
+    Legacy: { modes: ['Old'], variables: { unsafe: { type: 'FLOAT', values: { Old: 1 } } } },
+  } });
+  assert.throws(
+    () => prepareDesignMdImportPlan(rejected.plan, { workspaceIO: rejected.workspaceIO }),
+    /incomplete/,
+  );
+
+  for (const request of [{ collection: 'Ignored' }, { forceSlash: true }]) {
+    const optionConflict = planned({ variableSnapshot: portable }, request);
+    assert.throws(
+      () => prepareDesignMdImportPlan(optionConflict.plan, {
+        workspaceIO: optionConflict.workspaceIO,
+      }),
+      /apply only to simple single-Collection/,
+    );
+  }
 });
 
 test('DESIGN.md import rejects forged preparation and requires explicit slash intent', async () => {

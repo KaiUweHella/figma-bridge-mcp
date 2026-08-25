@@ -30,6 +30,15 @@ contract and the final generated DESIGN.md must fit the Workspace reader's byte,
 depth and collection-entry budgets, so export cannot produce an artifact that
 the supported importer refuses to parse.
 
+EASING values use Figma's native canonical readback shape, not setter
+shorthand. Cubic families carry `easingFunctionCubicBezier`, spring families
+carry `easingFunctionSpring`, and `HOLD` carries neither. Named presets must
+match Figma's native preset-specific curve or bounce; only `CUSTOM_*` values
+remain freely authored inside their numeric bounds. EASING and TIMING scopes
+must be the native `ALL_SCOPES` form because their Plugin API scope setter is
+not available. These constraints keep a capture → import → capture comparison
+exact even though Figma expands or normalizes setter inputs during readback.
+
 Count and source-shape limits apply to the lightweight Collection catalog before
 the first value chunk. Every chunk is closed, typed and measured before it is
 retained, and cumulative raw bytes and graph entries are checked before
@@ -39,5 +48,19 @@ validation.
 The former name-keyed `variables` block remains beside v2 during migration so
 older readers retain their bounded merge utility. It is not exact: duplicate
 Variable names, duplicate mode names, default mode, metadata and Alias identity
-can be lost. New import work must prefer and fully validate v2 rather than
-quietly treating legacy data as the portable contract.
+can be lost. The owned importer always prefers and fully validates v2; only v1
+is allowed to reach the legacy compatibility Adapter.
+
+Exact import accepts only `complete: true` snapshots with resolvable local
+Aliases. It also rejects a non-first declared default mode before Plugin
+readiness because the current Plugin API exposes no operation to change which
+mode a newly created Collection considers default. Rejecting that topology is
+more truthful than silently reordering or relabeling its authored modes.
+
+The generated exact-import program must also fit both authenticated 5 MiB
+transport envelopes after JSON escaping: the HTTP `/exec` body and the daemon
+→ Plugin message. Those final encoded sizes are checked during source
+preflight, before Plugin readiness, even though the portable storage contract
+has a larger Workspace ceiling. Oversized snapshots remain valid evidence but
+require a future typed or chunked mutation transport before they can be
+restored.

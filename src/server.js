@@ -2109,14 +2109,15 @@ export async function handleTool(name, rawArgs) {
         } catch (error) {
           return errorResult(error?.message || String(error));
         }
-        // Multi-Collection Variable Snapshots retain the compatibility Adapter
-        // until their separately versioned transaction is complete.
+        // Portable v2 snapshots and simple projections use the owned
+        // Application; only legacy name-keyed snapshots retain compatibility.
         if (prepared.kind !== "legacy-variable-snapshot") {
           const res = await runInProcessCommandPlan(plan, {
             label: input.label,
             compatibilityFallback: false,
           }, async ({ fileKey, expectedEditor, deadline }) => {
-            if (prepared.kind === "single-collection") {
+            if (prepared.kind === "single-collection"
+              || prepared.kind === "variable-snapshot-v2") {
               await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
             }
             return executeDesignMdImportPlan(plan, prepared, {

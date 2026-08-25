@@ -1,4 +1,4 @@
-// Bounded simple DESIGN.md import through the deep Single-Collection mutation.
+// Bounded DESIGN.md import through exact v2 or deep Single-Collection mutation.
 
 import { isDeepStrictEqual } from 'node:util';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
@@ -15,6 +15,10 @@ import {
   summarizeForLLM,
   toSingleCollectionTokenItems,
 } from '../design-md.js';
+import {
+  executeVariableSnapshotImport,
+  prepareVariableSnapshotImport,
+} from './variable-snapshot-import-command.js';
 
 const APPLICATION_ID = 'tokens.import-design-md';
 const PREPARED_IMPORTS = new WeakSet();
@@ -55,8 +59,18 @@ export function prepareDesignMdImportPlan(plan, { workspaceIO } = {}) {
   const request = parseDesignMdRequest(plan.argv);
   const parsed = parseDesignMd(request.file, { workspaceIO });
   const summary = summarizeForLLM(parsed);
-  const snapshot = designMdVariableSnapshot(parsed);
-  if (snapshot && Object.keys(snapshot).length) {
+  const variableSource = designMdVariableSnapshot(parsed);
+  if (variableSource?.kind === 'portable-v2') {
+    if (request.collection !== null || request.forceSlash) {
+      throw new Error('--collection and --force-slash apply only to simple single-Collection DESIGN.md imports, not exact Variable Snapshot v2 imports.');
+    }
+    return preparedImport({
+      kind: 'variable-snapshot-v2', request,
+      snapshot: prepareVariableSnapshotImport(variableSource.snapshot), summary,
+    });
+  }
+  if (variableSource?.kind === 'legacy-v1'
+    && Object.keys(variableSource.snapshot).length) {
     return preparedImport({
       kind: 'legacy-variable-snapshot', request, parsed, summary,
     });
@@ -95,7 +109,16 @@ export async function executeDesignMdImportPlan(plan, prepared, adapters = {}) {
     throw new Error('DESIGN.md Import requires its authentic prepared source.');
   }
   if (prepared.kind === 'legacy-variable-snapshot') {
-    throw new Error('Variable Snapshot import is owned by a separate migration path.');
+    throw new Error('Legacy name-keyed Variable Snapshot import remains on the compatibility path.');
+  }
+  if (prepared.kind === 'variable-snapshot-v2') {
+    const result = await executeVariableSnapshotImport(prepared.snapshot, adapters);
+    return {
+      stdout: `${result.stdout}\n\n─── agent context summary ───────────\n${prepared.summary}\n──────────────────────────────────────────────`,
+      stderr: result.stderr,
+      code: 0,
+      result: result.result,
+    };
   }
   const warning = compositeWarning(prepared.unsupportedCompositeCount);
   if (prepared.kind === 'context-only') {

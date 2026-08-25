@@ -223,6 +223,19 @@ byte or structure budget used by its reader. Source Figma ids and publish keys
 are evidence only; they never become target identity in another file.
 _Avoid_: name-keyed variable map, first mode, alias by display name, silent partial capture, source id as mutation target
 
+**Exact Variable Snapshot Import**:
+The bounded, non-retrying restoration of one complete Portable Variable
+Snapshot into newly owned local Collections. The source contract is normalized
+before Plugin readiness; incomplete captures, unresolved external Aliases and
+unrecreatable default-mode topology stop before dispatch. Import deliberately
+does not merge by Collection display name: it creates duplicate source names
+faithfully only when no target Collection already owns any source name. Every
+created Collection and Variable is journaled immediately, literals precede
+same- and cross-Collection Alias wiring, and fresh native facts must verify the
+complete topology, metadata, scopes, syntax and values. Any later failure
+removes the journal in reverse and returns bounded residue evidence.
+_Avoid_: source id reuse, name merge, legacy v1 as exact, unresolved alias guess, partial success, unverified rollback
+
 **Token Preset Creation**:
 The bounded, non-retrying and journaled creation of the built-in neutral spacing
 or radius scale in one exact local Collection. It creates the Collection when

@@ -18,6 +18,21 @@ const UNSAFE_CONTROLS =
   /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;
 const HANDLE = /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,511}$/u;
 const PLATFORM = new Set(['WEB', 'ANDROID', 'iOS']);
+const NATIVE_CUBIC_EASINGS = Object.freeze({
+  EASE_IN: Object.freeze({ x1: 0.42, y1: 0, x2: 1, y2: 1 }),
+  EASE_OUT: Object.freeze({ x1: 0, y1: 0, x2: 0.58, y2: 1 }),
+  EASE_IN_AND_OUT: Object.freeze({ x1: 0.42, y1: 0, x2: 0.58, y2: 1 }),
+  LINEAR: Object.freeze({ x1: 0, y1: 0, x2: 1, y2: 1 }),
+  EASE_IN_BACK: Object.freeze({ x1: 0.3, y1: -0.05, x2: 0.7, y2: -0.5 }),
+  EASE_OUT_BACK: Object.freeze({ x1: 0.45, y1: 1.45, x2: 0.8, y2: 1 }),
+  EASE_IN_AND_OUT_BACK: Object.freeze({ x1: 0.7, y1: -0.4, x2: 0.4, y2: 1.4 }),
+});
+const NATIVE_SPRING_EASINGS = Object.freeze({
+  GENTLE: 0.25,
+  QUICK: 0.42264973081037427,
+  BOUNCY: 0.6938137821521027,
+  SLOW: 0,
+});
 
 function sourceError(message) {
   return new Error(`Invalid Variable Snapshot v2: ${message}.`);
@@ -63,6 +78,10 @@ function metadata(variable, type, label) {
       || !allowedScopes.has(scope))) {
     throw sourceError(`${label} scopes are duplicate, unknown, or incompatible with ${type}`);
   }
+  if (['EASING', 'TIMING'].includes(type)
+    && (variable.scopes.length !== 1 || variable.scopes[0] !== 'ALL_SCOPES')) {
+    throw sourceError(`${label} ${type} scopes must use the native ALL_SCOPES form`);
+  }
   if (!plain(variable.codeSyntax)
     || Object.keys(variable.codeSyntax).some((platform) => !PLATFORM.has(platform)
       || typeof variable.codeSyntax[platform] !== 'string'
@@ -75,6 +94,36 @@ function metadata(variable, type, label) {
     scopes: [...variable.scopes],
     codeSyntax: { ...variable.codeSyntax },
   };
+}
+
+function nativeEasing(value) {
+  const equivalent = (actual, expected) => typeof actual === 'number'
+    && Number.isFinite(actual)
+    && (Object.is(actual, expected) || Math.fround(actual) === Math.fround(expected));
+  const nativeCubic = NATIVE_CUBIC_EASINGS[value.type];
+  if (nativeCubic) {
+    const actual = value.easingFunctionCubicBezier;
+    return !Object.hasOwn(value, 'easingFunctionSpring')
+      && actual && ['x1', 'y1', 'x2', 'y2'].every((key) =>
+        equivalent(actual[key], nativeCubic[key]));
+  }
+  if (Object.hasOwn(NATIVE_SPRING_EASINGS, value.type)) {
+    return !Object.hasOwn(value, 'easingFunctionCubicBezier')
+      && value.easingFunctionSpring
+      && equivalent(value.easingFunctionSpring.bounce,
+        NATIVE_SPRING_EASINGS[value.type]);
+  }
+  if (value.type === 'CUSTOM_CUBIC_BEZIER') {
+    return Object.hasOwn(value, 'easingFunctionCubicBezier')
+      && !Object.hasOwn(value, 'easingFunctionSpring');
+  }
+  if (value.type === 'CUSTOM_SPRING') {
+    return Object.hasOwn(value, 'easingFunctionSpring')
+      && !Object.hasOwn(value, 'easingFunctionCubicBezier');
+  }
+  return value.type === 'HOLD'
+    && !Object.hasOwn(value, 'easingFunctionCubicBezier')
+    && !Object.hasOwn(value, 'easingFunctionSpring');
 }
 
 function deepFreeze(value) {
@@ -224,6 +273,9 @@ export function normalizeVariableSnapshotV2(input) {
         } else {
           try { values[safeModeHandle] = normalizeVariableValue(raw, variable.type); }
           catch { throw sourceError(`Variable ${variable.handle} has an incompatible literal value`); }
+          if (variable.type === 'EASING' && !nativeEasing(values[safeModeHandle])) {
+            throw sourceError(`Variable ${variable.handle} EASING value is not in native canonical form`);
+          }
           if (variable.type === 'STRING' && values[safeModeHandle].length > MAX_DESCRIPTION) {
             throw sourceError(`Variable ${variable.handle} STRING value is too long`);
           }

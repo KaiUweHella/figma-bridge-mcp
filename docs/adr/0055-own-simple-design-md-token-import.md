@@ -20,9 +20,8 @@ facts. A document containing only those composites stays useful without Plugin
 dispatch. Collection names containing `/` require the same explicit
 `--force-slash` intent as JSON Token Import.
 
-A non-empty `tokens.variables` block remains on the existing compatibility
-Adapter for this slice. It is not a simple Single-Collection import: Collection
-identity, multiple modes and cross-Variable aliases need their own versioned,
-journaled transaction. The compatibility route is preserved until that
-separate migration lands rather than silently degrading a snapshot into one
-mode or one Collection.
+An exact `tokens.variableSnapshot` v2 block takes precedence over legacy data
+and delegates to the separately owned multi-Collection transaction. Only the
+former name-keyed `tokens.variables` v1 block remains on the compatibility
+Adapter. It cannot preserve duplicate identities, declared default modes or
+cross-Collection Alias identity and is never presented as exact.

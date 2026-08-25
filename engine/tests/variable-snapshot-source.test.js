@@ -117,6 +117,49 @@ test('v2 source preflight preserves all six native Variable families', () => {
     ['COLOR', 'FLOAT', 'STRING', 'BOOLEAN', 'EASING', 'TIMING']);
 });
 
+test('v2 source preflight requires Figma-native canonical EASING facts', () => {
+  const value = fixture();
+  Object.assign(value.collections[0].variables[0], {
+    type: 'EASING', scopes: ['ALL_SCOPES'], values: {
+      'c:one/m:light': { type: 'LINEAR' },
+    },
+  });
+  assert.throws(() => normalizeVariableSnapshotV2(value), /native canonical form/);
+  value.collections[0].variables[0].values['c:one/m:light'] = {
+    type: 'LINEAR',
+    easingFunctionCubicBezier: { x1: 0, y1: 0, x2: 1, y2: 1 },
+  };
+  assert.doesNotThrow(() => normalizeVariableSnapshotV2(value));
+  value.collections[0].variables[0].values['c:one/m:light'] = {
+    type: 'LINEAR',
+    easingFunctionCubicBezier: { x1: 0.2, y1: 0, x2: 1, y2: 1 },
+  };
+  assert.throws(() => normalizeVariableSnapshotV2(value), /native canonical form/);
+
+  value.collections[0].variables[0].values['c:one/m:light'] = {
+    type: 'GENTLE', easingFunctionSpring: { bounce: 0.5 },
+  };
+  assert.throws(() => normalizeVariableSnapshotV2(value), /native canonical form/);
+  value.collections[0].variables[0].values['c:one/m:light'] = {
+    type: 'GENTLE', easingFunctionSpring: { bounce: 0.25 },
+  };
+  assert.doesNotThrow(() => normalizeVariableSnapshotV2(value));
+});
+
+test('v2 source preflight requires native EASING and TIMING scopes', () => {
+  for (const [type, literal] of [
+    ['EASING', { type: 'HOLD' }], ['TIMING', 120],
+  ]) {
+    const value = fixture();
+    Object.assign(value.collections[0].variables[0], {
+      type, scopes: [], values: { 'c:one/m:light': literal },
+    });
+    assert.throws(() => normalizeVariableSnapshotV2(value), /native ALL_SCOPES form/);
+    value.collections[0].variables[0].scopes = ['ALL_SCOPES'];
+    assert.doesNotThrow(() => normalizeVariableSnapshotV2(value));
+  }
+});
+
 test('v2 source preflight enforces per-field and serialized importable bounds', () => {
   const oversizedString = fixture();
   Object.assign(oversizedString.collections[0].variables[0], {

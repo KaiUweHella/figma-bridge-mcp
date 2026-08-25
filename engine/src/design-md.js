@@ -27,6 +27,7 @@ import {
   workspaceIO as defaultWorkspaceIO,
 } from './lib/workspace-io.js';
 import { basename } from 'node:path';
+import { normalizeVariableSnapshotV2 } from './lib/variable-snapshot.js';
 
 const JSON_BLOCK_RE = /```json\s+design-tokens\s*\n([\s\S]*?)\n```/;
 
@@ -441,8 +442,17 @@ export function designMdCompositeTokenCount({ tokens }) {
 
 export function designMdVariableSnapshot({ tokens }) {
   const tokenRecord = designRecord(tokens, 'token root');
+  if (tokenRecord.variableSnapshot != null) {
+    return Object.freeze({
+      kind: 'portable-v2',
+      snapshot: normalizeVariableSnapshotV2(tokenRecord.variableSnapshot),
+    });
+  }
   if (tokenRecord.variables == null) return null;
-  return designRecord(tokenRecord.variables, 'Variable Snapshot');
+  return Object.freeze({
+    kind: 'legacy-v1',
+    snapshot: designRecord(tokenRecord.variables, 'Variable Snapshot'),
+  });
 }
 
 /**

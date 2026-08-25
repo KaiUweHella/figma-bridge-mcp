@@ -45,7 +45,7 @@ async function revisionedVariableEval(code, revisionContext, role) {
     ...(fileKey ? { fileKey } : {}),
   });
   revisionContext.accept(response.metadata, role);
-  return parseEvalResult(response.result);
+  return parseEvalResult(response.value);
 }
 
 program

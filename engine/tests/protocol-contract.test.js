@@ -5,6 +5,7 @@ import {
   MAX_PLUGIN_MESSAGE_BYTES,
   MAX_PROTOCOL_ERROR_BYTES,
   MAX_PROTOCOL_VALUE_BYTES,
+  evalTransportEnvelopeError,
   validateExecPayload,
   validatePluginMessage,
 } from '../src/lib/protocol-contract.js';
@@ -71,6 +72,13 @@ test('execution limits are byte-based and leave room for the signed JSON envelop
     /5 MB protocol limit/,
     'multi-byte input must not bypass a byte limit via String.length',
   );
+});
+
+test('eval transport preflight includes HTTP and Plugin JSON escaping', () => {
+  assert.equal(evalTransportEnvelopeError('1+1'), null);
+  const rawUnderLimitButEncodedOverLimit = '"'.repeat(2_700_000);
+  assert.ok(Buffer.byteLength(rawUnderLimitButEncodedOverLimit, 'utf8') < MAX_PROTOCOL_VALUE_BYTES);
+  assert.match(evalTransportEnvelopeError(rawUnderLimitButEncodedOverLimit), /5 MiB HTTP body/);
 });
 
 test('plugin protocol has explicit pre-auth and authenticated message contracts', () => {
