@@ -87,6 +87,15 @@ alias bind a Grid Style through `setGridStyleIdAsync`; they never mutate Auto
 Layout Grid properties.
 _Avoid_: style helper, bulk style eval, auto-layout grid mutation, atomic claim
 
+**Style Creation**:
+The bounded, non-retrying creation of one local PAINT, TEXT, EFFECT or GRID
+Style. It closes the complete request and supported property shape before
+readiness, performs fallible resource preflight such as font loading before the
+factory call, journals the created Style immediately, and removes it if later
+metadata or property assignment fails. Cleanup failure returns typed bounded
+Style residue; success returns compact identity rather than raw Style values.
+_Avoid_: create-then-configure helper, unjournaled Style factory, raw Style result
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

@@ -62,21 +62,6 @@ const __styleFacts = (s) => {
 };`;
 }
 
-function styleCreateCode({ type, name, description = '', properties = {} }) {
-  const normalized = parseStyleType(type);
-  const props = parseStyleProperties(properties, normalized);
-  const factory = { PAINT: 'createPaintStyle', TEXT: 'createTextStyle', EFFECT: 'createEffectStyle', GRID: 'createGridStyle' }[normalized];
-  return `(async () => {${styleHelpersCode()}
-const style = figma.${factory}();
-style.name = ${JSON.stringify(String(name).trim())};
-style.description = ${JSON.stringify(String(description || ''))};
-const props = ${JSON.stringify(props)};
-if (style.type === 'TEXT' && props.fontName) await figma.loadFontAsync(props.fontName);
-for (const [key, value] of Object.entries(props)) style[key] = value;
-return __styleFacts(style);
-})()`;
-}
-
 function styleUpdateCode({ style, name, description, properties, type }) {
   const normalized = type ? parseStyleType(type) : null;
   const props = properties === undefined ? null : parseStyleProperties(properties, normalized);
@@ -136,5 +121,5 @@ return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)},
 export {
   STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
   styleBindVariableCode,
-  styleCreateCode, styleDeleteCode, styleUpdateCode,
+  styleDeleteCode, styleUpdateCode,
 };

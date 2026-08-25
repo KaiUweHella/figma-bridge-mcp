@@ -64,6 +64,12 @@ test('Bridge Daemon errors preserve only closed bounded mutation residue facts',
   assert.deepEqual(parseStructuredMutationReport(mutationReport), mutationReport);
   assert.equal(parseStructuredMutationReport({ ...mutationReport, residue: [{ ...mutationReport.residue[0], bytes: 'secret' }] }), null);
   assert.equal(parseStructuredMutationReport({ ...mutationReport, residueCount: 51, residueTruncated: false }), null);
+  for (const kind of ['paint-style', 'text-style', 'effect-style', 'grid-style']) {
+    assert.ok(parseStructuredMutationReport({
+      ...mutationReport,
+      residue: [{ kind, handle: 'S:fixture', reason: 'remove-failed' }],
+    }), kind);
+  }
 });
 
 test('bounded legacy adapter never treats a domain token error as authentication', () => {

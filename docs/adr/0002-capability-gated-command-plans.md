@@ -215,6 +215,16 @@ cannot lose Auto Layout Guide counts through plain JSON. The readable
 `layout-guide` field and backward-compatible `grid` alias both bind Grid Styles;
 Auto Layout Grid remains exclusively under `layout grid`.
 
+`style create` owns the adjacent journaled mutation Application. Its closed
+request canonicalizes the Style family, bounded name and description, and one
+type-specific bounded property object before confirmation or readiness. GRID
+properties use the exact Layout Guide union and explicit Infinity scalar; TEXT
+font resources load before the factory call. Once created, the local Style is
+the only journal entry. Any later metadata, property, projection or size failure
+removes it where Figma permits and otherwise reports one typed bounded Style
+residue. Success projects compact identity only, so raw GRID values never cross
+this mutation seam as lossy JSON.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

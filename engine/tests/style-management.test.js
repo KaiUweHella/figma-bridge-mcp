@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   parseStyleProperties, parseStyleType,
-  styleBindVariableCode, styleCreateCode, styleUpdateCode,
+  styleBindVariableCode, styleUpdateCode,
 } from '../src/lib/style-management.js';
 
 const emptyLists = {
@@ -33,22 +33,6 @@ test('text style variable binding uses the native TextStyle API and supports unb
   await execute(styleBindVariableCode({ style: 'S:4', field: 'fontSize' }), figma);
   assert.deepEqual(bindings, [['fontSize', variable], ['fontSize', null]]);
   assert.throws(() => styleBindVariableCode({ style: 'S:4', field: 'width', variable: 'V:1' }), /Text style variable field/);
-});
-
-test('style create uses the native factory, loads text fonts, and returns facts', async () => {
-  const loaded = [];
-  const style = { id: 'S:1', key: 'key', type: 'TEXT', remote: false, name: '', description: '', fontName: { family: 'Inter', style: 'Regular' } };
-  const figma = {
-    ...emptyLists, getStyleByIdAsync: async () => null, createTextStyle: () => style,
-    loadFontAsync: async (font) => loaded.push(font),
-  };
-  const result = await execute(styleCreateCode({
-    type: 'TEXT', name: 'Heading', description: 'Hero',
-    properties: { fontName: { family: 'Inter', style: 'Bold' }, fontSize: 48 },
-  }), figma);
-  assert.deepEqual(loaded, [{ family: 'Inter', style: 'Bold' }]);
-  assert.equal(result.name, 'Heading');
-  assert.equal(result.fontSize, 48);
 });
 
 test('style update resolves local styles without REST', async () => {

@@ -25,9 +25,13 @@ import {
   styleApplyPlanningArgvFromRequest,
 } from '../application/style-apply-command.js';
 import {
+  executeStyleCreatePlan,
+  styleCreatePlanningArgvFromRequest,
+} from '../application/style-create-command.js';
+import {
   parseStyleProperties, parseStyleType,
   styleBindVariableCode,
-  styleCreateCode, styleDeleteCode,
+  styleDeleteCode,
   styleUpdateCode,
 } from '../lib/style-management.js';
 
@@ -98,12 +102,31 @@ styles.command('show <style>')
   });
 styles.command('create <type> <name>')
   .option('-d, --description <text>').option('-p, --properties <json>', 'Type-specific properties as JSON')
+  .allowExcessArguments(false)
   .action(async (type, name, options) => {
     try {
-      const normalized = parseStyleType(type);
-      const result = await run(styleCreateCode({ type: normalized, name, description: options.description, properties: parseStyleProperties(options.properties, normalized) }));
-      console.log(chalk.green('✓'), `Created ${normalized} style ${result.name}.`); print(result);
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(styleCreatePlanningArgvFromRequest({
+        type, name, description: options.description, properties: options.properties,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleCreatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Create failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 styles.command('update <style>')
   .option('-t, --type <type>', 'Required when using --properties')

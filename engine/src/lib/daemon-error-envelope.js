@@ -43,7 +43,10 @@ const MUTATION_RESIDUE_KINDS = new Set([
   'scene-node',
   'variable',
   'variable-collection',
+  'paint-style',
   'text-style',
+  'effect-style',
+  'grid-style',
   'image-resource',
 ]);
 const MUTATION_RESIDUE_REASONS = new Set(['no-removal-api', 'remove-failed']);

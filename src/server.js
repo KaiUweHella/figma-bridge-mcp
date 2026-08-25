@@ -134,6 +134,10 @@ import {
   styleApplyPlanRoute,
 } from "../engine/src/application/style-apply-command.js";
 import {
+  executeStyleCreatePlan,
+  styleCreatePlanRoute,
+} from "../engine/src/application/style-create-command.js";
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
@@ -2033,6 +2037,23 @@ export async function handleTool(name, rawArgs) {
         return resultFromCli(res);
       }
       const styleApplyRoute = styleApplyPlanRoute(plan);
+      const styleCreateRoute = styleCreatePlanRoute(plan);
+      if (styleCreateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleCreatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       if (styleApplyRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,

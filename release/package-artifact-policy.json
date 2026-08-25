@@ -65,6 +65,8 @@
     "engine/src/application/style-catalog-request.js",
     "engine/src/application/style-apply-command.js",
     "engine/src/application/style-apply-request.js",
+    "engine/src/application/style-create-command.js",
+    "engine/src/application/style-create-request.js",
     "engine/src/application/style-consumer-command.js",
     "engine/src/application/style-consumer-request.js",
     "engine/src/application/style-facts-command.js",
