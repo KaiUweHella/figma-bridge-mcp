@@ -34,6 +34,7 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['node', 'bindings', '1:2'],
     ['component', 'list'],
     ['component', 'main', '1:2'],
+    ['component', 'prop', 'list', '1:2'],
     ['dev', 'list'],
     ['annotate', 'list', '1:2'],
     ['section', 'list'],

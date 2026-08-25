@@ -126,6 +126,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- `component prop list` now derives read effects, no confirmation, safe-read
+  retry and Audit facts from its complete canonical action id; its nested
+  mutating siblings remain non-retrying writes and unknown actions fail closed.
 - Legacy Commander Actions no longer print caught Plugin or validation errors
   and then exit successfully. Every user-visible top-level catch now retains a
   nonzero process outcome, while the shared reporter avoids hard process

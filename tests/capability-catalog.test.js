@@ -57,6 +57,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
     ['gradient', 'extract', 'hero.png'], ['font', 'inspect', '1:2'], ['font', 'axes', '1:2'],
     ['node', 'css', '1:2'], ['export', 'node-json', '1:2'],
     ['style', 'list'], ['style', 'show', 'Brand'], ['style', 'consumers', 'Brand'],
+    ['component', 'prop', 'list', '1:2'],
     ['var', 'show', 'space/md'], ['var', 'resolve', 'space/md', '1:2'], ['col', 'show', 'Theme'],
     ['library', 'collections'], ['library', 'variables', 'Primitives'],
     ['prototype', 'inspect', '1:2'], ['measure', 'list'], ['annotate', 'categories'],
@@ -69,6 +70,35 @@ test('catalog owns the full read/write matrix including special flag semantics',
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');
+});
+
+test('nested component property effects follow the canonical action id', () => {
+  for (const adapter of ['cli', 'mcp']) {
+    const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });
+    assert.equal(read.id, 'component.prop.list');
+    assert.equal(read.effects.figma, 'read');
+    assert.equal(read.confirmation, 'none');
+    assert.equal(read.execution.retry, 'safe-read');
+    assert.equal(read.execution.idempotence, 'read-only');
+    assert.equal(read.audit.capability, 'component.prop.list');
+    assert.equal(read.audit.operation, 'read');
+    assert.equal(read.audit.effects.figma, 'read');
+
+    for (const action of ['add', 'set', 'delete']) {
+      const write = planFigmaCommand(['component', 'prop', action, '1:2'], { adapter });
+      assert.equal(write.id, `component.prop.${action}`);
+      assert.equal(write.effects.figma, 'write');
+      assert.equal(write.confirmation, 'configured');
+      assert.equal(write.execution.retry, 'never');
+      assert.equal(write.audit.operation, 'write');
+    }
+  }
+
+  const unknown = planFigmaCommand(['component', 'prop', 'future', '1:2']);
+  assert.equal(unknown.allowed, false);
+  assert.equal(unknown.id, 'unknown');
+  assert.equal(unknown.effects.figma, 'write');
+  assert.equal(unknown.execution.retry, 'never');
 });
 
 test('literal help after the option terminator retains write policy and Audit classification', () => {

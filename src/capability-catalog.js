@@ -200,6 +200,9 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 }
 
 const HELP_TOKENS = new Set(['--help', '-h']);
+const SAFE_READ_ACTIONS = new Set([
+  'component.prop.list',
+]);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
@@ -273,8 +276,9 @@ export function legacyCommandRiskGateReason(args) {
   return null;
 }
 
-function mutatesDesign(entry, args, options) {
+function mutatesDesign(entry, args, options, actionId) {
   if (!args.length) return false;
+  if (SAFE_READ_ACTIONS.has(actionId)) return false;
   const sub = args[1];
   if (entry.mutation === 'write') return true;
   if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
@@ -306,12 +310,13 @@ function targetPolicy(name, entry, args, options) {
   return 'figma';
 }
 
-function specializedPolicy(name, entry, args) {
+function specializedPolicy(name, entry, args, actionId) {
   const sub = args[1];
   let execution = 'foreground';
   let timeoutClass = entry.timeout || 'default';
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
+  if (SAFE_READ_ACTIONS.has(actionId)) retry = 'safe-read';
   if (name === 'export') {
     if (sub === 'assets') {
       execution = 'background';
@@ -458,13 +463,15 @@ function commandCapability(args) {
   }
   const specialized = action.help
     ? { execution: 'foreground', timeoutClass: 'default', pathPolicy: 'none', retry: 'never' }
-    : specializedPolicy(name, entry, args);
+    : specializedPolicy(name, entry, args, action.actionId);
   return Object.freeze({
     name,
     actionId: action.actionId,
     help: action.help,
     available: true,
-    mutatesDesign: action.help ? false : mutatesDesign(entry, args, action.options),
+    mutatesDesign: action.help
+      ? false
+      : mutatesDesign(entry, args, action.options, action.actionId),
     target: action.help ? 'none' : targetPolicy(name, entry, args, action.options),
     retry: specialized.retry,
     timeoutClass: specialized.timeoutClass,
