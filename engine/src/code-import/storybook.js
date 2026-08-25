@@ -16,10 +16,10 @@ import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
  * `stories` carries the stable story ids (`component-name--story-name`) and
  * import paths the Figma↔Storybook mapping needs.
  */
-export function parseStorybookIndex(jsonText) {
+export function parseStorybookIndex(jsonText, { limits = workspaceIO().limits } = {}) {
   let doc;
   try {
-    doc = parseBoundedJson(jsonText, { role: 'storybook-index', limits: workspaceIO().limits });
+    doc = parseBoundedJson(jsonText, { role: 'storybook-index', limits });
   } catch (e) {
     throw new Error(`Not valid JSON: ${e.message}`);
   }
@@ -72,17 +72,21 @@ export function parseStorybookIndex(jsonText) {
  * back to /stories.json on 404.
  * Directory: reads <dir>/index.json or <dir>/storybook-static/index.json.
  * Returns raw JSON text.
+ * @param {string} urlOrDir
+ * @param {{workspaceIO?: object}} [options]
  */
-export async function fetchStorybookIndex(urlOrDir) {
+export async function fetchStorybookIndex(urlOrDir, {
+  workspaceIO: sourceIO = workspaceIO(),
+} = {}) {
   if (/^https?:\/\//i.test(urlOrDir)) {
     return fetchRemoteStorybookIndex(urlOrDir, {
       limits: {
         ...STORYBOOK_REMOTE_LIMITS,
-        maxBytes: workspaceIO().limits.jsonBytes,
+        maxBytes: sourceIO.limits.jsonBytes,
       },
     });
   }
-  return readFromDir(urlOrDir);
+  return readFromDir(urlOrDir, sourceIO);
 }
 
 export async function readBoundedResponseText(res, limit) {
@@ -107,7 +111,7 @@ export async function readBoundedResponseText(res, limit) {
   return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
 }
 
-async function readFromDir(dir) {
+async function readFromDir(dir, sourceIO) {
   const { join } = await import('node:path');
 
   const candidates = [
@@ -116,7 +120,7 @@ async function readFromDir(dir) {
   ];
 
   for (const candidate of candidates) {
-    try { return workspaceIO().readText(candidate, { role: 'storybook-index' }); }
+    try { return sourceIO.readText(candidate, { role: 'storybook-index' }); }
     catch { /* try the next conventional index location */ }
   }
 

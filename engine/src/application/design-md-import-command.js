@@ -7,7 +7,7 @@ import {
   prepareTokenImportRequestItems,
 } from './token-import-command.js';
 import { parseTokenImportRequest } from './token-import-request.js';
-import { parseDesignMdRequest } from './design-md-request.js';
+import { designMdArgvFromRequest, parseDesignMdRequest } from './design-md-request.js';
 import {
   designMdCompositeTokenCount,
   designMdVariableSnapshot,
@@ -49,14 +49,14 @@ function implicitCollection(source, forceSlash) {
   }
 }
 
-export function prepareDesignMdImportPlan(plan, { workspaceIO } = {}) {
-  if (designMdImportPlanRoute(plan) !== 'command-application') {
-    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by DESIGN.md Import.`);
-  }
+export function prepareDesignMdImportRequest(input, { workspaceIO } = {}) {
   if (!workspaceIO || typeof workspaceIO.readText !== 'function') {
     throw new TypeError('DESIGN.md Import requires an authorized WorkspaceIO capability.');
   }
-  const request = parseDesignMdRequest(plan.argv);
+  const request = parseDesignMdRequest(designMdArgvFromRequest(input));
+  if (request.printContext) {
+    throw new Error('DESIGN.md mutation preparation cannot use --print-context.');
+  }
   const parsed = parseDesignMd(request.file, { workspaceIO });
   const summary = summarizeForLLM(parsed);
   const variableSource = designMdVariableSnapshot(parsed);
@@ -95,17 +95,20 @@ export function prepareDesignMdImportPlan(plan, { workspaceIO } = {}) {
   });
 }
 
+export function prepareDesignMdImportPlan(plan, { workspaceIO } = {}) {
+  if (designMdImportPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by DESIGN.md Import.`);
+  }
+  return prepareDesignMdImportRequest(parseDesignMdRequest(plan.argv), { workspaceIO });
+}
+
 function compositeWarning(count) {
   if (!count) return '';
   return `${count} typography or shadow token${count === 1 ? ' remains' : 's remain'} context-only because they do not have an exact simple Variable representation.`;
 }
 
-export async function executeDesignMdImportPlan(plan, prepared, adapters = {}) {
-  if (designMdImportPlanRoute(plan) !== 'command-application') {
-    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by DESIGN.md Import.`);
-  }
-  const request = parseDesignMdRequest(plan.argv);
-  if (!PREPARED_IMPORTS.has(prepared) || !isDeepStrictEqual(prepared.request, request)) {
+export async function executeDesignMdImport(prepared, adapters = {}) {
+  if (!PREPARED_IMPORTS.has(prepared)) {
     throw new Error('DESIGN.md Import requires its authentic prepared source.');
   }
   if (prepared.kind === 'legacy-variable-snapshot') {
@@ -138,4 +141,15 @@ export async function executeDesignMdImportPlan(plan, prepared, adapters = {}) {
     code: result.code ?? 0,
     result: result.result,
   };
+}
+
+export async function executeDesignMdImportPlan(plan, prepared, adapters = {}) {
+  if (designMdImportPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by DESIGN.md Import.`);
+  }
+  const request = parseDesignMdRequest(plan.argv);
+  if (!PREPARED_IMPORTS.has(prepared) || !isDeepStrictEqual(prepared.request, request)) {
+    throw new Error('DESIGN.md Import requires its authentic prepared source.');
+  }
+  return executeDesignMdImport(prepared, adapters);
 }

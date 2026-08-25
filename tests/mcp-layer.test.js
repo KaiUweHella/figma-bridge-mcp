@@ -567,7 +567,7 @@ test('figma_run confirms Token Add and rejects malformed input before readiness'
 
 test('figma_run routes Token Import through pre-read and its shared journaled Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
-  const start = source.indexOf('const tokenImportRoute = tokenImportPlanRoute(plan)');
+  const start = source.indexOf('if (tokenImportRoute === "command-application")');
   const end = source.indexOf('const variableCreateRoute = variableCreatePlanRoute(plan)', start);
   const slice = source.slice(start, end);
   assert.match(slice, /prepareTokenImportPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
@@ -608,6 +608,29 @@ test('figma_run routes simple DESIGN.md mutation through preflight and the journ
   assert.match(slice, /compatibilityFallback:\s*false/);
   assert.match(slice, /executeDesignMdImportPlan\(plan, prepared/);
   assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run owns generic Design Source Import in-process with one outer audit', async () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const designSourceImportRoute = designSourceImportPlanRoute(plan)');
+  const end = source.indexOf('if (tokenImportRoute === "command-application")', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /prepareDesignSourceImportPlan\(plan/);
+  assert.match(slice, /if \(designSourceImportRequiresFigma\(prepared\)\)/);
+  assert.ok(slice.indexOf('prepareDesignSourceImportPlan')
+    < slice.indexOf('ensurePluginReadiness'));
+  assert.match(slice, /executeDesignSourceImportPlan\(plan, prepared/);
+  assert.doesNotMatch(slice, /runCliPlan\(|program\.parseAsync|executeTokenImportPlan/);
+
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_run', {
+    args: ['import', 'engine/tests/fixtures/code-import/shadcn-globals.css', '--print-context'],
+  });
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /Design system loaded: css variables/);
+  assert.doesNotMatch(result.content[0].text, /Write-confirm mode is on|Plugin/);
 });
 
 test('figma_run rejects malformed DESIGN.md context requests before file or Plugin access', async () => {

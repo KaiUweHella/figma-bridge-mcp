@@ -1002,7 +1002,6 @@ test('only semantic node fields may derive a Figma URL target', () => {
     ['var', 'set-value', 'semantic/name', payloadUrl],
     ['dev', 'link', '1:2', payloadUrl],
     ['link', 'set', '1:2', payloadUrl],
-    ['import', payloadUrl],
     ['map', 'storybook', payloadUrl],
     ['create', 'frame', payloadUrl],
     ['analyze', 'colors', '--node', payloadUrl],
@@ -1015,6 +1014,11 @@ test('only semantic node fields may derive a Figma URL target', () => {
     assert.equal(plan.target.fileKey, null, argv.join(' '));
     assert.equal(plan.target.source, 'implicit-single-window', argv.join(' '));
   }
+
+  const remoteImport = planFigmaCommand(['import', payloadUrl]);
+  assert.equal(remoteImport.target.fileKey, null);
+  assert.equal(remoteImport.target.source, 'not-applicable',
+    'a remote Storybook source is payload and does not need a Figma target');
 
   for (const argv of [
     ['node', 'rename', targetUrl, 'Renamed'],

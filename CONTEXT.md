@@ -213,6 +213,15 @@ agent context, not a token mutation or permission for the input path to create
 its own Workspace root.
 _Avoid_: self-authorized DESIGN.md path, Figma-backed context read, raw document dump, unbounded prompt context
 
+**Design Source Import**:
+The bounded top-level import of one authorized DESIGN.md, CSS, Tailwind, W3C
+JSON or Storybook source. One closed request and one Command Plan own source
+detection, conversion, the original source role, optional explicit DESIGN.md
+output and any prepared native Variable mutation. Repository-only context has
+no Figma target or Plugin readiness and never writes an implicit artifact;
+simple token families reuse Single-Collection Token Import directly in memory.
+_Avoid_: import dispatcher, nested token command, synthetic token file, implicit Storybook output
+
 **Portable Variable Snapshot**:
 The versioned, array-based DESIGN.md representation of local Figma Variable
 Collections, modes, Variables and authored values. Per-snapshot handles, not

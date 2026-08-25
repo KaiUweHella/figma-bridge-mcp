@@ -76,6 +76,8 @@
     "engine/src/application/design-md-context-command.js",
     "engine/src/application/design-md-import-command.js",
     "engine/src/application/design-md-request.js",
+    "engine/src/application/design-source-import-command.js",
+    "engine/src/application/design-source-import-request.js",
     "engine/src/application/variable-resolution-command.js",
     "engine/src/application/variable-resolution-request.js",
     "engine/src/application/code-spec-command.js",

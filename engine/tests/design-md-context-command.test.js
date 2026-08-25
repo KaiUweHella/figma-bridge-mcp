@@ -170,6 +170,18 @@ test("bounded text parser remains independently testable", () => {
   assert.equal(parsed.tokens.color.primary, "#123456");
 });
 
+test("context projection keeps exact spacing token names available to agents", () => {
+  const result = summarizeForLLM({
+    tokens: {
+      color: {}, typography: {}, radius: {}, shadow: {},
+      spacing: { stack: 12, inline: 8 },
+    },
+    meta: { source: "Spacing Context", components: [] },
+  });
+  assert.match(result, /Spacing tokens \(2\): stack, inline/);
+  assert.match(result, /match by token name/);
+});
+
 test("parse errors do not echo document content", () => {
   for (const source of [
     "---\nprivate-marker: [\n---\n",

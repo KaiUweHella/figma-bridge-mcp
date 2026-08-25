@@ -20,7 +20,9 @@ import { workspaceIO } from '../lib/workspace-io.js';
  * @param {string} [contentSample='']
  * @returns {'tailwind'|'css'|'tokens'|'storybook'|'designmd'|null}
  */
-export function detectSourceType(source, contentSample = '') {
+export function detectSourceType(source, contentSample = '', {
+  workspaceIO: sourceIO = workspaceIO(),
+} = {}) {
   // URLs → storybook
   if (/^https?:\/\//i.test(source)) return 'storybook';
 
@@ -48,7 +50,9 @@ export function detectSourceType(source, contentSample = '') {
 
   // Directory → storybook
   try {
-    if (workspaceIO().authorizePath(source, { access: 'read', role: 'import-source', kind: 'any' }).metadata.isDirectory()) return 'storybook';
+    if (sourceIO.authorizePath(source, {
+      access: 'read', role: 'import-source', kind: 'any',
+    }).metadata.isDirectory()) return 'storybook';
   } catch { /* not found or not a directory */ }
 
   return null;
@@ -156,56 +160,58 @@ function renderDesignMd(tokens, meta, type) {
  * Convert a source file/URL to { tokens, meta, designMd }.
  *
  * @param {string} source  - file path or URL
- * @param {{ type?: string }} [opts]
+ * @param {{ type?: string, workspaceIO?: object }} [opts]
  * @returns {Promise<{ tokens: object, meta: object, designMd: string }>}
  */
-export async function convert(source, { type } = {}) {
+export async function convert(source, { type, workspaceIO: sourceIO = workspaceIO() } = {}) {
   // Resolve type: explicit param wins, else detect from name + first 2 KB
   let resolvedType = type;
   if (!resolvedType) {
     let sample = '';
     if (!/^https?:\/\//i.test(source)) {
       try {
-        sample = workspaceIO().readText(source, { role: 'import-source' }).slice(0, 2048);
+        sample = sourceIO.readText(source, { role: 'import-source' }).slice(0, 2048);
       } catch { /* file not readable — detectSourceType will figure it out */ }
     }
-    resolvedType = detectSourceType(source, sample);
+    resolvedType = detectSourceType(source, sample, { workspaceIO: sourceIO });
   }
 
   let tokens, meta;
 
   switch (resolvedType) {
     case 'tokens': {
-      const content = workspaceIO().readText(source, { role: 'import-source' });
+      const content = sourceIO.readText(source, { role: 'import-source' });
       ({ tokens, meta } = parseW3cTokens(content));
       break;
     }
     case 'css': {
-      const content = workspaceIO().readText(source, { role: 'import-source' });
+      const content = sourceIO.readText(source, { role: 'import-source' });
       ({ tokens, meta } = parseCss(content));
       break;
     }
     case 'tailwind': {
-      ({ tokens, meta } = await parseTailwindConfig(source));
+      ({ tokens, meta } = await parseTailwindConfig(source, { workspaceIO: sourceIO }));
       break;
     }
     case 'storybook': {
       let content;
       if (/^https?:\/\//i.test(source)) {
-        content = await fetchStorybookIndex(source);
+        content = await fetchStorybookIndex(source, { workspaceIO: sourceIO });
       } else {
         // Check if it's a directory
         let isDir = false;
         try {
-          isDir = workspaceIO().authorizePath(source, { access: 'read', role: 'storybook-source', kind: 'any' }).metadata.isDirectory();
+          isDir = sourceIO.authorizePath(source, {
+            access: 'read', role: 'storybook-source', kind: 'any',
+          }).metadata.isDirectory();
         } catch { /* file */ }
         if (isDir) {
-          content = await fetchStorybookIndex(source);
+          content = await fetchStorybookIndex(source, { workspaceIO: sourceIO });
         } else {
-          content = workspaceIO().readText(source, { role: 'storybook-index' });
+          content = sourceIO.readText(source, { role: 'storybook-index' });
         }
       }
-      ({ tokens, meta } = parseStorybookIndex(content));
+      ({ tokens, meta } = parseStorybookIndex(content, { limits: sourceIO.limits }));
       break;
     }
     default:

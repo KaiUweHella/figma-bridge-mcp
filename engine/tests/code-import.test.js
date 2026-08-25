@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { join, dirname } from 'node:path';
+import { join, dirname, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseW3cTokens } from '../src/code-import/w3c-tokens.js';
 
@@ -326,6 +326,38 @@ test('import --print-context projects converted CSS without a temporary DESIGN.m
   assert.match(result.stdout, /Design system loaded: css variables/);
   assert.match(result.stdout, /Color tokens \(7 total/);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /outside configured roots|Plugin|\/tmp\/figma-bridge-import-/i);
+});
+
+test('top-level import owns CSS, Tailwind, W3C and Storybook conversion without implicit persistence', () => {
+  const engineRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const repositoryRoot = join(engineRoot, '..');
+  const launchRoot = mkdtempSync(join(tmpdir(), 'owned-import-cli-'));
+  const cases = [
+    { source: join(FIX, 'shadcn-globals.css'), type: 'css', expected: /Color tokens/ },
+    { source: join(FIX, 'tailwind.config.cjs'), type: 'tailwind', expected: /Color tokens/ },
+    { source: join(FIX, 'tokens-style-dictionary.json'), type: 'tokens', expected: /Color tokens/ },
+    { source: join(FIX, 'storybook-index.json'), type: 'storybook', expected: /Button \(2 variants\)/ },
+  ];
+  for (const fixtureCase of cases) {
+    const result = spawnSync(process.execPath, [
+      join(engineRoot, 'src', 'index.js'),
+      'import', fixtureCase.source,
+      `--type=${fixtureCase.type}`,
+      ...(fixtureCase.type === 'storybook' ? [] : ['--print-context']),
+    ], {
+      cwd: launchRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        FIGMA_BRIDGE_WORKSPACE_ROOTS: [launchRoot, repositoryRoot].join(delimiter),
+      },
+    });
+    assert.equal(result.status, 0, `${fixtureCase.type}: ${result.stderr}`);
+    assert.match(result.stdout, fixtureCase.expected, fixtureCase.type);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Plugin|outside configured roots/i);
+  }
+  assert.equal(existsSync(join(launchRoot, 'DESIGN-storybook.md')), false,
+    'Storybook context must never write a default artifact');
 });
 
 test('convert: storybook produces components in designMd and zero tokens', async () => {

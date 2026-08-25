@@ -536,6 +536,26 @@ test('top-level find delegates one Plan-bound bounded Node Discovery Application
     'Commander must not retain Node Discovery readiness, traversal, or formatting logic');
 });
 
+test('top-level import delegates one conditional Plan-bound Design Source Application', () => {
+  const adapter = sources.get('setup.js');
+  assert.ok(adapter, 'setup.js exists');
+  const start = adapter.indexOf(".command('import <source>')");
+  const end = adapter.indexOf('// Default action when no command is given', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(designSourceImportPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /prepareDesignSourceImportPlan\(plan/);
+  assert.match(action, /if \(designSourceImportRequiresFigma\(prepared\)\)/,
+    'repository-only context must not require Plugin readiness');
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeDesignSourceImportPlan\(plan/);
+  assert.doesNotMatch(action,
+    /detectSourceType\(|\bconvert\(|parseDesignMd\(|writeFile|DESIGN-storybook|program\.parseAsync|tokensImportPlanningArgvFromRequest/,
+    'Commander must not regain source detection, conversion, persistence, or nested command ownership');
+});
+
 test('prototype inspect delegates one Plan-bound bounded Prototype Inspection Application', () => {
   const adapter = sources.get('prototype.js');
   assert.ok(adapter, 'prototype.js exists');

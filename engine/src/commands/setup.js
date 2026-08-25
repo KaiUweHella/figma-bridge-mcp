@@ -1,16 +1,16 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, readFileSync, mkdirSync, copyFileSync, rmSync } from 'fs';
-import { join, basename, dirname } from 'path';
+import { mkdirSync, copyFileSync, rmSync } from 'fs';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
-  executeTokenImportPlan,
-  prepareTokenImportItems,
-  tokenImportPlanningArgvFromRequest,
-} from '../application/token-import-command.js';
-import { summarizeForLLM, toSingleCollectionTokenItems } from '../design-md.js';
+  designSourceImportPlanningArgvFromRequest,
+  designSourceImportRequiresFigma,
+  executeDesignSourceImportPlan,
+  prepareDesignSourceImportPlan,
+} from '../application/design-source-import-command.js';
 import { STATE_DIR } from '../lib/state-dir.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 
@@ -45,7 +45,6 @@ function installPluginFiles() {
   }
 }
 import * as apiDocs from '../api-docs.js';
-import { convert, detectSourceType } from '../code-import/index.js';
 import {
   progress,
   program,
@@ -74,10 +73,9 @@ program
   // dropping the target and failing with an ambiguity error instead.
   .option('--figma-file <keyOrUrl>', 'Target a specific connected Figma file (see `status`)');
 
-// Top-level shortcut: `import <source>` — auto-detects the source
-// type and routes to the right importer.
-// Supported: DESIGN.md (Figma extraction format), Tailwind config, CSS custom
-// properties, W3C design-tokens JSON, Storybook (URL or static build).
+// Top-level Design Source Import Adapter. The owning Command Application keeps
+// source detection, conversion, optional persistence and any prepared native
+// mutation behind one authoritative Plan and Audit lifecycle.
 program
   .command('import <source>')
   .description(
@@ -86,165 +84,41 @@ program
   )
   .option('-c, --collection <name>', 'Variable collection name')
   .option('--print-context', 'Print the agent context summary without creating variables')
-  .option('--save <file>', 'Write the converted DESIGN.md to this path instead of a temp file')
+  .option('--save <file>', 'Write the converted DESIGN.md to this explicit path')
   .option('--type <type>', 'Override source-type detection (tailwind|css|tokens|storybook|designmd)')
+  .option('--force-slash', 'Allow "/" in --collection intentionally because Figma Collections are flat')
+  .allowExcessArguments(false)
   .action(async (source, options) => {
-    const isUrl = /^https?:\/\//.test(source);
-
-    // For URLs and directories we skip the readFileSync path entirely.
-    // For file paths, check existence first.
-    if (!isUrl) {
-      let isDir = false;
-      try {
-        isDir = workspaceIO().authorizePath(source, {
-          access: 'read', role: 'import-source', kind: 'any',
-        }).metadata.isDirectory();
-      } catch { /* file or missing */ }
-      if (!isDir && !existsSync(source)) {
-        console.error(chalk.red('✗'), `not found: ${source}`);
-        process.exit(1);
-      }
-
-      if (!isDir) {
-        // Read content for DESIGN.md sniffing and type detection.
-        const content = workspaceIO().readText(source, { role: 'import-source' });
-
-        // Check if it's one of the three DESIGN.md formats (existing path).
-        const hasFrontmatterTokens = /^---\s*\n[\s\S]*?(^colors:|^color:|^typography:)/m.test(content);
-        const hasJsonBlock = /```json\s+design-tokens/.test(content) || /^##\s+\d+\.\s+Machine-readable tokens/m.test(content);
-        const proseColorRows = (content.match(/\*\*[^*]+\*\*\s*\(`#[0-9a-fA-F]{3,8}`\)\s*:/g) || []).length;
-        const isDesignMd = hasFrontmatterTokens || hasJsonBlock || proseColorRows >= 3;
-
-        if ((isDesignMd && !options.type) || options.type === 'designmd') {
-          // Existing DESIGN.md path — forward unchanged.
-          const args = ['tokens', 'import-design-md', source];
-          if (options.collection) args.push('-c', options.collection);
-          if (options.printContext) args.push('--print-context');
-          await program.parseAsync(args, { from: 'user' });
-          return;
-        }
-
-        // If no explicit type, detect from filename + content sample.
-        if (!options.type) {
-          const detectedType = detectSourceType(source, content.slice(0, 2048));
-          if (!detectedType || detectedType === 'designmd') {
-            console.error(chalk.red('✗'), `Unrecognized format: ${source}`);
-            _printSupportedFormats();
-            process.exit(1);
-          }
-          options.type = detectedType;
-        }
-      }
-    }
-
-    // Code-import branch: convert → write DESIGN.md → import variables.
-    let result;
     try {
-      result = await convert(source, { type: options.type });
-    } catch (err) {
-      console.error(chalk.red('✗'), `Import failed: ${err.message}`);
-      process.exit(1);
-    }
-
-    const { tokens, meta, designMd } = result;
-    const hasTokens = Object.keys(tokens.color || {}).length > 0 ||
-                      Object.keys(tokens.typography || {}).length > 0 ||
-                      Object.keys(tokens.radius || {}).length > 0 ||
-                      Object.keys(tokens.spacing || {}).length > 0;
-    const hasComponents = meta.components?.length > 0;
-
-    // Persist only when requested, or when Storybook context is the artifact.
-    let designMdPath = null;
-    if (options.save) {
-      designMdPath = options.save;
-      workspaceIO().write(designMdPath, designMd, { role: 'import-output', createParents: true });
-      console.log(chalk.green('✓'), `DESIGN.md saved to ${designMdPath}`);
-    } else if (!hasTokens && !options.printContext) {
-      // Storybook (zero-token): default to ./DESIGN-storybook.md
-      designMdPath = join(process.cwd(), 'DESIGN-storybook.md');
-      workspaceIO().write(designMdPath, designMd, { role: 'import-output', createParents: true });
-      console.log(chalk.green('✓'), `Component context saved to ${designMdPath}`);
-    }
-
-    if (hasTokens) {
-      const parsed = { tokens, meta };
-      if (options.printContext) {
-        console.log(summarizeForLLM(parsed));
-        return;
-      }
-      try {
-        const items = toSingleCollectionTokenItems(parsed);
-        if (!items.length) {
-          console.log(chalk.yellow('⚠'),
-            'No COLOR, radius, or spacing tokens have an exact native Variable representation.');
-          console.log(summarizeForLLM(parsed));
-          return;
-        }
-        const collection = options.collection || meta.source || 'Imported Design System';
-        const plan = planFigmaCommand(tokenImportPlanningArgvFromRequest({
-          file: source, collection, forceSlash: false,
-        }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
-        const prepared = prepareTokenImportItems(plan, items);
-        const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
-          async ({ fileKey, deadline }) => {
+      const plan = planFigmaCommand(designSourceImportPlanningArgvFromRequest({
+        source,
+        collection: options.collection ?? null,
+        printContext: options.printContext === true,
+        save: options.save ?? null,
+        type: options.type ?? null,
+        forceSlash: options.forceSlash === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          const io = workspaceIO();
+          const prepared = await prepareDesignSourceImportPlan(plan, { workspaceIO: io });
+          if (designSourceImportRequiresFigma(prepared)) {
             await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
-            return executeTokenImportPlan(plan, prepared, {
-              evaluate: (code) => daemonExec('eval', {
-                code, ...(fileKey ? { fileKey } : {}),
-              }, Math.max(1, deadline - Date.now())),
-            });
+          }
+          return executeDesignSourceImportPlan(plan, prepared, {
+            workspaceIO: io,
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
           });
-        console.log(chalk.green(result.stdout));
-        if (result.stderr) console.error(chalk.yellow(result.stderr));
-        const unsupportedCompositeCount = Object.keys(tokens.typography || {}).length
-          + Object.keys(tokens.shadow || {}).length;
-        if (unsupportedCompositeCount) {
-          console.error(chalk.yellow('⚠'),
-            `${unsupportedCompositeCount} typography or shadow token${unsupportedCompositeCount === 1 ? '' : 's'} remain context-only because they do not have an exact simple Variable representation.`);
-        }
-        console.log();
-        console.log(chalk.cyan('─── agent context summary ───────────'));
-        console.log(summarizeForLLM(parsed));
-        console.log(chalk.cyan('──────────────────────────────────────────────'));
-      } catch (error) {
-        handleEvalError(error);
-        process.exitCode = 1;
-      }
-    } else if (hasComponents) {
-      // Storybook: print component context, skip variable creation.
-      const comps = meta.components;
-      console.log(chalk.cyan('\nStorybook component context loaded:'));
-      console.log(chalk.white(`  ${comps.length} component${comps.length !== 1 ? 's' : ''}:`));
-      const preview = comps.slice(0, 10);
-      for (const c of preview) {
-        const varCount = c.variants?.length ?? 0;
-        const varLabel = varCount > 0 ? chalk.gray(` (${varCount} variants: ${c.variants.slice(0, 3).join(', ')}${varCount > 3 ? ', …' : ''})`) : '';
-        console.log(`    ${chalk.white(c.name)}${varLabel}`);
-      }
-      if (comps.length > 10) {
-        console.log(chalk.gray(`    … and ${comps.length - 10} more`));
-      }
-      console.log(
-        chalk.yellow('\nStorybook gives component context, not design tokens.') +
-        chalk.gray(' Combine with:')
-      );
-      console.log(chalk.cyan('  figma_run ["import","tailwind.config.js"]'));
-      console.log(chalk.cyan('  figma_run ["import","src/globals.css"]'));
-      console.log(chalk.cyan('  figma_run ["import","tokens.json"]'));
-    } else {
-      console.log(chalk.yellow('⚠'), 'No tokens or components found in source.');
+        });
+      console.log(result.stdout);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
     }
   });
-
-function _printSupportedFormats() {
-  console.error(chalk.yellow('  Supported sources for `import`:'));
-  console.error('    • DESIGN.md       (## Machine-readable tokens block, YAML frontmatter, or prose rows)');
-  console.error('    • tailwind.config.js / .cjs / .ts   (Tailwind color/radius/spacing/font config)');
-  console.error('    • globals.css / styles.css           (CSS custom properties, @theme, shadcn HSL)');
-  console.error('    • tokens.json                        (W3C design-tokens / Style Dictionary)');
-  console.error('    • http://localhost:6006              (Storybook — running dev server)');
-  console.error('    • ./storybook-static/                (Storybook — static build directory)');
-}
 
 // Default action when no command is given (Safe Mode: no patching, no CDP —
 // the only setup step is `connect`, which starts the daemon and prints the

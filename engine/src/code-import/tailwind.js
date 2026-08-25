@@ -129,19 +129,22 @@ function flattenColors(obj, prefix = '') {
 /**
  * Parse a Tailwind config file and return normalised tokens.
  * @param {string} configPath  Absolute or relative path to the config file.
+ * @param {{workspaceIO?: object}} [options]
  * @returns {Promise<{tokens, meta}>}
  */
-export async function parseTailwindConfig(configPath) {
+export async function parseTailwindConfig(configPath, {
+  workspaceIO: sourceIO = workspaceIO(),
+} = {}) {
   const requested = resolve(configPath);
   let abs;
   let source;
   try {
-    abs = workspaceIO().authorizePath(requested, {
+    abs = sourceIO.authorizePath(requested, {
       access: 'read',
       role: 'tailwind-config',
       kind: 'file',
     }).canonical;
-    source = workspaceIO().readText(abs, {
+    source = sourceIO.readText(abs, {
       role: 'tailwind-config',
       maxBytes: TAILWIND_STATIC_POLICY.maxBytes,
     });

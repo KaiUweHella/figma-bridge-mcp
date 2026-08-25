@@ -167,6 +167,11 @@ import {
   parseDesignMdRequest,
 } from '../engine/src/application/design-md-request.js';
 import {
+  acceptsDesignSourceImportArgv,
+  designSourceImportArgvFromRequest,
+  parseDesignSourceImportRequest,
+} from '../engine/src/application/design-source-import-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -332,7 +337,7 @@ const COMMANDS = Object.freeze({
   gradient: { summary: 'Extract and apply gradients', mutation: 'gradient', target: 'conditional', path: 'gradient-input' },
   pin: { summary: 'Pin nodes to parent edges', mutation: 'write' },
   api: { summary: 'Read the offline Figma Plugin reference', mutation: 'read', target: 'none' },
-  import: { summary: 'Import a design source into Figma', mutation: 'write', path: 'import-files' },
+  import: { summary: 'Import a design source into Figma', mutation: 'write', path: 'design-source-import-input' },
   motion: readGroup('Inspect or manage motion data', ['styles', 'inspect'], { path: 'motion-inputs' }),
   extract: { summary: 'Extract the open file into DESIGN.md', mutation: 'read', path: 'design-doc' },
   spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'spec-file' },
@@ -367,6 +372,7 @@ const SAFE_READ_ACTIONS = new Set([
 ]);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
+  'import',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -475,7 +481,10 @@ function mutatesDesign(entry, args, options, actionId) {
   if (!args.length) return false;
   if (SAFE_READ_ACTIONS.has(actionId)) return false;
   const sub = args[1];
-  if (actionId === 'import' && hasOption(options, '--print-context')) return false;
+  if (actionId === 'import') {
+    const request = parseDesignSourceImportRequest(args);
+    if (request.printContext || request.type === 'storybook' || isUrl(request.source)) return false;
+  }
   if (entry.mutation === 'write') return true;
   if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
   if (entry.mutation === 'read') return false;
@@ -496,7 +505,10 @@ function mutatesDesign(entry, args, options, actionId) {
 }
 
 function targetPolicy(name, entry, args, options) {
-  if (name === 'import' && hasOption(options, '--print-context')) return 'none';
+  if (name === 'import') {
+    const request = parseDesignSourceImportRequest(args);
+    if (request.printContext || request.type === 'storybook' || isUrl(request.source)) return 'none';
+  }
   if (name === 'tokens' && args[1] === 'import-design-md'
     && hasOption(options, '--print-context')) return 'none';
   if (entry.target !== 'conditional') return entry.target || 'figma';
@@ -516,6 +528,10 @@ function specializedPolicy(name, entry, args, actionId) {
   let timeoutClass = entry.timeout || 'default';
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
+  if (name === 'import') {
+    timeoutClass = 'long';
+    pathPolicy = 'design-source-import-input';
+  }
   if (SAFE_READ_ACTIONS.has(actionId)) retry = 'safe-read';
   if (name === 'export') {
     if (sub === 'assets') {
@@ -736,6 +752,9 @@ function commandCapability(args) {
   }
   if (name === 'tokens' && args[1] === 'import-design-md'
     && !action.help && !acceptsDesignMdArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'import' && !action.help && !acceptsDesignSourceImportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'tokens' && args[1] === 'overlap'
@@ -1085,6 +1104,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     ? projectFigmaUrlFileKey(rawArgs, capability.actionId)
     : null;
   let outputPath = null;
+  let outputRole = null;
   let artifactOutputs = [];
   let workspace = 'none';
   const paths = [];
@@ -1586,16 +1606,17 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       markRead(file, 'design-document');
       break;
     }
-    case 'import-files': {
-      const [sourceIndex] = positionalIndexes(args, 1, ['-c', '--collection', '--save']);
-      if (typeof args[sourceIndex] === 'string' && !isUrl(args[sourceIndex])) {
-        args[sourceIndex] = absolute(baseDir, args[sourceIndex]);
-        markRead(args[sourceIndex], 'import-source', 'any');
-      }
-      const saved = pathFlag(args, ['--save'], baseDir, capability.options);
-      if (saved) markWrite(saved.value, 'import-output');
-      else if (!hasOption(capability.options, '--print-context')) {
-        markWrite(absolute(baseDir, 'DESIGN-storybook.md'), 'import-output');
+    case 'design-source-import-input': {
+      const request = parseDesignSourceImportRequest(args);
+      const source = isUrl(request.source) ? request.source : absolute(baseDir, request.source);
+      const save = request.save == null ? null : absolute(baseDir, request.save);
+      args.splice(0, args.length, ...designSourceImportArgvFromRequest({
+        ...request, source, save,
+      }));
+      if (!isUrl(source)) markRead(source, 'import-source', 'any');
+      if (save) {
+        markWrite(save, 'import-output');
+        outputRole = 'import-output';
       }
       break;
     }
@@ -1656,6 +1677,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
   return {
     args,
     outputPath,
+    outputRole,
     artifactOutputs: Object.freeze(artifactOutputs),
     capability,
     workspace,
@@ -1790,7 +1812,10 @@ export function planFigmaCommand(rawArgs, {
     });
   const outputs = Object.freeze([
     ...(prepared.outputPath
-      ? [Object.freeze({ role: capability.pathPolicy, path: prepared.outputPath })]
+      ? [Object.freeze({
+        role: prepared.outputRole || capability.pathPolicy,
+        path: prepared.outputPath,
+      })]
       : []),
     ...prepared.artifactOutputs,
   ]);

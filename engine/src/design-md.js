@@ -334,6 +334,8 @@ export function summarizeForLLM({ tokens, meta }) {
     'typography', { optional: true }));
   const radii = Object.keys(designRecord(tokenRecord.radius,
     'radii', { optional: true }));
+  const spacing = Object.keys(designRecord(tokenRecord.spacing,
+    'spacing', { optional: true }));
   const shadows = Object.keys(designRecord(tokenRecord.shadow,
     'shadows', { optional: true }));
   const components = metadata.components == null ? [] : metadata.components;
@@ -356,6 +358,7 @@ export function summarizeForLLM({ tokens, meta }) {
   }
   if (types.length) lines.push(`Typography tokens (${types.length}): ${sampledNames(types)}`);
   if (radii.length) lines.push(`Radius tokens (${radii.length}): ${sampledNames(radii)}`);
+  if (spacing.length) lines.push(`Spacing tokens (${spacing.length}): ${sampledNames(spacing)}`);
   if (shadows.length) lines.push(`Shadow tokens (${shadows.length}): use sparingly — they're long compositions`);
   if (components.length) {
     // Normalize: components may be strings (from parseDesignMd) or objects
@@ -370,6 +373,7 @@ export function summarizeForLLM({ tokens, meta }) {
   lines.push(`- ALWAYS use \`bg="var:<name>"\` / \`color="var:<name>"\` for colors, never raw hex.`);
   lines.push(`- For text styles, match by purpose to the typography token names above.`);
   lines.push(`- For radii, match by name (e.g. radius-md = 2px).`);
+  lines.push(`- For spacing, match by token name instead of introducing unrelated raw values.`);
   lines.push(`- If the user asks for a component already listed under "Existing component pages", PREFER using the existing component over creating a new one. Hint: figma_run ["find", "<name>"] to locate it.`);
   const result = lines.join('\n');
   if (result.length > MAX_DESIGN_MD_CONTEXT_CODE_UNITS) {
