@@ -546,6 +546,28 @@ test('var show delegates one Plan-bound bounded Variable Facts Application', () 
     'Commander must not retain Variable Facts readiness, execution, or formatting logic');
 });
 
+test('var list and find delegate one Plan-bound bounded Variable Discovery Application', () => {
+  const adapter = sources.get('variables.js');
+  assert.ok(adapter, 'variables.js exists');
+  const helperStart = adapter.indexOf('async function runVariableDiscovery');
+  const listStart = adapter.indexOf(".command('list')");
+  const listEnd = adapter.indexOf(".command('create <name>')", listStart);
+  const findStart = adapter.indexOf(".command('find <pattern>')");
+  const findEnd = adapter.indexOf("variables.command('show <variable>')", findStart);
+  const action = adapter.slice(helperStart, listStart)
+    + adapter.slice(listStart, listEnd) + adapter.slice(findStart, findEnd);
+
+  assert.match(action, /variableDiscoveryPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableDiscoveryPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.equal((action.match(/\.allowExcessArguments\(false\)/g) || []).length, 2);
+  assert.doesNotMatch(action, /checkConnection\(|listVariables\(|findVariables\(|fastEval\(/,
+    'Commander must not retain Variable Discovery readiness, matching, or formatting logic');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');

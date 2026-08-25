@@ -4,6 +4,10 @@ import { join } from 'path';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
+  executeVariableDiscoveryPlan,
+  variableDiscoveryPlanningArgvFromRequest,
+} from '../application/variable-discovery-command.js';
+import {
   executeVariableFactsPlan,
   variableFactsArgvFromRequest,
 } from '../application/variable-facts-command.js';
@@ -18,8 +22,6 @@ import {
   daemonExec,
   fastEval,
   evalPrint,
-  listVariables,
-  findVariables,
   handleEvalError,
   hexToRgb,
   spinnerSucceed
@@ -37,13 +39,41 @@ const variables = program
   .alias('var')
   .description('Manage design tokens/variables');
 
+async function runVariableDiscovery(action, pattern, options) {
+  try {
+    const plan = planFigmaCommand(variableDiscoveryPlanningArgvFromRequest({
+      action,
+      pattern,
+      limit: options.limit || null,
+      json: options.json === true,
+    }), {
+      adapter: 'cli',
+      fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeVariableDiscoveryPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error);
+    process.exitCode = 1;
+  }
+}
+
 variables
   .command('list')
   .description('List all variables')
-  .action(async () => {
-    await checkConnection();
-    await listVariables();
-  });
+  .option('-l, --limit <count>', 'Maximum variables returned')
+  .option('--json', 'Return bounded identity facts as JSON')
+  .allowExcessArguments(false)
+  .action(async (options) => runVariableDiscovery('list', null, options));
 
 variables
   .command('create <name>')
@@ -70,10 +100,10 @@ return 'Created ${type.toLowerCase()} variable: ${name}';
 variables
   .command('find <pattern>')
   .description('Find variables by name pattern')
-  .action(async (pattern) => {
-    await checkConnection();
-    await findVariables(pattern);
-  });
+  .option('-l, --limit <count>', 'Maximum variables returned')
+  .option('--json', 'Return bounded identity facts as JSON')
+  .allowExcessArguments(false)
+  .action(async (pattern, options) => runVariableDiscovery('find', pattern, options));
 
 variables.command('show <variable>')
   .option('-c, --collection <collection>')

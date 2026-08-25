@@ -149,6 +149,15 @@ metadata, not a consumer-specific resolved value or permission to mutate a
 variable.
 _Avoid_: variable dump, resolved token value, variable edit
 
+**Variable Discovery**:
+The compact, versioned and bounded inventory of local Variable identities for
+listing or case-insensitive name search. It preserves variable id, name, type
+and collection identity in deterministic order through one shared safe-read
+Command Application. `*` is the only wildcard; regex syntax remains literal.
+Discovery rows are follow-up handles, not authored Variable Facts, resolved
+consumer values or permission to mutate tokens.
+_Avoid_: variable dump, executable regex, name-only identity, variable edit
+
 **Resolved Variable Value**:
 The exact, versioned and bounded result of resolving one local Figma variable
 for one explicit Scene Node. It preserves variable, collection and consumer

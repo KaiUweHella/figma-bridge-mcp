@@ -98,6 +98,10 @@ import {
   prototypeInspectionPlanRoute,
 } from "../engine/src/application/prototype-inspection-command.js";
 import {
+  executeVariableDiscoveryPlan,
+  variableDiscoveryPlanRoute,
+} from "../engine/src/application/variable-discovery-command.js";
+import {
   executeVariableFactsPlan,
   variableFactsPlanRoute,
 } from "../engine/src/application/variable-facts-command.js";
@@ -1903,6 +1907,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executePrototypeInspectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableDiscoveryRoute = variableDiscoveryPlanRoute(plan);
+      if (variableDiscoveryRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableDiscoveryPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

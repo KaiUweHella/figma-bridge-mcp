@@ -136,6 +136,23 @@ test('Style Catalog closes one bounded policy-identical CLI/MCP safe read', () =
   assert.equal(cli.audit.capability, 'style.list');
 });
 
+test('Variable Discovery closes policy-identical list and wildcard-find reads', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [['var', 'list', '--json', '--limit', '25'], ['var', 'list', '-l25', '--json'], 'var.list'],
+    [['var', 'find', 'space/*', '--limit', '25'], ['var', 'find', '--limit=25', '--', 'space/*'], 'var.find'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.execution.retry, 'safe-read');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',

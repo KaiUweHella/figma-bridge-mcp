@@ -82,6 +82,11 @@ import {
   prototypeInspectionFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/prototype-inspection-request.js';
 import {
+  acceptsVariableDiscoveryArgv,
+  parseVariableDiscoveryRequest,
+  variableDiscoveryArgvFromRequest,
+} from '../engine/src/application/variable-discovery-request.js';
+import {
   acceptsVariableFactsArgv,
   parseVariableFactsRequest,
   variableFactsArgvFromRequest,
@@ -264,6 +269,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'var.list', 'var.find',
   'component.main',
   'style.list',
   'style.create',
@@ -410,6 +416,10 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'variable-facts-input';
   }
+  if (name === 'var' && ['list', 'find'].includes(sub)) {
+    retry = 'safe-read';
+    pathPolicy = 'variable-discovery-input';
+  }
   if (name === 'var' && sub === 'resolve') {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
@@ -511,6 +521,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'show'
     && !action.help && !acceptsVariableFactsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && ['list', 'find'].includes(args[1])
+    && !action.help && !acceptsVariableDiscoveryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'resolve'
@@ -1123,6 +1137,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-facts-input': {
       args.splice(0, args.length,
         ...variableFactsArgvFromRequest(parseVariableFactsRequest(args)));
+      break;
+    }
+    case 'variable-discovery-input': {
+      args.splice(0, args.length,
+        ...variableDiscoveryArgvFromRequest(parseVariableDiscoveryRequest(args)));
       break;
     }
     case 'variable-resolution-input': {

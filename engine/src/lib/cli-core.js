@@ -515,28 +515,6 @@ async function selectNode(nodeId) {
   return 'Selected';
 }
 
-/** List local variables as "name (TYPE)" lines. */
-async function listVariables({ silent = false } = {}) {
-  const result = await daemonClient().evaluate(`(async () => {
-    const vars = await figma.variables.getLocalVariablesAsync();
-    return vars.map(v => v.name + ' (' + v.resolvedType + ')').join('\\n');
-  })()`, { expectedEditor: expectedEditorForCommand() });
-  if (!silent) console.log(result);
-  return result;
-}
-
-/** Find local variables by name pattern (`*` allowed). */
-async function findVariables(pattern, { silent = false } = {}) {
-  const result = await daemonClient().evaluate(`(async () => {
-    const pattern = ${JSON.stringify(String(pattern))}.replace('*', '.*');
-    const re = new RegExp(pattern, 'i');
-    const vars = await figma.variables.getLocalVariablesAsync();
-    return vars.filter(v => re.test(v.name)).map(v => v.name).join('\\n');
-  })()`, { expectedEditor: expectedEditorForCommand() });
-  if (!silent) console.log(result);
-  return result;
-}
-
 /** List variable collections as "name (N vars)" lines. */
 async function listCollections({ silent = false } = {}) {
   const result = await daemonClient().evaluate(`(async () => {
@@ -627,8 +605,6 @@ export {
   progress,
   spinnerSucceed,
   selectNode,
-  listVariables,
-  findVariables,
   listCollections,
   createCollection,
   generateFillCode,

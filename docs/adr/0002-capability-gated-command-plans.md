@@ -262,6 +262,14 @@ instead of returning a plausible partial interaction contract. Safe JSON text
 escapes terminal controls without changing the parsed facts. Mutating
 `prototype add`, `set` and `clear` remain separate non-retrying Commands.
 
+`var list` and `var find` own one bounded Variable Discovery Application.
+Their closed request owns list/search intent, one optional literal `*`
+wildcard pattern, output mode and result limit before readiness. Commander and
+`figma_run` execute the same safe-read Command Plans. Results preserve stable
+variable and collection identities plus type in deterministic order; candidate,
+row, label and serialized-size limits fail or report explicit omission rather
+than returning an unbounded name dump. Other regex syntax is inert text.
+
 `var show` is a separate Variable Facts read for exact token metadata. Its
 closed request owns one variable id/name and an optional collection id/name;
 neither payload field contributes a Figma URL target. Commander and
