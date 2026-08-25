@@ -1282,6 +1282,13 @@ the cursor is additionally bound to the original style query. Rows contain
 only consumer node identity and official inherited-style fields. No document
 content is changed.
 
+`style publish-status <style>` returns only compact Style identity and Figma's
+official `UNPUBLISHED`, `CURRENT` or `CHANGED` state. It uses the same bounded
+safe-read path from CLI and MCP; `--type` can narrow ambiguous names without
+loading unrelated families. Complete authored values remain available through
+`style show`, so publish-status never transports GRID Auto counts or other
+irrelevant value topology through a lossy generic JSON path.
+
 Variables expose the metadata and mode operations that token-file sync does
 not own:
 

@@ -62,15 +62,6 @@ const __styleFacts = (s) => {
 };`;
 }
 
-function styleListCode({ type = null } = {}) {
-  const normalized = type ? parseStyleType(type) : null;
-  return `(async () => {${styleHelpersCode()}
-const lists = await __styleLists();
-const styles = ${normalized ? `lists[${JSON.stringify(normalized)}]` : 'Object.values(lists).flat()'};
-return styles.map(__styleFacts).sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
-})()`;
-}
-
 function styleCreateCode({ type, name, description = '', properties = {} }) {
   const normalized = parseStyleType(type);
   const props = parseStyleProperties(properties, normalized);
@@ -126,21 +117,6 @@ return { style: __styleFacts(style), field: ${JSON.stringify(normalizedField)}, 
 })()`;
 }
 
-function styleConsumersCode({ style }) {
-  return `(async () => {${styleHelpersCode()}
-const target = await __resolveStyle(${JSON.stringify(style)}, null);
-const consumers = await target.getStyleConsumersAsync();
-return { style: __styleFacts(target), consumers: consumers.map(c => ({ node: { id: c.node.id, name: c.node.name, type: c.node.type }, fields: c.fields })) };
-})()`;
-}
-
-function stylePublishStatusCode({ style }) {
-  return `(async () => {${styleHelpersCode()}
-const target = await __resolveStyle(${JSON.stringify(style)}, null);
-return { style: __styleFacts(target), publishStatus: await target.getPublishStatusAsync() };
-})()`;
-}
-
 function styleDeleteCode({ style }) {
   return `(async () => {${styleHelpersCode()}
 const target = await __resolveStyle(${JSON.stringify(style)}, null);
@@ -183,6 +159,5 @@ return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)},
 export {
   STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
   styleBindVariableCode,
-  styleApplyCode, styleConsumersCode, styleCreateCode, styleDeleteCode,
-  styleListCode, stylePublishStatusCode, styleUpdateCode,
+  styleApplyCode, styleCreateCode, styleDeleteCode, styleUpdateCode,
 };

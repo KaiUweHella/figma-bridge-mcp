@@ -340,6 +340,24 @@ test('style consumers delegates one Plan-bound bounded Consumer Application', ()
     'Commander must not retain Style Consumer readiness, scan, or formatting logic');
 });
 
+test('style publish-status delegates one Plan-bound bounded-read Application', () => {
+  const adapter = sources.get('styles.js');
+  assert.ok(adapter, 'styles.js exists');
+  const start = adapter.indexOf("styles.command('publish-status <style>')");
+  const end = adapter.indexOf("styles.command('delete <style>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(stylePublishStatusPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeStylePublishStatusPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|stylePublishStatusCode\(/,
+    'Commander must not retain Style Publish Status readiness, capture, or formatting logic');
+});
+
 test('grid list delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

@@ -39,6 +39,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   unions now preserve publishable Markdown/documentation metadata, nested
   Variable Alias topology and tagged non-JSON numeric semantics without
   Commander re-entry, implicit URL targeting or plausible truncation.
+- Routed `style publish-status` through one compact, versioned and bounded
+  safe-read Application shared by Commander and MCP. It retains only resolved
+  Style identity and Figma's official status union, supports optional family
+  narrowing and no longer embeds raw GRID values that could coerce Auto
+  `Infinity` to JSON `null`.
 - Routed `component main` through one exact, versioned and deeply bounded
   Component Identity Facts Application shared by Commander and MCP. Semantic
   URL targeting, safe-read retry and one decreasing deadline now preserve main

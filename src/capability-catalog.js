@@ -120,6 +120,11 @@ import {
   styleConsumerArgvFromRequest,
 } from '../engine/src/application/style-consumer-request.js';
 import {
+  acceptsStylePublishStatusArgv,
+  parseStylePublishStatusRequest,
+  stylePublishStatusArgvFromRequest,
+} from '../engine/src/application/style-publish-status-request.js';
+import {
   acceptsLayoutGridFactsArgv,
   layoutGridFactsArgvFromRequest,
   layoutGridFactsFigmaUrlFileKeyFromArgv,
@@ -236,6 +241,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'component.main',
   'style.list',
   'style.consumers',
+  'style.publish-status',
   'style.show',
   'grid.list',
 ]);
@@ -397,6 +403,10 @@ function specializedPolicy(name, entry, args, actionId) {
     timeoutClass = 'long';
     pathPolicy = 'style-consumer-input';
   }
+  if (name === 'style' && sub === 'publish-status') {
+    retry = 'safe-read';
+    pathPolicy = 'style-publish-status-input';
+  }
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'layout-grid-facts-input';
@@ -488,6 +498,10 @@ function commandCapability(args) {
   }
   if (name === 'style' && args[1] === 'consumers'
     && !action.help && !acceptsStyleConsumerArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'style' && args[1] === 'publish-status'
+    && !action.help && !acceptsStylePublishStatusArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'grid' && args[1] === 'list'
@@ -983,6 +997,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'style-consumer-input': {
       args.splice(0, args.length,
         ...styleConsumerArgvFromRequest(parseStyleConsumerRequest(args)));
+      break;
+    }
+    case 'style-publish-status-input': {
+      args.splice(0, args.length,
+        ...stylePublishStatusArgvFromRequest(parseStylePublishStatusRequest(args)));
       break;
     }
     case 'layout-grid-facts-input': {

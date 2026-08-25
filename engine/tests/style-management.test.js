@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  parseStyleProperties, parseStyleType, styleApplyCode, styleConsumersCode,
-  styleBindVariableCode, styleCreateCode, styleListCode, stylePublishStatusCode, styleUpdateCode,
+  parseStyleProperties, parseStyleType, styleApplyCode,
+  styleBindVariableCode, styleCreateCode, styleUpdateCode,
 } from '../src/lib/style-management.js';
 
 const emptyLists = {
@@ -51,28 +51,22 @@ test('style create uses the native factory, loads text fonts, and returns facts'
   assert.equal(result.fontSize, 48);
 });
 
-test('style list and update resolve local styles without REST', async () => {
+test('style update resolves local styles without REST', async () => {
   const style = { id: 'S:2', key: 'k', type: 'PAINT', remote: false, name: 'Brand', description: '', paints: [] };
   const figma = { ...emptyLists, getLocalPaintStylesAsync: async () => [style], getStyleByIdAsync: async () => null };
-  assert.equal((await execute(styleListCode({ type: 'paint' }), figma))[0].id, 'S:2');
   const updated = await execute(styleUpdateCode({ style: 'Brand', type: 'PAINT', name: 'Primary', properties: { paints: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }] } }), figma);
   assert.equal(updated.name, 'Primary');
   assert.equal(updated.paints.length, 1);
 });
 
-test('style apply, consumers, and publish status call the official async APIs', async () => {
+test('style apply calls the official async API', async () => {
   const calls = [];
   const node = { id: '1:2', name: 'Card', type: 'FRAME', setFillStyleIdAsync: async (id) => calls.push(id) };
   const style = {
     id: 'S:3', key: 'k', type: 'PAINT', remote: false, name: 'Surface', description: '', paints: [],
-    getStyleConsumersAsync: async () => [{ node, fields: ['fillStyleId'] }],
-    getPublishStatusAsync: async () => 'CURRENT',
   };
   const figma = { ...emptyLists, getStyleByIdAsync: async () => style, getNodeByIdAsync: async () => node };
   const applied = await execute(styleApplyCode({ style: 'S:3', nodeIds: '1:2', field: 'fill' }), figma);
   assert.deepEqual(calls, ['S:3']);
   assert.equal(applied.applied[0].id, '1:2');
-  const consumers = await execute(styleConsumersCode({ style: 'S:3' }), figma);
-  assert.deepEqual(consumers.consumers[0].fields, ['fillStyleId']);
-  assert.equal((await execute(stylePublishStatusCode({ style: 'S:3' }), figma)).publishStatus, 'CURRENT');
 });

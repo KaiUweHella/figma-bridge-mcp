@@ -17,9 +17,13 @@ import {
   styleConsumerPlanningArgvFromRequest,
 } from '../application/style-consumer-command.js';
 import {
+  executeStylePublishStatusPlan,
+  stylePublishStatusPlanningArgvFromRequest,
+} from '../application/style-publish-status-command.js';
+import {
   parseStyleProperties, parseStyleType, styleApplyCode,
   styleBindVariableCode,
-  styleCreateCode, styleDeleteCode, stylePublishStatusCode,
+  styleCreateCode, styleDeleteCode,
   styleUpdateCode,
 } from '../lib/style-management.js';
 
@@ -147,9 +151,35 @@ styles.command('consumers <style>')
       process.exitCode = 1;
     }
   });
-styles.command('publish-status <style>').action(async (style) => {
-  try { print(await run(stylePublishStatusCode({ style }))); } catch (error) { handleEvalError(error); }
-});
+styles.command('publish-status <style>')
+  .option('-t, --type <type>', 'Narrow style resolution to PAINT, TEXT, EFFECT, or GRID')
+  .allowExcessArguments(false)
+  .action(async (style, options) => {
+    try {
+      const plan = planFigmaCommand(stylePublishStatusPlanningArgvFromRequest({
+        style,
+        type: options.type || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStylePublishStatusPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Publish Status failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
 styles.command('delete <style>').action(async (style) => {
   try { const result = await run(styleDeleteCode({ style })); console.log(chalk.green('✓'), `Deleted ${result.type} style ${result.name}.`); } catch (error) { handleEvalError(error); }
 });

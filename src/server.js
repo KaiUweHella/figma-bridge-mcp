@@ -126,6 +126,10 @@ import {
   styleConsumerPlanRoute,
 } from "../engine/src/application/style-consumer-command.js";
 import {
+  executeStylePublishStatusPlan,
+  stylePublishStatusPlanRoute,
+} from "../engine/src/application/style-publish-status-command.js";
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
@@ -1998,6 +2002,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeStyleFactsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const stylePublishStatusRoute = stylePublishStatusPlanRoute(plan);
+      if (stylePublishStatusRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStylePublishStatusPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

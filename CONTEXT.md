@@ -70,6 +70,13 @@ safe-read Command Application. The native API is complete but not
 interruptible, so these facts do not claim a visit budget.
 _Avoid_: bounded traversal claim, style dump, unpaged document scan, mutation
 
+**Style Publish Status Facts**:
+The compact, versioned read of one local Style's official UNPUBLISHED, CURRENT
+or CHANGED state. It preserves resolved Style identity and optional family
+scope through one shared safe-read Command Application, while complete authored
+Style values remain a separate Style Facts read.
+_Avoid_: style dump, authored values, publication write, inferred status
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid
