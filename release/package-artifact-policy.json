@@ -66,6 +66,7 @@
     "engine/src/application/style-consumer-command.js",
     "engine/src/application/style-consumer-request.js",
     "engine/src/application/style-facts-command.js",
+    "engine/src/application/style-facts-contract.js",
     "engine/src/application/style-facts-request.js",
     "engine/src/application/verification-artifact.js",
     "engine/src/code-import/css.js",

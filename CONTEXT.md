@@ -383,3 +383,7 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** A Figma command was slow. How do we know which Bridge layer caused it?
 >
 > **Domain expert:** Use the runtime workload evidence. It separates Command planning, Daemon preparation, write-lane wait, Plugin round trip and content-free Figma-main-thread queue/execution timing. Missing MCP, process or resource segments stay named as pending; the Bridge never disguises a partial measurement as complete end-to-end proof.
+
+> **Developer:** Can the pinned Figma typings prove that every live runtime field exists?
+>
+> **Domain expert:** No. Release checks keep official typings, the Bridge projection contract and a content-free live-runtime exception policy independent. New union values, missing required fields and wrong runtime types fail until reviewed; an unavailable sample stays unsampled rather than becoming assumed compatibility.

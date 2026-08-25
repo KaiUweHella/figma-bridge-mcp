@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Added independent Figma compatibility gates for official Style union drift
+  and live Publishable metadata drift. TypeChecker-derived discriminants must
+  exactly match the Bridge contract; the content-free live probe recognizes
+  only the reviewed missing Text Style `descriptionMarkdown` runtime gap and
+  leaves absent subject kinds explicitly unsampled.
 - Added versioned, content-free execution timing evidence across Command
   planning, authenticated Daemon preparation, per-document write-lane wait,
   Plugin round trip and Figma-main-thread queue/execution. A maintainer runtime

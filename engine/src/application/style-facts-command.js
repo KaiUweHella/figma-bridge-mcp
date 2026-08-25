@@ -3,6 +3,7 @@
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { FIGMA_SCALAR_KEY, isFigmaPositiveInfinity } from './figma-scalar.js';
 import { isExactLayoutGridList } from './layout-grid-contract.js';
+import { isStyleFactsDiscriminant } from './style-facts-contract.js';
 import {
   parseStyleFactsRequest,
   styleFactsArgvFromRequest,
@@ -24,15 +25,6 @@ export const MAX_STYLE_FACTS_DOCUMENTATION_LINKS = 64;
 export const MAX_STYLE_FACTS_CANDIDATES = 10_000;
 const MAX_STYLE_FACTS_KEY_CODE_UNITS = 128;
 const MAX_STYLE_FACTS_LABEL_CODE_UNITS = 1_024;
-const STYLE_TYPES = new Set(['PAINT', 'TEXT', 'EFFECT', 'GRID']);
-const PAINT_TYPES = new Set([
-  'SOLID', 'GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR',
-  'GRADIENT_DIAMOND', 'IMAGE', 'VIDEO', 'PATTERN', 'SHADER',
-]);
-const EFFECT_TYPES = new Set([
-  'DROP_SHADOW', 'INNER_SHADOW', 'LAYER_BLUR', 'BACKGROUND_BLUR',
-  'NOISE', 'TEXTURE', 'GLASS', 'SHADER',
-]);
 const TEXT_FIELDS = Object.freeze([
   'fontName', 'fontSize', 'textDecoration', 'textCase', 'letterSpacing',
   'lineHeight', 'leadingTrim', 'paragraphIndent', 'paragraphSpacing',
@@ -291,7 +283,7 @@ function validGradientStop(value) {
 
 function validPaint(value, state) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-    || !PAINT_TYPES.has(value.type) || !validCommonPaint(value)) return false;
+    || !isStyleFactsDiscriminant('Paint', value.type) || !validCommonPaint(value)) return false;
   const common = ['visible', 'opacity', 'blendMode'];
   let valid = false;
   if (value.type === 'SOLID') {
@@ -345,7 +337,7 @@ function validEmptyBindings(value) {
 
 function validEffect(value, state) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-    || !EFFECT_TYPES.has(value.type)) return false;
+    || !isStyleFactsDiscriminant('Effect', value.type)) return false;
   let valid = false;
   if (value.type === 'DROP_SHADOW' || value.type === 'INNER_SHADOW') {
     valid = exactOptionalKeys(value, [
@@ -370,7 +362,7 @@ function validEffect(value, state) {
       'type', 'radius', 'visible', 'blurType',
       ...(progressive ? ['startRadius', 'startOffset', 'endOffset'] : []),
     ], ['boundVariables'])
-      && ['NORMAL', 'PROGRESSIVE'].includes(value.blurType)
+      && isStyleFactsDiscriminant('BlurEffect', value.blurType)
       && finiteNumber(value.radius) && typeof value.visible === 'boolean'
       && (!progressive || (finiteNumber(value.startRadius)
         && validVector(value.startOffset) && validVector(value.endOffset)))
@@ -382,7 +374,7 @@ function validEffect(value, state) {
     valid = exactOptionalKeys(value, [
       'type', 'color', 'visible', 'blendMode', 'noiseSize', 'density', 'noiseType', ...extra,
     ], ['noiseSizeVector', 'boundVariables'])
-      && ['MONOTONE', 'DUOTONE', 'MULTITONE'].includes(value.noiseType)
+      && isStyleFactsDiscriminant('NoiseEffect', value.noiseType)
       && validRgb(value.color, { alpha: true }) && typeof value.visible === 'boolean'
       && boundedString(value.blendMode, 64) && finiteNumber(value.noiseSize)
       && finiteNumber(value.density)
@@ -460,7 +452,7 @@ function validTextFacts(value, state) {
 
 function validPayload(value, input) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-    || value.schemaVersion !== 1 || !STYLE_TYPES.has(value.type)) return false;
+    || value.schemaVersion !== 1 || !isStyleFactsDiscriminant('BaseStyle', value.type)) return false;
   const familyFields = value.type === 'PAINT' ? ['paints']
     : value.type === 'TEXT' ? TEXT_FIELDS
       : value.type === 'EFFECT' ? ['effects'] : ['layoutGrids'];

@@ -1,8 +1,8 @@
 // Exact host-side contract for the pinned Figma LayoutGrid union.
 
 import { isFigmaPositiveInfinity } from './figma-scalar.js';
+import { isStyleFactsDiscriminant } from './style-facts-contract.js';
 
-const GRID_PATTERNS = new Set(['ROWS', 'COLUMNS', 'GRID']);
 const GRID_ALIGNMENTS = new Set(['MIN', 'MAX', 'STRETCH', 'CENTER']);
 const GRID_BINDING_FIELDS = new Set(['sectionSize', 'count', 'offset', 'gutterSize']);
 
@@ -48,7 +48,7 @@ export function isExactLayoutGridList(value, {
     && value.length <= maxEntries
     && value.every((grid) => {
       if (!grid || typeof grid !== 'object' || Array.isArray(grid)
-        || !GRID_PATTERNS.has(grid.pattern)) return false;
+        || !isStyleFactsDiscriminant('LayoutGrid', grid.pattern)) return false;
       if (grid.pattern === 'GRID') {
         return exactOptionalKeys(grid, ['pattern', 'sectionSize'], [
           'visible', 'color', 'boundVariables',

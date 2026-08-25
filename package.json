@@ -67,6 +67,7 @@
     "check:public-safety:push": "node scripts/check-public-safety.js --pre-push",
     "measure:architecture": "node scripts/measure-architecture-budgets.js",
     "measure:runtime": "node scripts/measure-runtime-workloads.js",
+    "probe:figma-runtime-metadata": "node scripts/probe-figma-runtime-metadata.js",
     "build:package-artifact": "node scripts/verify-package-artifact.js",
     "sync:release-version": "node scripts/sync-release-version.js",
     "sync:plugin": "node scripts/sync-plugin-artifact.js",
