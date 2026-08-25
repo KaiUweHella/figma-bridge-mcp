@@ -251,6 +251,29 @@ test('Token Add closes one policy-identical non-retrying journaled write', () =>
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Token Import closes one long policy-identical workspace-backed write', () => {
+  const cli = planFigmaCommand(['tokens', 'import', '-cTokens', 'tokens.json'], {
+    adapter: 'cli', workspaceDir: '/workspace',
+  });
+  const mcp = planFigmaCommand([
+    'tokens', 'import', '--collection=Tokens', '--', 'tokens.json',
+  ], { adapter: 'mcp', workspaceDir: '/workspace' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.workspace, 'read'); assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never'); assert.equal(cli.execution.timeout, 'long');
+  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'tokens.import');
+  assert.deepEqual(cli.argv, [
+    'tokens', 'import', '--collection=Tokens', '--', '/workspace/tokens.json',
+  ]);
+  for (const argv of [
+    ['tokens', 'import'],
+    ['tokens', 'import', '--collection=A/B', 'tokens.json'],
+    ['tokens', 'import', '--collection'],
+    ['tokens', 'import', '--future', 'private-value', 'tokens.json'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Token Overlap closes one long policy-identical bounded safe read', () => {
   const cli = planFigmaCommand(['tokens', 'overlap', '--json', '-l25', 'Alpha', 'Beta'], {
     adapter: 'cli',

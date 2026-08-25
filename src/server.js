@@ -146,6 +146,11 @@ import {
   tokenRebindPlanRoute,
 } from "../engine/src/application/token-rebind-command.js";
 import {
+  executeTokenImportPlan,
+  prepareTokenImportPlan,
+  tokenImportPlanRoute,
+} from "../engine/src/application/token-import-command.js";
+import {
   executeVariableDiscoveryPlan,
   variableDiscoveryPlanRoute,
 } from "../engine/src/application/variable-discovery-command.js";
@@ -2051,6 +2056,25 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeTokenRebindPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const tokenImportRoute = tokenImportPlanRoute(plan);
+      if (tokenImportRoute === "command-application") {
+        // Source authority and normalization complete before Plugin readiness.
+        const prepared = prepareTokenImportPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenImportPlan(plan, prepared, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

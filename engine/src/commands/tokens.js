@@ -53,12 +53,16 @@ import {
   tokenRebindPlanningArgvFromRequest,
 } from '../application/token-rebind-command.js';
 import {
+  executeTokenImportPlan,
+  prepareTokenImportPlan,
+  tokenImportPlanningArgvFromRequest,
+} from '../application/token-import-command.js';
+import {
   progress,
   program,
   checkConnection,
   daemonExec,
   fastEval,
-  evalPrint,
   handleEvalError,
   hexToRgb,
   spinnerSucceed
@@ -76,7 +80,7 @@ import {
   hexToFigmaRgb,
 } from '../lib/token-sync.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
-import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 // ============ COLLECTIONS ============
 
@@ -364,111 +368,29 @@ tokens
   .description('Import tokens from JSON file')
   .option('-c, --collection <name>', 'Collection name')
   .option('--force-slash', 'Allow "/" in --collection (bypasses the LLM-mistake guard)')
+  .allowExcessArguments(false)
   .action(async (file, options) => {
-    await checkConnection();
-    // Guard against LLM-style mistakes: a "/" in the collection name almost
-    // always means the caller split one DESIGN.md across multiple `tokens
-    // import` runs (e.g. -c "stripe/colors", -c "stripe/radius"). Figma
-    // treats "/" as a normal character — it does NOT nest collections — so
-    // the result is fake siblings, not a hierarchy.
-    if (options.collection && options.collection.includes('/')) {
-      console.error(chalk.yellow(`⚠ Collection name "${options.collection}" contains "/".`));
-      console.error(chalk.yellow('  Figma does not nest collections. "/" creates flat sibling collections.'));
-      console.error(chalk.gray('  If this is a DESIGN.md file, use figma_run ["import", "<path>"] instead — it imports the whole system into one collection atomically.'));
-      console.error(chalk.gray('  To proceed anyway, re-run with --force-slash.'));
-      if (!options.forceSlash) process.exit(1);
-    }
-
-    // Read JSON file
-    let tokensData;
     try {
-      const content = workspaceIO().readText(file, { role: 'token-file' });
-      tokensData = parseBoundedJson(content, { role: 'token-file', limits: workspaceIO().limits });
+      const plan = planFigmaCommand(tokenImportPlanningArgvFromRequest({
+        file, collection: options.collection || 'Imported Tokens',
+        forceSlash: options.forceSlash === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      // Workspace authority and the complete source preflight happen before
+      // any Plugin connection or design write is requested.
+      const prepared = prepareTokenImportPlan(plan, { workspaceIO: workspaceIO() });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenImportPlan(plan, prepared, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(chalk.green(result.stdout));
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
     } catch (error) {
-      console.log(chalk.red(`✗ Could not read file: ${file}`));
-      process.exit(1);
-    }
-
-    const spinner = progress('Importing tokens...').start();
-
-    // Detect format and convert
-    // Support: { "colors": { "primary": "#xxx" } } or { "primary": { "value": "#xxx", "type": "color" } }
-    const collectionName = options.collection || 'Imported Tokens';
-
-    const code = `(async () => {
-const data = ${JSON.stringify(tokensData)};
-const collectionName = ${JSON.stringify(collectionName)};
-${variableScopePolicyCode()}
-
-function hexToRgb(hex) {
-  const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-  if (!r) return null;
-  return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
-}
-
-function detectType(value) {
-  if (typeof value === 'string' && value.startsWith('#')) return 'COLOR';
-  if (typeof value === 'number') return 'FLOAT';
-  if (typeof value === 'boolean') return 'BOOLEAN';
-  return 'STRING';
-}
-
-function flattenTokens(obj, prefix = '') {
-  const result = [];
-  for (const [key, val] of Object.entries(obj)) {
-    const name = prefix ? prefix + '/' + key : key;
-    if (val && typeof val === 'object' && !val.value && !val.type) {
-      result.push(...flattenTokens(val, name));
-    } else {
-      const value = val?.value ?? val;
-      const type = val?.type?.toUpperCase() || detectType(value);
-      result.push({ name, value, type });
-    }
-  }
-  return result;
-}
-
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === collectionName);
-if (!col) col = figma.variables.createVariableCollection(collectionName);
-const modeId = col.modes[0].modeId;
-
-const existingVars = await figma.variables.getLocalVariablesAsync();
-const tokens = flattenTokens(data);
-let count = 0;
-const scopeQuestions = [];
-
-for (const { name, value, type } of tokens) {
-  // Scoped to the target collection — overlapping names across collections OK
-  const existing = existingVars.find(v => v.name === name && v.variableCollectionId === col.id);
-  if (!existing) {
-    try {
-      const figmaType = type === 'COLOR' ? 'COLOR' : type === 'FLOAT' || type === 'NUMBER' ? 'FLOAT' : type === 'BOOLEAN' ? 'BOOLEAN' : 'STRING';
-      const v = figma.variables.createVariable(name, col, figmaType);
-      __scopeTokenVariable(v, name, figmaType);
-      const scopeQuestion = __variableScopeQuestion(name, figmaType, collectionName);
-      if (scopeQuestion) scopeQuestions.push(scopeQuestion);
-      let figmaValue = value;
-      if (figmaType === 'COLOR') figmaValue = hexToRgb(value);
-      if (figmaValue !== null) {
-        v.setValueForMode(modeId, figmaValue);
-        count++;
-      }
-    } catch (e) {}
-  }
-}
-
-return { message: 'Imported ' + count + ' tokens into ' + collectionName, scopeQuestions };
-})()`;
-
-    try {
-      const result = await evalPrint(code, { silent: true });
-      const payload = parsedEvalPayload(result);
-      spinnerSucceed(spinner, payload?.message || result?.trim() || 'Tokens imported');
-      printVariableScopeQuestions(payload?.scopeQuestions);
-    } catch (error) {
-      spinner.fail('Failed to import tokens');
-      console.error(error.message);
+      handleEvalError(error);
       process.exitCode = 1;
     }
   });

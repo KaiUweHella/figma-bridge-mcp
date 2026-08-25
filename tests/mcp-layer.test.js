@@ -565,6 +565,39 @@ test('figma_run confirms Token Add and rejects malformed input before readiness'
   }
 });
 
+test('figma_run routes Token Import through pre-read and its shared journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const tokenImportRoute = tokenImportPlanRoute(plan)');
+  const end = source.indexOf('const variableCreateRoute = variableCreatePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /prepareTokenImportPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.ok(slice.indexOf('prepareTokenImportPlan') < slice.indexOf('runInProcessCommandPlan'));
+  assert.ok(slice.indexOf('prepareTokenImportPlan') < slice.indexOf('ensurePluginReadiness'));
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeTokenImportPlan\(plan, prepared/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run confirms Token Import and rejects malformed input before source or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', {
+    args: ['tokens', 'import', '-cFoundation', 'package.json'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  for (const args of [
+    ['tokens', 'import'], ['tokens', 'import', 'one.json', 'two.json'],
+    ['tokens', 'import', '--collection=A/B', 'tokens.json'],
+    ['tokens', 'import', '--collection'],
+    ['tokens', 'import', '--future', 'private-value', 'tokens.json'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Token Overlap through its shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const tokenOverlapRoute = tokenOverlapPlanRoute(plan)');

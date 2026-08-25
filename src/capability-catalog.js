@@ -157,6 +157,11 @@ import {
   tokenRebindArgvFromRequest,
 } from '../engine/src/application/token-rebind-request.js';
 import {
+  acceptsTokenImportArgv,
+  parseTokenImportRequest,
+  tokenImportArgvFromRequest,
+} from '../engine/src/application/token-import-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -371,6 +376,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.spacing',
   'tokens.radii',
   'tokens.add',
+  'tokens.import',
   'tokens.overlap',
   'tokens.rebind',
   'var.set-value',
@@ -544,6 +550,10 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'token-preset-input';
   }
   if (name === 'tokens' && sub === 'add') pathPolicy = 'token-add-input';
+  if (name === 'tokens' && sub === 'import') {
+    timeoutClass = 'long';
+    pathPolicy = 'token-import-input';
+  }
   if (name === 'tokens' && sub === 'overlap') {
     retry = 'safe-read';
     timeoutClass = 'long';
@@ -702,6 +712,10 @@ function commandCapability(args) {
   }
   if (name === 'tokens' && args[1] === 'add'
     && !action.help && !acceptsTokenAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'tokens' && args[1] === 'import'
+    && !action.help && !acceptsTokenImportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'tokens' && args[1] === 'overlap'
@@ -1400,6 +1414,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'token-add-input': {
       args.splice(0, args.length,
         ...tokenAddArgvFromRequest(parseTokenAddRequest(args)));
+      break;
+    }
+    case 'token-import-input': {
+      const request = parseTokenImportRequest(args);
+      const file = absolute(baseDir, request.file);
+      args.splice(0, args.length, ...tokenImportArgvFromRequest({ ...request, file }));
+      markRead(file, 'token-file');
       break;
     }
     case 'token-overlap-input': {
