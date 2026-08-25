@@ -72,6 +72,8 @@
     "engine/src/application/token-import-command.js",
     "engine/src/application/token-import-request.js",
     "engine/src/application/token-import-source.js",
+    "engine/src/application/design-md-context-command.js",
+    "engine/src/application/design-md-request.js",
     "engine/src/application/variable-resolution-command.js",
     "engine/src/application/variable-resolution-request.js",
     "engine/src/application/code-spec-command.js",

@@ -208,6 +208,7 @@ test('variantMatrixTable renders a property/values table', () => {
 
 import { generateDesignMd, ALL_SECTIONS } from '../src/design-extract.js';
 import { parseDesignMd, variableImportCode } from '../src/design-md.js';
+import { createWorkspaceIO } from '../src/lib/workspace-io.js';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -248,7 +249,7 @@ test('roundtrip: parseDesignMd reads generateDesignMd output', () => {
   const dir = mkdtempSync(join(tmpdir(), 'extract-test-'));
   const file = join(dir, 'DESIGN.md');
   writeFileSync(file, md);
-  const parsed = parseDesignMd(file);
+  const parsed = parseDesignMd(file, { workspaceIO: createWorkspaceIO({ root: dir }) });
   assert.equal(parsed.meta.source, 'Test File');
   // every census color appears in the parsed token map
   const parsedColors = Object.values(parsed.tokens.color);
@@ -481,7 +482,7 @@ test('variableImportCode handles a full extract→import roundtrip shape', () =>
   const dir = mkdtempSync(join(tmpdir(), 'vimp-'));
   const file = join(dir, 'DESIGN.md');
   writeFileSync(file, md);
-  const parsed = parseDesignMd(file);
+  const parsed = parseDesignMd(file, { workspaceIO: createWorkspaceIO({ root: dir }) });
   const code = variableImportCode(parsed.tokens.variables);
   assert.doesNotThrow(() => new Function(`return ${code}`));
   assert.match(code, /Acme Primitives/);
@@ -493,7 +494,7 @@ test('Variables roundtrip: parseDesignMd reads the JSON variables block back', (
   const dir = mkdtempSync(join(tmpdir(), 'extract-vars-'));
   const file = join(dir, 'DESIGN.md');
   writeFileSync(file, md);
-  const parsed = parseDesignMd(file);
+  const parsed = parseDesignMd(file, { workspaceIO: createWorkspaceIO({ root: dir }) });
   const pp = parsed.tokens.variables['Acme Primitives'];
   assert.deepEqual(pp.modes, ['Light', 'Dark']);
   assert.equal(pp.variables['fgColor-default'].values.Dark, '#e6edf3');

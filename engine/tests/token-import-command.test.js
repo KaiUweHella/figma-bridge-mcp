@@ -4,6 +4,7 @@ import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   executeTokenImport,
   executeTokenImportPlan,
+  prepareTokenImportItems,
   prepareTokenImportPlan,
   tokenImportPlanRoute,
 } from '../src/application/token-import-command.js';
@@ -16,6 +17,7 @@ import {
   normalizeTokenImportItems,
   normalizeTokenImportSource,
 } from '../src/application/token-import-source.js';
+import { toSingleCollectionTokenItems } from '../src/design-md.js';
 
 function fixture({ existing = [], failOn = null, duplicateCollection = false,
   throwOnMissing = false, undefinedOnMissing = false, staleMembershipOnRemove = false,
@@ -195,6 +197,42 @@ test('Workspace source is read exactly once while preparing the Command Plan', (
   assert.equal(plan.execution.timeout, 'long');
   assert.equal(plan.effects.workspace, 'read');
   assert.equal(plan.effects.figma, 'write');
+});
+
+test('converted design facts reuse prepared Token Import without an intermediate file', () => {
+  const plan = planFigmaCommand([
+    'tokens', 'import', '--collection=Converted', '/workspace/source.css',
+  ], { adapter: 'cli' });
+  const items = toSingleCollectionTokenItems({ tokens: {
+    color: { brand: '#336699' },
+    radius: { card: 12 },
+    spacing: { stack: 8 },
+    typography: { body: { fontFamily: 'Inter', fontSize: 16 } },
+    shadow: { raised: { x: 0, y: 2, blur: 4 } },
+  } });
+  assert.deepEqual(items, [
+    { name: 'brand', type: 'COLOR', value: '#336699' },
+    { name: 'card', type: 'FLOAT', value: 12, scopes: ['CORNER_RADIUS'] },
+    { name: 'stack', type: 'FLOAT', value: 8, scopes: ['GAP'] },
+  ]);
+  const prepared = prepareTokenImportItems(plan, items);
+  assert.equal(prepared.request.file, '/workspace/source.css');
+  assert.equal(prepared.request.collection, 'Converted');
+  assert.deepEqual(prepared.items[0].value, {
+    r: 0.2, g: 0.4, b: 0.6,
+  });
+  assert.equal(Object.isFrozen(prepared.items), true);
+});
+
+test('converted token families fail closed when their projected names collide', () => {
+  const plan = planFigmaCommand([
+    'tokens', 'import', '--collection=Converted', '/workspace/source.css',
+  ], { adapter: 'cli' });
+  const items = toSingleCollectionTokenItems({ tokens: {
+    color: { shared: '#ffffff' },
+    radius: { shared: 8 },
+  } });
+  assert.throws(() => prepareTokenImportItems(plan, items), /duplicate token name shared/);
 });
 
 test('new import uses declared default mode, all six native types, metadata and aliases', async () => {

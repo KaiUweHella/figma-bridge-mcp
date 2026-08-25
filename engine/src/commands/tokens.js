@@ -58,6 +58,10 @@ import {
   tokenImportPlanningArgvFromRequest,
 } from '../application/token-import-command.js';
 import {
+  designMdPlanningArgvFromRequest,
+  executeDesignMdContextPlan,
+} from '../application/design-md-context-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -771,7 +775,24 @@ tokens
   .description('Import tokens from a DESIGN.md (Figma extraction format with `## 11. Machine-readable tokens` JSON block). Creates color, radius, and typography variables. Also prints a compact context summary for the agent.')
   .option('-c, --collection <name>', 'Collection name (defaults to the design system name)')
   .option('--print-context', 'Just print the agent context summary, do not create variables')
+  .allowExcessArguments(false)
   .action(async (file, options) => {
+    if (options.printContext) {
+      try {
+        const plan = planFigmaCommand(designMdPlanningArgvFromRequest({
+          file,
+          collection: options.collection || null,
+          printContext: true,
+        }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+        const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+          async () => executeDesignMdContextPlan(plan, { workspaceIO: workspaceIO() }));
+        console.log(result.stdout);
+      } catch (error) {
+        handleEvalError(error);
+        process.exitCode = 1;
+      }
+      return;
+    }
     let parsed;
     try {
       const { parseDesignMd } = await import('../design-md.js');
@@ -779,12 +800,6 @@ tokens
     } catch (e) {
       console.error(chalk.red('✗'), e.message);
       process.exit(1);
-    }
-
-    if (options.printContext) {
-      const { summarizeForLLM } = await import('../design-md.js');
-      console.log(summarizeForLLM(parsed));
-      return;
     }
 
     await checkConnection();

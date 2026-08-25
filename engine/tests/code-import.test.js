@@ -274,8 +274,10 @@ test('storybook: remote bodies stop at the byte limit even without Content-Lengt
 
 import { convert, detectSourceType } from '../src/code-import/index.js';
 import { parseDesignMd } from '../src/design-md.js';
+import { createWorkspaceIO } from '../src/lib/workspace-io.js';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 
 test('detect: filenames and content sniffing', () => {
   assert.equal(detectSourceType('tailwind.config.js', ''), 'tailwind');
@@ -299,9 +301,31 @@ test('convert: every converter designMd output roundtrips through parseDesignMd'
     });
     const f = join(dir, `out-${type}.md`);
     writeFileSync(f, result.designMd);
-    const parsed = parseDesignMd(f);
+    const parsed = parseDesignMd(f, { workspaceIO: createWorkspaceIO({ root: dir }) });
     assert.ok(Object.keys(parsed.tokens.color).length > 0, `${type}: colors survive roundtrip`);
   }
+});
+
+test('import --print-context projects converted CSS without a temporary DESIGN.md or Plugin', () => {
+  const engineRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const repositoryRoot = join(engineRoot, '..');
+  const result = spawnSync(process.execPath, [
+    join(engineRoot, 'src', 'index.js'),
+    'import',
+    join(FIX, 'shadcn-globals.css'),
+    '--print-context',
+  ], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      FIGMA_BRIDGE_WORKSPACE_ROOTS: repositoryRoot,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Design system loaded: css variables/);
+  assert.match(result.stdout, /Color tokens \(7 total/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /outside configured roots|Plugin|\/tmp\/figma-bridge-import-/i);
 });
 
 test('convert: storybook produces components in designMd and zero tokens', async () => {
@@ -320,6 +344,6 @@ test('convert: storybook components survive designMd file roundtrip', async () =
   const dir = mkdtempSync(join(tmpdir(), 'code-import-storybook-'));
   const f = join(dir, 'storybook-design.md');
   writeFileSync(f, result.designMd);
-  const parsed = parseDesignMd(f);
+  const parsed = parseDesignMd(f, { workspaceIO: createWorkspaceIO({ root: dir }) });
   assert.ok(parsed.meta.components.includes('Button'), `Expected 'Button' in parsed components: ${JSON.stringify(parsed.meta.components)}`);
 });

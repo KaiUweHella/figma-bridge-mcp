@@ -1302,6 +1302,21 @@ test('catalog reports workspace, network and shared-state effects independently 
   assert.equal(planFigmaCommand(['map', 'storybook', 'http://localhost:6006']).effects.network, 'read');
   assert.equal(planFigmaCommand(['map', 'storybook', './storybook-static']).effects.network, 'none');
   assert.equal(planFigmaCommand(['import', 'https://storybook.example.com']).effects.network, 'read');
+  assert.deepEqual(
+    planFigmaCommand(['import', './tokens.css', '--print-context'], { workspaceDir: '/work' }).effects,
+    { figma: 'none', workspace: 'read', network: 'none', shared: 'none' },
+  );
+  assert.equal(
+    planFigmaCommand(['import', './tokens.css', '--print-context'], { workspaceDir: '/work' })
+      .target.kind,
+    'none',
+  );
+  assert.deepEqual(
+    planFigmaCommand([
+      'import', './tokens.css', '--print-context', '--save', './converted.md',
+    ], { workspaceDir: '/work' }).effects,
+    { figma: 'none', workspace: 'write', network: 'none', shared: 'none' },
+  );
   assert.equal(planFigmaCommand(['kit', 'init', '.', '--storybook=https://storybook.example.com']).effects.network, 'read');
   assert.deepEqual(planFigmaCommand(['link', 'set', '1:2', 'ui.button'], { workspaceDir: '/work' }).effects, {
     figma: 'write', workspace: 'write', network: 'none', shared: 'none',

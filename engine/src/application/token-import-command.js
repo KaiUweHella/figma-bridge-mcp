@@ -43,6 +43,13 @@ export function prepareTokenImportPlan(plan, { workspaceIO } = {}) {
   return Object.freeze({ request, items: readTokenImportSource(request, workspaceIO) });
 }
 
+export function prepareTokenImportItems(plan, items) {
+  if (tokenImportPlanRoute(plan) !== 'command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by Token Import.`);
+  }
+  return normalizedPrepared({ request: parseTokenImportRequest(plan.argv), items });
+}
+
 export function tokenImportCommandCode(prepared) {
   const input = normalizedPrepared(prepared);
   const items = input.items.map((item) => {

@@ -1,9 +1,16 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
+import { existsSync, readFileSync, mkdirSync, copyFileSync, rmSync } from 'fs';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executeTokenImportPlan,
+  prepareTokenImportItems,
+  tokenImportPlanningArgvFromRequest,
+} from '../application/token-import-command.js';
+import { summarizeForLLM, toSingleCollectionTokenItems } from '../design-md.js';
 import { STATE_DIR } from '../lib/state-dir.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 
@@ -45,6 +52,8 @@ import {
   getDaemonPort,
   daemonHealth,
   daemonBuildMatchesCurrent,
+  daemonExec,
+  handleEvalError,
   isDaemonRunning,
   spinnerSucceed,
   pkg,
@@ -140,32 +149,67 @@ program
     const { tokens, meta, designMd } = result;
     const hasTokens = Object.keys(tokens.color || {}).length > 0 ||
                       Object.keys(tokens.typography || {}).length > 0 ||
-                      Object.keys(tokens.radius || {}).length > 0;
+                      Object.keys(tokens.radius || {}).length > 0 ||
+                      Object.keys(tokens.spacing || {}).length > 0;
     const hasComponents = meta.components?.length > 0;
 
-    // Write DESIGN.md — to the --save path or a temp file.
-    let designMdPath;
+    // Persist only when requested, or when Storybook context is the artifact.
+    let designMdPath = null;
     if (options.save) {
       designMdPath = options.save;
       workspaceIO().write(designMdPath, designMd, { role: 'import-output', createParents: true });
       console.log(chalk.green('✓'), `DESIGN.md saved to ${designMdPath}`);
-    } else if (!hasTokens) {
+    } else if (!hasTokens && !options.printContext) {
       // Storybook (zero-token): default to ./DESIGN-storybook.md
       designMdPath = join(process.cwd(), 'DESIGN-storybook.md');
       workspaceIO().write(designMdPath, designMd, { role: 'import-output', createParents: true });
       console.log(chalk.green('✓'), `Component context saved to ${designMdPath}`);
-    } else {
-      // Tokens present: use a temp file (not permanent unless --save given)
-      designMdPath = join(tmpdir(), `figma-bridge-import-${Date.now()}.md`);
-      writeFileSync(designMdPath, designMd, 'utf-8');
     }
 
     if (hasTokens) {
-      // Forward to the existing import-design-md pipeline.
-      const args = ['tokens', 'import-design-md', designMdPath];
-      if (options.collection) args.push('-c', options.collection);
-      if (options.printContext) args.push('--print-context');
-      await program.parseAsync(args, { from: 'user' });
+      const parsed = { tokens, meta };
+      if (options.printContext) {
+        console.log(summarizeForLLM(parsed));
+        return;
+      }
+      try {
+        const items = toSingleCollectionTokenItems(parsed);
+        if (!items.length) {
+          console.log(chalk.yellow('⚠'),
+            'No COLOR, radius, or spacing tokens have an exact native Variable representation.');
+          console.log(summarizeForLLM(parsed));
+          return;
+        }
+        const collection = options.collection || meta.source || 'Imported Design System';
+        const plan = planFigmaCommand(tokenImportPlanningArgvFromRequest({
+          file: source, collection, forceSlash: false,
+        }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+        const prepared = prepareTokenImportItems(plan, items);
+        const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+          async ({ fileKey, deadline }) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            return executeTokenImportPlan(plan, prepared, {
+              evaluate: (code) => daemonExec('eval', {
+                code, ...(fileKey ? { fileKey } : {}),
+              }, Math.max(1, deadline - Date.now())),
+            });
+          });
+        console.log(chalk.green(result.stdout));
+        if (result.stderr) console.error(chalk.yellow(result.stderr));
+        const unsupportedCompositeCount = Object.keys(tokens.typography || {}).length
+          + Object.keys(tokens.shadow || {}).length;
+        if (unsupportedCompositeCount) {
+          console.error(chalk.yellow('⚠'),
+            `${unsupportedCompositeCount} typography or shadow token${unsupportedCompositeCount === 1 ? '' : 's'} remain context-only because they do not have an exact simple Variable representation.`);
+        }
+        console.log();
+        console.log(chalk.cyan('─── agent context summary ───────────'));
+        console.log(summarizeForLLM(parsed));
+        console.log(chalk.cyan('──────────────────────────────────────────────'));
+      } catch (error) {
+        handleEvalError(error);
+        process.exitCode = 1;
+      }
     } else if (hasComponents) {
       // Storybook: print component context, skip variable creation.
       const comps = meta.components;

@@ -200,6 +200,15 @@ identities before the first write, journals every created resource immediately
 and verifies either the complete result or bounded rollback residue.
 _Avoid_: token import eval, modes[0], partial import success, first-name collection choice
 
+**DESIGN.md Context Projection**:
+The bounded repository-only summary of one DESIGN.md inside existing Workspace
+authority. Its closed Command Plan reads one authorized document, has no Figma
+target, confirmation or Plugin dispatch, and samples escaped token/component
+identities without printing unbounded or terminal-active source text. It is
+agent context, not a token mutation or permission for the input path to create
+its own Workspace root.
+_Avoid_: self-authorized DESIGN.md path, Figma-backed context read, raw document dump, unbounded prompt context
+
 **Token Preset Creation**:
 The bounded, non-retrying and journaled creation of the built-in neutral spacing
 or radius scale in one exact local Collection. It creates the Collection when

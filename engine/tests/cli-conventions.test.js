@@ -838,6 +838,20 @@ test('tokens import delegates pre-read and mutation to one Plan-bound Applicatio
     'Commander must not retain Token Import authority, parsing, factories, mode, or formatting logic');
 });
 
+test('tokens import-design-md print-context delegates one repository-only Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf(".command('import-design-md <file>')");
+  const end = adapter.indexOf(".command('add <name> <value>')", start);
+  const action = adapter.slice(start, end);
+  const contextBranch = action.slice(0, action.indexOf('let parsed;'));
+  assert.match(contextBranch, /designMdPlanningArgvFromRequest/);
+  assert.match(contextBranch, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(contextBranch, /executeDesignMdContextPlan\(plan/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.doesNotMatch(contextBranch, /checkConnection\(|ensurePluginReadiness\(|daemonExec\(/,
+    'repository-only context must not require or dispatch to Figma');
+});
+
 test('tokens overlap delegates one Plan-bound bounded-read Application', () => {
   const adapter = sources.get('tokens.js');
   const start = adapter.indexOf(".command('overlap <collections...>')");

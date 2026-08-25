@@ -578,6 +578,40 @@ test('figma_run routes Token Import through pre-read and its shared journaled Ap
   assert.doesNotMatch(slice, /runCliPlan\(/);
 });
 
+test('figma_run routes DESIGN.md context without confirmation, readiness, or Commander', async () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const designMdContextRoute = designMdContextPlanRoute(plan)');
+  const end = source.indexOf('const variableCreateRoute = variableCreatePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeDesignMdContextPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.doesNotMatch(slice, /ensurePluginReadiness\(|runCliPlan\(/);
+
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_run', {
+    args: ['tokens', 'import-design-md', 'engine/tests/fixtures/design-context.md', '--print-context'],
+  });
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /Design system loaded: Context Fixture/);
+  assert.doesNotMatch(result.content[0].text, /Write-confirm mode is on/);
+});
+
+test('figma_run rejects malformed DESIGN.md context requests before file or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['tokens', 'import-design-md', '--print-context'],
+    ['tokens', 'import-design-md', '--print-context', 'one.md', 'two.md'],
+    ['tokens', 'import-design-md', '--print-context', '--future', 'private-value', 'one.md'],
+    ['tokens', 'import-design-md', '--print-context', '--collection'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run confirms Token Import and rejects malformed input before source or readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   const preview = await handleTool('figma_run', {

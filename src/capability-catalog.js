@@ -162,6 +162,11 @@ import {
   tokenImportArgvFromRequest,
 } from '../engine/src/application/token-import-request.js';
 import {
+  acceptsDesignMdArgv,
+  designMdArgvFromRequest,
+  parseDesignMdRequest,
+} from '../engine/src/application/design-md-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -377,6 +382,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.radii',
   'tokens.add',
   'tokens.import',
+  'tokens.import-design-md',
   'tokens.overlap',
   'tokens.rebind',
   'var.set-value',
@@ -469,6 +475,7 @@ function mutatesDesign(entry, args, options, actionId) {
   if (!args.length) return false;
   if (SAFE_READ_ACTIONS.has(actionId)) return false;
   const sub = args[1];
+  if (actionId === 'import' && hasOption(options, '--print-context')) return false;
   if (entry.mutation === 'write') return true;
   if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
   if (entry.mutation === 'read') return false;
@@ -478,6 +485,7 @@ function mutatesDesign(entry, args, options, actionId) {
   if (entry.mutation === 'layout') return !(sub === 'grid' && args[2] === 'inspect');
   const subIsAction = sub !== undefined && !sub.startsWith('-');
   if (entry.mutation === 'tokens') {
+    if (sub === 'import-design-md' && hasOption(options, '--print-context')) return false;
     if (sub === 'sync' || sub === 'rebind') return hasOption(options, '--apply');
     return subIsAction && sub !== 'overlap';
   }
@@ -488,6 +496,9 @@ function mutatesDesign(entry, args, options, actionId) {
 }
 
 function targetPolicy(name, entry, args, options) {
+  if (name === 'import' && hasOption(options, '--print-context')) return 'none';
+  if (name === 'tokens' && args[1] === 'import-design-md'
+    && hasOption(options, '--print-context')) return 'none';
   if (entry.target !== 'conditional') return entry.target || 'figma';
   if (name === 'spec') return hasOption(options, '--check') ? 'figma' : 'none';
   if (name === 'verify-build') return hasOption(options, '--node') ? 'figma' : 'none';
@@ -553,6 +564,11 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'tokens' && sub === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'token-import-input';
+  }
+  if (name === 'tokens' && sub === 'import-design-md') {
+    timeoutClass = hasOption(resolveFigmaCommandAction(args).options, '--print-context')
+      ? 'default' : 'long';
+    pathPolicy = 'design-md-input';
   }
   if (name === 'tokens' && sub === 'overlap') {
     retry = 'safe-read';
@@ -716,6 +732,10 @@ function commandCapability(args) {
   }
   if (name === 'tokens' && args[1] === 'import'
     && !action.help && !acceptsTokenImportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'tokens' && args[1] === 'import-design-md'
+    && !action.help && !acceptsDesignMdArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'tokens' && args[1] === 'overlap'
@@ -1559,6 +1579,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       break;
     }
+    case 'design-md-input': {
+      const request = parseDesignMdRequest(args);
+      const file = absolute(baseDir, request.file);
+      args.splice(0, args.length, ...designMdArgvFromRequest({ ...request, file }));
+      markRead(file, 'design-document');
+      break;
+    }
     case 'import-files': {
       const [sourceIndex] = positionalIndexes(args, 1, ['-c', '--collection', '--save']);
       if (typeof args[sourceIndex] === 'string' && !isUrl(args[sourceIndex])) {
@@ -1567,7 +1594,9 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       const saved = pathFlag(args, ['--save'], baseDir, capability.options);
       if (saved) markWrite(saved.value, 'import-output');
-      else markWrite(absolute(baseDir, 'DESIGN-storybook.md'), 'import-output');
+      else if (!hasOption(capability.options, '--print-context')) {
+        markWrite(absolute(baseDir, 'DESIGN-storybook.md'), 'import-output');
+      }
       break;
     }
     case 'motion-inputs': {

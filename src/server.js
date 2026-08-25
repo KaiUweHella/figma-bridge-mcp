@@ -151,6 +151,10 @@ import {
   tokenImportPlanRoute,
 } from "../engine/src/application/token-import-command.js";
 import {
+  designMdContextPlanRoute,
+  executeDesignMdContextPlan,
+} from "../engine/src/application/design-md-context-command.js";
+import {
   executeVariableDiscoveryPlan,
   variableDiscoveryPlanRoute,
 } from "../engine/src/application/variable-discovery-command.js";
@@ -2082,6 +2086,14 @@ export async function handleTool(name, rawArgs) {
             }),
           });
         });
+        return resultFromCli(res);
+      }
+      const designMdContextRoute = designMdContextPlanRoute(plan);
+      if (designMdContextRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async () => executeDesignMdContextPlan(plan, { workspaceIO: WORKSPACE_IO }));
         return resultFromCli(res);
       }
       const variableCreateRoute = variableCreatePlanRoute(plan);

@@ -13,6 +13,12 @@ transaction and identity model. Simple DESIGN.md fallback can reuse this
 Application after its parser produces the same prepared plan; repository-only
 `--print-context` does not require a Figma target.
 
+Converted CSS, Tailwind and W3C sources no longer round-trip through a
+temporary DESIGN.md outside Workspace authority. Their already-normalized
+COLOR, radius and spacing facts can enter the same bounded item preflight
+directly. Typography and shadow composites remain explicit context-only facts
+until dedicated native Style transactions can preserve them faithfully.
+
 The closed request accepts one bounded file and Collection name. A slash in the
 Collection remains an explicit `--force-slash` decision because Figma
 Collections are flat. Workspace I/O authorizes and reads the file exactly once;

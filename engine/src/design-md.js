@@ -20,12 +20,29 @@
  */
 
 import { variableScopePolicyCode } from './lib/variable-scope-policy.js';
-import { createWorkspaceIO, parseBoundedJson, parseBoundedYaml, workspaceIO } from './lib/workspace-io.js';
-import { dirname } from 'node:path';
+import {
+  DEFAULT_WORKSPACE_LIMITS,
+  parseBoundedJson,
+  parseBoundedYaml,
+  workspaceIO as defaultWorkspaceIO,
+} from './lib/workspace-io.js';
+import { basename } from 'node:path';
 
 const JSON_BLOCK_RE = /```json\s+design-tokens\s*\n([\s\S]*?)\n```/;
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
+
+function plainRecord(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function designRecord(value, label, { optional = false } = {}) {
+  if (value == null && optional) return {};
+  if (!plainRecord(value)) throw new Error(`DESIGN.md ${label} must be an object.`);
+  return value;
+}
 
 /** Normalize a value like "16px" / "1.5px" / "9999px" into a plain number, or
  * pass through unchanged if it's not a px-suffixed number. */
@@ -45,7 +62,7 @@ function normalizeYamlSpec(spec) {
   const out = { color: {}, typography: {}, radius: {}, spacing: {}, shadow: {}, meta: {} };
   // colors (both `colors:` and `color:` are accepted) — map to the SHARED
   // canonical names (same as the prose path) so every collection switches cleanly.
-  const colors = spec.colors || spec.color || {};
+  const colors = designRecord(spec.colors ?? spec.color, 'colors', { optional: true });
   const colorRows = [];
   for (const [k, v] of Object.entries(colors)) {
     const hex = typeof v === 'string' ? v : (v && typeof v.value === 'string' ? v.value : null);
@@ -56,7 +73,7 @@ function normalizeYamlSpec(spec) {
   }
   out.color = assignCanonical(colorRows);
   // typography — the importer expects { fontFamily, fontSize, fontWeight, lineHeight, letterSpacing }
-  const ty = spec.typography || {};
+  const ty = designRecord(spec.typography, 'typography', { optional: true });
   for (const [name, t] of Object.entries(ty)) {
     if (typeof t !== 'object') continue;
     out.typography[name] = {
@@ -68,28 +85,30 @@ function normalizeYamlSpec(spec) {
     };
   }
   // radii — accept `rounded:` (Stitch style), `radius:` (our style), `radii:`
-  const radii = spec.rounded || spec.radius || spec.radii || {};
+  const radii = designRecord(spec.rounded ?? spec.radius ?? spec.radii,
+    'radii', { optional: true });
   for (const [k, v] of Object.entries(radii)) {
     const n = typeof v === 'number' ? v : stripPx(v);
     if (typeof n === 'number') out.radius[k] = n;
   }
   // spacing
-  const sp = spec.spacing || {};
+  const sp = designRecord(spec.spacing, 'spacing', { optional: true });
   for (const [k, v] of Object.entries(sp)) {
     const n = typeof v === 'number' ? v : stripPx(v);
     if (typeof n === 'number') out.spacing[k] = n;
   }
   // shadows — keep as-is, we don't auto-create variables from these yet
-  if (spec.shadows) out.shadow = spec.shadows;
-  if (spec.shadow) out.shadow = spec.shadow;
+  if (spec.shadows != null || spec.shadow != null) {
+    out.shadow = designRecord(spec.shadows ?? spec.shadow, 'shadows');
+  }
   // meta
   out.meta = {
     source: spec.name || spec.title,
     generated: spec.version || spec.date,
   };
   // components (just names — useful for the agent context)
-  if (spec.components && typeof spec.components === 'object') {
-    out._componentNames = Object.keys(spec.components);
+  if (spec.components != null) {
+    out._componentNames = Object.keys(designRecord(spec.components, 'components'));
   }
   return out;
 }
@@ -187,27 +206,30 @@ function parseProseSpec(text) {
   return { color: assignCanonical(rows), typography: {}, radius: {}, spacing: {}, shadow: {}, meta: {} };
 }
 
-export function parseDesignMd(filepath) {
-  const io = process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
-    ? workspaceIO()
-    : createWorkspaceIO({ root: dirname(filepath) });
-  const text = io.readText(filepath, { role: 'design-document' });
+export function parseDesignMdText(text, {
+  sourceName = 'DESIGN.md',
+  limits = DEFAULT_WORKSPACE_LIMITS,
+} = {}) {
+  if (typeof text !== 'string') throw new TypeError('DESIGN.md source must be text.');
+  if (Buffer.byteLength(text, 'utf8') > limits.textBytes) {
+    throw new Error(`DESIGN.md source exceeds ${limits.textBytes} bytes.`);
+  }
 
   // Format A: YAML frontmatter (Stitch / getdesign.md / awesome-design-md style)
   const fmMatch = text.match(FRONTMATTER_RE);
   if (fmMatch) {
     let spec;
     try {
-      spec = parseBoundedYaml(fmMatch[1], { role: 'design-frontmatter', limits: io.limits });
-    } catch (e) {
-      throw new Error(`YAML frontmatter in ${filepath} is not valid: ${e.message}`);
+      spec = parseBoundedYaml(fmMatch[1], { role: 'design-frontmatter', limits });
+    } catch {
+      throw new Error('YAML frontmatter is not valid.');
     }
     if (spec && (spec.colors || spec.color || spec.typography)) {
       const tokens = normalizeYamlSpec(spec);
       return {
         tokens,
         meta: {
-          source: tokens.meta.source || filepath.split('/').pop().replace(/\.md$/, ''),
+          source: tokens.meta.source || sourceName.replace(/\.md$/i, ''),
           generated: tokens.meta.generated,
           identity: spec.description,
           components: tokens._componentNames || [],
@@ -223,9 +245,12 @@ export function parseDesignMd(filepath) {
   if (match) {
     let tokens;
     try {
-      tokens = parseBoundedJson(match[1], { role: 'design-token-block', limits: io.limits });
-    } catch (e) {
-      throw new Error(`Token JSON block is not valid JSON: ${e.message}`);
+      tokens = designRecord(
+        parseBoundedJson(match[1], { role: 'design-token-block', limits }),
+        'token root',
+      );
+    } catch {
+      throw new Error('Token JSON block is not valid JSON.');
     }
 
     // Pull the document summary fields too — useful for the agent context.
@@ -253,7 +278,7 @@ export function parseDesignMd(filepath) {
     return {
       tokens: proseTokens,
       meta: {
-        source: filepath.split('/').pop().replace(/\.md$/, ''),
+        source: sourceName.replace(/\.md$/i, ''),
         identity: text.match(/^#\s+(.+)$/m)?.[1],
         components: [],
       },
@@ -261,43 +286,81 @@ export function parseDesignMd(filepath) {
   }
 
   throw new Error(
-    `Couldn't parse ${filepath}. Expected one of:\n` +
+    `Couldn't parse DESIGN.md. Expected one of:\n` +
     `  - YAML frontmatter with top-level \`colors:\` / \`typography:\` (Stitch / getdesign.md style)\n` +
     `  - "## Machine-readable tokens" section with a \`\`\`json design-tokens\`\`\` block\n` +
     `  - prose color rows like \`**Name** (\`#hex\`): role\` (awesome-design-md style)`
   );
 }
 
+export function parseDesignMd(filepath, { workspaceIO = defaultWorkspaceIO() } = {}) {
+  if (!workspaceIO || typeof workspaceIO.readText !== 'function') {
+    throw new TypeError('DESIGN.md parsing requires an authorized WorkspaceIO capability.');
+  }
+  const text = workspaceIO.readText(filepath, { role: 'design-document' });
+  return parseDesignMdText(text, {
+    sourceName: basename(filepath),
+    limits: workspaceIO.limits || DEFAULT_WORKSPACE_LIMITS,
+  });
+}
+
 /** Produce a one-shot summary string an agent can drop into its system prompt. */
+export const MAX_DESIGN_MD_CONTEXT_CODE_UNITS = 32_768;
+const MAX_CONTEXT_ITEM_CODE_UNITS = 128;
+const CONTEXT_UNSAFE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/gu;
+
+function safeContextValue(value, maximum = MAX_CONTEXT_ITEM_CODE_UNITS) {
+  const scalar = value && typeof value === 'object' && !Array.isArray(value)
+    && ['string', 'number', 'boolean'].includes(typeof value.value) ? value.value : value;
+  const text = ['string', 'number', 'boolean'].includes(typeof scalar) || scalar == null
+    ? String(scalar ?? '') : '[structured value]';
+  const escaped = text.replace(CONTEXT_UNSAFE,
+    (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`);
+  return escaped.length <= maximum ? escaped : `${escaped.slice(0, maximum - 1)}…`;
+}
+
+function sampledNames(values, limit = 40) {
+  const shown = values.slice(0, limit).map((value) => safeContextValue(value));
+  return `${shown.join(', ')}${values.length > limit ? `, …and ${values.length - limit} more` : ''}`;
+}
+
 export function summarizeForLLM({ tokens, meta }) {
-  const colors = Object.entries(tokens.color || {});
-  const types = Object.keys(tokens.typography || {});
-  const radii = Object.keys(tokens.radius || {});
-  const shadows = Object.keys(tokens.shadow || {});
+  const tokenRecord = designRecord(tokens, 'token root');
+  const metadata = designRecord(meta, 'metadata');
+  const colorRecord = designRecord(tokenRecord.color, 'colors', { optional: true });
+  const colors = Object.keys(colorRecord);
+  const types = Object.keys(designRecord(tokenRecord.typography,
+    'typography', { optional: true }));
+  const radii = Object.keys(designRecord(tokenRecord.radius,
+    'radii', { optional: true }));
+  const shadows = Object.keys(designRecord(tokenRecord.shadow,
+    'shadows', { optional: true }));
+  const components = metadata.components == null ? [] : metadata.components;
+  if (!Array.isArray(components)) throw new Error('DESIGN.md components must be an array.');
 
   const lines = [
-    `Design system loaded: ${meta.source}`,
+    `Design system loaded: ${safeContextValue(metadata.source)}`,
   ];
-  if (meta.identity) lines.push(`Style: ${meta.identity}`);
+  if (metadata.identity) lines.push(`Style: ${safeContextValue(metadata.identity)}`);
 
   // Color tokens — list the first 40 by usage (the file already orders them
   // by usage count). Naming this section explicitly so the model knows these
   // are the canonical token names to use in `var:` references.
   if (colors.length) {
     const sample = colors.slice(0, 40)
-      .map(([k, v]) => `var:${k}=${v}`)
+      .map((key) => `var:${safeContextValue(key)}=${safeContextValue(colorRecord[key])}`)
       .join(', ');
     lines.push(`Color tokens (${colors.length} total, top by usage): ${sample}`);
     if (colors.length > 40) lines.push(`  …and ${colors.length - 40} more — call figma_run ["var", "list"] for the full set.`);
   }
-  if (types.length) lines.push(`Typography tokens (${types.length}): ${types.join(', ')}`);
-  if (radii.length) lines.push(`Radius tokens (${radii.length}): ${radii.join(', ')}`);
+  if (types.length) lines.push(`Typography tokens (${types.length}): ${sampledNames(types)}`);
+  if (radii.length) lines.push(`Radius tokens (${radii.length}): ${sampledNames(radii)}`);
   if (shadows.length) lines.push(`Shadow tokens (${shadows.length}): use sparingly — they're long compositions`);
-  if (meta.components?.length) {
+  if (components.length) {
     // Normalize: components may be strings (from parseDesignMd) or objects
     // {name, variants, category} (from storybook parser). Map to display strings.
-    const compNames = meta.components.slice(0, 50).map(c =>
-      typeof c === 'string' ? c : `${c.name} (${c.variants?.length ?? 0} variants)`
+    const compNames = components.slice(0, 50).map(c =>
+      safeContextValue(typeof c === 'string' ? c : `${c.name} (${c.variants?.length ?? 0} variants)`)
     );
     lines.push(`Existing component pages: ${compNames.join(', ')}`);
   }
@@ -307,7 +370,11 @@ export function summarizeForLLM({ tokens, meta }) {
   lines.push(`- For text styles, match by purpose to the typography token names above.`);
   lines.push(`- For radii, match by name (e.g. radius-md = 2px).`);
   lines.push(`- If the user asks for a component already listed under "Existing component pages", PREFER using the existing component over creating a new one. Hint: figma_run ["find", "<name>"] to locate it.`);
-  return lines.join('\n');
+  const result = lines.join('\n');
+  if (result.length > MAX_DESIGN_MD_CONTEXT_CODE_UNITS) {
+    throw new Error('DESIGN.md context exceeded the bounded result limit.');
+  }
+  return result;
 }
 
 /** Build the JSON payload that `tokens import` already consumes. */
@@ -319,14 +386,18 @@ export function toTokensImportJson({ tokens }) {
     radius: {},
     typography: {},
   };
-  for (const [name, value] of Object.entries(tokens.color || {})) {
+  const tokenRecord = designRecord(tokens, 'token root');
+  for (const [name, value] of Object.entries(
+    designRecord(tokenRecord.color, 'colors', { optional: true }))) {
     out.color[name] = { value, type: 'color' };
   }
-  for (const [name, value] of Object.entries(tokens.radius || {})) {
+  for (const [name, value] of Object.entries(
+    designRecord(tokenRecord.radius, 'radii', { optional: true }))) {
     const num = parseFloat(value);
     if (Number.isFinite(num)) out.radius[name] = { value: num, type: 'number' };
   }
-  for (const [name, ts] of Object.entries(tokens.typography || {})) {
+  for (const [name, ts] of Object.entries(
+    designRecord(tokenRecord.typography, 'typography', { optional: true }))) {
     out.typography[name] = {
       value: {
         fontFamily: ts.fontFamily,
@@ -339,6 +410,25 @@ export function toTokensImportJson({ tokens }) {
     };
   }
   return out;
+}
+
+/** Project the simple DESIGN.md families that have exact native Variable
+ * representations. Typography and shadows remain context until a dedicated
+ * composite/style importer can preserve them faithfully. */
+export function toSingleCollectionTokenItems({ tokens }) {
+  const tokenRecord = designRecord(tokens, 'token root');
+  const items = [];
+  const append = (family, type, scopes = undefined) => {
+    const record = designRecord(tokenRecord[family], family, { optional: true });
+    for (const [name, entry] of Object.entries(record)) {
+      const value = plainRecord(entry) && Object.hasOwn(entry, 'value') ? entry.value : entry;
+      items.push({ name, type, value, ...(scopes ? { scopes } : {}) });
+    }
+  };
+  append('color', 'COLOR');
+  append('radius', 'FLOAT', ['CORNER_RADIUS']);
+  append('spacing', 'FLOAT', ['GAP']);
+  return items;
 }
 
 /**
