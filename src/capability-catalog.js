@@ -105,6 +105,11 @@ import {
   parseComponentMainRequest,
 } from '../engine/src/application/component-main-request.js';
 import {
+  acceptsStyleFactsArgv,
+  parseStyleFactsRequest,
+  styleFactsArgvFromRequest,
+} from '../engine/src/application/style-facts-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -213,6 +218,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'component.main',
+  'style.show',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -359,6 +365,10 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'component-main-input';
   }
+  if (name === 'style' && sub === 'show') {
+    retry = 'safe-read';
+    pathPolicy = 'style-facts-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -434,6 +444,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'main'
     && !action.help && !acceptsComponentMainArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'style' && args[1] === 'show'
+    && !action.help && !acceptsStyleFactsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -910,6 +924,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...componentMainArgvFromRequest(parseComponentMainRequest(args)));
+      break;
+    }
+    case 'style-facts-input': {
+      args.splice(0, args.length,
+        ...styleFactsArgvFromRequest(parseStyleFactsRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {

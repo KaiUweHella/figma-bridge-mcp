@@ -168,6 +168,16 @@ invalid or oversized values fail rather than becoming plausible component
 identity. Names remain display facts and never replace a key, node reference or
 Design Entity link.
 
+`style show` owns one exact Style Facts read rather than a polymorphic Legacy
+eval. Its closed request accepts one bounded style id or local name; URL-shaped
+names remain payload and cannot derive Figma Target Context. Commander and
+`figma_run` execute one safe-read Command Plan and Style Facts Application.
+PAINT, TEXT, EFFECT and GRID values, publishable Markdown/documentation
+metadata and scalar/array Variable Alias topology cross the Plugin seam as one
+versioned, deeply bounded result. Non-JSON numeric values use the explicit
+Style Facts scalar tag instead of silently becoming `null`. Catalog and
+consumer scans remain separate Applications with their own fanout limits.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

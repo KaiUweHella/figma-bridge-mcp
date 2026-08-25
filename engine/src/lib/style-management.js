@@ -71,12 +71,6 @@ return styles.map(__styleFacts).sort((a, b) => a.type.localeCompare(b.type) || a
 })()`;
 }
 
-function styleShowCode({ style }) {
-  return `(async () => {${styleHelpersCode()}
-return __styleFacts(await __resolveStyle(${JSON.stringify(style)}, null));
-})()`;
-}
-
 function styleCreateCode({ type, name, description = '', properties = {} }) {
   const normalized = parseStyleType(type);
   const props = parseStyleProperties(properties, normalized);
@@ -190,5 +184,5 @@ export {
   STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
   styleBindVariableCode,
   styleApplyCode, styleConsumersCode, styleCreateCode, styleDeleteCode,
-  styleListCode, stylePublishStatusCode, styleShowCode, styleUpdateCode,
+  styleListCode, stylePublishStatusCode, styleUpdateCode,
 };

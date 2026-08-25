@@ -101,6 +101,25 @@ test('nested component property effects follow the canonical action id', () => {
   assert.equal(unknown.execution.retry, 'never');
 });
 
+test('Style Facts closes one policy-identical CLI/MCP safe read', () => {
+  const cli = planFigmaCommand(['style', 'show', 'Type/Body'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['style', 'show', '--', 'Type/Body'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.audit.capability, 'style.show');
+
+  const urlName = planFigmaCommand([
+    'style', 'show', 'https://www.figma.com/design/FILEA/Style?node-id=10-2',
+  ], { adapter: 'mcp' });
+  assert.equal(urlName.allowed, true);
+  assert.equal(urlName.target.fileKey, null,
+    'a URL-shaped style name is payload, never Figma Target Context');
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 

@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `style show` through one exact, versioned and deeply bounded Style
+  Facts Application shared by Commander and MCP. PAINT, TEXT, EFFECT and GRID
+  unions now preserve publishable Markdown/documentation metadata, nested
+  Variable Alias topology and tagged non-JSON numeric semantics without
+  Commander re-entry, implicit URL targeting or plausible truncation.
 - Routed `component main` through one exact, versioned and deeply bounded
   Component Identity Facts Application shared by Commander and MCP. Semantic
   URL targeting, safe-read retry and one decreasing deadline now preserve main

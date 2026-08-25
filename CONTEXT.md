@@ -42,6 +42,16 @@ is identity evidence for reuse and follow-up reads, not a Design Entity link,
 full component inventory or permission to mutate the instance.
 _Avoid_: component dump, name-based component identity, component mutation
 
+**Style Facts**:
+The exact, versioned and deeply bounded read of one Figma PAINT, TEXT, EFFECT
+or GRID style by id or unambiguous local name. It preserves publishable
+identity and metadata, authored family-specific values, nested Variable Alias
+topology and explicitly tagged non-JSON numeric semantics through one shared
+safe-read Command Application. It is lightweight style evidence, not resolved
+Variable values, consumer discovery, binary asset retrieval, shader
+definitions, arbitrary Plugin data or a complete Design Capture.
+_Avoid_: style dump, flattened CSS style, resolved token value, style consumer scan
+
 **Variable Facts**:
 The exact, versioned and deeply bounded read of one local Figma variable by id
 or unambiguous name, optionally scoped to one collection. It preserves authored

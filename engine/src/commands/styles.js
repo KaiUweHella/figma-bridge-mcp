@@ -1,10 +1,18 @@
 import chalk from 'chalk';
-import { checkConnection, fastEval, handleEvalError, program } from '../lib/cli-core.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  checkConnection, daemonExec, fastEval, handleEvalError, program,
+} from '../lib/cli-core.js';
+import {
+  executeStyleFactsPlan,
+  styleFactsPlanningArgvFromRequest,
+} from '../application/style-facts-command.js';
 import {
   parseStyleProperties, parseStyleType, styleApplyCode, styleConsumersCode,
   styleBindVariableCode,
   styleCreateCode, styleDeleteCode, styleListCode, stylePublishStatusCode,
-  styleShowCode, styleUpdateCode,
+  styleUpdateCode,
 } from '../lib/style-management.js';
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
@@ -14,9 +22,35 @@ const styles = program.command('style').description('Manage local paint, text, e
 styles.command('list').option('-t, --type <type>', 'PAINT, TEXT, EFFECT, or GRID').action(async (options) => {
   try { print(await run(styleListCode({ type: options.type }))); } catch (error) { handleEvalError(error); }
 });
-styles.command('show <style>').action(async (style) => {
-  try { print(await run(styleShowCode({ style }))); } catch (error) { handleEvalError(error); }
-});
+styles.command('show <style>')
+  .option('-t, --type <type>', 'Narrow name resolution to PAINT, TEXT, EFFECT, or GRID')
+  .allowExcessArguments(false)
+  .action(async (style, options) => {
+    try {
+      const plan = planFigmaCommand(styleFactsPlanningArgvFromRequest({
+        style,
+        type: options.type || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleFactsPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Facts failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
 styles.command('create <type> <name>')
   .option('-d, --description <text>').option('-p, --properties <json>', 'Type-specific properties as JSON')
   .action(async (type, name, options) => {

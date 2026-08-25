@@ -610,6 +610,32 @@ test('figma_run routes Component Main through the shared bounded-read Applicatio
     'Component Main must not re-enter Commander');
 });
 
+test('figma_run routes Style Facts through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const styleFactsRoute = styleFactsPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeStyleFactsPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Style Facts must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Style Facts argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['style', 'show'],
+    ['style', 'show', 'A', 'B'],
+    ['style', 'show', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Component Main argv before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

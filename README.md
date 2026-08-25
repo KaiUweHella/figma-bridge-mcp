@@ -292,8 +292,9 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   **Command Application Modules**. `export assets`, `node set-text`, bounded
   `node tree`, current-page Node Discovery through `find`, direct
   `node bindings`, native Inspect `node css`, exact Prototype Inspection,
-  Variable Facts through `var show`, Design Link set/inspect, and Design
-  Contract capture/check use the same Implementation from MCP and Commander.
+  Component Identity Facts, Style Facts through `style show`, Variable Facts
+  through `var show`, Design Link set/inspect, and Design Contract capture/check
+  use the same Implementation from MCP and Commander.
   Other `figma_run` actions remain on the deliberately broad child-process
   compatibility Adapter while they migrate one vertical slice at a time. One
   **Daemon Client Module** owns signing, timeouts and transport errors for both
@@ -1232,7 +1233,7 @@ have first-class Figma Commands. They use the live Plugin API, not REST:
 
 ```
 figma_run ["style", "list", "--type", "TEXT"]
-figma_run ["style", "show", "Heading/H1"]
+figma_run ["style", "show", "--type", "TEXT", "Heading/H1"]
 figma_run ["style", "create", "PAINT", "Brand/Primary", "--properties", "{\"paints\":[{\"type\":\"SOLID\",\"color\":{\"r\":0.1,\"g\":0.3,\"b\":0.9}}]}"]
 figma_run ["style", "apply", "Brand/Primary", "12:34,12:35", "--field", "fill"]
 figma_run ["style", "consumers", "Brand/Primary"]
@@ -1246,6 +1247,19 @@ same type-specific JSON properties as `create`; `apply` validates the style
 type against `fill`, `stroke`, `text`, `effect` or `grid`. Name lookups refuse
 ambiguity. Consumers come from `getStyleConsumersAsync()`, and publish state is
 one of Figma's `UNPUBLISHED`, `CURRENT` or `CHANGED` values.
+
+`style show` returns exact bounded Style Facts through the same safe-read
+Application from CLI and MCP. It preserves ids/keys, plain and Markdown
+descriptions, documentation links, authored PAINT/TEXT/EFFECT/GRID unions and
+the scalar-versus-array topology of Variable Aliases. A GRID Auto count is
+projected as `{ "$figmaScalar": "Infinity" }` instead of the lossy JSON value
+`null`. When the Figma runtime omits a typings-required plain or Markdown
+description, Style Facts reports `null` instead of fabricating content.
+`--type` is optional, but narrows name lookup to one style family and
+avoids loading unrelated local styles. Resolved Variable values, consumers,
+image/video bytes, shader definitions and complete Design Capture remain
+separate reads. URL-shaped
+style names remain payload and cannot retarget the Figma Command.
 
 Variables expose the metadata and mode operations that token-file sync does
 not own:

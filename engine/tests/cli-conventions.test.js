@@ -286,6 +286,24 @@ test('component main delegates one Plan-bound bounded-read Command Application',
     'Commander must not retain component identity readiness, capture, or formatting logic');
 });
 
+test('style show delegates one Plan-bound bounded-read Command Application', () => {
+  const adapter = sources.get('styles.js');
+  assert.ok(adapter, 'styles.js exists');
+  const start = adapter.indexOf("styles.command('show <style>')");
+  const end = adapter.indexOf("styles.command('create <type> <name>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(styleFactsPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeStyleFactsPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|styleShowCode\(/,
+    'Commander must not retain Style Facts readiness, capture, or formatting logic');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');
