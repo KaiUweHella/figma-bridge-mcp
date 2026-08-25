@@ -86,6 +86,11 @@ let boundPort = null; // set once the HTTP server wins a bind
 // (not env-driven) so no configuration can re-enable a CDP path.
 const MODE = 'plugin';
 const IDLE_TIMEOUT_MS = parseInt(process.env.DAEMON_IDLE_TIMEOUT) || 60 * 60 * 1000; // 60 minutes
+// A suspended OS resumes Node and the Figma iframe on separate event loops.
+// Give an already authenticated socket one bounded keepalive window before an
+// overdue idle timer wins that wake-up race. A genuinely silent socket still
+// expires immediately after this grace, so idle auto-shutdown remains intact.
+const IDLE_WAKE_GRACE_MS = Math.min(10_000, Math.max(100, Math.floor(IDLE_TIMEOUT_MS / 10)));
 const BRIDGE_BUILD_VERSION = process.env.DAEMON_BRIDGE_BUILD_VERSION || PLUGIN_BUILD_VERSION;
 
 // ============ SECURITY ============
@@ -234,6 +239,15 @@ function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     const idleSecs = Math.round((Date.now() - lastActivityTime) / 1000);
+    if (isPluginConnected()) {
+      console.log(`[daemon] Idle deadline reached with an authenticated Plugin — allowing ${IDLE_WAKE_GRACE_MS}ms wake grace`);
+      idleTimer = setTimeout(() => {
+        const graceIdleSecs = Math.round((Date.now() - lastActivityTime) / 1000);
+        console.log(`[daemon] Idle for ${graceIdleSecs}s — auto-shutting down`);
+        shutdown();
+      }, IDLE_WAKE_GRACE_MS);
+      return;
+    }
     console.log(`[daemon] Idle for ${idleSecs}s — auto-shutting down`);
     shutdown();
   }, IDLE_TIMEOUT_MS);
