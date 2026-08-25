@@ -34,7 +34,7 @@ function planned(tokens, request = {}) {
   return { plan, workspaceIO };
 }
 
-test('simple DESIGN.md preflight produces one bounded Single-Collection import before readiness', () => {
+test('simple DESIGN.md preflight owns Variables and supported composite Styles before readiness', () => {
   const { plan, workspaceIO } = planned({
     color: { primary: '#336699' },
     radius: { card: 12 },
@@ -46,7 +46,7 @@ test('simple DESIGN.md preflight produces one bounded Single-Collection import b
   assert.equal(plan.effects.figma, 'write');
   assert.equal(plan.execution.retry, 'never');
   const prepared = prepareDesignMdImportPlan(plan, { workspaceIO });
-  assert.equal(prepared.kind, 'single-collection');
+  assert.equal(prepared.kind, 'native-design');
   assert.equal(prepared.tokenImport.request.collection, 'Imported Theme');
   assert.equal(Object.isFrozen(prepared.tokenImport), true);
   assert.equal(Object.isFrozen(prepared.tokenImport.request), true);
@@ -57,7 +57,9 @@ test('simple DESIGN.md preflight produces one bounded Single-Collection import b
     { name: 'card', type: 'FLOAT', scopes: ['CORNER_RADIUS'] },
     { name: 'stack', type: 'FLOAT', scopes: ['GAP'] },
   ]);
-  assert.equal(prepared.unsupportedCompositeCount, 1);
+  assert.equal(prepared.compositeImport.styles.length, 1);
+  assert.equal(prepared.compositeImport.styles[0].kind, 'TEXT');
+  assert.equal(prepared.compositeImport.unsupported.length, 0);
 });
 
 test('prepared simple DESIGN.md target identity cannot change after preflight', async () => {

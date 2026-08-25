@@ -9,7 +9,6 @@ import {
 import { parseTokenImportRequest } from './token-import-request.js';
 import { designMdArgvFromRequest, parseDesignMdRequest } from './design-md-request.js';
 import {
-  designMdCompositeTokenCount,
   designMdVariableSnapshot,
   parseDesignMd,
   summarizeForLLM,
@@ -19,6 +18,11 @@ import {
   executeVariableSnapshotImport,
   prepareVariableSnapshotImport,
 } from './variable-snapshot-import-command.js';
+import {
+  compositeStyleImportRequiresFigma,
+  executeCompositeStyleImport,
+  prepareCompositeStyleImport,
+} from './composite-style-import-command.js';
 
 const APPLICATION_ID = 'tokens.import-design-md';
 const PREPARED_IMPORTS = new WeakSet();
@@ -59,6 +63,7 @@ export function prepareDesignMdImportRequest(input, { workspaceIO } = {}) {
   }
   const parsed = parseDesignMd(request.file, { workspaceIO });
   const summary = summarizeForLLM(parsed);
+  const compositeImport = prepareCompositeStyleImport(parsed);
   const variableSource = designMdVariableSnapshot(parsed);
   if (variableSource?.kind === 'portable-v2') {
     if (request.collection !== null || request.forceSlash) {
@@ -66,7 +71,7 @@ export function prepareDesignMdImportRequest(input, { workspaceIO } = {}) {
     }
     return preparedImport({
       kind: 'variable-snapshot-v2', request,
-      snapshot: prepareVariableSnapshotImport(variableSource.snapshot), summary,
+      snapshot: prepareVariableSnapshotImport(variableSource.snapshot), compositeImport, summary,
     });
   }
   if (variableSource?.kind === 'legacy-v1'
@@ -76,22 +81,27 @@ export function prepareDesignMdImportRequest(input, { workspaceIO } = {}) {
     });
   }
   const items = toSingleCollectionTokenItems(parsed);
-  const unsupportedCompositeCount = designMdCompositeTokenCount(parsed);
-  if (!items.length) {
+  if (!items.length && !compositeStyleImportRequiresFigma(compositeImport)) {
     return preparedImport({
-      kind: 'context-only', request, summary, unsupportedCompositeCount,
+      kind: 'context-only', request, summary,
+      unsupportedCompositeCount: compositeImport.unsupported.length,
     });
   }
   const collection = request.collection
     || implicitCollection(parsed.meta.source, request.forceSlash);
-  const tokenImport = prepareTokenImportRequestItems({
+  const tokenImport = items.length ? prepareTokenImportRequestItems({
     file: request.file,
     collection,
     forceSlash: request.forceSlash,
-  }, items);
+  }, items) : null;
+  if (!compositeStyleImportRequiresFigma(compositeImport)) {
+    return preparedImport({
+      kind: 'single-collection', request, tokenImport, summary,
+      unsupportedCompositeCount: compositeImport.unsupported.length,
+    });
+  }
   return preparedImport({
-    kind: 'single-collection', request, tokenImport, summary,
-    unsupportedCompositeCount,
+    kind: 'native-design', request, tokenImport, compositeImport, summary,
   });
 }
 
@@ -115,12 +125,13 @@ export async function executeDesignMdImport(prepared, adapters = {}) {
     throw new Error('Legacy name-keyed Variable Snapshot import remains on the compatibility path.');
   }
   if (prepared.kind === 'variable-snapshot-v2') {
-    const result = await executeVariableSnapshotImport(prepared.snapshot, adapters);
+    const variableResult = await executeVariableSnapshotImport(prepared.snapshot, adapters);
+    const styleResult = await executeCompositeStyleImport(prepared.compositeImport, adapters);
     return {
-      stdout: `${result.stdout}\n\n─── agent context summary ───────────\n${prepared.summary}\n──────────────────────────────────────────────`,
-      stderr: result.stderr,
+      stdout: `${[variableResult.stdout, styleResult.stdout].filter(Boolean).join('\n')}\n\n─── agent context summary ───────────\n${prepared.summary}\n──────────────────────────────────────────────`,
+      stderr: [variableResult.stderr, styleResult.stderr].filter(Boolean).join('\n'),
       code: 0,
-      result: result.result,
+      result: { schemaVersion: 1, variables: variableResult.result, styles: styleResult.result },
     };
   }
   const warning = compositeWarning(prepared.unsupportedCompositeCount);
@@ -131,15 +142,25 @@ export async function executeDesignMdImport(prepared, adapters = {}) {
       code: 0,
     };
   }
-  if (prepared.kind !== 'single-collection') {
+  if (prepared.kind === 'single-collection') {
+    const result = await executeTokenImport(prepared.tokenImport, adapters);
+    return {
+      stdout: `${result.stdout}\n\n─── agent context summary ───────────\n${prepared.summary}\n──────────────────────────────────────────────`,
+      stderr: [result.stderr, warning].filter(Boolean).join('\n'),
+      code: result.code ?? 0, result: result.result,
+    };
+  }
+  if (prepared.kind !== 'native-design') {
     throw new Error('DESIGN.md Import received an unknown prepared source kind.');
   }
-  const result = await executeTokenImport(prepared.tokenImport, adapters);
+  const tokenResult = prepared.tokenImport
+    ? await executeTokenImport(prepared.tokenImport, adapters) : null;
+  const styleResult = await executeCompositeStyleImport(prepared.compositeImport, adapters);
   return {
-    stdout: `${result.stdout}\n\n─── agent context summary ───────────\n${prepared.summary}\n──────────────────────────────────────────────`,
-    stderr: [result.stderr, warning].filter(Boolean).join('\n'),
-    code: result.code ?? 0,
-    result: result.result,
+    stdout: `${[tokenResult?.stdout, styleResult.stdout].filter(Boolean).join('\n')}\n\n─── agent context summary ───────────\n${prepared.summary}\n──────────────────────────────────────────────`,
+    stderr: [tokenResult?.stderr, styleResult.stderr].filter(Boolean).join('\n'),
+    code: tokenResult?.code ?? styleResult.code ?? 0,
+    result: { schemaVersion: 1, variables: tokenResult?.result ?? null, styles: styleResult.result },
   };
 }
 

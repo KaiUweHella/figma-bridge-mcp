@@ -280,6 +280,7 @@ export function parseCss(cssText) {
   // (declarations appear in source order in `defined`)
   const resolved = new Map(); // name → final hex/number value
   const fonts = [];
+  const defaultThemeFont = extractFirstFont(defined.get('font-sans')?.value || '');
 
   for (const [name, { value, isTheme }] of defined) {
     // --- Resolve var() references ---
@@ -328,6 +329,28 @@ export function parseCss(cssText) {
         }
         continue;
       }
+      if (name.startsWith('shadow-')) {
+        tokens.shadow[name] = val;
+        continue;
+      }
+      if (name.startsWith('text-')) {
+        const lineHeightSuffix = '--line-height';
+        if (name.endsWith(lineHeightSuffix)) {
+          const tokenName = name.slice(0, -lineHeightSuffix.length);
+          const px = parseDimension(val);
+          if (px !== null) {
+            tokens.typography[tokenName] ||= { fontFamily: defaultThemeFont, fontWeight: 400 };
+            tokens.typography[tokenName].lineHeight = px;
+          }
+        } else {
+          const px = parseDimension(val);
+          if (px !== null) {
+            tokens.typography[name] ||= { fontFamily: defaultThemeFont, fontWeight: 400 };
+            tokens.typography[name].fontSize = px;
+          }
+        }
+        continue;
+      }
       if (name.startsWith('font-')) {
         const family = extractFirstFont(val);
         if (family && !fonts.includes(family)) fonts.push(family);
@@ -344,6 +367,11 @@ export function parseCss(cssText) {
     }
 
     // --- Regular (non-@theme) declarations ---
+
+    if (/shadow|elevation/i.test(name)) {
+      tokens.shadow[name] = val;
+      continue;
+    }
 
     // Radius bucket: name contains "radius"
     if (/radius|radii|rounded/i.test(name)) {

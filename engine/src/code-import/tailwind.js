@@ -3,7 +3,7 @@
  * Reads tailwind.config.{js,cjs,mjs,ts} as data through a bounded static parser.
  * No selected configuration, import, plugin or expression is executed. The
  * resulting object merges theme.extend into theme per top-level key, then
- * extracts color, borderRadius, spacing, fontFamily and fontSize tokens.
+ * extracts color, borderRadius, spacing, fontFamily, fontSize and boxShadow tokens.
  */
 
 import { resolve, basename, dirname } from 'node:path';
@@ -253,11 +253,11 @@ export async function parseTailwindConfig(configPath, {
   // Derive first sans family for fontFamily fallback in typography
   const sansFamilies = merged.fontFamily?.sans ?? merged.fontFamily?.['sans'] ?? [];
   const firstSans = Array.isArray(sansFamilies)
-    ? (sansFamilies[0] ?? 'Inter').replace(/^['"]|['"]$/g, '')
+    ? (sansFamilies[0] ?? '').replace(/^['"]|['"]$/g, '')
     : typeof sansFamilies === 'string'
       ? sansFamilies.replace(/^['"]|['"]$/g, '')
-      : 'Inter';
-  const defaultFontFamily = firstSans || 'Inter';
+      : '';
+  const defaultFontFamily = firstSans || null;
 
   const rawFontSize = merged.fontSize ?? {};
   if (typeof rawFontSize !== 'function') {
@@ -292,6 +292,21 @@ export async function parseTailwindConfig(configPath, {
       }
       tokens.typography[`text-${k}`] = entry;
       totalValues++;
+    }
+  } else {
+    functionCount++;
+  }
+
+  // ── boxShadow ────────────────────────────────────────────────────────────
+  const rawShadow = merged.boxShadow ?? {};
+  if (typeof rawShadow !== 'function') {
+    for (const [key, value] of Object.entries(rawShadow)) {
+      if (typeof value === 'function') { functionCount++; continue; }
+      if (typeof value === 'string' || Array.isArray(value)
+        || (value && typeof value === 'object')) {
+        tokens.shadow[`shadow-${key}`] = value;
+        totalValues++;
+      }
     }
   } else {
     functionCount++;

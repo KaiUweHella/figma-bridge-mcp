@@ -15,8 +15,9 @@ role is created.
 
 Preparation completes before Plugin readiness. `--print-context` has no Figma
 target, confirmation or Plugin dispatch and needs only readable WorkspaceIO
-unless `--save` is explicit. Storybook or composite-only sources may also
-resolve to repository context without dispatch after bounded conversion.
+unless `--save` is explicit. Storybook or sources containing only unsupported
+composites may also resolve to repository context without dispatch after
+bounded conversion.
 
 Simple COLOR, radius and spacing facts become prepared Single-Collection Token
 Import items in memory. The Design Source Import Application calls the deeper
@@ -27,5 +28,6 @@ legacy v1 snapshots remain on their explicit compatibility route.
 
 Collection names containing `/` require `--force-slash`. Derived Collection
 names remain bounded and pass through the same normalization and ambiguity
-checks as direct Token Import. Typography and shadow composites stay visible
-as bounded context until their native Style import owns exact fidelity.
+checks as direct Token Import. Supported Typography and Shadow composites reuse
+the dedicated native Composite Style Import transaction behind the same outer
+Command Plan and Audit lifecycle.

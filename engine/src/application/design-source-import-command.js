@@ -5,7 +5,6 @@ import { basename } from 'node:path';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { convert } from '../code-import/index.js';
 import {
-  designMdCompositeTokenCount,
   parseDesignMdText,
   summarizeForLLM,
   toSingleCollectionTokenItems,
@@ -22,6 +21,11 @@ import {
   executeTokenImport,
   prepareTokenImportRequestItems,
 } from './token-import-command.js';
+import {
+  compositeStyleImportRequiresFigma,
+  executeCompositeStyleImport,
+  prepareCompositeStyleImport,
+} from './composite-style-import-command.js';
 
 export {
   designSourceImportArgvFromRequest,
@@ -56,11 +60,6 @@ function sourceSummary(converted) {
   return summarizeForLLM({ tokens: converted.tokens, meta: converted.meta });
 }
 
-function compositeWarning(count) {
-  if (!count) return '';
-  return `${count} typography or shadow token${count === 1 ? ' remains' : 's remain'} context-only because they do not have an exact simple Variable representation.`;
-}
-
 function savedPrefix(request) {
   return request.save ? `DESIGN.md saved to ${request.save}.\n` : '';
 }
@@ -89,9 +88,10 @@ export async function prepareDesignSourceImportPlan(plan, {
         sourceName: basename(request.source),
         limits: io.limits,
       });
+      const composites = prepareCompositeStyleImport(parsed);
       return prepared({
         kind: 'context-only', request, summary: summarizeForLLM(parsed),
-        artifact: sourceText, unsupportedCompositeCount: designMdCompositeTokenCount(parsed),
+        artifact: sourceText, unsupportedCompositeCount: composites.unsupported.length,
       });
     }
     const designMd = prepareDesignMdImportRequest({
@@ -108,7 +108,7 @@ export async function prepareDesignSourceImportPlan(plan, {
     return prepared({
       kind: 'design-md', request, designMd,
       artifact: sourceText,
-      requiresFigma: ['single-collection', 'variable-snapshot-v2'].includes(designMd.kind),
+      requiresFigma: ['single-collection', 'native-design', 'variable-snapshot-v2'].includes(designMd.kind),
     });
   }
 
@@ -122,22 +122,27 @@ export async function prepareDesignSourceImportPlan(plan, {
   }
   const summary = sourceSummary(converted);
   const items = toSingleCollectionTokenItems({ tokens: converted.tokens, meta: converted.meta });
-  const unsupportedCompositeCount = designMdCompositeTokenCount({ tokens: converted.tokens });
-  if (!items.length || request.printContext) {
+  const compositeImport = prepareCompositeStyleImport({ tokens: converted.tokens });
+  if ((!items.length && !compositeStyleImportRequiresFigma(compositeImport)) || request.printContext) {
     return prepared({
       kind: 'context-only', request, summary, artifact: converted.designMd,
-      unsupportedCompositeCount,
+      unsupportedCompositeCount: compositeImport.unsupported.length,
     });
   }
   const collection = request.collection || converted.meta.source || 'Imported Design System';
-  const tokenImport = prepareTokenImportRequestItems({
-    file: request.source,
-    collection,
-    forceSlash: request.forceSlash,
-  }, items);
+  const tokenImport = items.length ? prepareTokenImportRequestItems({
+    file: request.source, collection, forceSlash: request.forceSlash,
+  }, items) : null;
+  if (!compositeStyleImportRequiresFigma(compositeImport)) {
+    return prepared({
+      kind: 'single-collection', request, summary, artifact: converted.designMd,
+      tokenImport, unsupportedCompositeCount: compositeImport.unsupported.length,
+      requiresFigma: true,
+    });
+  }
   return prepared({
-    kind: 'single-collection', request, summary, artifact: converted.designMd,
-    tokenImport, unsupportedCompositeCount, requiresFigma: true,
+    kind: 'native-design', request, summary, artifact: converted.designMd,
+    tokenImport, compositeImport, requiresFigma: true,
   });
 }
 
@@ -168,7 +173,8 @@ export async function executeDesignSourceImportPlan(plan, preparedSource, adapte
   if (request.printContext || preparedSource.kind === 'context-only') {
     return {
       stdout: `${prefix}${preparedSource.summary}`,
-      stderr: compositeWarning(preparedSource.unsupportedCompositeCount),
+      stderr: preparedSource.unsupportedCompositeCount
+        ? `${preparedSource.unsupportedCompositeCount} composite construct(s) remain explicitly unsupported.` : '',
       code: 0,
     };
   }
@@ -176,15 +182,30 @@ export async function executeDesignSourceImportPlan(plan, preparedSource, adapte
     const result = await executeDesignMdImport(preparedSource.designMd, adapters);
     return { ...result, stdout: `${prefix}${result.stdout}` };
   }
-  if (preparedSource.kind !== 'single-collection') {
+  if (preparedSource.kind === 'single-collection') {
+    const result = await executeTokenImport(preparedSource.tokenImport, adapters);
+    return {
+      stdout: `${prefix}${result.stdout}\n\n─── agent context summary ───────────\n${preparedSource.summary}\n──────────────────────────────────────────────`,
+      stderr: [result.stderr, preparedSource.unsupportedCompositeCount
+        ? `${preparedSource.unsupportedCompositeCount} typography or shadow token${preparedSource.unsupportedCompositeCount === 1 ? ' remains' : 's remain'} context-only because they do not have an exact native Style representation.` : '']
+        .filter(Boolean).join('\n'),
+      code: result.code ?? 0, result: result.result,
+    };
+  }
+  if (preparedSource.kind !== 'native-design') {
     throw new Error('Design Source Import received an unknown prepared source kind.');
   }
-  const result = await executeTokenImport(preparedSource.tokenImport, adapters);
+  const tokenResult = preparedSource.tokenImport
+    ? await executeTokenImport(preparedSource.tokenImport, adapters) : null;
+  const styleResult = await executeCompositeStyleImport(preparedSource.compositeImport, adapters);
   return {
-    stdout: `${prefix}${result.stdout}\n\n─── agent context summary ───────────\n${preparedSource.summary}\n──────────────────────────────────────────────`,
-    stderr: [result.stderr, compositeWarning(preparedSource.unsupportedCompositeCount)]
-      .filter(Boolean).join('\n'),
-    code: result.code ?? 0,
-    result: result.result,
+    stdout: `${prefix}${[tokenResult?.stdout, styleResult.stdout].filter(Boolean).join('\n')}\n\n─── agent context summary ───────────\n${preparedSource.summary}\n──────────────────────────────────────────────`,
+    stderr: [tokenResult?.stderr, styleResult.stderr].filter(Boolean).join('\n'),
+    code: tokenResult?.code ?? styleResult.code ?? 0,
+    result: {
+      schemaVersion: 1,
+      variables: tokenResult?.result ?? null,
+      styles: styleResult.result,
+    },
   };
 }

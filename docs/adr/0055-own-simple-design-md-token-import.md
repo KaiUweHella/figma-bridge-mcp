@@ -14,11 +14,11 @@ mutation journal, declared-default-mode selection, exact no-op matching, fresh
 postconditions and bounded rollback evidence remain unchanged.
 
 Typography and shadow composites are not flattened into simple Variables.
-They remain in bounded agent context and produce an explicit warning until
-dedicated Text Style and Effect Style transactions can preserve their native
-facts. A document containing only those composites stays useful without Plugin
-dispatch. Collection names containing `/` require the same explicit
-`--force-slash` intent as JSON Token Import.
+Supported facts enter the dedicated Composite Style Import transaction as
+native Text Styles and Effect Styles. Unsupported fields remain bounded agent
+context with an explicit warning; a document containing only unsupported
+composites stays useful without Plugin dispatch. Collection names containing
+`/` require the same explicit `--force-slash` intent as JSON Token Import.
 
 An exact `tokens.variableSnapshot` v2 block takes precedence over legacy data
 and delegates to the separately owned multi-Collection transaction. Only the

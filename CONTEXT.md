@@ -222,6 +222,17 @@ no Figma target or Plugin readiness and never writes an implicit artifact;
 simple token families reuse Single-Collection Token Import directly in memory.
 _Avoid_: import dispatcher, nested token command, synthetic token file, implicit Storybook output
 
+**Composite Style Import**:
+The versioned, bounded and non-retrying projection of supported Typography and
+Shadow token facts into native local Text Styles and Effect Styles. It resolves
+the complete local Style and Variable catalogs, exact source or name identity,
+type-compatible Text Style bindings and every requested font before the first
+Style write. Exact existing Styles are no-ops; ambiguity, identity conflict or
+different authored state stops before mutation. Newly created Styles share one
+reverse cleanup journal, while unsupported fields and Effect binding aliases
+remain typed evidence rather than flattened values.
+_Avoid_: composite Variable, CSS string Style, create loop, implicit Style update, atomic import claim
+
 **Portable Variable Snapshot**:
 The versioned, array-based DESIGN.md representation of local Figma Variable
 Collections, modes, Variables and authored values. Per-snapshot handles, not

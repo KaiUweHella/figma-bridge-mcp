@@ -38,6 +38,24 @@ test('w3c: typography tokens keep the full shape', () => {
   assert.ok(tokens.fonts.includes('Inter'));
 });
 
+test('w3c: composite field aliases and structured shadows remain typed', () => {
+  const { tokens } = parseW3cTokens(JSON.stringify({
+    spacing: { body: { $value: '16px', $type: 'dimension' } },
+    type: { body: { $type: 'typography', $value: {
+      fontFamily: 'Inter', fontSize: '{spacing.body}', lineHeight: '24px', fontWeight: 400,
+    } } },
+    effect: { card: { $type: 'shadow', $value: {
+      color: '#00000033', offsetX: '0px', offsetY: '2px', blur: '8px', spread: '0px',
+    } } },
+  }));
+  assert.deepEqual(tokens.typography['type-body'].fontSize, {
+    value: 16, alias: 'spacing-body',
+  });
+  assert.deepEqual(tokens.shadow['effect-card'], {
+    color: '#00000033', offsetX: '0px', offsetY: '2px', blur: '8px', spread: '0px',
+  });
+});
+
 test('w3c: Tokens Studio DTCG export ignores theme metadata and resolves token-set aliases', () => {
   const { tokens } = parseW3cTokens(fixture('tokens-tokens-studio.json'));
   assert.equal(tokens.color['global-color-brand'], '#0d7c74');
@@ -94,6 +112,19 @@ test('css: tailwind v4 @theme — color-/radius-/spacing-/font- prefixes', () =>
   assert.deepEqual(tokens.fonts, ['Inter']);
 });
 
+test('css: Tailwind v4 text and shadow composites stay structured for native Styles', () => {
+  const { tokens } = parseCss(`@theme {
+    --font-sans: "Inter", sans-serif;
+    --text-body: 16px;
+    --text-body--line-height: 24px;
+    --shadow-card: 0 2px 8px #00000033;
+  }`);
+  assert.deepEqual(tokens.typography['text-body'], {
+    fontFamily: 'Inter', fontWeight: 400, fontSize: 16, lineHeight: 24,
+  });
+  assert.equal(tokens.shadow['shadow-card'], '0 2px 8px #00000033');
+});
+
 import { parseStaticTailwindSource, parseTailwindConfig, TAILWIND_STATIC_POLICY } from '../src/code-import/tailwind.js';
 
 test('tailwind: flattens nested color scales, skips non-colors, merges extend', async () => {
@@ -113,6 +144,7 @@ test('tailwind: borderRadius/spacing rem→px, fontFamily, fontSize tuples', asy
   assert.equal(tokens.typography['text-sm'].fontSize, 14);
   assert.equal(tokens.typography['text-sm'].lineHeight, 20);
   assert.equal(tokens.typography['text-base'].fontSize, 16);
+  assert.equal(tokens.shadow['shadow-card'], '0 2px 8px #00000033');
 });
 
 test('tailwind: static ESM and TypeScript configs import without resolving their imports', async () => {

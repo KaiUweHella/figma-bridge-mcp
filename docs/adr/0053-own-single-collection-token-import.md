@@ -16,8 +16,9 @@ Application after its parser produces the same prepared items; repository-only
 Converted CSS, Tailwind and W3C sources no longer round-trip through a
 temporary DESIGN.md outside Workspace authority. Their already-normalized
 COLOR, radius and spacing facts can enter the same bounded item preflight
-directly. Typography and shadow composites remain explicit context-only facts
-until dedicated native Style transactions can preserve them faithfully.
+directly. Supported Typography and Shadow composites now continue through the
+separate Composite Style Import transaction; this Variable transaction never
+flattens them.
 
 The closed request accepts one bounded file and Collection name. A slash in the
 Collection remains an explicit `--force-slash` decision because Figma

@@ -4,9 +4,9 @@
 // discarded so content/plugin configuration remains compatible without
 // receiving host privileges.
 
-const THEME_KEYS = new Set(['colors', 'color', 'borderRadius', 'spacing', 'fontFamily', 'fontSize', 'extend']);
+const THEME_KEYS = new Set(['colors', 'color', 'borderRadius', 'spacing', 'fontFamily', 'fontSize', 'boxShadow', 'extend']);
 
-const EXTEND_KEYS = new Set(['colors', 'color', 'borderRadius', 'spacing', 'fontFamily', 'fontSize']);
+const EXTEND_KEYS = new Set(['colors', 'color', 'borderRadius', 'spacing', 'fontFamily', 'fontSize', 'boxShadow']);
 
 const IDENTIFIER_START = /[A-Za-z_$]/;
 const IDENTIFIER_PART = /[A-Za-z0-9_$]/;

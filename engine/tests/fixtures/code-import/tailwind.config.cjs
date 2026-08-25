@@ -9,6 +9,7 @@ module.exports = {
     spacing: { 1: '0.25rem', 4: '1rem' },
     fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['SF Mono'] },
     fontSize: { sm: ['14px', { lineHeight: '20px' }], base: '16px' },
+    boxShadow: { card: '0 2px 8px #00000033' },
     extend: {
       colors: { brand: '#0969da' },
     },

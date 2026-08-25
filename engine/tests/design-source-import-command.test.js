@@ -204,6 +204,46 @@ test('converted variables reuse the journaled Single-Collection mutation', async
   assert.equal(result.result.collection.name, 'Owned Import');
 });
 
+test('converted composites share the owning import lifecycle with Variables', async () => {
+  const commandPlan = plan({ collection: 'Composite Import' });
+  const prepared = await prepareDesignSourceImportPlan(commandPlan, {
+    workspaceIO: readableIO(),
+    convertSource: async () => ({
+      ...converted(),
+      tokens: {
+        ...converted().tokens,
+        typography: { Body: { fontFamily: 'Inter', fontSize: 16 } },
+        shadow: {},
+      },
+    }),
+  });
+  assert.equal(prepared.kind, 'native-design');
+  let evaluations = 0;
+  const style = { id: 'S:1', key: 'K:1', name: 'Body', type: 'TEXT', remote: false };
+  const result = await executeDesignSourceImportPlan(commandPlan, prepared, {
+    workspaceIO: readableIO(),
+    evaluate: async () => {
+      evaluations++;
+      return evaluations === 1 ? JSON.stringify({
+        schemaVersion: 1, status: 'complete',
+        collection: { id: 'c1', name: 'Composite Import', created: true, modeId: 'm1' },
+        created: { total: 3, indexes: [0, 1, 2] },
+        matching: { total: 0, indexes: [] },
+        residue: { total: 0, items: [], omitted: 0 },
+      }) : JSON.stringify({
+        schemaVersion: 1, status: 'complete',
+        created: { total: 1, items: [style], omitted: 0 },
+        matching: { total: 0, items: [], omitted: 0 },
+        verified: { total: 1, items: [style], omitted: 0 },
+        unsupported: [], residue: { total: 0, items: [], omitted: 0 },
+      });
+    },
+  });
+  assert.equal(evaluations, 2);
+  assert.equal(result.result.variables.collection.name, 'Composite Import');
+  assert.equal(result.result.styles.created, 1);
+});
+
 test('top-level DESIGN.md reuses its exact prepared import without a nested Plan', async () => {
   const root = mkdtempSync(join(tmpdir(), 'owned-design-source-'));
   const source = join(root, 'DESIGN.md');
