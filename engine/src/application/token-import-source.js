@@ -9,7 +9,10 @@ export const MAX_TOKEN_IMPORT_NAME_CODE_UNITS = 512;
 export const MAX_TOKEN_IMPORT_STRING_CODE_UNITS = 16_384;
 const UNSAFE_CONTROLS =
   /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;
+const UNSAFE_DESCRIPTION_CONTROLS =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;
 const META_KEYS = new Set(['$description', '$extensions']);
+const BRIDGE_MODE_TOPOLOGY_KEYS = ['defaultModeId', 'modes', 'valuesByMode'];
 
 function sourceError(message) { return new Error(`Invalid token import source: ${message}.`); }
 
@@ -72,6 +75,10 @@ function normalizedValue(value, type, declared) {
 
 function metadata(leaf) {
   const bridge = leaf.$extensions?.['figma-bridge-mcp'];
+  if (bridge && typeof bridge === 'object' && !Array.isArray(bridge)
+    && BRIDGE_MODE_TOPOLOGY_KEYS.some((key) => Object.hasOwn(bridge, key))) {
+    throw sourceError('Bridge mode topology requires Portable Variable Snapshot import');
+  }
   const scopes = leaf.scopes ?? bridge?.scopes ?? leaf.$extensions?.figma?.scopes;
   if (scopes !== undefined && (!Array.isArray(scopes) || scopes.length > 32
     || scopes.some((scope) => typeof scope !== 'string' || !scope)
@@ -85,7 +92,14 @@ function metadata(leaf) {
       || codeSyntax[key].length > 1_024))) {
     throw sourceError('codeSyntax must contain only bounded WEB, ANDROID, or iOS strings');
   }
+  const description = leaf.$description ?? leaf.description;
+  if (description !== undefined && (typeof description !== 'string'
+    || description.length > MAX_TOKEN_IMPORT_STRING_CODE_UNITS
+    || UNSAFE_DESCRIPTION_CONTROLS.test(description))) {
+    throw sourceError('description must be bounded text without unsafe controls');
+  }
   return {
+    ...(description === undefined ? {} : { description }),
     ...(scopes === undefined ? {} : { scopes: [...scopes] }),
     ...(codeSyntax === undefined ? {} : { codeSyntax: { ...codeSyntax } }),
   };
@@ -100,34 +114,65 @@ export function normalizeTokenImportSource(document) {
   if (!document || typeof document !== 'object' || Array.isArray(document)) {
     throw sourceError('root must be an object');
   }
-  const items = [];
+  const unresolved = [];
+  const names = new Set();
+  const add = (raw, parts, declared, leaf = {}) => {
+    const name = tokenName(parts);
+    if (names.has(name)) throw sourceError(`duplicate token name ${name}`);
+    names.add(name);
+    const alias = aliasName(raw);
+    unresolved.push({ name, raw, declared, alias, ...metadata(leaf) });
+  };
   const visit = (node, parts, inheritedType = null) => {
     if (!node || typeof node !== 'object' || Array.isArray(node)) {
-      const name = tokenName(parts);
-      const type = mappedType(node, inheritedType);
-      items.push({ name, type, value: normalizedValue(node, type, inheritedType) });
+      add(node, parts, inheritedType);
       return;
     }
+    metadata(node);
     const hasDtcgValue = Object.hasOwn(node, '$value');
     const hasLegacyValue = Object.hasOwn(node, 'value');
     const hasValue = hasDtcgValue || hasLegacyValue;
     const declared = node.$type ?? node.type ?? inheritedType;
     if (hasValue) {
       const raw = hasDtcgValue ? node.$value : node.value;
-      const name = tokenName(parts);
-      const type = mappedType(raw, declared);
-      const alias = aliasName(raw);
-      items.push({ name, type, ...(alias ? { alias } : { value: normalizedValue(raw, type, declared) }), ...metadata(node) });
+      add(raw, parts, declared, node);
       return;
     }
     const entries = Object.entries(node).filter(([key]) => !META_KEYS.has(key) && key !== '$type' && key !== 'type');
     if (!entries.length) throw sourceError(`group ${parts.join('/') || '(root)'} has no tokens`);
-    for (const [key, child] of entries) visit(child, [...parts, key], declared);
+    for (const [key, child] of entries) {
+      if (key === '$root') {
+        if (!parts.length) throw sourceError('$root at the document root has no token identity');
+        visit(child, parts, declared);
+      } else visit(child, [...parts, key], declared);
+    }
   };
-  for (const [key, value] of Object.entries(document)) {
-    if (!META_KEYS.has(key) && key !== '$type' && key !== 'type') visit(value, [key], document.$type ?? document.type ?? null);
+  visit(document, [], null);
+
+  const byName = new Map(unresolved.map((item) => [item.name, item]));
+  for (const item of unresolved) {
+    item.type = item.alias && item.declared == null ? null : mappedType(item.raw, item.declared);
   }
-  return normalizeTokenImportItems(items);
+  for (const item of unresolved) {
+    if (item.type !== null) continue;
+    const path = [];
+    const seen = new Set();
+    let cursor = item;
+    while (cursor.type === null) {
+      if (seen.has(cursor.name)) throw sourceError(`alias cycle includes ${cursor.name}`);
+      seen.add(cursor.name);
+      path.push(cursor);
+      cursor = byName.get(cursor.alias);
+      if (!cursor) throw sourceError(`alias ${item.name} targets missing token ${path.at(-1).alias}`);
+    }
+    for (const alias of path) alias.type = cursor.type;
+  }
+  return normalizeTokenImportItems(unresolved.map(({ name, raw, declared, alias, type, ...meta }) => ({
+    name,
+    type,
+    ...(alias ? { alias } : { value: normalizedValue(raw, type, declared) }),
+    ...meta,
+  })));
 }
 
 function deepFreeze(value) {
@@ -149,7 +194,7 @@ export function normalizeTokenImportItems(input) {
   if (input.length > MAX_TOKEN_IMPORT_ITEMS) throw sourceError(`at most ${MAX_TOKEN_IMPORT_ITEMS} tokens are accepted`);
   const items = input.map((raw) => {
     const alias = Object.hasOwn(raw || {}, 'alias');
-    if (!exactKeys(raw, ['name', 'type', alias ? 'alias' : 'value'], ['scopes', 'codeSyntax'])
+    if (!exactKeys(raw, ['name', 'type', alias ? 'alias' : 'value'], ['description', 'scopes', 'codeSyntax'])
       || alias === Object.hasOwn(raw || {}, 'value')) {
       throw sourceError('prepared token item has an invalid closed shape');
     }

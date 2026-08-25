@@ -46,7 +46,7 @@ function fixture({ existing = [], failOn = null, duplicateCollection = false,
     ? `v${String(next++).padStart(511, '0')}` : `v${next++}`) => {
     const variable = {
       id, name, resolvedType: type, remote: false, variableCollectionId: collection.id,
-      scopes: ['ALL_SCOPES'], codeSyntax: {}, valuesByMode: {},
+      description: '', scopes: ['ALL_SCOPES'], codeSyntax: {}, valuesByMode: {},
       setValueForMode(modeId, nextValue) {
         this.valuesByMode[modeId] = this.resolvedType === 'EASING'
           && nextValue?.type === 'LINEAR' && Object.keys(nextValue).length === 1
@@ -68,6 +68,7 @@ function fixture({ existing = [], failOn = null, duplicateCollection = false,
   };
   for (const item of existing) {
     const variable = makeVariable(item.name, target, item.type, item.value, item.id);
+    if (item.description !== undefined) variable.description = item.description;
     if (item.codeSyntax) variable.codeSyntax = { ...item.codeSyntax };
     if (item.scopes) variable.scopes = [...item.scopes];
   }
@@ -146,6 +147,57 @@ test('source preflight preserves false and zero, DTCG inheritance, alpha, metada
     name: 'spacing/sm', type: 'FLOAT', value: 12, scopes: ['GAP'], codeSyntax: { WEB: '--space-sm' },
   });
   assert.equal(items.find((item) => item.name === 'empty').value, '');
+});
+
+test('untyped DTCG aliases inherit every supported target type after complete graph resolution', () => {
+  const pairs = [
+    ['boolean', true],
+    ['color', '#336699'],
+    ['easing', 'linear'],
+    ['float', 12],
+    ['string', 'Bridge'],
+    ['timing', 120],
+  ];
+  const source = {};
+  for (const [type, value] of pairs) {
+    source[`${type}Base`] = { $type: type, $value: value };
+    source[`${type}Alias`] = { $value: `{${type}Base}` };
+  }
+  const items = normalizeTokenImportSource(source);
+  for (const [type] of pairs) {
+    const base = items.find((item) => item.name === `${type}Base`);
+    const alias = items.find((item) => item.name === `${type}Alias`);
+    assert.equal(alias.type, base.type);
+    assert.equal(alias.alias, base.name);
+  }
+});
+
+test('DTCG $root maps to its group identity and preserves bounded descriptions', () => {
+  const items = normalizeTokenImportSource({
+    space: {
+      $type: 'dimension',
+      $root: { $value: '8px', $description: 'Base spacing\nfor layouts' },
+      lg: { $value: '16px' },
+    },
+  });
+  assert.deepEqual(items.map((item) => item.name), ['space', 'space/lg']);
+  assert.equal(items[0].description, 'Base spacing\nfor layouts');
+  assert.equal(items[0].value, 8);
+});
+
+test('DTCG $root collisions and Bridge multi-mode topology fail before readiness', () => {
+  assert.throws(() => normalizeTokenImportSource({
+    a: { b: { $root: { $type: 'number', $value: 1 } } },
+    'a/b': { $type: 'number', $value: 2 },
+  }), /duplicate token name a\/b/);
+  assert.throws(() => normalizeTokenImportSource({ token: {
+    $type: 'number', $value: 1,
+    $extensions: { 'figma-bridge-mcp': {
+      collection: 'Source', defaultModeId: 'm1',
+      modes: [{ modeId: 'm1', name: 'Default' }],
+      valuesByMode: { m1: { modeName: 'Default', value: 1 } },
+    } },
+  } }), /Portable Variable Snapshot import/);
 });
 
 test('source preflight round-trips Bridge metadata and DTCG 2025 values without inventing gamut conversion', () => {
@@ -268,6 +320,22 @@ test('new import uses declared default mode, all six native types, metadata and 
   const alias = [...live.variables.values()].find((item) => item.name === 'color/alias');
   const base = [...live.variables.values()].find((item) => item.name === 'color/base');
   assert.deepEqual(alias.valuesByMode[collection.defaultModeId], { type: 'VARIABLE_ALIAS', id: base.id });
+});
+
+test('explicit DTCG descriptions are created, verified and exact on existing Variables', async () => {
+  const live = fixture();
+  const source = prepared({ count: {
+    $type: 'number', $value: 1, $description: 'Visible counter token',
+  } });
+  const result = await executeTokenImport(source, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.created.total, 1);
+  assert.equal([...live.variables.values()][0].description, 'Visible counter token');
+
+  const conflict = fixture({ existing: [{ name: 'count', type: 'FLOAT', value: 1,
+    id: 'fixed', description: 'Different description' }] });
+  await assert.rejects(() => executeTokenImport(source, { evaluate: evaluate(conflict.figma) }),
+    /existing value or metadata differs/);
+  assert.equal(conflict.variables.size, 1);
 });
 
 test('matching existing tokens are no-ops and differing values fail before writes', async () => {

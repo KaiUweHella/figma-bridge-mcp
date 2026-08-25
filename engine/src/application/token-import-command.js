@@ -175,6 +175,7 @@ export function tokenImportCommandCode(prepared) {
             && actual.id === target[0].id
           : valueEquivalent(actual, item.value, item.type);
         if (!valueMatches || (item.scopes !== null && !equivalent(variable.scopes, item.scopes))
+          || (Object.hasOwn(item, 'description') && variable.description !== item.description)
           || (Object.hasOwn(item, 'codeSyntax') && !equivalent(variable.codeSyntax, item.codeSyntax))) {
           conflicts.push(item.name + ': existing value or metadata differs');
         }
@@ -212,6 +213,7 @@ export function tokenImportCommandCode(prepared) {
           || variable.variableCollectionId !== collection.id) {
           throw new Error('Token Import Variable factory returned incompatible identity.');
         }
+        if (Object.hasOwn(item, 'description')) variable.description = item.description;
         if (item.scopes !== null) variable.scopes = [...item.scopes];
         for (const [platform, syntax] of Object.entries(item.codeSyntax || {})) {
           variable.setVariableCodeSyntax(platform, syntax);
@@ -246,6 +248,7 @@ export function tokenImportCommandCode(prepared) {
           || variable.resolvedType !== item.type
           || variable.variableCollectionId !== verifiedCollection.id || variable.remote
           || !verifiedMembership.has(variable.id)
+          || (Object.hasOwn(item, 'description') && variable.description !== item.description)
           || (item.scopes !== null && !equivalent(variable.scopes, item.scopes))
           || (Object.hasOwn(item, 'codeSyntax') && !equivalent(variable.codeSyntax, item.codeSyntax))
           || (item.alias ? !(actual && actual.type === 'VARIABLE_ALIAS' && actual.id === expected.id)

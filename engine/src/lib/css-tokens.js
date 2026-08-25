@@ -204,10 +204,26 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
     const p = String(path).split('/');
     let cur = tree;
     for (let i = 0; i < p.length - 1; i++) {
-      if (!cur[p[i]] || cur[p[i]].$value !== undefined) cur[p[i]] = {};
-      cur = cur[p[i]];
+      const segment = p[i];
+      if (segment === '$root') throw new Error('DTCG token paths cannot use the reserved $root segment.');
+      const existing = cur[segment];
+      if (!existing) cur[segment] = {};
+      else if (existing && typeof existing === 'object' && !Array.isArray(existing)
+        && Object.hasOwn(existing, '$value')) cur[segment] = { $root: existing };
+      else if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+        throw new Error(`DTCG token path collides at ${p.slice(0, i + 1).join('/')}.`);
+      }
+      cur = cur[segment];
     }
-    cur[p[p.length - 1]] = token;
+    const leaf = p[p.length - 1];
+    if (leaf === '$root') throw new Error('DTCG token paths cannot use the reserved $root segment.');
+    const existing = cur[leaf];
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)
+      && !Object.hasOwn(existing, '$value')) {
+      if (Object.hasOwn(existing, '$root')) throw new Error(`Duplicate DTCG token path ${path}.`);
+      existing.$root = token;
+    } else if (existing !== undefined) throw new Error(`Duplicate DTCG token path ${path}.`);
+    else cur[leaf] = token;
   };
   for (const v of vars) {
     const dtype = v.type === 'COLOR' ? 'color' : v.type === 'FLOAT' ? 'dimension' : v.type === 'BOOLEAN' ? 'boolean' : 'string';

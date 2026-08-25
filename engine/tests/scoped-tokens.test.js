@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { usedVariablesCode } from '../src/design-extract.js';
+import { normalizeTokenImportSource } from '../src/application/token-import-source.js';
 import { buildDtcgTree, formatCssTokens, projectVariableModes } from '../src/lib/css-tokens.js';
 
 // Variable registry stub: DLS tokens (as if from a library) + an unrelated
@@ -93,6 +94,30 @@ test('buildDtcgTree: aliases become {dot.path} refs, floats px, colors hex', () 
   assert.equal(tree.palette.navy['900'].$value, '#060914');
   assert.equal(tree.spacing.s.$value, '16px');
   assert.equal(tree.spacing.s.$type, 'dimension');
+});
+
+test('buildDtcgTree preserves a token that is also a group through standard $root', () => {
+  const rootFirst = buildDtcgTree([
+    { name: 'space', type: 'FLOAT', value: 8 },
+    { name: 'space/lg', type: 'FLOAT', value: 16 },
+  ]);
+  const childFirst = buildDtcgTree([
+    { name: 'space/lg', type: 'FLOAT', value: 16 },
+    { name: 'space', type: 'FLOAT', value: 8 },
+  ]);
+  for (const tree of [rootFirst, childFirst]) {
+    assert.equal(tree.space.$root.$value, '8px');
+    assert.equal(tree.space.lg.$value, '16px');
+    assert.deepEqual(normalizeTokenImportSource(tree)
+      .map(({ name, type, value }) => ({ name, type, value }))
+      .sort((a, b) => a.name.localeCompare(b.name)), [
+        { name: 'space', type: 'FLOAT', value: 8 },
+        { name: 'space/lg', type: 'FLOAT', value: 16 },
+      ]);
+  }
+  assert.throws(() => buildDtcgTree([
+    { name: 'space/$root', type: 'FLOAT', value: 8 },
+  ]), /reserved \$root/);
 });
 
 test('buildDtcgTree: 2025 values and Figma metadata round-trip through extensions', () => {
