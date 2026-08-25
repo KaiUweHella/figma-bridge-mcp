@@ -111,9 +111,11 @@ const PLUGIN_CAPABILITIES = Object.freeze([
   'dispatch-receipt-v1',
   'eval-v1',
   'execution-deadline-v1',
+  'read-lane-v1',
   'reload-ui-v1',
   'render-plan-batch-v1',
   'render-plan-v1',
+  'typed-read-v1',
   'write-lane-v1',
 ]);
 
@@ -1496,6 +1498,47 @@ test('Plugin write lanes order one file while different files progress independe
     try { wsA.close(); } catch {}
     try { wsB.close(); } catch {}
   }
+});
+
+test('a held same-file typed read does not consume the Plugin mutation lane', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'READ_LANE_FILE' });
+    let readMessage;
+    let resolveRead;
+    let resolveWrite;
+    const readSeen = new Promise((resolve) => { resolveRead = resolve; });
+    const writeSeen = new Promise((resolve) => { resolveWrite = resolve; });
+    ws.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action === 'typed-read') {
+        readMessage = message;
+        resolveRead();
+      }
+      if (message.action === 'eval' && message.code === 'sameFileWrite()') {
+        ws.send(JSON.stringify(pluginResult(message, { result: 'write-complete' })));
+        resolveWrite();
+      }
+    });
+    const read = postExec({
+      action: 'typed-read', operation: 'style-consumers-v1',
+      request: { style: 'Surface', type: null, limit: 100, after: null },
+      fileKey: 'READ_LANE_FILE', expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await readSeen;
+    const write = postExec({
+      action: 'eval', code: 'sameFileWrite()', fileKey: 'READ_LANE_FILE',
+      expectedEditor: 'figma', timeoutMs: 2000,
+    });
+    await writeSeen;
+    const writeResponse = await write;
+    assert.equal(writeResponse.status, 200);
+    ws.send(JSON.stringify(pluginResult(readMessage, { result: JSON.stringify({ ok: true }) })));
+    const readResponse = await read;
+    assert.equal(readResponse.status, 200);
+    const readBody = await readResponse.json();
+    assert.equal(readBody.metadata.bridgeExecutionTiming.version, 2);
+    assert.equal(readBody.metadata.bridgeExecutionTiming.dispatchLane, 'read');
+  });
 });
 
 test('queued deadline and HTTP cancellation never reach the Plugin write boundary', async () => {

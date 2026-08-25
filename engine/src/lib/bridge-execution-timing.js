@@ -1,5 +1,6 @@
 export const BRIDGE_EXECUTION_TIMING_SCHEMA = 'figma-bridge/bridge-execution-timing';
 export const BRIDGE_EXECUTION_TIMING_VERSION = 1;
+export const BRIDGE_TYPED_READ_TIMING_VERSION = 2;
 export const MAX_BRIDGE_EXECUTION_TIMING_MS = 130_000;
 
 function duration(start, end) {
@@ -24,6 +25,31 @@ export function createBridgeExecutionTiming({
     version: BRIDGE_EXECUTION_TIMING_VERSION,
     requestPreparationMs,
     writeLaneQueueMs,
+    pluginRoundTripMs,
+    daemonOtherMs: Math.max(0, Math.min(MAX_BRIDGE_EXECUTION_TIMING_MS, preResponseMs - attributed)),
+    preResponseMs,
+  });
+}
+
+export function createBridgeTypedReadTiming({
+  requestStartedAt,
+  laneQueuedAt,
+  laneStartedAt,
+  pluginStartedAt,
+  pluginFinishedAt,
+  preResponseAt,
+}) {
+  const requestPreparationMs = duration(requestStartedAt, laneQueuedAt);
+  const dispatchQueueMs = duration(laneQueuedAt, laneStartedAt);
+  const pluginRoundTripMs = duration(pluginStartedAt, pluginFinishedAt);
+  const preResponseMs = duration(requestStartedAt, preResponseAt);
+  const attributed = requestPreparationMs + dispatchQueueMs + pluginRoundTripMs;
+  return Object.freeze({
+    schema: BRIDGE_EXECUTION_TIMING_SCHEMA,
+    version: BRIDGE_TYPED_READ_TIMING_VERSION,
+    dispatchLane: 'read',
+    requestPreparationMs,
+    dispatchQueueMs,
     pluginRoundTripMs,
     daemonOtherMs: Math.max(0, Math.min(MAX_BRIDGE_EXECUTION_TIMING_MS, preResponseMs - attributed)),
     preResponseMs,

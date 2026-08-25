@@ -1417,6 +1417,9 @@ export function planFigmaCommand(rawArgs, {
       mode: capability.execution === 'background' ? 'tracked-job' : 'foreground',
       timeout: capability.timeoutClass,
       retry,
+      pluginDispatch: capability.actionId === 'style.consumers'
+        ? 'typed-read'
+        : effects.figma === 'none' ? 'none' : 'serialized',
       idempotence: jobKey ? 'deduped' : retry === 'safe-read' ? 'read-only' : 'unknown',
       okExitCodes: Object.freeze(acceptedExitCodes(prepared.args)),
       jobKey,

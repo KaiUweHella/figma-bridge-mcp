@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createBridgeExecutionTiming } from '../src/lib/bridge-execution-timing.js';
+import { createBridgeExecutionTiming, createBridgeTypedReadTiming } from '../src/lib/bridge-execution-timing.js';
 
 test('Bridge timing attributes request, queue, Plugin round trip and remaining daemon work', () => {
   assert.deepEqual(createBridgeExecutionTiming({
@@ -19,6 +19,17 @@ test('Bridge timing attributes request, queue, Plugin round trip and remaining d
     daemonOtherMs: 5,
     preResponseMs: 45,
   });
+});
+
+test('typed-read timing names its lane without reusing write wait vocabulary', () => {
+  const timing = createBridgeTypedReadTiming({
+    requestStartedAt: 0, laneQueuedAt: 2, laneStartedAt: 5,
+    pluginStartedAt: 6, pluginFinishedAt: 11, preResponseAt: 13,
+  });
+  assert.equal(timing.version, 2);
+  assert.equal(timing.dispatchLane, 'read');
+  assert.equal(timing.dispatchQueueMs, 3);
+  assert.equal(Object.hasOwn(timing, 'writeLaneQueueMs'), false);
 });
 
 test('Bridge timing never emits negative or unbounded duration evidence', () => {

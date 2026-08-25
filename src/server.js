@@ -13,7 +13,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
+import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
   legacyCommandRiskGateReason,
@@ -2005,6 +2005,13 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeStyleConsumerPlan(plan, {
+            typedRead: (operation, request, fallbackCode) => typedReadFigma(
+              operation, request, fallbackCode, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              },
+            ),
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

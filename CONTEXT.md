@@ -70,6 +70,15 @@ safe-read Command Application. The native API is complete but not
 interruptible, so these facts do not claim a visit budget.
 _Avoid_: bounded traversal claim, style dump, unpaged document scan, mutation
 
+**Typed Read Dispatch**:
+The authenticated Plugin path for a closed, versioned, allowlisted read
+operation selected by an immutable Command Plan. It carries validated data,
+never JavaScript source, and uses bounded global and per-target concurrency
+outside the serialized mutation lane while retaining the same target/editor
+Dispatch Receipt, deadline, result-size, audit and error contracts. Unknown or
+opaque reads remain conservative serialized executions.
+_Avoid_: parallel eval, generic read lane, unbounded scan, weakened targeting
+
 **Style Publish Status Facts**:
 The compact, versioned read of one local Style's official UNPUBLISHED, CURRENT
 or CHANGED state. It preserves resolved Style identity and optional family

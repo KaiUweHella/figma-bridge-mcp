@@ -151,6 +151,7 @@ test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () =
   assert.equal(cli.execution.retry, 'safe-read');
   assert.equal(cli.execution.timeout, 'long');
   assert.equal(cli.audit.capability, 'style.consumers');
+  assert.equal(cli.execution.pluginDispatch, 'typed-read');
 });
 
 test('Style Publish Status closes one compact policy-identical CLI/MCP safe read', () => {

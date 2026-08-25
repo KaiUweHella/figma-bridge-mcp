@@ -175,9 +175,11 @@ test('plugin advertises structured rendering only after the authenticated hello'
     'dispatch-receipt-v1',
     'eval-v1',
     'execution-deadline-v1',
+    'read-lane-v1',
     'reload-ui-v1',
     'render-plan-batch-v1',
     'render-plan-v1',
+    'typed-read-v1',
     'write-lane-v1',
   ]);
   assert.match(UI, /capabilities: PLUGIN_CAPABILITIES/);

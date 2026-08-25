@@ -7,6 +7,7 @@ import {
   styleConsumerArgvFromRequest,
   styleConsumerPlanningArgvFromRequest,
 } from './style-consumer-request.js';
+import { STYLE_CONSUMERS_TYPED_READ } from '../lib/typed-read-operations.js';
 
 export {
   styleConsumerArgvFromRequest,
@@ -292,11 +293,15 @@ function safePrettyJson(value) {
 }
 
 export async function executeStyleConsumer(request, adapters = {}) {
-  if (typeof adapters.evaluate !== 'function') {
-    throw new TypeError('executeStyleConsumer requires evaluate(code)');
+  if (typeof adapters.typedRead !== 'function' && typeof adapters.evaluate !== 'function') {
+    throw new TypeError('executeStyleConsumer requires typedRead(operation, request, fallbackCode) or evaluate(code)');
   }
   const input = normalizedRequest(request);
-  const serialized = await adapters.evaluate(styleConsumerCode(input));
+  const fallbackCode = styleConsumerCode(input);
+  const typedRequest = { style: input.style, type: input.type, limit: input.limit, after: input.after };
+  const serialized = typeof adapters.typedRead === 'function'
+    ? await adapters.typedRead(STYLE_CONSUMERS_TYPED_READ, typedRequest, fallbackCode)
+    : await adapters.evaluate(fallbackCode);
   if (typeof serialized !== 'string'
     || serialized.length > MAX_STYLE_CONSUMER_SERIALIZED_CODE_UNITS) {
     throw new Error('Style Consumer returned an invalid bounded result.');
@@ -328,6 +333,7 @@ export function styleConsumerPlanRoute(plan) {
     throw new TypeError('Style Consumer routing requires a Command Plan created by the Capability Catalog.');
   }
   return plan.allowed && plan.id === STYLE_CONSUMER_APPLICATION_ID
+    && plan.execution.pluginDispatch === 'typed-read'
     ? 'command-application' : 'not-style-consumer';
 }
 

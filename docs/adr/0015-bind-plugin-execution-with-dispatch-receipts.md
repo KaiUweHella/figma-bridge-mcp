@@ -8,7 +8,9 @@ connection-scoped draft identity, expected editor and advertised operation
 capability.
 
 The Figma Plugin validates the receipt against its live document and editor
-inside the serialized execution lane, immediately before any Figma operation.
+inside the operation's owning dispatch lane, immediately before any Figma
+operation. Mutations and opaque eval remain serialized; allowlisted typed reads
+use their separately bounded lane.
 A target, editor, capability, stale-connection or elapsed-deadline mismatch is
 returned as `not-dispatched`. Figma Design-only Semantic Render Plans are
 rejected in FigJam, Slides and Dev Mode while their editor-specific eval

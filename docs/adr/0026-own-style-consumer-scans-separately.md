@@ -31,7 +31,9 @@ report total, returned, omitted-before, omitted-after, total omitted,
 completeness and next cursor. A final continuation page remains incomplete as a
 standalone catalog of consumers even when no later page remains.
 
-Separating a typed read dispatch lane remains future work. Until that seam is
-implemented, the long native read still uses the authenticated Plugin dispatch
-path and may contend with writes; this limitation is tracked independently
-rather than weakening write serialization.
+The immutable Style Consumer Command Plan classifies this Application for the
+closed typed-read dispatch in ADR 0035. Commander and MCP send the bounded
+request object without JavaScript source; the native scan no longer consumes
+the Plugin mutation lane. Older authenticated runtimes may fall back once to
+the existing bounded Application only when capability rejection proves the
+typed read was not dispatched.

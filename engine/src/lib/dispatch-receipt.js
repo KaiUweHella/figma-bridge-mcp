@@ -6,8 +6,10 @@
 export const DISPATCH_RECEIPT_SCHEMA = 'figma-bridge/dispatch-receipt';
 export const DISPATCH_RECEIPT_CAPABILITY = 'dispatch-receipt-v1';
 export const PLUGIN_WRITE_LANE_CAPABILITY = 'write-lane-v1';
+export const PLUGIN_READ_LANE_CAPABILITY = 'read-lane-v1';
 export const DISPATCH_OPERATION_CAPABILITIES = Object.freeze({
   eval: 'eval-v1',
+  'typed-read': 'typed-read-v1',
   'render-plan': 'render-plan-v1',
   'render-plan-batch': 'render-plan-batch-v1',
   'reload-ui': 'reload-ui-v1',
@@ -16,9 +18,11 @@ export const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
   DISPATCH_RECEIPT_CAPABILITY,
   'eval-v1',
   'execution-deadline-v1',
+  PLUGIN_READ_LANE_CAPABILITY,
   'reload-ui-v1',
   'render-plan-batch-v1',
   'render-plan-v1',
+  'typed-read-v1',
   PLUGIN_WRITE_LANE_CAPABILITY,
 ]);
 

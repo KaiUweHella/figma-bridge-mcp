@@ -311,14 +311,16 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.11';
+    const PLUGIN_VERSION = '3.3.12';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'dispatch-receipt-v1',
       'eval-v1',
       'execution-deadline-v1',
+      'read-lane-v1',
       'reload-ui-v1',
       'render-plan-batch-v1',
       'render-plan-v1',
+      'typed-read-v1',
       'write-lane-v1',
     ]);
 
@@ -1226,6 +1228,14 @@
           deadlineAt: msg.deadlineAt,
           requireDocumentRevision: msg.requireDocumentRevision === true,
           dispatchReceipt: msg.dispatchReceipt,
+        } }, '*');
+      }
+      if (msg.action === 'typed-read') {
+        if (paused) { rejectPaused(msg); return; }
+        addLog({ id: msg.id, t0: Date.now(), label: 'typed read · ' + (msg.operation || 'unknown'), kind: 'read' });
+        parent.postMessage({ pluginMessage: {
+          type: 'typed-read', id: msg.id, operation: msg.operation, request: msg.request,
+          timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt, dispatchReceipt: msg.dispatchReceipt,
         } }, '*');
       }
       if (msg.action === 'render-plan') {

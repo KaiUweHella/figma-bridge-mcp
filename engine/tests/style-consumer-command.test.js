@@ -174,6 +174,7 @@ test('Style Consumer Plan owns a longer policy-identical safe read', async () =>
   assert.deepEqual(cli.effects, mcp.effects);
   assert.equal(cli.execution.retry, 'safe-read');
   assert.equal(cli.execution.timeout, 'long');
+  assert.equal(cli.execution.pluginDispatch, 'typed-read');
   assert.equal(styleConsumerPlanRoute(cli), 'command-application');
   const serialized = await pluginResult({ style: 'Surface', type: 'PAINT', limit: 25 }, style([]));
   assert.equal((await executeStyleConsumerPlan(cli, {
@@ -186,6 +187,23 @@ test('Style Consumer Plan owns a longer policy-identical safe read', async () =>
   assert.equal(styleConsumerPlanRoute(
     planFigmaCommand(['style', 'list'], { adapter: 'mcp' }),
   ), 'not-style-consumer');
+});
+
+test('Style Consumer prefers the closed typed-read Adapter', async () => {
+  const target = style([consumer('10:1', 'Card')]);
+  const serialized = await pluginResult({ style: 'S:1', limit: 2 }, target);
+  const calls = [];
+  const result = await executeStyleConsumer({ style: 'S:1', limit: 2 }, {
+    typedRead: async (operation, request, fallbackCode) => {
+      calls.push({ operation, request, fallbackCode });
+      return serialized;
+    },
+    evaluate: async () => { throw new Error('must not use eval when typed-read is available'); },
+  });
+  assert.equal(result.result.total, 1);
+  assert.equal(calls[0].operation, 'style-consumers-v1');
+  assert.deepEqual(calls[0].request, { style: 'S:1', type: null, limit: 2, after: null });
+  assert.match(calls[0].fallbackCode, /getStyleConsumersAsync/);
 });
 
 test('Style Consumer generated Plugin code parses', () => {

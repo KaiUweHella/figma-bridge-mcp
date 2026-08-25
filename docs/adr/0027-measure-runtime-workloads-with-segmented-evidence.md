@@ -4,7 +4,9 @@ Runtime performance evidence is owned at explicit Bridge boundaries rather
 than inferred from one end-to-end stopwatch. A versioned, content-free Plugin
 timing receipt records queue and Figma-main-thread execution duration. The
 Daemon validates that optional receipt and adds its own request preparation,
-per-document write-lane wait, Plugin round-trip and residual work durations.
+dispatch-lane wait, Plugin round-trip and residual work durations. Version 1
+retains `writeLaneQueueMs`; version 2 identifies typed reads with
+`dispatchLane: read` and `dispatchQueueMs` rather than mislabeling their wait.
 
 The Plugin timing contract is a canonical Engine module deterministically
 generated into the shipped Plugin artifact. It contains durations only: no

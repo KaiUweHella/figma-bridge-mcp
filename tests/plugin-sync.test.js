@@ -174,8 +174,18 @@ test('Plugin main replays exact lane settlement after an authenticated UI reconn
   assert.match(UI, /'write-lane-v1'/);
   assert.match(UI, /msg\.type === 'lane-settled'[\s\S]*?ws\.send\(JSON\.stringify\(\{ type: 'lane-settled', dispatchReceipt: msg\.dispatchReceipt \}\)\)/);
   assert.match(PLUGIN_CODE, /function postLaneSettled\(msg, state, reason = null\)/);
-  assert.match(PLUGIN_CODE, /replayableLaneSettlement = dispatchReceipt/);
-  assert.match(PLUGIN_CODE, /msg\.type === 'connected'[\s\S]*?if \(replayableLaneSettlement\)/);
+  assert.match(PLUGIN_CODE, /replayableLaneSettlements\.push\(dispatchReceipt\)/);
+  assert.match(PLUGIN_CODE, /MAX_REPLAYABLE_LANE_SETTLEMENTS = 8/);
+  assert.match(PLUGIN_CODE, /msg\.type === 'connected'[\s\S]*?for \(const dispatchReceipt of replayableLaneSettlements\)/);
+});
+
+test('Plugin typed reads bypass evalChain without accepting code', () => {
+  const start = PLUGIN_CODE.indexOf("if (msg.type === 'typed-read')");
+  const end = PLUGIN_CODE.indexOf("if (msg.type === 'eval')", start);
+  const action = PLUGIN_CODE.slice(start, end);
+  assert.match(action, /executeTypedReadOperation\(figma, operation, request\)/);
+  assert.doesNotMatch(action, /evalChain|executeCode|\bcode\b/);
+  assert.match(UI, /msg\.action === 'typed-read'[\s\S]*?type: 'typed-read'/);
 });
 
 test('old daemons intentionally retain the bounded 22s Plugin compatibility budget', () => {

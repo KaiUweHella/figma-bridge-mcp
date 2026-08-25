@@ -194,6 +194,14 @@ async function daemonExecWithMetadata(action, data = {}, timeoutMs = 90000) {
   });
 }
 
+async function daemonTypedRead(operation, request, fallbackCode, data = {}, timeoutMs = 90000) {
+  return daemonClient().typedReadWithFallback(operation, request, fallbackCode, {
+    timeoutMs,
+    fileKey: data.fileKey,
+    expectedEditor: expectedEditorForCommand(),
+  });
+}
+
 async function daemonHealth(timeoutMs = 3000) {
   return daemonClient().health({ timeoutMs });
 }
@@ -609,6 +617,7 @@ export {
   componentContextExpr,
   daemonExec,
   daemonExecWithMetadata,
+  daemonTypedRead,
   daemonHealth,
   daemonReconnect,
   detectWrapperSplit,

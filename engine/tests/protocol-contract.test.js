@@ -28,13 +28,20 @@ const FAILED_RECEIPT = terminalDispatchReceipt(PREPARED_RECEIPT, 'failed', 'exec
 test('execution protocol accepts bounded eval and Semantic Render Plan shapes', () => {
   const plan = new FigmaClient().planJSX('<Frame name="Card"><Text>Hello</Text></Frame>');
   assert.equal(validateExecPayload({ action: 'eval', code: '1+1', expectedEditor: 'figma', timeoutMs: 1000, deadlineAt: Date.now() + 1000, fileKey: 'FILE', requireDocumentRevision: true }), null);
+  assert.equal(validateExecPayload({ action: 'typed-read', operation: 'style-consumers-v1', request: {
+    style: 'Surface', type: 'PAINT', limit: 100, after: null,
+  }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
   assert.equal(validateExecPayload({ action: 'render-plan', plan, expectedEditor: 'figma', timeoutMs: 1000, fileKey: 'FILE' }), null);
   assert.equal(validateExecPayload({
     action: 'render-plan-batch', plans: [plan, plan],
     options: { gap: 24, vertical: true, smart: false, x: 10, y: 20 },
     expectedEditor: 'figma', timeoutMs: 1000,
   }), null);
-  assert.match(validateExecPayload({ action: 'render', code: 'x' }), /eval.*render-plan.*render-plan-batch/);
+  assert.match(validateExecPayload({ action: 'render', code: 'x' }), /eval.*typed-read.*render-plan.*render-plan-batch/);
+  assert.match(validateExecPayload({ action: 'typed-read', operation: 'future', request: {} }), /unsupported/);
+  assert.match(validateExecPayload({ action: 'typed-read', operation: 'style-consumers-v1', request: {
+    style: 'Surface', type: null, limit: 100, after: null,
+  }, code: 'figma.createFrame()' }), /must not contain JavaScript/);
   assert.match(validateExecPayload({ action: 'eval', code: '' }), /non-empty/);
   assert.match(validateExecPayload({ action: 'render-plan', plan: { version: 999 } }), /invalid/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);

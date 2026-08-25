@@ -578,6 +578,19 @@ export async function evaluateFigmaWithMetadata(code, {
   });
 }
 
+export async function typedReadFigma(operation, request, fallbackCode, {
+  target,
+  fileKey,
+  expectedEditor,
+  timeoutMs = EXEC_TIMEOUT_MS,
+} = {}) {
+  return daemonClient().typedReadWithFallback(operation, request, fallbackCode, {
+    fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    expectedEditor,
+    timeoutMs,
+  });
+}
+
 /** Execute a validated Semantic Render Plan through the authenticated native
  * Plugin action. Adapter selection and result validation stay in the owning
  * Semantic Render Command Application. */

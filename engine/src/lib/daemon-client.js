@@ -9,6 +9,7 @@ import {
   adaptLegacyDaemonError,
   parseBridgeDaemonError,
 } from './daemon-error-envelope.js';
+import { typedReadRequestValidationError } from './typed-read-operations.js';
 
 export class DaemonClientError extends Error {
   constructor(message, {
@@ -232,6 +233,28 @@ export function createDaemonClient({
     return (await executeWithMetadata(action, data, options)).value;
   }
 
+  async function typedRead(operation, typedRequest, options = {}) {
+    const error = typedReadRequestValidationError(operation, typedRequest);
+    if (error) throw new TypeError(error);
+    return execute('typed-read', { operation, request: typedRequest }, options);
+  }
+
+  async function typedReadWithFallback(operation, typedRequest, fallbackCode, options = {}) {
+    if (typeof fallbackCode !== 'string' || !fallbackCode) {
+      throw new TypeError('Typed read compatibility fallback requires bounded eval code');
+    }
+    const startedAt = Date.now();
+    try {
+      return await typedRead(operation, typedRequest, options);
+    } catch (error) {
+      const unsupportedBeforeDispatch = error?.outcome === 'not-dispatched'
+        && (error?.kind === 'plugin-capability' || error?.kind === 'validation');
+      if (!unsupportedBeforeDispatch) throw error;
+      const remaining = Math.max(1, Number(options.timeoutMs || 90000) - (Date.now() - startedAt));
+      return execute('eval', { code: fallbackCode }, { ...options, timeoutMs: remaining });
+    }
+  }
+
   return {
     execute,
     executeWithMetadata,
@@ -241,6 +264,8 @@ export function createDaemonClient({
     evaluateWithMetadata(code, options) {
       return executeWithMetadata('eval', { code, requireDocumentRevision: true }, options);
     },
+    typedRead,
+    typedReadWithFallback,
     renderPlan(plan, options) {
       return execute('render-plan', { plan }, options);
     },

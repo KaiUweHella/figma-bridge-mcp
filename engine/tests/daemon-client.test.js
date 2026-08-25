@@ -91,6 +91,29 @@ test('daemon client sends native Semantic Render Plan batches without JavaScript
   });
 });
 
+test('daemon client sends closed typed reads and falls back only before dispatch', async () => {
+  const bodies = [];
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body); bodies.push(body);
+      if (body.action === 'typed-read') return response(500, { bridgeError: {
+        schema: 1, kind: 'plugin-capability', phase: 'plugin-dispatch',
+        outcome: 'not-dispatched', dispatchState: 'not-dispatched', message: 'typed-read unavailable',
+      } });
+      return response(200, { result: 'fallback-result' });
+    },
+  });
+  const request = { style: 'Surface', type: null, limit: 100, after: null };
+  assert.equal(await client.typedReadWithFallback(
+    'style-consumers-v1', request, '(async()=>"ok")()', FIGMA,
+  ), 'fallback-result');
+  assert.equal(bodies[0].action, 'typed-read');
+  assert.equal(Object.hasOwn(bodies[0], 'code'), false);
+  assert.equal(bodies[1].action, 'eval');
+  await assert.rejects(() => client.typedRead('future', request, FIGMA), /unsupported/);
+});
+
 test('daemon client signs the stable selection path while targeting through the query', async () => {
   let seen;
   const client = createDaemonClient({

@@ -6,6 +6,7 @@
 
 import { assertSemanticRenderPlan } from './semantic-render-plan.js';
 import { dispatchReceiptValidationError } from './dispatch-receipt.js';
+import { typedReadRequestValidationError } from './typed-read-operations.js';
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -100,10 +101,19 @@ function selectionError(selection) {
 
 export function validateExecPayload(value) {
   if (!isRecord(value)) return 'request body must be an object';
-  if (!['eval', 'render-plan', 'render-plan-batch'].includes(value.action)) return 'action must be "eval", "render-plan", or "render-plan-batch"';
+  if (!['eval', 'typed-read', 'render-plan', 'render-plan-batch'].includes(value.action)) return 'action must be "eval", "typed-read", "render-plan", or "render-plan-batch"';
   if (value.action === 'eval') {
     if (typeof value.code !== 'string' || !value.code.length) return 'eval code must be a non-empty string';
     if (byteLength(value.code) > MAX_PROTOCOL_VALUE_BYTES) return 'eval code exceeds the 5 MB protocol limit';
+  }
+  if (value.action === 'typed-read') {
+    const error = typedReadRequestValidationError(value.operation, value.request);
+    if (error) return error;
+    if (Object.hasOwn(value, 'code')) return 'typed-read must not contain JavaScript code';
+    const sizeError = serializedLimitError(
+      'typed-read request', value.request, 16 * 1024, '16 KiB typed-read request',
+    );
+    if (sizeError) return sizeError;
   }
   if (value.action === 'render-plan') {
     try { assertSemanticRenderPlan(value.plan, { executable: true }); }

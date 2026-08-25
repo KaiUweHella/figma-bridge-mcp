@@ -5,6 +5,7 @@ import {
   DISPATCH_RECEIPT_SCHEMA,
   KNOWN_PLUGIN_CAPABILITIES,
   PLUGIN_WRITE_LANE_CAPABILITY,
+  PLUGIN_READ_LANE_CAPABILITY,
   createPreparedDispatchReceipt,
   dispatchReceiptIdentityMatches,
   dispatchReceiptValidationError,
@@ -40,7 +41,9 @@ test('prepared dispatch receipts bind one request, connection, target, editor, a
   });
   assert.equal(KNOWN_PLUGIN_CAPABILITIES.includes(DISPATCH_RECEIPT_CAPABILITY), true);
   assert.equal(KNOWN_PLUGIN_CAPABILITIES.includes(PLUGIN_WRITE_LANE_CAPABILITY), true);
+  assert.equal(KNOWN_PLUGIN_CAPABILITIES.includes(PLUGIN_READ_LANE_CAPABILITY), true);
   assert.equal(operationCapability('eval'), 'eval-v1');
+  assert.equal(operationCapability('typed-read'), 'typed-read-v1');
   assert.equal(operationCapability('render-plan-batch'), 'render-plan-batch-v1');
   assert.equal(operationCapability('reload-ui'), 'reload-ui-v1');
   assert.throws(() => operationCapability('unknown'), /unsupported Plugin action/);

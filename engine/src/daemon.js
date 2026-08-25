@@ -52,13 +52,14 @@ import { PLUGIN_BUILD_VERSION, pluginUpdateAvailable } from './lib/plugin-versio
 import {
   DISPATCH_RECEIPT_CAPABILITY,
   KNOWN_PLUGIN_CAPABILITIES,
+  PLUGIN_READ_LANE_CAPABILITY,
   PLUGIN_WRITE_LANE_CAPABILITY,
   createPreparedDispatchReceipt,
   dispatchReceiptIdentityMatches,
   operationCapability,
 } from './lib/dispatch-receipt.js';
 import { parsePluginExecutionTiming } from './lib/plugin-execution-timing.js';
-import { createBridgeExecutionTiming } from './lib/bridge-execution-timing.js';
+import { createBridgeExecutionTiming, createBridgeTypedReadTiming } from './lib/bridge-execution-timing.js';
 import {
   BridgeDaemonError,
   bridgeDaemonErrorBody,
@@ -68,6 +69,7 @@ import {
   PluginWriteLaneError,
   createPluginWriteLanes,
 } from './lib/plugin-write-lane.js';
+import { PluginReadLaneError, createPluginReadLane } from './lib/plugin-read-lane.js';
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -275,6 +277,9 @@ let pluginMsgId = 0;
 const pluginWriteLanes = createPluginWriteLanes({
   tokenMatches: dispatchReceiptIdentityMatches,
 });
+const pluginReadLane = createPluginReadLane({
+  tokenMatches: dispatchReceiptIdentityMatches,
+});
 
 function openConns() {
   return [...conns.entries()].filter(([ws]) => ws.readyState === WebSocket.OPEN);
@@ -390,7 +395,7 @@ async function requestViaSocket(
       && (conn.connectionId !== expectedConnection.connectionId
         || conn.fileKey !== expectedConnection.fileKey
         || conn.editorType !== expectedConnection.editorType)) {
-    throw new BridgeDaemonError('Plugin target or editor changed while waiting in the write queue', {
+    throw new BridgeDaemonError('Plugin target or editor changed while waiting in the dispatch queue', {
       kind: 'targeting', phase: 'plugin-dispatch', outcome: 'not-dispatched',
     });
   }
@@ -406,9 +411,11 @@ async function requestViaSocket(
       { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
-  if (!conn?.capabilities?.includes(PLUGIN_WRITE_LANE_CAPABILITY)) {
+  const laneCapability = action === 'typed-read'
+    ? PLUGIN_READ_LANE_CAPABILITY : PLUGIN_WRITE_LANE_CAPABILITY;
+  if (!conn?.capabilities?.includes(laneCapability)) {
     throw new BridgeDaemonError(
-      `Plugin capability missing: ${PLUGIN_WRITE_LANE_CAPABILITY}. Reload the installed Figma Bridge plugin before executing commands.`,
+      `Plugin capability missing: ${laneCapability}. Reload the installed Figma Bridge plugin before executing commands.`,
       { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
@@ -485,7 +492,7 @@ function boundedDeadline(timeoutMs, deadlineAt) {
 
 
 function laneBridgeError(error) {
-  if (!(error instanceof PluginWriteLaneError)) return error;
+  if (!(error instanceof PluginWriteLaneError) && !(error instanceof PluginReadLaneError)) return error;
   const kind = error.code === 'deadline-elapsed' ? 'timeout' : 'execution';
   return new BridgeDaemonError(error.message, {
     kind,
@@ -621,6 +628,7 @@ async function handleRequest(req, res) {
       connections: connectionList(),
       inFlightExecs,
       writeLanes: pluginWriteLanes.summary(),
+      readLane: pluginReadLane.summary(),
       idleTimeoutMs: IDLE_TIMEOUT_MS
     }));
     return;
@@ -836,10 +844,8 @@ function handleExec(req, res) {
         return Math.max(1, Math.min(requested, remaining));
       };
 
-      // Every current /exec action is a conservative write. Opaque eval cannot
-      // bypass the lane merely because a source heuristic labels it "read";
-      // only a future closed typed-read contract may do that. Resolve and
-      // snapshot the exact Plugin target before joining its per-document lane.
+      // Opaque eval remains a conservative write. Only a closed typed-read
+      // operation may enter the independently bounded read lane.
       const selectedWs = resolveTarget(fileKey || null);
       const selectedConnection = snapshotPluginConnection(selectedWs, expectedEditor);
       const sessionKey = pluginLaneKey(selectedConnection);
@@ -849,7 +855,8 @@ function handleExec(req, res) {
       let laneStartedAt = laneQueuedAt;
       let pluginStartedAt = laneQueuedAt;
       let pluginFinishedAt = laneQueuedAt;
-      const execution = await pluginWriteLanes.run({
+      const dispatchLane = action === 'typed-read' ? pluginReadLane : pluginWriteLanes;
+      const execution = await dispatchLane.run({
         sessionKey,
         deadlineAt: ownerDeadline,
         signal: cancellation.signal,
@@ -864,6 +871,8 @@ function handleExec(req, res) {
               ...(requireDocumentRevision === true ? { requireDocumentRevision: true } : {}),
               ...common,
             };
+          } else if (action === 'typed-read') {
+            data = { operation: payload.operation, request: payload.request, ...common };
           } else if (action === 'render-plan') {
             data = { plan, ...common };
           } else if (action === 'render-plan-batch') {
@@ -887,7 +896,8 @@ function handleExec(req, res) {
       result = execution.result;
       metadata = {
         ...execution.metadata,
-        bridgeExecutionTiming: createBridgeExecutionTiming({
+        bridgeExecutionTiming: (action === 'typed-read'
+          ? createBridgeTypedReadTiming : createBridgeExecutionTiming)({
           requestStartedAt,
           laneQueuedAt,
           laneStartedAt,
@@ -1179,6 +1189,7 @@ function handlePluginSocket(ws) {
           pluginLaneKeyFromReceipt(msg.dispatchReceipt),
           msg.dispatchReceipt,
         );
+        pluginReadLane.settle(msg.dispatchReceipt);
       });
     }
 
