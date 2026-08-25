@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { variableFactsCode } from '../src/application/variable-facts-command.js';
-import {
-  collectionExtendCode, parseBoolean,
-} from '../src/lib/variable-management.js';
+import { parseBoolean } from '../src/lib/variable-management.js';
 
 const execute = (code, figma) => new Function('figma', `return ${code}`)(figma);
 
@@ -42,19 +40,6 @@ function fixture(type = 'FLOAT') {
 
 test('variable metadata parsers are strict and match current plugin typings', () => {
   assert.equal(parseBoolean('false'), false);
-});
-
-test('collection extension prefers the native local collection and supports a library key', async () => {
-  const { figma } = fixture();
-  const local = await execute(collectionExtendCode({ collection: 'Primitives', name: 'Brand' }), figma);
-  assert.equal(local.name, 'Brand');
-  assert.equal(local.isExtension, true);
-  figma.variables.extendLibraryCollectionByKeyAsync = async (key, name) => ({
-    id: 'C:3', key, name, remote: false, isExtension: true, hiddenFromPublishing: false,
-    defaultModeId: 'M:1', modes: [], variableIds: [], getPublishStatusAsync: async () => 'UNPUBLISHED',
-  });
-  const remote = await execute(collectionExtendCode({ collection: 'LIBRARY_KEY', name: 'Market' }), figma);
-  assert.equal(remote.key, 'LIBRARY_KEY');
 });
 
 test('variable show exposes metadata, modes, values, scopes, and publish status', async () => {

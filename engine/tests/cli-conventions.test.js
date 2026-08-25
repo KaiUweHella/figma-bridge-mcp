@@ -726,6 +726,22 @@ test('col delete delegates one Plan-bound irreversible non-retrying Application'
   assert.doesNotMatch(action, /checkConnection\(|fastEval\(|collectionDeleteCode\(/);
 });
 
+test('col extend delegates one Plan-bound journaled non-retrying Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf("collections.command('extend <collection> <name>')");
+  const end = adapter.indexOf('// ============ TOKENS (PRESETS) ============', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /collectionExtendPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeCollectionExtendPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|collectionExtendCode\(/,
+    'Commander must not retain Collection Extension readiness, creation, or formatting logic');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');

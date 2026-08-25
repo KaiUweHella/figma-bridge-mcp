@@ -410,6 +410,20 @@ test('Collection Delete closes one irreversible policy-identical non-retrying wr
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Collection Extension closes one journaled policy-identical non-retrying write', () => {
+  const cli = planFigmaCommand(['col', 'extend', 'Primitives', 'Brand'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['col', 'extend', '--', 'Primitives', 'Brand'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'col.extend');
+  for (const argv of [
+    ['col', 'extend'], ['col', 'extend', 'Primitives'],
+    ['col', 'extend', 'Primitives', 'Brand', 'extra'],
+    ['col', 'extend', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',

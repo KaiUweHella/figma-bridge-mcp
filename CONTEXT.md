@@ -243,6 +243,16 @@ member ids absent. Failure distinguishes unchanged, partial residue and an
 applied irreversible deletion whose complete postcondition projection failed.
 _Avoid_: collection delete eval, inferred membership, retryable removal, rollback claim
 
+**Collection Extension**:
+The bounded, non-retrying creation of one Enterprise Extended Variable
+Collection from one resolved local Collection or one explicit published
+Collection key. It validates local source facts before creation, journals the
+new Collection immediately, proves native parent/root Collection and inherited
+mode topology after creation, and removes the extension after guarded
+postcondition failure where possible. Successful compatibility output preserves
+inherited `parentModeId`; complete override facts remain a separate read concern.
+_Avoid_: collection extend eval, base Collection projection, retryable extension, implicit inheritance
+
 **Token Publish Status Facts**:
 The compact, versioned read of one Variable or Variable Collection's official
 UNPUBLISHED, CURRENT or CHANGED state. Variable queries may be scoped to one

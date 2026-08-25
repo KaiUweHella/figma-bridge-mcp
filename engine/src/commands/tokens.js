@@ -29,6 +29,10 @@ import {
   executeCollectionDeletePlan,
 } from '../application/collection-delete-command.js';
 import {
+  collectionExtendPlanningArgvFromRequest,
+  executeCollectionExtendPlan,
+} from '../application/collection-extend-command.js';
+import {
   executeTokenPublishStatusPlan,
   tokenPublishStatusPlanningArgvFromRequest,
 } from '../application/token-publish-status-command.js';
@@ -57,7 +61,6 @@ import {
 } from '../lib/token-sync.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
-import { collectionExtendCode } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 
@@ -257,9 +260,27 @@ collections.command('delete <collection>')
   });
 collections.command('extend <collection> <name>')
   .description('Create an Enterprise collection extension from a local collection or published collection key')
+  .allowExcessArguments(false)
   .action(async (collection, name) => {
-    try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionExtendCode({ collection, name })), null, 2)); }
-    catch (error) { handleEvalError(error); }
+    try {
+      const plan = planFigmaCommand(collectionExtendPlanningArgvFromRequest({ collection, name }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionExtendPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 // ============ TOKENS (PRESETS) ============

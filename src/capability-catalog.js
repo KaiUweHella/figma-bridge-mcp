@@ -96,6 +96,11 @@ import {
   parseCollectionDeleteRequest,
 } from '../engine/src/application/collection-delete-request.js';
 import {
+  acceptsCollectionExtendArgv,
+  collectionExtendArgvFromRequest,
+  parseCollectionExtendRequest,
+} from '../engine/src/application/collection-extend-request.js';
+import {
   acceptsPageNavigationArgv,
   pageNavigationArgvFromRequest,
   parsePageNavigationRequest,
@@ -335,6 +340,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.update',
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
+  'col.extend',
   'component.main',
   'style.list',
   'style.create',
@@ -511,6 +517,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'collection-mode-input';
   }
   if (name === 'col' && sub === 'delete') pathPolicy = 'collection-delete-input';
+  if (name === 'col' && sub === 'extend') pathPolicy = 'collection-extend-input';
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
@@ -660,6 +667,10 @@ function commandCapability(args) {
   }
   if (name === 'col' && args[1] === 'delete'
     && !action.help && !acceptsCollectionDeleteArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'col' && args[1] === 'extend'
+    && !action.help && !acceptsCollectionExtendArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && args[1] === 'inspect'
@@ -1335,6 +1346,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'collection-delete-input': {
       args.splice(0, args.length,
         ...collectionDeleteArgvFromRequest(parseCollectionDeleteRequest(args)));
+      break;
+    }
+    case 'collection-extend-input': {
+      args.splice(0, args.length,
+        ...collectionExtendArgvFromRequest(parseCollectionExtendRequest(args)));
       break;
     }
     case 'font-inspection-input': {

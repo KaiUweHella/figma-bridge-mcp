@@ -176,31 +176,8 @@ const __variableFacts = async (v) => {
 };`;
 }
 
-function collectionExtendCode({ collection, name }) {
-  const extensionName = String(name || '').trim();
-  if (!extensionName) throw new Error('Extension name is required');
-  return `(async () => {${variableHelpersCode()}
-const query = ${JSON.stringify(collection)};
-let target = null;
-try { target = await __resolveCollection(query); } catch (error) {
-  if (!/Collection not found/.test(String(error && error.message))) throw error;
-}
-let extended;
-if (target) {
-  if (target.remote) throw new Error('Use the published collection key to extend a library collection');
-  if (typeof target.extend !== 'function') throw new Error('Collection extension is unavailable in this Figma editor');
-  extended = target.extend(${JSON.stringify(extensionName)});
-} else {
-  if (typeof figma.variables.extendLibraryCollectionByKeyAsync !== 'function') throw new Error('Library collection extension is unavailable in this Figma editor');
-  extended = await figma.variables.extendLibraryCollectionByKeyAsync(query, ${JSON.stringify(extensionName)});
-}
-return __collectionFacts(extended);
-})()`;
-}
-
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
-  collectionExtendCode,
   normalizeVariableValue, parseBoolean,
   parseVariableLiteral, parseVariableType,
 };

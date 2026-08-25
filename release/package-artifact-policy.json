@@ -46,6 +46,8 @@
     "engine/src/application/collection-create-request.js",
     "engine/src/application/collection-delete-command.js",
     "engine/src/application/collection-delete-request.js",
+    "engine/src/application/collection-extend-command.js",
+    "engine/src/application/collection-extend-request.js",
     "engine/src/application/collection-mutation-runtime.js",
     "engine/src/application/collection-mode-command.js",
     "engine/src/application/collection-mode-request.js",

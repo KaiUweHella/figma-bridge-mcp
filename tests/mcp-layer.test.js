@@ -688,6 +688,36 @@ test('figma_run confirms Collection Delete and rejects malformed input before re
   }
 });
 
+test('figma_run routes Collection Extension through its shared journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const collectionExtendRoute = collectionExtendPlanRoute(plan)');
+  const end = source.indexOf('const collectionCatalogRoute = collectionCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeCollectionExtendPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run confirms Collection Extension and rejects malformed input before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', {
+    args: ['col', 'extend', 'Primitives', 'Brand'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  for (const args of [
+    ['col', 'extend'], ['col', 'extend', 'Primitives'],
+    ['col', 'extend', 'Primitives', 'Brand', 'extra'],
+    ['col', 'extend', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args, confirm: true });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Unknown or unsupported/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Collection reads before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
