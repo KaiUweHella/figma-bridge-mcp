@@ -3164,12 +3164,10 @@ export async function handleTool(name, rawArgs) {
         return resultFromCli(res);
       } catch (err) {
         const msg = `${err.stderr || ""}${err.stdout || ""}${err.message || ""}`;
-        if (msg.includes("docs not installed")) {
-          // The engine already names the right call; this adds the one thing
-          // it cannot know — that the download is a bounded, one-time cost.
+        if (msg.includes("reference not installed") || msg.includes("legacy package-tree docs")) {
           return errorResult(
-            "The offline API docs are not installed yet (one-time download, ~5 MB).\n" +
-              'Run: figma_run with args ["api", "setup"] — then retry figma_reference.',
+            "The official offline API reference is not installed in private Bridge state yet.\n" +
+              'Run: figma_run with args ["api", "setup"] — this validates the pinned local dependency with no network access — then retry figma_reference.',
           );
         }
         throw err;

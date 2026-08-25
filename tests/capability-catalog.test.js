@@ -1289,17 +1289,20 @@ test('catalog reports workspace, network and shared-state effects independently 
   assert.equal(planFigmaCommand(['history', 'snapshot', '--json']).effects.shared, 'none');
   assert.equal(planFigmaCommand(['history', 'list']).effects.shared, 'read');
   assert.deepEqual(planFigmaCommand(['api', 'setup']).effects, {
-    figma: 'none', workspace: 'none', network: 'read', shared: 'write',
+    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(planFigmaCommand(['api', 'index']).effects, {
     figma: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(planFigmaCommand(['api', 'context']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   assert.deepEqual(planFigmaCommand(['api', 'SceneNode']).effects, {
     figma: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
+  const apiPlan = planFigmaCommand(['api', 'setup']);
+  assert.match(apiPlan.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
+  assert.doesNotMatch(JSON.stringify(apiPlan.audit), /https?:|node_modules|figma-api[\\/]/i);
   assert.deepEqual(planFigmaCommand(['api']).effects, {
     figma: 'none', workspace: 'none', network: 'none', shared: 'none',
   });
@@ -1340,6 +1343,20 @@ test('catalog reports workspace, network and shared-state effects independently 
   assert.deepEqual(planFigmaCommand(['export', 'node-json', '1:2', '-o', 'facts.json'], { workspaceDir: '/work' }).effects, {
     figma: 'read', workspace: 'write', network: 'none', shared: 'none',
   });
+});
+
+test('API reference plans expose only private-state effects and stable material provenance', () => {
+  const setup = planFigmaCommand(['api', 'setup']);
+  const lookup = planFigmaCommand(['api', 'show', 'FrameNode']);
+  assert.deepEqual(setup.effects, {
+    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+  });
+  assert.deepEqual(lookup.effects, {
+    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+  });
+  assert.equal(setup.audit.materialVersion, lookup.audit.materialVersion);
+  assert.match(setup.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
+  assert.doesNotMatch(JSON.stringify([setup.audit, lookup.audit]), /https?:|node_modules|figma-api[\\/]/i);
 });
 
 test('cross-Adapter conformance keeps policy identical while migration exposure stays explicit', () => {

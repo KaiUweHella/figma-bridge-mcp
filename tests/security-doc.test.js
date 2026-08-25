@@ -445,6 +445,35 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-API-REFERENCE",
+    [
+      [
+        "tests/api-reference-store.test.js",
+        "setup reads a read-only package and atomically publishes private material",
+      ],
+      [
+        "tests/api-reference-store.test.js",
+        "failed provenance update leaves the previous known-good material readable",
+      ],
+      [
+        "tests/api-reference-store.test.js",
+        "concurrent setup processes publish one complete material without temporary residue",
+      ],
+      [
+        "tests/api-reference-store.test.js",
+        "private state rejects links and unexpected entries before lookup",
+      ],
+      [
+        "tests/capability-catalog.test.js",
+        "API reference plans expose only private-state effects and stable material provenance",
+      ],
+      [
+        "tests/audit-trail.test.js",
+        "Audit Trail retains only a safe API material version",
+      ],
+    ],
+  ],
+  [
     "SEC-PACKAGE",
     [
       [

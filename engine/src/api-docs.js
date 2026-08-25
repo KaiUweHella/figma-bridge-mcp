@@ -1,15 +1,20 @@
 /**
  * Figma Plugin API documentation lookup.
  *
- * Reads from docs/figma-api/ (cloned via the `api setup` command).
- * Source: https://github.com/iamtekeste/figma (Figma Plugin API as markdown)
+ * Reads an official @figma/plugin-typings projection from the private Bridge
+ * state directory. `api setup` is local, atomic and performs no network I/O.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
 import { coveredApiTypeNames } from './lib/api-capability-claims.js';
+import {
+  API_REFERENCE_LIMITS,
+  FIGMA_TYPINGS_MATERIAL_VERSION,
+  OFFICIAL_TYPINGS_PATH,
+} from './lib/api-reference-policy.js';
+import { apiReferenceStore } from './lib/api-reference-store.js';
 import {
   PLUGIN_API_CREATION_OPERATIONS,
   PLUGIN_API_STRUCTURAL_OPERATIONS,
@@ -20,89 +25,70 @@ import {
 } from './lib/round-trip-fidelity-contract.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DOCS_DIR = path.resolve(__dirname, '..', 'docs', 'figma-api');
-const REPO = 'https://github.com/iamtekeste/figma.git';
-const OFFICIAL_TYPINGS_PATH = path.resolve(
-  __dirname, '..', '..', 'node_modules', '@figma', 'plugin-typings', 'plugin-api.d.ts',
-);
+const LEGACY_DOCS_DIR = path.resolve(__dirname, '..', 'docs', 'figma-api');
+const UNSAFE_QUERY = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/;
 
 function isInstalled() {
-  return fs.existsSync(path.join(DOCS_DIR, 'interfaces'));
+  try { apiReferenceStore.load(); return true; } catch { return false; }
+}
+
+function legacyDocsPresent() {
+  return fs.existsSync(path.join(LEGACY_DOCS_DIR, 'interfaces'));
+}
+
+function notInstalledMessage() {
+  return legacyDocsPresent()
+    ? 'legacy package-tree docs are no longer used; run figma_run ["api","setup"] to build the official private reference'
+    : 'reference not installed; run figma_run ["api","setup"]';
+}
+
+function boundedQuery(value, label = 'query') {
+  const text = String(value ?? '');
+  if (text.length > API_REFERENCE_LIMITS.queryCodeUnits || UNSAFE_QUERY.test(text)) {
+    throw new Error(`${label} must be at most ${API_REFERENCE_LIMITS.queryCodeUnits} characters without control or Bidi text`);
+  }
+  return text;
 }
 
 export async function setup({ update = false } = {}) {
-  const installed = isInstalled();
-  if (installed && !update) {
-    console.log('✓ API docs already installed at docs/figma-api/');
-    console.log('  Run with --update to pull the latest version.');
-    return;
-  }
-  if (installed && update) {
-    // git pull so the docs stay fresh without re-cloning ~5 MB
-    try {
-      console.log('→ pulling latest API docs (git pull) …');
-      execSync(`git -C "${DOCS_DIR}" pull --ff-only --quiet`, { stdio: 'inherit' });
-      console.log('✓ docs updated');
-      // Rebuild the compact index since contents may have changed
-      try { buildIndex({ silent: true }); } catch {}
-      return;
-    } catch (e) {
-      console.error('✗ git pull failed:', e.message);
-      console.error('  If the repo is dirty, delete docs/figma-api/ and re-run figma_run ["api","setup"].');
-      process.exit(1);
-    }
-  }
-  console.log('→ cloning Figma API docs (~5 MB) into docs/figma-api/');
-  fs.mkdirSync(path.dirname(DOCS_DIR), { recursive: true });
   try {
-    execSync(`git clone --depth 1 ${REPO} "${DOCS_DIR}"`, { stdio: 'inherit' });
-    // Build the compact index on first install
-    try { buildIndex({ silent: true }); } catch {}
-    console.log('✓ done. Try: figma_run ["api","Frame"]  or  figma_run ["api","index"]');
-  } catch (e) {
-    console.error('✗ clone failed:', e.message);
-    process.exit(1);
+    const installed = apiReferenceStore.install();
+    const verb = installed.reused && !update ? 'already installed' : 'activated';
+    console.log(`✓ Official Figma API reference ${verb}`);
+    console.log(`  material: ${installed.materialVersion}`);
+    console.log(`  ${installed.entries} declarations · ${installed.bytes} private bytes · network: none`);
+    if (installed.reused && update) {
+      console.log('  The installed package already contains the reviewed source; update the Bridge package for newer official typings.');
+    }
+  } catch (error) {
+    console.error(`✗ ${error.message}`);
+    console.error('  The previous private reference, if any, remains unchanged. Reinstall this Bridge package if the official dependency is missing.');
+    process.exitCode = 1;
   }
 }
 
-/**
- * How old (in days) the local doc clone is. Returns Infinity if not installed.
- * Lets callers decide whether to trigger an auto-refresh.
- */
+/** How old (in days) the activated private material is. */
 export function ageInDays() {
-  if (!isInstalled()) return Infinity;
-  try {
-    // Use the .git/HEAD mtime as the freshness signal — updated on every pull
-    const head = path.join(DOCS_DIR, '.git', 'HEAD');
-    const stat = fs.statSync(head);
-    return (Date.now() - stat.mtimeMs) / (1000 * 60 * 60 * 24);
-  } catch {
-    return Infinity;
-  }
+  return apiReferenceStore.ageInDays();
 }
 
 function listAll() {
-  if (!isInstalled()) return null;
-  const interfaces = fs.readdirSync(path.join(DOCS_DIR, 'interfaces'))
-    .filter(f => f.endsWith('.md'))
-    .map(f => ({ kind: 'interface', name: f.replace(/\.md$/, ''), file: path.join(DOCS_DIR, 'interfaces', f) }));
-  const aliases = fs.readdirSync(path.join(DOCS_DIR, 'type-aliases'))
-    .filter(f => f.endsWith('.md'))
-    .map(f => ({ kind: 'type', name: f.replace(/\.md$/, ''), file: path.join(DOCS_DIR, 'type-aliases', f) }));
-  return [...interfaces, ...aliases];
+  try { return apiReferenceStore.load().entries; } catch { return null; }
 }
 
 export function list(filter) {
   const all = listAll();
   if (!all) {
-    console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
-    process.exit(1);
+    console.error(`✗ ${notInstalledMessage()}`);
+    process.exitCode = 1;
+    return;
   }
-  const items = filter
-    ? all.filter(i => i.name.toLowerCase().includes(filter.toLowerCase()))
+  const query = boundedQuery(filter || '', 'filter');
+  const items = query
+    ? all.filter(i => i.name.toLowerCase().includes(query.toLowerCase()))
     : all;
   if (items.length === 0) {
-    console.log(`No matches for "${filter}".`);
+    console.log(`No matches for "${query}".`);
     return;
   }
   for (const i of items) {
@@ -122,71 +108,38 @@ function score(name, query) {
   return i === q.length ? i : 0;
 }
 
-/**
- * Compress a typedoc-style interface markdown to signatures + one line of
- * prose per member. The full dumps repeat "Defined in:", "Inherited from"
- * and cross-link boilerplate for EVERY inherited property — ComponentSetNode
- * weighs 135 KB raw, which no LLM context (and no human) wants. Compact
- * keeps: title, Extends, each member's signature blockquote and its first
- * description line.
- */
-function compactMarkdown(md) {
-  const stripLinks = (s) => s.replace(/\[`?([^\]`]+)`?\]\([^)]*\)/g, '$1');
-  const lines = md.split('\n');
-  const out = [];
-  let i = 0;
-  let inMember = false;   // between a ### heading and the next ###/##
-  let proseTaken = false; // one description line per member
-  let inFence = false;    // inside a ``` code block
-  for (; i < lines.length; i++) {
-    const line = lines[i];
-    // Drop fenced code blocks whole. The compact view keeps only signatures +
-    // one prose line, so a lone ``` opener (with its body/closer skipped as
-    // non-prose) would leave unbalanced fences that make renderers treat the
-    // rest of the document as one code block.
-    if (line.startsWith('```')) { inFence = !inFence; continue; }
-    if (inFence) continue;
-    if (line.startsWith('# ')) { out.push(stripLinks(line)); continue; }
-    if (line.startsWith('## ')) {
-      inMember = false;
-      // Drop link-only sections; keep structural ones (Extends, Properties, Methods, ...)
-      if (/^## (See|Source)\b/.test(line)) continue;
-      out.push('', stripLinks(line));
-      continue;
-    }
-    if (line.startsWith('### ')) {
-      inMember = true;
-      proseTaken = false;
-      out.push('', stripLinks(line));
-      continue;
-    }
-    if (!inMember) {
-      // Header block between title and first ## — keep prose (interface summary)
-      if (line.startsWith('Defined in:') || line.startsWith('---') || line.startsWith('#')) continue;
-      if (line.trim()) out.push(stripLinks(line));
-      continue;
-    }
-    // Inside a member section:
-    if (line.startsWith('> ')) { out.push(stripLinks(line)); continue; } // signature
-    if (line.startsWith('#### ') || line.startsWith('Defined in:') || line.startsWith('---')) continue;
-    if (!proseTaken && line.trim() && !line.startsWith('#') && !line.startsWith('[')) {
-      out.push(stripLinks(line.length > 240 ? line.slice(0, 240) + '…' : line));
-      proseTaken = true;
-    }
+function compactOfficialDeclaration(entry) {
+  const declarationLine = entry.source
+    .split('\n')
+    .find((line) => /^(?:export\s+)?(?:declare\s+)?(?:interface|type|class|enum)\s+/.test(line.trim()))
+    ?.trim();
+  const lines = [
+    `# ${entry.name}`,
+    '',
+    `Official source: ${FIGMA_TYPINGS_MATERIAL_VERSION}`,
+  ];
+  if (entry.summary) lines.push('', entry.summary);
+  if (declarationLine) lines.push('', '## Declaration', '', `\`${declarationLine}\``);
+  if (entry.members.length) {
+    lines.push('', `## Members (${entry.members.length})`, '');
+    for (const member of entry.members) lines.push(`- \`${member.signature}\``);
   }
-  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+  return lines.join('\n');
 }
 
 export function show(query, opts = {}) {
   const all = listAll();
   if (!all) {
-    console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
-    process.exit(1);
+    console.error(`✗ ${notInstalledMessage()}`);
+    process.exitCode = 1;
+    return;
   }
   if (!query) {
     console.error('Usage: figma_run ["api","<name>"]   (e.g. figma_run ["api","FrameNode"])');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
+  query = boundedQuery(query);
   const ranked = all
     .map(i => ({ ...i, s: score(i.name, query) }))
     .filter(i => i.s > 0)
@@ -205,12 +158,11 @@ export function show(query, opts = {}) {
     console.log(`\nUse: figma_run ["api","<exact-name>"]`);
     return;
   }
-  const md = fs.readFileSync(top.file, 'utf-8');
   if (opts.full) {
-    console.log(md);
+    console.log(top.source);
   } else {
-    console.log(compactMarkdown(md));
-    console.log(`\n(compact view — full docs: figma_run ["api","${top.name}","--full"])`);
+    console.log(compactOfficialDeclaration(top));
+    console.log(`\n(compact official view — full declaration and prose: figma_run ["api","${top.name}","--full"])`);
   }
 }
 
@@ -250,7 +202,7 @@ export function suggestFromError(message) {
 
   // Search both: interface names (fast, fuzzy) AND interface contents (for method/property names)
   const all = listAll() || [];
-  const hits = new Map(); // name -> { name, kind, file, score, matchedTerm }
+  const hits = new Map(); // name -> { name, kind, score, matchedTerm }
 
   for (const term of useful) {
     // 1. Name-based fuzzy match
@@ -263,25 +215,22 @@ export function suggestFromError(message) {
     }
     // 2. Content search: which files contain this term?
     // Higher score if term appears as a heading (### term) — that's where it's DEFINED.
-    const headingRe = new RegExp(`^#{2,4}\\s+${term}\\b`, 'm');
     const wordRe = new RegExp(`\\b${term}\\b`);
     for (const i of all) {
       if (hits.has(i.name) && hits.get(i.name).source === 'name') continue;
-      try {
-        const content = fs.readFileSync(i.file, 'utf-8');
-        let s = 0;
-        if (headingRe.test(content)) {
-          // Defined here — high score
-          s = 80;
-        } else if (wordRe.test(content)) {
-          // Just mentioned — low score
-          s = i.kind === 'interface' ? 25 : 15;
-        }
-        if (s > 0) {
-          const ex = hits.get(i.name);
-          if (!ex || s > ex.score) hits.set(i.name, { ...i, score: s, matchedTerm: term, source: s >= 80 ? 'definition' : 'mention' });
-        }
-      } catch { /* skip unreadable */ }
+      const content = i.source;
+      let s = 0;
+      if (i.members.some((member) => member.name === term)) {
+        s = 80;
+      } else if (wordRe.test(content)) {
+        s = i.kind === 'interface' ? 25 : 15;
+      }
+      if (s > 0) {
+        const ex = hits.get(i.name);
+        if (!ex || s > ex.score) hits.set(i.name, {
+          ...i, score: s, matchedTerm: term, source: s >= 80 ? 'definition' : 'mention',
+        });
+      }
     }
   }
 
@@ -304,6 +253,7 @@ export function suggestFromError(message) {
  */
 export function suggest(query) {
   if (!query) return;
+  try { query = boundedQuery(query); } catch { return; }
   const all = listAll();
   if (!all) {
     console.error('  → run figma_run ["--help"] to see available commands');
@@ -338,46 +288,23 @@ export function suggest(query) {
 export function searchMethods(keyword) {
   if (!keyword || typeof keyword !== 'string') return [];
   if (!isInstalled()) return [];
+  keyword = boundedQuery(keyword, 'keyword');
   const kw = keyword.toLowerCase();
   const all = listAll() || [];
   const results = [];
-  // Method/property headings look like:
-  //   ### rescale()
-  //   ### width
-  // Followed (after a blank line) by:
-  //   > **rescale**(`scale`): `void`
-  const headingRe = /^###\s+([a-zA-Z_][a-zA-Z0-9_]*)\(?\)?\s*$/gm;
   for (const item of all) {
-    let content;
-    try { content = fs.readFileSync(item.file, 'utf-8'); } catch { continue; }
-    headingRe.lastIndex = 0;
-    let m;
-    while ((m = headingRe.exec(content)) !== null) {
-      const name = m[1];
+    for (const member of item.members) {
+      const name = member.name;
       const lower = name.toLowerCase();
-      // Match if keyword is a substring OR keyword matches start of the camelCase name
       if (!lower.includes(kw)) continue;
-      // Capture the signature: prefer a `> **name**...` blockquote line within
-      // the next ~600 chars; fall back to "Defined in:" if no signature exists
-      // (means it's a property, not a method)
-      const rest = content.slice(m.index + m[0].length, m.index + m[0].length + 800);
-      let signature = '';
-      const sigMatch = rest.match(/^>\s+(\*\*[^\n]+)/m);
-      if (sigMatch) signature = sigMatch[1].replace(/\*\*/g, '').trim();
-      else {
-        const propMatch = rest.match(/^(?:>\s+)?`([^`]+)`\s*$/m);
-        if (propMatch) signature = propMatch[1].trim();
-      }
-      // Relevance: exact match > prefix > substring; prefer shorter names
       let s = 0;
       if (lower === kw) s = 1000;
       else if (lower.startsWith(kw)) s = 200 + (kw.length / lower.length) * 100;
       else s = 50 + (kw.length / lower.length) * 50;
-      // Prefer the canonical / less-specific interfaces (LayoutMixin > FrameNode for shared methods)
       if (item.name.endsWith('Mixin')) s += 5;
       results.push({
         method: name,
-        signature,
+        signature: member.signature,
         interface: item.name,
         kind: item.kind,
         score: s,
@@ -427,8 +354,8 @@ function readSourceTree(dir) {
 
 /**
  * Extract the public named declarations from Figma's official typings.
- * The Markdown mirror remains useful for prose lookup, but coverage must be
- * measured against the package Figma updates with every Plugin API release.
+ * Lookup and coverage use the package Figma updates with every Plugin API
+ * release; coverage does not depend on private reference setup.
  */
 export function parseOfficialTypingNames(source) {
   const found = new Map();
@@ -550,86 +477,47 @@ export function gap() {
   console.log('Tip: figma_run ["api","<Name>"]   to read the prose reference; api gap itself uses the official typings.');
 }
 
-/** Path to the compact index. Rebuilt by buildIndex(); lives alongside the docs. */
-const INDEX_PATH = path.resolve(__dirname, '..', 'docs', 'figma-api-INDEX.md');
-
-/**
- * Build a compact markdown index of every interface + type alias with a
- * one-line description extracted from the source markdown. ~5 KB instead of
- * 135 KB. Designed as a "first-fetch" knowledge handle for LLM agents:
- * the model sees what APIs exist without having to load every full file.
- *
- * Inspired by Claude's claude-code-guide pattern (Cristian Morales): keep
- * skills thin, knowledge external + indexed.
- */
-export function buildIndex({ silent = false } = {}) {
-  if (!isInstalled()) {
-    if (!silent) console.error('✗ docs not installed. Run: figma_run ["api","setup"]');
-    process.exit(1);
-  }
-  const all = listAll();
+function indexFromModel(model) {
   const groups = { interface: [], type: [] };
-  for (const item of all) {
-    let blurb = '';
-    try {
-      const content = fs.readFileSync(item.file, 'utf-8');
-      // First paragraph after the H1, skipping empty + frontmatter-style lines
-      const lines = content.split('\n');
-      let inBody = false;
-      for (const line of lines) {
-        const trim = line.trim();
-        if (!inBody) {
-          if (trim.startsWith('# ')) { inBody = true; continue; }
-          continue;
-        }
-        if (!trim) continue;
-        if (trim.startsWith('Defined in:')) continue;
-        if (trim.startsWith('##') || trim.startsWith('###')) break;
-        if (trim.startsWith('>')) continue;
-        if (trim.startsWith('|')) continue;
-        // first non-meta paragraph
-        blurb = trim.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/`/g, '');
-        if (blurb.length > 140) blurb = blurb.slice(0, 137) + '…';
-        break;
-      }
-    } catch { /* skip unreadable */ }
+  for (const item of model.entries) {
+    const blurb = item.summary.length > 140 ? `${item.summary.slice(0, 137)}…` : item.summary;
     groups[item.kind].push({ name: item.name, blurb });
   }
-  for (const k of Object.keys(groups)) {
-    groups[k].sort((a, b) => a.name.localeCompare(b.name));
-  }
+  for (const kind of Object.keys(groups)) groups[kind].sort((a, b) => a.name.localeCompare(b.name));
   const lines = [
-    '# Figma Plugin API — Index',
+    '# Figma Plugin API — Official Index',
     '',
-    `Generated ${new Date().toISOString().slice(0, 10)} from docs/figma-api/.`,
-    `Total: ${groups.interface.length} interfaces, ${groups.type.length} type aliases.`,
+    `Material: ${model.materialVersion}`,
+    `Total: ${groups.interface.length} interfaces, ${groups.type.length} type/class/enum aliases.`,
     '',
     '## Interfaces',
     '',
   ];
-  for (const i of groups.interface) {
-    lines.push(`- **${i.name}**${i.blurb ? ' — ' + i.blurb : ''}`);
-  }
-  lines.push('', '## Type aliases', '');
-  for (const i of groups.type) {
-    lines.push(`- **${i.name}**${i.blurb ? ' — ' + i.blurb : ''}`);
-  }
-  const out = lines.join('\n') + '\n';
-  fs.writeFileSync(INDEX_PATH, out);
-  if (!silent) {
-    const sizeKB = (out.length / 1024).toFixed(1);
-    console.log(`✓ index written: ${INDEX_PATH} (${groups.interface.length}i + ${groups.type.length}t, ${sizeKB} KB)`);
-  }
-  return INDEX_PATH;
+  for (const item of groups.interface) lines.push(`- **${item.name}**${item.blurb ? ` — ${item.blurb}` : ''}`);
+  lines.push('', '## Types, classes and enums', '');
+  for (const item of groups.type) lines.push(`- **${item.name}**${item.blurb ? ` — ${item.blurb}` : ''}`);
+  return `${lines.join('\n')}\n`;
 }
 
-/**
- * Read (or build-and-read) the compact index. Used at startup
- * and on /learn.
- */
+/** Revalidate and atomically activate the pinned source, then project its index. */
+export function buildIndex({ silent = false } = {}) {
+  try {
+    const installed = apiReferenceStore.install();
+    const out = indexFromModel(apiReferenceStore.load());
+    if (!silent) {
+      console.log(`✓ official index ready: ${installed.materialVersion}`);
+      console.log(`  ${installed.entries} declarations · ${(Buffer.byteLength(out, 'utf8') / 1024).toFixed(1)} KB`);
+    }
+    return out;
+  } catch (error) {
+    if (!silent) console.error(`✗ ${error.message}`);
+    process.exitCode = 1;
+    return '';
+  }
+}
+
 export function readIndex() {
-  if (!fs.existsSync(INDEX_PATH)) buildIndex({ silent: true });
-  return fs.readFileSync(INDEX_PATH, 'utf-8');
+  return indexFromModel(apiReferenceStore.load());
 }
 
 /**
@@ -641,11 +529,10 @@ export function readIndex() {
  * next user message, sized appropriate for a 32k-context local model.
  */
 export function getContext(topic) {
-  if (!isInstalled()) {
-    return '(Figma API docs not installed — run figma_run ["api","setup"] first.)';
-  }
+  if (!isInstalled()) return `(Figma API ${notInstalledMessage()}.)`;
   const idx = readIndex();
   if (!topic || !topic.trim()) return idx;
+  topic = boundedQuery(topic, 'topic');
 
   // Find candidate interfaces by name (cheap) + by method search (deeper)
   const all = listAll() || [];
@@ -662,18 +549,31 @@ export function getContext(topic) {
     ...nameHits.map(h => h.name),
     ...methodHits.map(h => h.interface),
   ]);
+  const heading = `\n\n# Relevant for "${topic}"\n`;
   const bodies = [];
+  let usedBytes = Buffer.byteLength(idx, 'utf8') + Buffer.byteLength(heading, 'utf8');
   for (const name of interfaceNames) {
     const item = all.find(i => i.name === name);
     if (!item) continue;
-    try {
-      bodies.push(`\n\n---\n\n## ${name}\n\n` + fs.readFileSync(item.file, 'utf-8').trim());
-    } catch {}
+    const body = `\n\n---\n\n## ${name}\n\n${item.source.trim()}`;
+    const bytes = Buffer.byteLength(body, 'utf8');
+    if (usedBytes + bytes > API_REFERENCE_LIMITS.contextBytes) {
+      const omission = `\n\n---\n\n## ${name}\n\n(declaration omitted from this bounded context; use figma_run ["api","show","${name}","--full"])`;
+      const omissionBytes = Buffer.byteLength(omission, 'utf8');
+      if (usedBytes + omissionBytes <= API_REFERENCE_LIMITS.contextBytes) {
+        bodies.push(omission);
+        usedBytes += omissionBytes;
+      }
+      continue;
+    }
+    bodies.push(body);
+    usedBytes += bytes;
   }
-  const out = [
-    idx,
-    `\n\n# Relevant for "${topic}"\n`,
-    bodies.length > 0 ? bodies.join('\n') : '(no specific interface matches — use the index above)',
-  ].join('');
+  const empty = '(no specific interface matches — use the index above)';
+  const content = bodies.length > 0 ? bodies.join('') : empty;
+  const out = `${idx}${heading}${content}`;
+  if (Buffer.byteLength(out, 'utf8') > API_REFERENCE_LIMITS.contextBytes) {
+    throw new Error('official API reference index exceeds the bounded context policy');
+  }
   return out;
 }

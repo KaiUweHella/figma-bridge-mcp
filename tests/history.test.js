@@ -35,7 +35,7 @@ test('runCli with label writes an enriched audit line plus a completion entry', 
   await runCli(['--help'], { label: 'discoverability check' });
   const lines = parseAuditLines(readFileSync(AUDIT, 'utf8'));
   const entry = lines.findLast((e) => e.event === 'start');
-  assert.equal(entry.schema, 3);
+  assert.equal(entry.schema, 4);
   assert.equal(entry.capability, 'help');
   assert.equal(entry.data.arguments.count, 1);
   assert.equal(entry.data.label.bytes, Buffer.byteLength('discoverability check'));

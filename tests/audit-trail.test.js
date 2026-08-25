@@ -46,6 +46,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     body: secrets.body,
     nodes: ["12:34"],
     outputRoles: ["assets-dir"],
+    materialVersion: "figma-plugin-typings-1.133.0-010eadcbbd27",
   });
   const status = trail.finish(handle, {
     ok: false,
@@ -82,6 +83,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
   assert.equal(start.event, "start");
   assert.equal(start.capability, "render");
   assert.equal(start.operation, "write");
+  assert.equal(start.materialVersion, "figma-plugin-typings-1.133.0-010eadcbbd27");
   assert.deepEqual(start.effects, { figma: "write", workspace: "read", network: "none", shared: "none" });
   assert.equal(start.target.kind, "plugin-file");
   assert.match(start.target.identity.sha256, /^[a-f0-9]{64}$/);
@@ -145,4 +147,24 @@ test("Audit Trail keeps one bounded private rotation", () => {
   trail.finish(final, { ok: true });
   assert.equal(statSync(auditPath).mode & 0o777, 0o600);
   assert.equal(statSync(`${auditPath}.1`).mode & 0o777, 0o600);
+});
+
+test("Audit Trail retains only a safe API material version", () => {
+  const root = mkdtempSync(join(tmpdir(), "figma-audit-material-"));
+  const auditPath = join(root, "audit.log");
+  const trail = createAuditTrail({ auditPath });
+  const handle = trail.begin({
+    capability: "api.setup",
+    operation: "write",
+    effects: { figma: "none", workspace: "none", network: "none", shared: "write" },
+    materialVersion: "figma-plugin-typings-1.133.0-010eadcbbd27",
+    arguments: ["api", "setup", "https://example.test/secret"],
+  });
+  trail.finish(handle, { ok: true, code: 0 });
+  const [start] = records(auditPath);
+  assert.equal(start.materialVersion, "figma-plugin-typings-1.133.0-010eadcbbd27");
+  assert.deepEqual(start.effects, {
+    figma: "none", workspace: "none", network: "none", shared: "write",
+  });
+  assert.doesNotMatch(JSON.stringify(start), /example\.test|secret|node_modules|figma-api[\\/]/i);
 });

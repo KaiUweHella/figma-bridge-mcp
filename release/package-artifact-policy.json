@@ -184,6 +184,8 @@
     "engine/src/gradient-extractor.js",
     "engine/src/index.js",
     "engine/src/lib/annotation-management.js",
+    "engine/src/lib/api-reference-policy.js",
+    "engine/src/lib/api-reference-store.js",
     "engine/src/lib/api-capability-claims.js",
     "engine/src/lib/api-operation-coverage.js",
     "engine/src/lib/asset-manifest.js",

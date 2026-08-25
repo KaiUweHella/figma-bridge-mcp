@@ -400,7 +400,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 | `figma_inspect`    | Inspect a node by id: geometry, fills/strokes/effects, clip, opacity (YAML).                                                                                                                                                                                                                                                                                                                          |
 | `figma_screenshot` | Save a PNG of a node/selection to a temp file (path + dimensions + applied scale returned).                                                                                                                                                                                                                                                                                                           |
 | `figma_spec`       | Design-to-code spec of one node or a bounded `nodeIds[]` batch: real content, component names, tokens, vector-art refs, clip/abs — multiple same-scope reads can share one Manual Mode approval.                                                                                                                                                                                                      |
-| `figma_reference`  | Offline Figma Plugin API reference (`api setup` once); `{name:"capabilities"}` lists commands and `{name:"fidelity"}` projects both workflow directions and their explicit boundaries without starting Figma.                                                                                                                                                                                         |
+| `figma_reference`  | Offline Figma Plugin API reference (`api setup` once builds private state from the exact official typings with no network); `{name:"capabilities"}` lists commands and `{name:"fidelity"}` projects both workflow directions and their explicit boundaries without starting Figma.                                                                                                                    |
 | `figma_history`    | Private local capability history — filter by `nodeId` through redacted references, optionally merge `git log` of generated code files and (REST add-on) Figma version history via `includeVersions:true`. Or pass `diff:{from,to}` for a structural document diff. New records retain no raw commands, JSX, labels, file keys, paths, REST bodies, or errors; bounded legacy records remain readable. |
 | `figma_selection`  | The user's current selection in Figma (ids, names, types, sizes) — pushed live by the plugin. Instances resolve to their stable publish `key`; linked nodes show their Design Entity, code file and Storybook story.                                                                                                                                                                                  |
 | `figma_comments`   | REST add-on: read design-review comments (`action:"list"`) or post/reply (`action:"post"` — always previews first, needs `confirm:true`).                                                                                                                                                                                                                                                             |
@@ -1728,10 +1728,10 @@ Node's `crypto` so the two implementations cannot drift apart.
   content-authoring workflow are not. See the
   [Slides roadmap](docs/slides-roadmap.md) for actionable candidates versus
   Plugin API boundaries.
-- **Non-localhost network actions are few and explicit**: `api setup`
-  (one-time git clone of the Figma Plugin API docs mirror, for
-  `figma_reference`; `api gap` instead measures against the installed official
-  `@figma/plugin-typings` package), the explicitly approved Storybook origin
+- **Non-localhost network actions are few and explicit**: `api setup` has no
+  network effect; it verifies the exact official `@figma/plugin-typings`
+  dependency and atomically builds a private offline reference for
+  `figma_reference`. External access is limited to the explicitly approved Storybook origin
   used by `import`/`map storybook` (or the local directory you pass), and — only
   when you opt into the REST
   add-on — calls to `api.figma.com`. Nothing else talks to the network — the

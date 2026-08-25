@@ -6,6 +6,7 @@
 // without making every Adapter understand the catalog schema.
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { FIGMA_TYPINGS_MATERIAL_VERSION } from '../engine/src/lib/api-reference-policy.js';
 import {
   acceptsAssetExportArgv,
   assetExportArgvFromRequest,
@@ -1706,7 +1707,6 @@ function flagValue(args, flags, options) {
 
 /** External outbound access only; authenticated localhost transport is separate. */
 function networkEffect(args, capability) {
-  if (args[0] === 'api' && args[1] === 'setup') return 'read';
   if (args[0] === 'map' && args[1] === 'storybook') {
     const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
     if (isUrl(args[sourceIndex] || '')) return 'read';
@@ -1727,7 +1727,7 @@ function networkEffect(args, capability) {
 function sharedEffect(args, artifactOutputs, capability) {
   if (artifactOutputs.some((output) => output.scope === 'private-temporary')) return 'write';
   if (args[0] === 'api') {
-    if (args[1] === 'setup' || args[1] === 'index' || args[1] === 'context') return 'write';
+    if (args[1] === 'setup' || args[1] === 'index') return 'write';
     return 'read';
   }
   if (args[0] === 'history') {
@@ -1857,6 +1857,9 @@ export function planFigmaCommand(rawArgs, {
       effects,
       targetKind: target.kind,
       outputRoles: Object.freeze([...new Set(outputs.map(({ role }) => role))]),
+      ...(prepared.args[0] === 'api'
+        ? { materialVersion: FIGMA_TYPINGS_MATERIAL_VERSION }
+        : {}),
     }),
     summary: capability.summary,
   };

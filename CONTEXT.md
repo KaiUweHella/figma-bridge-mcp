@@ -234,6 +234,17 @@ no Figma target or Plugin readiness and never writes an implicit artifact;
 simple token families reuse Single-Collection Token Import directly in memory.
 _Avoid_: import dispatcher, nested token command, synthetic token file, implicit Storybook output
 
+**Official API Reference Material**:
+The bounded offline projection of one exactly reviewed
+`@figma/plugin-typings` release. `api setup` validates package identity,
+source digest, bytes, declaration counts, strings and filesystem identity,
+then atomically publishes the versioned model under private Shared State. It
+has no external-network or Workspace effect, never mutates the installed
+package tree and keeps the previous known-good material after failure. Lookup,
+search and bounded agent context read that same model; Command Plans and the
+Audit Trail expose only Shared-State effects and its stable material version.
+_Avoid_: cloned docs mirror, package-tree cache, moving branch, shell Git, implicit download
+
 **Composite Style Import**:
 The versioned, bounded and non-retrying projection of supported Typography and
 Shadow token facts into native local Text Styles and Effect Styles. It resolves

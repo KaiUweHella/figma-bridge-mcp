@@ -1041,7 +1041,7 @@ annotateCmd
 const apiCmd = program
   .command('api [name]')
   .description('Look up Figma Plugin API interface or type (offline). Run `api setup` first.')
-  .option('--full', 'Full markdown dump (default is a compact signatures-only view)')
+  .option('--full', 'Full official TypeScript declaration and prose (default is compact signatures)')
   .action((name, options) => apiDocs.show(name, { full: !!options.full }));
 
 // `api show <name>` forces a reference lookup: unlike `api <name>`, a name that
@@ -1051,18 +1051,18 @@ const apiCmd = program
 apiCmd
   .command('show <name>')
   .description('Show a specific interface/type by name (never dispatches to a subcommand)')
-  .option('--full', 'Full markdown dump (default is a compact signatures-only view)')
+  .option('--full', 'Full official TypeScript declaration and prose (default is compact signatures)')
   .action((name, options) => apiDocs.show(name, { full: !!options.full }));
 
 apiCmd
   .command('setup')
-  .description('Download Figma Plugin API docs locally (~5 MB, one-time). Use --update to pull the latest version instead of re-cloning.')
-  .option('--update', 'git pull the docs repo instead of re-cloning (faster, keeps the dir)')
+  .description('Build the private offline reference from the reviewed official @figma/plugin-typings dependency (no network).')
+  .option('--update', 'Revalidate and reactivate the official typings shipped with this Bridge version')
   .action((options) => apiDocs.setup({ update: !!options.update }));
 
 apiCmd
   .command('index')
-  .description('Build/refresh the compact "what APIs exist" index (~5 KB). LLM-friendly first-fetch handle.')
+  .description('Revalidate the official private reference and print its compact index status.')
   .action(() => apiDocs.buildIndex());
 
 apiCmd
@@ -1074,7 +1074,7 @@ apiCmd
 
 apiCmd
   .command('age')
-  .description('Days since the docs repo was last updated. Lets agent tooling decide when to auto-refresh.')
+  .description('Days since this reviewed official material was activated in private state.')
   .action(() => {
     const days = apiDocs.ageInDays();
     if (days === Infinity) {
