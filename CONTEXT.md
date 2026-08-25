@@ -52,6 +52,15 @@ Variable values, consumer discovery, binary asset retrieval, shader
 definitions, arbitrary Plugin data or a complete Design Capture.
 _Avoid_: style dump, flattened CSS style, resolved token value, style consumer scan
 
+**Style Catalog**:
+The compact, versioned and bounded inventory of local Style identities. It
+loads one requested family or all four families concurrently, sorts stable
+type/name/id anchors, and reports total, returned, omitted, completeness and a
+scope-bound continuation cursor through one safe-read Command Application.
+Catalog rows are follow-up handles, not authored Style Facts or document-wide
+consumer evidence.
+_Avoid_: style dump, complete style values, offset-only pagination, consumer scan
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

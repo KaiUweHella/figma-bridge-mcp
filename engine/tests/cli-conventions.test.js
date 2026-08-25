@@ -304,6 +304,24 @@ test('style show delegates one Plan-bound bounded-read Command Application', () 
     'Commander must not retain Style Facts readiness, capture, or formatting logic');
 });
 
+test('style list delegates one Plan-bound bounded Style Catalog Application', () => {
+  const adapter = sources.get('styles.js');
+  assert.ok(adapter, 'styles.js exists');
+  const start = adapter.indexOf("styles.command('list')");
+  const end = adapter.indexOf("styles.command('show <style>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(styleCatalogPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeStyleCatalogPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|styleListCode\(/,
+    'Commander must not retain Style Catalog readiness, capture, or formatting logic');
+});
+
 test('grid list delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

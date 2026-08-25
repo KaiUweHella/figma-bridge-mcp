@@ -120,6 +120,22 @@ test('Style Facts closes one policy-identical CLI/MCP safe read', () => {
     'a URL-shaped style name is payload, never Figma Target Context');
 });
 
+test('Style Catalog closes one bounded policy-identical CLI/MCP safe read', () => {
+  const cli = planFigmaCommand(['style', 'list', '--type', 'text', '--limit', '25'], {
+    adapter: 'cli',
+  });
+  const mcp = planFigmaCommand(['style', 'list', '--limit=25', '-tTEXT'], {
+    adapter: 'mcp',
+  });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.audit.capability, 'style.list');
+});
+
 test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['grid', 'list', '10-3', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['grid', 'list', '--json', '10:3'], { adapter: 'mcp' });

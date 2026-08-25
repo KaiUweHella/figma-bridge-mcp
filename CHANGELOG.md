@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `style list` through one compact bounded Style Catalog Application
+  shared by Commander and MCP. Family-scoped reads load only the requested
+  native catalog; stable identity rows now expose explicit totals, omissions,
+  completeness and versioned scope-bound continuation instead of returning an
+  unbounded authored-style dump.
 - Routed `grid list` through one exact, versioned and bounded Layout Grid Facts
   Application shared by Commander and MCP. Node/selection targeting,
   `gridStyleId`, exact ROWS/COLUMNS/GRID topology, colors and Variable Aliases

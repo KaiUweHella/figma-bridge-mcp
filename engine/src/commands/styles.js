@@ -9,9 +9,13 @@ import {
   styleFactsPlanningArgvFromRequest,
 } from '../application/style-facts-command.js';
 import {
+  executeStyleCatalogPlan,
+  styleCatalogPlanningArgvFromRequest,
+} from '../application/style-catalog-command.js';
+import {
   parseStyleProperties, parseStyleType, styleApplyCode, styleConsumersCode,
   styleBindVariableCode,
-  styleCreateCode, styleDeleteCode, styleListCode, stylePublishStatusCode,
+  styleCreateCode, styleDeleteCode, stylePublishStatusCode,
   styleUpdateCode,
 } from '../lib/style-management.js';
 
@@ -19,9 +23,38 @@ const print = (value) => console.log(JSON.stringify(value, null, 2));
 const run = async (code) => { await checkConnection(); return fastEval(code); };
 const styles = program.command('style').description('Manage local paint, text, effect, and grid styles');
 
-styles.command('list').option('-t, --type <type>', 'PAINT, TEXT, EFFECT, or GRID').action(async (options) => {
-  try { print(await run(styleListCode({ type: options.type }))); } catch (error) { handleEvalError(error); }
-});
+styles.command('list')
+  .option('-t, --type <type>', 'PAINT, TEXT, EFFECT, or GRID')
+  .option('--limit <count>', 'Maximum styles returned in this page')
+  .option('--cursor <cursor>', 'Continue from a prior Style Catalog page')
+  .allowExcessArguments(false)
+  .action(async (options) => {
+    try {
+      const plan = planFigmaCommand(styleCatalogPlanningArgvFromRequest({
+        type: options.type || null,
+        limit: options.limit || null,
+        cursor: options.cursor || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleCatalogPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Catalog failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
 styles.command('show <style>')
   .option('-t, --type <type>', 'Narrow name resolution to PAINT, TEXT, EFFECT, or GRID')
   .allowExcessArguments(false)

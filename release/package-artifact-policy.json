@@ -61,6 +61,8 @@
     "engine/src/application/screenshot-request.js",
     "engine/src/application/semantic-render-command.js",
     "engine/src/application/semantic-render-request.js",
+    "engine/src/application/style-catalog-command.js",
+    "engine/src/application/style-catalog-request.js",
     "engine/src/application/style-facts-command.js",
     "engine/src/application/style-facts-request.js",
     "engine/src/application/verification-artifact.js",

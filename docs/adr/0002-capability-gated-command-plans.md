@@ -186,6 +186,15 @@ union and Variable Alias topology. The official Auto count crosses JSON as the
 shared `{"$figmaScalar":"Infinity"}` value; every other non-finite value and
 every unknown union field fails before plausible output is returned.
 
+`style list` owns a separate compact Style Catalog Application. Its closed
+request canonicalizes optional family, bounded page limit and versioned
+scope-bound cursor before one safe-read Plan. A family-scoped request loads
+only that native catalog; an unscoped request loads all four independently and
+sorts one deterministic identity view. Total, returned, omitted-before,
+omitted-after, completeness and continuation are explicit, and malformed or
+stale cursors fail rather than turning catalog drift into silent omissions.
+Exact Style values and consumer scans remain separate Applications.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one
