@@ -158,6 +158,15 @@ Discovery rows are follow-up handles, not authored Variable Facts, resolved
 consumer values or permission to mutate tokens.
 _Avoid_: variable dump, executable regex, name-only identity, variable edit
 
+**Variable Creation**:
+The bounded, non-retrying creation of one local Variable in one exact local
+Collection. It closes type and optional initial value before readiness,
+resolves Collection ambiguity explicitly, preflights exact-name duplicates,
+creates once, journals identity immediately and removes the new Variable if
+initialization or result projection fails. Intentional duplicates remain an
+explicit capability.
+_Avoid_: variable factory eval, first-name collection choice, retryable create, implicit duplicate
+
 **Collection Catalog**:
 The compact, versioned and bounded inventory of local Variable Collection
 identities. It preserves collection id, publish key, name, extension and

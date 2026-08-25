@@ -102,6 +102,11 @@ import {
   variableDiscoveryArgvFromRequest,
 } from '../engine/src/application/variable-discovery-request.js';
 import {
+  acceptsVariableCreateArgv,
+  parseVariableCreateRequest,
+  variableCreateArgvFromRequest,
+} from '../engine/src/application/variable-create-request.js';
+import {
   acceptsVariableFactsArgv,
   parseVariableFactsRequest,
   variableFactsArgvFromRequest,
@@ -290,6 +295,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
+  'var.create',
   'col.list', 'col.show',
   'var.publish-status', 'col.publish-status',
   'col.create',
@@ -443,6 +449,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'variable-discovery-input';
   }
+  if (name === 'var' && sub === 'create') pathPolicy = 'variable-create-input';
   if (name === 'var' && sub === 'resolve') {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
@@ -561,6 +568,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && ['list', 'find'].includes(args[1])
     && !action.help && !acceptsVariableDiscoveryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'create'
+    && !action.help && !acceptsVariableCreateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'resolve'
@@ -1194,6 +1205,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-discovery-input': {
       args.splice(0, args.length,
         ...variableDiscoveryArgvFromRequest(parseVariableDiscoveryRequest(args)));
+      break;
+    }
+    case 'variable-create-input': {
+      args.splice(0, args.length,
+        ...variableCreateArgvFromRequest(parseVariableCreateRequest(args)));
       break;
     }
     case 'variable-resolution-input': {

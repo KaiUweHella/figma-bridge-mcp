@@ -568,6 +568,23 @@ test('var list and find delegate one Plan-bound bounded Variable Discovery Appli
     'Commander must not retain Variable Discovery readiness, matching, or formatting logic');
 });
 
+test('var create delegates one Plan-bound journaled non-retrying Application', () => {
+  const adapter = sources.get('variables.js');
+  assert.ok(adapter, 'variables.js exists');
+  const start = adapter.indexOf("variables\n  .command('create <name>')");
+  const end = adapter.indexOf("variables\n  .command('find <pattern>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableCreatePlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableCreatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|evalPrint\(|createVariable\(/,
+    'Commander must not retain Variable Create execution or formatting logic');
+});
+
 test('col list and show delegate separate Plan-bound bounded read Applications', () => {
   const adapter = sources.get('tokens.js');
   assert.ok(adapter, 'tokens.js exists');

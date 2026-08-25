@@ -153,6 +153,31 @@ test('Variable Discovery closes policy-identical list and wildcard-find reads', 
   }
 });
 
+test('Variable Create closes one policy-identical non-retrying journaled write', () => {
+  const cli = planFigmaCommand([
+    'var', 'create', '-cTokens', '-tfloat', '-v12', '--allow-duplicate', 'space/md',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'var', 'create', '--collection=Tokens', '--type=FLOAT', '--value=12',
+    '--allow-duplicate', '--', 'space/md',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'var.create');
+  for (const argv of [
+    ['var', 'create', 'Name'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'FUTURE', 'Name'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'One', 'Two'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Collection Catalog and Facts close policy-identical safe reads', () => {
   for (const [cliArgv, mcpArgv, action] of [
     [['col', 'list', '--json', '--limit', '25'], ['col', 'list', '-l25', '--json'], 'col.list'],

@@ -19,19 +19,38 @@ function parseVariableType(value) {
   return type;
 }
 
-function parseVariableLiteral(value, typeValue) {
+function exactKeys(value, keys) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype
+    && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
+}
+
+function finiteUnit(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function normalizeVariableValue(value, typeValue) {
   const type = parseVariableType(typeValue);
-  const raw = String(value);
-  if (type === 'STRING') return raw;
-  if (type === 'BOOLEAN') return parseBoolean(raw, 'BOOLEAN value');
+  if (type === 'STRING') {
+    if (typeof value !== 'string') throw new Error('STRING value must be text');
+    return value;
+  }
+  if (type === 'BOOLEAN') return parseBoolean(value, 'BOOLEAN value');
   if (type === 'FLOAT' || type === 'TIMING') {
-    const number = Number(raw);
+    const number = typeof value === 'number' ? value : Number(String(value));
     if (!Number.isFinite(number)) throw new Error(`${type} value must be a finite number`);
     if (type === 'TIMING' && number < 0) throw new Error('TIMING value must be zero or greater');
     return number;
   }
   if (type === 'COLOR') {
-    const match = raw.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const rgb = exactKeys(value, ['r', 'g', 'b']);
+      const rgba = exactKeys(value, ['r', 'g', 'b', 'a']);
+      if ((rgb || rgba) && finiteUnit(value.r) && finiteUnit(value.g)
+        && finiteUnit(value.b) && (!rgba || finiteUnit(value.a))) return { ...value };
+      throw new Error('COLOR value must contain unit r, g, b and optional a channels');
+    }
+    const match = String(value).match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
     if (!match) throw new Error('COLOR value must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA');
     let hex = match[1];
     if (hex.length <= 4) hex = [...hex].map((character) => character + character).join('');
@@ -44,15 +63,47 @@ function parseVariableLiteral(value, typeValue) {
     return color;
   }
   let easing;
-  try { easing = JSON.parse(raw); }
-  catch {
-    const named = raw.trim().toUpperCase().replace(/[ -]+/g, '_');
-    easing = { type: named };
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    easing = { ...value };
+  } else {
+    const raw = String(value);
+    try { easing = JSON.parse(raw); }
+    catch {
+      const named = raw.trim().toUpperCase().replace(/[ -]+/g, '_');
+      easing = { type: named };
+    }
   }
   if (!easing || typeof easing !== 'object' || Array.isArray(easing)) throw new Error('EASING value must be a named easing or JSON object');
   easing.type = String(easing.type || '').toUpperCase().replace(/[ -]+/g, '_');
   if (!EASING_TYPES.includes(easing.type)) throw new Error(`Unknown EASING type: ${easing.type || '(missing)'}`);
+  const allowed = new Set(['type', 'easingFunctionCubicBezier', 'easingFunctionSpring']);
+  if (!Object.keys(easing).every((key) => allowed.has(key))) {
+    throw new Error('EASING value contains unsupported fields');
+  }
+  if (easing.easingFunctionCubicBezier !== undefined) {
+    const bezier = easing.easingFunctionCubicBezier;
+    if (!exactKeys(bezier, ['x1', 'y1', 'x2', 'y2'])
+      || !finiteUnit(bezier.x1) || !finiteUnit(bezier.x2)
+      || typeof bezier.y1 !== 'number' || !Number.isFinite(bezier.y1)
+      || typeof bezier.y2 !== 'number' || !Number.isFinite(bezier.y2)) {
+      throw new Error('EASING cubic bezier must contain finite x1, y1, x2, y2 values');
+    }
+  }
+  if (easing.easingFunctionSpring !== undefined) {
+    const spring = easing.easingFunctionSpring;
+    if (!exactKeys(spring, ['bounce']) || !finiteUnit(spring.bounce)) {
+      throw new Error('EASING spring bounce must be between zero and one');
+    }
+  }
+  if (easing.easingFunctionCubicBezier !== undefined
+    && easing.easingFunctionSpring !== undefined) {
+    throw new Error('EASING value cannot contain both cubic bezier and spring functions');
+  }
   return easing;
+}
+
+function parseVariableLiteral(value, typeValue) {
+  return normalizeVariableValue(String(value), typeValue);
 }
 
 function parseBoolean(value, label = 'value') {
@@ -251,7 +302,8 @@ return __collectionFacts(extended);
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
   collectionDeleteCode, collectionExtendCode, collectionModeCode,
-  collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes, parseVariableLiteral, parseVariableType,
+  collectionUpdateCode, normalizeVariableValue, parseBoolean, parseCodePlatform,
+  parseScopes, parseVariableLiteral, parseVariableType,
   variableCodeSyntaxCode,
   variableSetValueCode, variableUpdateCode,
 };

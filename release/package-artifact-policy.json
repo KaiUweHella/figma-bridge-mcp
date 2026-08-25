@@ -29,6 +29,8 @@
     "engine/src/application/variable-facts-request.js",
     "engine/src/application/variable-discovery-command.js",
     "engine/src/application/variable-discovery-request.js",
+    "engine/src/application/variable-create-command.js",
+    "engine/src/application/variable-create-request.js",
     "engine/src/application/collection-catalog-command.js",
     "engine/src/application/collection-catalog-request.js",
     "engine/src/application/collection-facts-command.js",

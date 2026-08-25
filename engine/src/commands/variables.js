@@ -12,6 +12,10 @@ import {
   variableFactsArgvFromRequest,
 } from '../application/variable-facts-command.js';
 import {
+  executeVariableCreatePlan,
+  variableCreatePlanningArgvFromRequest,
+} from '../application/variable-create-command.js';
+import {
   executeVariableResolutionPlan,
   variableResolutionPlanningArgvFromRequest,
 } from '../application/variable-resolution-command.js';
@@ -25,13 +29,12 @@ import {
   checkConnection,
   daemonExec,
   fastEval,
-  evalPrint,
   handleEvalError,
   hexToRgb,
   spinnerSucceed
 } from '../lib/cli-core.js';
 import {
-  parseBoolean, parseScopes, parseVariableLiteral, parseVariableType,
+  parseBoolean, parseScopes,
   variableCodeSyntaxCode,
   variableSetValueCode, variableUpdateCode,
 } from '../lib/variable-management.js';
@@ -85,20 +88,32 @@ variables
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
   .requiredOption('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN, EASING, TIMING')
   .option('-v, --value <value>', 'Initial value; EASING accepts a name or MotionEasing JSON, TIMING uses seconds')
+  .option('--allow-duplicate', 'Intentionally allow an exact duplicate name in the Collection')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
-    const type = parseVariableType(options.type);
-    const initialValue = options.value === undefined ? undefined : parseVariableLiteral(options.value, type);
-    await checkConnection();
-    const code = `(async () => {
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.id === ${JSON.stringify(options.collection)} || c.name === ${JSON.stringify(options.collection)});
-if (!col) return 'Collection not found: ' + ${JSON.stringify(options.collection)};
-const modeId = col.modes[0].modeId;
-const v = figma.variables.createVariable(${JSON.stringify(name)}, col, ${JSON.stringify(type)});
-${initialValue === undefined ? '' : `v.setValueForMode(modeId, ${JSON.stringify(initialValue)});`}
-return 'Created ${type.toLowerCase()} variable: ${name}';
-})()`;
-    await evalPrint(code);
+    try {
+      const plan = planFigmaCommand(variableCreatePlanningArgvFromRequest({
+        name,
+        collection: options.collection,
+        type: options.type,
+        value: options.value,
+        allowDuplicate: options.allowDuplicate === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableCreatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables
