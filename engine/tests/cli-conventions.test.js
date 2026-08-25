@@ -678,6 +678,23 @@ test('col create delegates one Plan-bound journaled non-retrying Application', (
     'Commander must not retain Collection Create execution or formatting logic');
 });
 
+test('col update delegates one Plan-bound field-rollback non-retrying Application', () => {
+  const adapter = sources.get('tokens.js');
+  assert.ok(adapter, 'tokens.js exists');
+  const start = adapter.indexOf("collections.command('update <collection>')");
+  const end = adapter.indexOf("collections.command('mode-add <collection> <name>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /collectionUpdatePlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeCollectionUpdatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|collectionUpdateCode\(/,
+    'Commander must not retain Collection Update execution or formatting logic');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');

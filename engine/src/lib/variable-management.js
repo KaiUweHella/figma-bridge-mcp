@@ -176,16 +176,6 @@ const __variableFacts = async (v) => {
 };`;
 }
 
-function collectionUpdateCode({ collection, name, hidden }) {
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveCollection(${JSON.stringify(collection)});
-if (target.remote) throw new Error('Remote collections cannot be updated');
-${name === undefined ? '' : `target.name = ${JSON.stringify(String(name).trim())};`}
-${hidden === undefined ? '' : `target.hiddenFromPublishing = ${parseBoolean(hidden, '--hidden')};`}
-return __collectionFacts(target);
-})()`;
-}
-
 function collectionModeCode({ collection, action, mode, name }) {
   if (!['add', 'rename', 'remove'].includes(action)) throw new Error('Unknown mode action');
   return `(async () => {${variableHelpersCode()}
@@ -231,6 +221,6 @@ return __collectionFacts(extended);
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
   collectionDeleteCode, collectionExtendCode, collectionModeCode,
-  collectionUpdateCode, normalizeVariableValue, parseBoolean,
+  normalizeVariableValue, parseBoolean,
   parseVariableLiteral, parseVariableType,
 };

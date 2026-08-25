@@ -94,7 +94,7 @@ function boundedString(value, { empty = true } = {}) {
     && (empty || value.length > 0);
 }
 
-function validPayload(value) {
+export function isCollectionFactsPayload(value) {
   if (!exactKeys(value, [
     'schemaVersion', 'id', 'key', 'name', 'remote', 'isExtension',
     'hiddenFromPublishing', 'defaultModeId', 'modes', 'variableIds', 'publishStatus',
@@ -143,9 +143,18 @@ export async function executeCollectionFacts(request, adapters = {}) {
   let payload;
   try { payload = JSON.parse(serialized); }
   catch { throw new Error('Collection Facts returned invalid JSON.'); }
-  if (!validPayload(payload)) throw new Error('Collection Facts returned an invalid bounded result.');
+  if (!isCollectionFactsPayload(payload)) {
+    throw new Error('Collection Facts returned an invalid bounded result.');
+  }
+  return { stdout: safePrettyJson(collectionFactsLegacyProjection(payload)), stderr: '', result: payload };
+}
+
+export function collectionFactsLegacyProjection(payload) {
+  if (!isCollectionFactsPayload(payload)) {
+    throw new Error('Collection Facts projection requires a valid bounded payload.');
+  }
   const { schemaVersion: _schemaVersion, ...legacyProjection } = payload;
-  return { stdout: safePrettyJson(legacyProjection), stderr: '', result: payload };
+  return legacyProjection;
 }
 
 export function collectionFactsPlanRoute(plan) {

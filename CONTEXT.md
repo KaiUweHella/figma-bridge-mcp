@@ -218,6 +218,14 @@ Collection if result validation or projection fails. Exact duplicates are
 rejected by default but remain available through explicit duplicate intent.
 _Avoid_: collection factory eval, implicit duplicate, retryable create, atomic claim
 
+**Collection Metadata Update**:
+The bounded, non-retrying update of one or both explicit metadata fields on one
+local Variable Collection: name and publishing visibility. It validates
+complete Collection Facts before mutation, snapshots each requested field,
+validates exact postconditions and restores fields independently so one failed
+restoration does not prevent the other.
+_Avoid_: collection patch eval, implicit field, retryable assignment, all-or-nothing restore attempt
+
 **Token Publish Status Facts**:
 The compact, versioned read of one Variable or Variable Collection's official
 UNPUBLISHED, CURRENT or CHANGED state. Variable queries may be scoped to one

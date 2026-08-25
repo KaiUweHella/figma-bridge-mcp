@@ -17,6 +17,10 @@ import {
   executeCollectionCreatePlan,
 } from '../application/collection-create-command.js';
 import {
+  collectionUpdatePlanningArgvFromRequest,
+  executeCollectionUpdatePlan,
+} from '../application/collection-update-command.js';
+import {
   executeTokenPublishStatusPlan,
   tokenPublishStatusPlanningArgvFromRequest,
 } from '../application/token-publish-status-command.js';
@@ -47,7 +51,6 @@ import { normalizeNodeId } from '../lib/node-id.js';
 import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
 import {
   collectionDeleteCode, collectionExtendCode, collectionModeCode,
-  collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
@@ -141,12 +144,29 @@ collections.command('show <collection>')
 
 collections.command('update <collection>')
   .option('-n, --name <name>').option('--hidden <boolean>')
+  .allowExcessArguments(false)
   .action(async (collection, options) => {
     try {
-      if (options.name === undefined && options.hidden === undefined) throw new Error('Provide --name or --hidden');
-      const hidden = options.hidden === undefined ? undefined : parseBoolean(options.hidden, '--hidden');
-      await checkConnection(); console.log(JSON.stringify(await fastEval(collectionUpdateCode({ collection, name: options.name, hidden })), null, 2));
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(collectionUpdatePlanningArgvFromRequest({
+        collection,
+        name: options.name,
+        hidden: options.hidden,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionUpdatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 collections.command('mode-add <collection> <name>').action(async (collection, name) => {

@@ -336,6 +336,30 @@ test('Collection Create closes one policy-identical non-retrying journaled write
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Collection Update closes one policy-identical non-retrying rollback-owned write', () => {
+  const cli = planFigmaCommand([
+    'col', 'update', '-nCore', '--hidden=false', 'Primitives',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'col', 'update', '--name=Core', '--hidden', 'false', '--', 'Primitives',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'col.update');
+  for (const argv of [
+    ['col', 'update', 'Primitives'],
+    ['col', 'update', '--name', 'One', '--name', 'Two', 'Primitives'],
+    ['col', 'update', '--hidden', 'maybe', 'Primitives'],
+    ['col', 'update', '--future', 'private-value', 'Primitives'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',
