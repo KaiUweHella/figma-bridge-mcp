@@ -1,0 +1,1383 @@
+{
+  "schema": "figma-bridge/fidelity-comparisons/v1",
+  "corpusId": "bridge-core-roundtrip",
+  "corpusVersion": 1,
+  "snapshotDate": "2026-08-25",
+  "implementations": [
+    {
+      "id": "figma-bridge-mcp",
+      "role": "primary",
+      "identity": {
+        "name": "Figma Bridge MCP",
+        "version": "0.5.2",
+        "revision": "73360991ce27b18ebb0c3e4f7feb5b79cf6b432d",
+        "sources": [
+          {
+            "url": "https://github.com/KaiUweHella/figma-bridge-mcp/blob/73360991ce27b18ebb0c3e4f7feb5b79cf6b432d/evals/fidelity/v1/corpus.json",
+            "locator": "evals/fidelity/v1/corpus.json at 73360991ce27b18ebb0c3e4f7feb5b79cf6b432d",
+            "digest": "sha256:152c4c5887918a84bfdc3aca0fb36cd4174859237e8d22a6b7e7532c4362c911"
+          }
+        ]
+      },
+      "configuration": {
+        "mode": "authenticated local Plugin Safe Mode",
+        "transport": "bounded localhost HTTP and authenticated Plugin WebSocket",
+        "enabledDisallowedMechanisms": []
+      },
+      "access": {
+        "level": "executable",
+        "status": "available",
+        "reason": "The repository test suite and maintainer-owned Figma verification file are available."
+      },
+      "securityAssumptions": [
+        "One authenticated Plugin transport is the only Figma write authority.",
+        "Typed operations and Semantic Render Plans are validated before Plugin dispatch."
+      ],
+      "operatingConstraints": [
+        "Live Figma evidence requires the maintainer Plugin to be open and responsive.",
+        "Dev Mode is an explicit read-only editor boundary for static design writes."
+      ],
+      "latency": {
+        "status": "measured",
+        "reason": "Local CI latency tests exist; accepted corpus workload budgets are closed by EFF-02."
+      },
+      "assessments": [
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/structured-render-executor.test.js",
+              "locator": "verification.layout-provenance"
+            }
+          ]
+        },
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/code-spec.test.js",
+              "locator": "verification.layout-provenance"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/structured-render-executor.test.js",
+              "locator": "verification.responsive-probes"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/code-spec.test.js",
+              "locator": "verification.layout-provenance"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/structured-render-executor.test.js",
+              "locator": "verification.font-preflight"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/code-spec.test.js",
+              "locator": "verification.rich-text-range-readback"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/component-sets.test.js",
+              "locator": "verification.component-contract-inspection"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/component-sets.test.js",
+              "locator": "verification.design-contract-axes-properties"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/variable-management.test.js",
+              "locator": "verification.mode-write-readback"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/scoped-tokens.test.js",
+              "locator": "verification.multi-mode-token-projection"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/structured-render-executor.test.js",
+              "locator": "verification.effect-readback"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/code-spec.test.js",
+              "locator": "verification.effect-readback"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/structured-render-executor.test.js",
+              "locator": "verification.mask-type-readback"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/code-spec.test.js",
+              "locator": "verification.mask-fact-coverage"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/assets.test.js",
+              "locator": "verification.image-vector-readback"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/assets.test.js",
+              "locator": "verification.asset-digest-integrity"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/prototype-management.test.js",
+              "locator": "verification.implemented-behaviour-test"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "engine/tests/prototype-management.test.js",
+              "locator": "verification.prototype-inspection"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "tests/plugin-sync.test.js",
+              "locator": "verification.editor-dispatch-receipt"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "tests/plugin-sync.test.js",
+              "locator": "verification.editor-dispatch-receipt"
+            }
+          ]
+        },
+        {
+          "factId": "figjam-native-structure",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "tests/plugin-sync.test.js",
+              "locator": "verification.figjam-inspection"
+            }
+          ]
+        },
+        {
+          "factId": "slides-native-structure",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "tests/plugin-sync.test.js",
+              "locator": "verification.slides-inspection"
+            }
+          ]
+        },
+        {
+          "factId": "dev-mode-static-design-write",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "tests/plugin-sync.test.js",
+              "locator": "verification.dev-mode-inspection"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "figma-cli-v2-1-0",
+      "role": "historical-cli",
+      "identity": {
+        "name": "silships/figma-cli",
+        "version": "2.1.0",
+        "revision": "e69cba0dae4478e844516e84ba13e838f6616b6b",
+        "sources": [
+          {
+            "url": "https://github.com/silships/figma-cli/archive/refs/tags/v2.1.0.tar.gz",
+            "locator": "annotated tag 6ccbee66012764502ef513ed3e44e182052b3368 -> commit e69cba0dae4478e844516e84ba13e838f6616b6b",
+            "digest": "sha256:6f1267bb73533f1ff9fd5ad50f0c95079e261324971e762a9efcc0749d5a94ba"
+          }
+        ]
+      },
+      "configuration": {
+        "mode": "Safe Mode built-in Plugin",
+        "transport": "local Plugin connection",
+        "enabledDisallowedMechanisms": []
+      },
+      "access": {
+        "level": "source-audited",
+        "status": "source-only",
+        "reason": "The pinned source archive was audited without installing or launching an alternate Plugin."
+      },
+      "securityAssumptions": [
+        "Only the documented Safe Mode path is in scope.",
+        "Host modification and browser debugging transports are outside the selected configuration."
+      ],
+      "operatingConstraints": [
+        "Findings describe declared source behavior, not a scored corpus run.",
+        "The v2.1.0 subset differs from the current Figma Plugin API surface."
+      ],
+      "latency": {
+        "status": "not-measured",
+        "reason": "No alternate Plugin was launched; source claims are not converted into timings."
+      },
+      "assessments": [
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "JSX Auto Layout property application"
+            }
+          ]
+        },
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/design-extract.js",
+              "locator": "Auto Layout extraction"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Constraint syntax exists, but the corpus normalization and responsive probes were not executed.",
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "constraint and sizing property application"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Constraint extraction exists without an executable round-trip result.",
+          "evidence": [
+            {
+              "ref": "src/design-extract.js",
+              "locator": "constraint extraction"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Text and font application exist, but exact mixed-range preservation is unproven.",
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "text and font application"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Text extraction does not provide corpus range-readback evidence.",
+          "evidence": [
+            { "ref": "src/design-extract.js", "locator": "text extraction" }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "component and instance creation"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/design-extract.js",
+              "locator": "component and variant extraction"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "product",
+          "limitation": "The generic W3C import resolves aliases to literals before native Variable creation.",
+          "evidence": [
+            {
+              "ref": "src/code-import/w3c-tokens.js",
+              "locator": "resolveReferences before token application"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Variable commands expose aliases, but complete multi-mode round-trip topology was not executed.",
+          "evidence": [
+            {
+              "ref": "src/commands/variables.js",
+              "locator": "variable value and alias projection"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "product",
+          "limitation": "Effect creation is present, but the shadow projection does not preserve every corpus parameter such as spread.",
+          "evidence": [
+            { "ref": "src/figma-client.js", "locator": "effect array mapping" }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Effect extraction exists without ordered round-trip evidence.",
+          "evidence": [
+            { "ref": "src/design-extract.js", "locator": "effect extraction" }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "code-to-figma",
+          "capability": "unsupported",
+          "limitationClass": "product",
+          "limitation": "No native mask or mask-type writer exists in the v2.1.0 render grammar.",
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "absence from closed JSX property application"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "figma-to-code",
+          "capability": "unsupported",
+          "limitationClass": "product",
+          "limitation": "No native mask fact projection exists in the v2.1.0 extractor.",
+          "evidence": [
+            {
+              "ref": "src/design-extract.js",
+              "locator": "absence from extraction projection"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Raster and SVG placement exist without corpus source-identity proof.",
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "image and SVG placement"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Asset export exists without digest and manifest identity evidence.",
+          "evidence": [
+            { "ref": "src/commands/extract.js", "locator": "asset extraction" }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "code-to-figma",
+          "capability": "unsupported",
+          "limitationClass": "product",
+          "limitation": "No prototype-reaction writer exists in the v2.1.0 command surface.",
+          "evidence": [
+            {
+              "ref": "src/figma-client.js",
+              "locator": "absence from render property application"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "figma-to-code",
+          "capability": "unsupported",
+          "limitationClass": "product",
+          "limitation": "No prototype-reaction extractor exists in the v2.1.0 command surface.",
+          "evidence": [
+            {
+              "ref": "src/design-extract.js",
+              "locator": "absence from extraction projection"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/commands/render.js",
+              "locator": "Safe Mode render command"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/commands/extract.js",
+              "locator": "Design extraction command"
+            }
+          ]
+        },
+        {
+          "factId": "figjam-native-structure",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "FigJam inspection exists, but the corpus native-structure fixture was not executed.",
+          "evidence": [
+            {
+              "ref": "src/commands/figjam.js",
+              "locator": "FigJam inspection commands"
+            }
+          ]
+        },
+        {
+          "factId": "slides-native-structure",
+          "direction": "figma-to-code",
+          "capability": "unsupported",
+          "limitationClass": "product",
+          "limitation": "No Slides inspection adapter exists in v2.1.0.",
+          "evidence": [
+            { "ref": "src/commands", "locator": "absence of Slides command" }
+          ]
+        },
+        {
+          "factId": "dev-mode-static-design-write",
+          "direction": "code-to-figma",
+          "capability": "unsupported",
+          "limitationClass": "product",
+          "limitation": "The v2.1.0 adapter has no explicit Dev Mode editor boundary contract.",
+          "evidence": [
+            {
+              "ref": "src/commands/render.js",
+              "locator": "Design-only render path"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "figma-console-mcp-v1-40-0",
+      "role": "community-mcp",
+      "identity": {
+        "name": "southleft/figma-console-mcp",
+        "version": "1.40.0",
+        "revision": "e4d5605e6108cd0b21a950f6f57fc189749bd2eb",
+        "sources": [
+          {
+            "url": "https://github.com/southleft/figma-console-mcp/archive/refs/tags/v1.40.0.tar.gz",
+            "locator": "annotated tag 2b4c9e3d8c31fd10dc5152b1dcd2f33594bc9855 -> commit e4d5605e6108cd0b21a950f6f57fc189749bd2eb",
+            "digest": "sha256:743f32d58a2a7b5afc5eb651c64ab16aab4211eb26355a1831381a1e6495e1b5"
+          }
+        ]
+      },
+      "configuration": {
+        "mode": "Desktop Bridge local Plugin mode",
+        "transport": "local Plugin WebSocket",
+        "enabledDisallowedMechanisms": []
+      },
+      "access": {
+        "level": "source-audited",
+        "status": "source-only",
+        "reason": "The pinned source archive was audited without installing or launching its separate Plugin."
+      },
+      "securityAssumptions": [
+        "The audited local mode can execute caller-provided JavaScript in the Plugin context.",
+        "Its separate Plugin and credentials were not introduced into the Bridge test environment."
+      ],
+      "operatingConstraints": [
+        "Generic execution breadth is not evidence of exact corpus fidelity.",
+        "Specific FigJam and Slides tools depend on a matching connected editor."
+      ],
+      "latency": {
+        "status": "not-measured",
+        "reason": "No alternate Plugin was launched; README performance claims are not benchmark evidence."
+      },
+      "assessments": [
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Specific mutations and generic execution exist without corpus semantic evidence.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "node mutation and generic execution tools"
+            }
+          ]
+        },
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Reconstruction extraction exists without an executable round trip.",
+          "evidence": [
+            {
+              "ref": "src/core/figma-reconstruction-spec.ts",
+              "locator": "layout reconstruction projection"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "The broad write surface does not prove corpus responsive normalization.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "node mutation tools"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Extracted layout facts were not validated with resize probes.",
+          "evidence": [
+            {
+              "ref": "src/core/figma-reconstruction-spec.ts",
+              "locator": "layout and sizing conversion"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Text mutations exist without exact mixed-range corpus evidence.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "text mutation tools"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Text extraction exists without range-readback evidence.",
+          "evidence": [
+            {
+              "ref": "src/core/design-code-tools.ts",
+              "locator": "design-to-code text projection"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "component instance and property tools"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/core/deep-component-tools.ts",
+              "locator": "component identity and dependency tools"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "product",
+          "limitation": "Alias writes exist, but unresolved references are skipped per item instead of failing the complete mutation.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "design token batch alias import"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Alias-aware reads exist without complete multi-mode corpus evidence.",
+          "evidence": [
+            {
+              "ref": "src/core/design-system-extraction-tools.ts",
+              "locator": "Variable and token extraction"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Generic execution can assign effects, but the corpus operation was not executed.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "figma_execute Plugin-context JavaScript"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Ordered effect conversion exists without round-trip proof.",
+          "evidence": [
+            {
+              "ref": "src/core/figma-reconstruction-spec.ts",
+              "locator": "convertEffects"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Generic execution can assign native masks, but no closed mask operation or corpus evidence was found.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "figma_execute Plugin-context JavaScript"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "The generic read surface can inspect masks, but no corpus mask-fact projection was executed.",
+          "evidence": [
+            {
+              "ref": "src/local.ts",
+              "locator": "detailed node reads via figma_execute"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Asset placement exists without corpus source identity evidence.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "image and fill mutation tools"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Extraction exists without manifest digest identity proof.",
+          "evidence": [
+            {
+              "ref": "src/core/design-code-tools.ts",
+              "locator": "design extraction and asset projection"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Generic execution can assign reactions without a closed prototype mutation result.",
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "figma_execute Plugin-context JavaScript"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Generic reads can inspect reactions without a dedicated corpus projection.",
+          "evidence": [
+            {
+              "ref": "src/local.ts",
+              "locator": "detailed node reads via figma_execute"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/core/write-tools.ts",
+              "locator": "figma_execute and typed write tools"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/core/design-code-tools.ts",
+              "locator": "Design extraction tools"
+            }
+          ]
+        },
+        {
+          "factId": "figjam-native-structure",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/core/figjam-tools.ts",
+              "locator": "figjam_get_board_contents and figjam_get_connections"
+            }
+          ]
+        },
+        {
+          "factId": "slides-native-structure",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "src/core/slides-tools.ts",
+              "locator": "figma_list_slides and slide grid reads"
+            }
+          ]
+        },
+        {
+          "factId": "dev-mode-static-design-write",
+          "direction": "code-to-figma",
+          "capability": "unknown",
+          "limitationClass": "evidence",
+          "limitation": "The source models a dev editor type but does not establish the corpus static-design write rejection contract.",
+          "evidence": [
+            {
+              "ref": "src/core/websocket-server.ts",
+              "locator": "editorType figma, figjam or dev"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "official-figma-mcp-2026-08-25",
+      "role": "official-mcp",
+      "identity": {
+        "name": "Official Figma MCP server",
+        "version": "managed-service-docs-2026-08-25",
+        "revision": "docs-snapshot-2026-08-25",
+        "sources": [
+          {
+            "url": "https://developers.figma.com/docs/figma-mcp-server/",
+            "locator": "documentation snapshot retrieved 2026-08-25",
+            "digest": "sha256:7af26c75548f2ebd68ca2c22fd5b46ac2e57563122c997e6477facd37f3edf7a"
+          },
+          {
+            "url": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+            "locator": "tools and prompts snapshot retrieved 2026-08-25",
+            "digest": "sha256:23e48ed7f76f14013c3137155c71cabf8a2b3a58c1e76e70257ebab6a18e5d32"
+          }
+        ]
+      },
+      "configuration": {
+        "mode": "official remote MCP documented workflow",
+        "transport": "managed remote MCP service",
+        "enabledDisallowedMechanisms": []
+      },
+      "access": {
+        "level": "docs-audited",
+        "status": "unavailable-client",
+        "reason": "No supported official Figma MCP connection is installed in this Codex client; only public official documentation was audited."
+      },
+      "securityAssumptions": [
+        "Authentication and remote service operation are managed by Figma.",
+        "Documented write tools are available only to supported clients and plans."
+      ],
+      "operatingConstraints": [
+        "The managed service has no public pinable server semver or source revision.",
+        "Desktop selection reads and remote link reads have different targeting constraints."
+      ],
+      "latency": {
+        "status": "not-measured",
+        "reason": "The official server was unavailable in the current client, so no latency claim is made."
+      },
+      "assessments": [
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Native Design generation is documented, but exact Auto Layout corpus semantics were not executable here.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design and use_figma"
+            }
+          ]
+        },
+        {
+          "factId": "auto-layout-semantics",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Design context is documented without corpus layout-provenance evidence.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Native writes are documented without responsive probe evidence.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design and use_figma"
+            }
+          ]
+        },
+        {
+          "factId": "responsive-constraints",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Generated code context does not document exact authored constraint provenance.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Native Design generation is documented without mixed-range corpus readback.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design"
+            }
+          ]
+        },
+        {
+          "factId": "rich-text-runs",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Design context is documented without exact mixed-range output evidence.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Code Connect mapping and native writes are documented without corpus state-lattice proof.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "add_code_connect_map and generate_figma_design"
+            }
+          ]
+        },
+        {
+          "factId": "component-variant-identity",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context with Code Connect"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "General writes are documented without exact alias topology import semantics.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "use_figma"
+            }
+          ]
+        },
+        {
+          "factId": "variable-alias-topology",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "get_variable_defs is documented without a complete multi-mode alias round trip.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_variable_defs"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Native Design generation is documented without ordered effect readback.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design"
+            }
+          ]
+        },
+        {
+          "factId": "ordered-effects",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Design context is documented without ordered effect fidelity evidence.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Native Design generation is documented without mask-type corpus readback.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design"
+            }
+          ]
+        },
+        {
+          "factId": "native-mask",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Design context is documented without a complete native mask fact contract.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Native generation is documented without corpus source-asset identity proof.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design"
+            }
+          ]
+        },
+        {
+          "factId": "source-asset-identity",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "download_assets"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "code-to-figma",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "General native writes are documented without a closed prototype reaction contract.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "use_figma"
+            }
+          ]
+        },
+        {
+          "factId": "prototype-reactions",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "evidence",
+          "limitation": "Design context is documented without reaction completeness evidence.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "code-to-figma",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "generate_figma_design and use_figma"
+            }
+          ]
+        },
+        {
+          "factId": "figma-design-dispatch",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_design_context and get_metadata"
+            }
+          ]
+        },
+        {
+          "factId": "figjam-native-structure",
+          "direction": "figma-to-code",
+          "capability": "supported",
+          "limitationClass": "none",
+          "limitation": null,
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "get_figjam"
+            }
+          ]
+        },
+        {
+          "factId": "slides-native-structure",
+          "direction": "figma-to-code",
+          "capability": "partial",
+          "limitationClass": "product",
+          "limitation": "The documented tool list exposes screenshots and general operations, but no dedicated structural Slides read equivalent to get_figjam.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+              "locator": "documented tool inventory"
+            }
+          ]
+        },
+        {
+          "factId": "dev-mode-static-design-write",
+          "direction": "code-to-figma",
+          "capability": "unknown",
+          "limitationClass": "access",
+          "limitation": "The unavailable supported-client workflow prevents verification of the corpus Dev Mode rejection boundary.",
+          "evidence": [
+            {
+              "ref": "https://developers.figma.com/docs/figma-mcp-server/",
+              "locator": "client availability and remote server access"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "bounded-response-provenance",
+      "observedIn": "figma-console-mcp-v1-40-0",
+      "behavior": "Responses can identify which MCP implementation produced them.",
+      "bridgeRequirement": "Expose a bounded, non-sensitive implementation provenance marker in structured MCP responses and errors without expanding the tool surface.",
+      "ticket": "MAINT-19",
+      "status": "recorded",
+      "tracker": "private-local"
+    },
+    {
+      "id": "sparse-first-design-reads",
+      "observedIn": "official-figma-mcp-2026-08-25",
+      "behavior": "Metadata and targeted context reads reduce unnecessary document transfer.",
+      "bridgeRequirement": "Keep bounded discovery separate from exact follow-up Facts and complete Design Capture.",
+      "ticket": "ADR-0011 and existing typed Facts contracts",
+      "status": "existing",
+      "tracker": "public"
+    },
+    {
+      "id": "safe-plugin-baseline",
+      "observedIn": "figma-cli-v2-1-0",
+      "behavior": "A built-in Plugin path can operate without modifying the Figma desktop binary.",
+      "bridgeRequirement": "Retain the authenticated local Plugin as the only Figma write authority; never require a host patch transport.",
+      "ticket": "SEC-02 and ADR-0004",
+      "status": "existing",
+      "tracker": "public"
+    }
+  ]
+}

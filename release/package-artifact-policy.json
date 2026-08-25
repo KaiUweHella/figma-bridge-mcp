@@ -212,6 +212,7 @@
     "engine/src/lib/dom-capture-to-jsx.js",
     "engine/src/lib/draw-management.js",
     "engine/src/lib/eval-snippets.js",
+    "engine/src/lib/fidelity-comparison.js",
     "engine/src/lib/fidelity-corpus.js",
     "engine/src/lib/font-introspection.js",
     "engine/src/lib/grid-layout-management.js",

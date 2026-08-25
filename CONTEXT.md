@@ -598,6 +598,15 @@ unexpected unsupported output and every silently lost fact fail the release
 profile.
 _Avoid_: demo frame, screenshot-only benchmark, post-hoc exception, competitor-specific fixture
 
+**Fidelity Comparison Baseline**:
+The dated, machine-audited capability snapshot of the accepted Fidelity Corpus
+across Figma Bridge and exact pinned reference implementations. It keeps
+executable tests, source audits, official documentation, product limits and
+unavailable access distinct. Only a conforming Fidelity Run can be scored;
+useful external behavior becomes a Bridge requirement rather than an imported
+architecture.
+_Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupported
+
 ## Example dialogue
 
 > **Developer:** Does `figma_spec` behave differently through MCP and the CLI?
