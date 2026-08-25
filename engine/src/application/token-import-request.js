@@ -2,7 +2,8 @@
 
 export const MAX_TOKEN_IMPORT_PATH_CODE_UNITS = 4_096;
 export const MAX_TOKEN_IMPORT_COLLECTION_CODE_UNITS = 512;
-const UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/u;
+const UNSAFE_CONTROLS =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;
 
 function requestError(message) {
   return new Error(`Invalid tokens import command: ${message}.`);
@@ -57,11 +58,11 @@ function parsedRequest(args) {
   if (normalizedCollection.includes('/') && !forceSlash) {
     throw requestError('collection contains "/"; pass --force-slash intentionally because Figma Collections are flat');
   }
-  return {
+  return Object.freeze({
     file: identity(positionals[0], 'file', MAX_TOKEN_IMPORT_PATH_CODE_UNITS),
     collection: normalizedCollection,
     forceSlash,
-  };
+  });
 }
 
 export function parseTokenImportRequest(args) { return parsedRequest(args); }
@@ -74,6 +75,11 @@ function typedRequest(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request)
     || Object.keys(request).some((key) => !['file', 'collection', 'forceSlash'].includes(key))) {
     throw new TypeError('Token Import request must be a closed object.');
+  }
+  if (typeof request.file !== 'string'
+    || (request.collection !== undefined && typeof request.collection !== 'string')
+    || (request.forceSlash !== undefined && typeof request.forceSlash !== 'boolean')) {
+    throw new TypeError('Token Import request fields must preserve their declared types.');
   }
   return parsedRequest([
     'tokens', 'import', `--collection=${request.collection ?? 'Imported Tokens'}`,

@@ -843,13 +843,45 @@ test('tokens import-design-md print-context delegates one repository-only Applic
   const start = adapter.indexOf(".command('import-design-md <file>')");
   const end = adapter.indexOf(".command('add <name> <value>')", start);
   const action = adapter.slice(start, end);
-  const contextBranch = action.slice(0, action.indexOf('let parsed;'));
+  const contextBranch = action.slice(0, action.indexOf('let plan;'));
   assert.match(contextBranch, /designMdPlanningArgvFromRequest/);
   assert.match(contextBranch, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(contextBranch, /executeDesignMdContextPlan\(plan/);
   assert.match(action, /\.allowExcessArguments\(false\)/);
   assert.doesNotMatch(contextBranch, /checkConnection\(|ensurePluginReadiness\(|daemonExec\(/,
     'repository-only context must not require or dispatch to Figma');
+});
+
+test('simple DESIGN.md mutation delegates preflight and write to one Plan-bound Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf(".command('import-design-md <file>')");
+  const end = adapter.indexOf(".command('add <name> <value>')", start);
+  const action = adapter.slice(start, end);
+  const simpleBranch = action.slice(action.indexOf('let plan;'),
+    action.indexOf('const parsed = prepared.parsed;'));
+  assert.match(simpleBranch, /prepareDesignMdImportPlan\(plan, \{ workspaceIO: workspaceIO\(\) \}\)/);
+  assert.ok(simpleBranch.indexOf('prepareDesignMdImportPlan')
+    < simpleBranch.indexOf('ensurePluginReadiness'));
+  assert.match(simpleBranch, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(simpleBranch, /executeDesignMdImportPlan\(plan, prepared/);
+  assert.match(simpleBranch, /daemonExec\('eval'/);
+  assert.doesNotMatch(simpleBranch,
+    /checkConnection\(|variableImportCode|createVariableCollection\(|createVariable\(|modes\[0\]/,
+    'simple DESIGN.md import must not retain readiness, factories, modes, or generated mutation logic');
+});
+
+test('DESIGN.md CLI rejects an explicitly empty Collection before workspace or Plugin access', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  for (const suffix of [[], ['--print-context']]) {
+    const result = spawnSync(process.execPath, [
+      entry, 'tokens', 'import-design-md', '/missing/private/DESIGN.md', '--collection=', ...suffix,
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(`${result.stdout}\n${result.stderr}`, /--collection requires a value/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`,
+      /Workspace|Plugin not connected|figma_connect|ENOENT/,
+      'empty target identity must fail before either Adapter gains file or Plugin access');
+  }
 });
 
 test('tokens overlap delegates one Plan-bound bounded-read Application', () => {

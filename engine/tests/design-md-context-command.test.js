@@ -44,7 +44,12 @@ test("DESIGN.md request is closed and option-terminator aware", () => {
       "--",
       "-DESIGN.md",
     ]),
-    { file: "-DESIGN.md", collection: "Theme", printContext: true }
+    {
+      file: "-DESIGN.md",
+      collection: "Theme",
+      printContext: true,
+      forceSlash: false,
+    }
   );
   for (const args of [
     ["tokens", "import-design-md"],
@@ -58,8 +63,23 @@ test("DESIGN.md request is closed and option-terminator aware", () => {
       "a.md",
     ],
     ["tokens", "import-design-md", "--collection", "--print-context", "a.md"],
+    [
+      "tokens",
+      "import-design-md",
+      "--print-context",
+      "--force-slash",
+      "a.md",
+    ],
   ])
     assert.equal(acceptsDesignMdArgv(args), false, args.join(" "));
+  assert.throws(
+    () =>
+      designMdPlanningArgvFromRequest({
+        file: "DESIGN.md",
+        collection: 123,
+      }),
+    /declared types/
+  );
 });
 
 test("repository-only context Plan has no Figma target, confirmation, or dispatch", () => {

@@ -431,6 +431,20 @@ export function toSingleCollectionTokenItems({ tokens }) {
   return items;
 }
 
+export function designMdCompositeTokenCount({ tokens }) {
+  const tokenRecord = designRecord(tokens, 'token root');
+  return Object.keys(designRecord(tokenRecord.typography,
+    'typography', { optional: true })).length
+    + Object.keys(designRecord(tokenRecord.shadow,
+      'shadows', { optional: true })).length;
+}
+
+export function designMdVariableSnapshot({ tokens }) {
+  const tokenRecord = designRecord(tokens, 'token root');
+  if (tokenRecord.variables == null) return null;
+  return designRecord(tokenRecord.variables, 'Variable Snapshot');
+}
+
 /**
  * Build the eval source that recreates real variable collections from a
  * DESIGN.md `variables` block (the shape buildVariableTokens emits):

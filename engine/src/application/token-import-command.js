@@ -47,7 +47,13 @@ export function prepareTokenImportItems(plan, items) {
   if (tokenImportPlanRoute(plan) !== 'command-application') {
     throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by Token Import.`);
   }
-  return normalizedPrepared({ request: parseTokenImportRequest(plan.argv), items });
+  return prepareTokenImportRequestItems(parseTokenImportRequest(plan.argv), items);
+}
+
+/** Reuse the deep Single-Collection mutation after another owning Command
+ * Application has produced the same closed token request and bounded items. */
+export function prepareTokenImportRequestItems(request, items) {
+  return normalizedPrepared({ request, items });
 }
 
 export function tokenImportCommandCode(prepared) {

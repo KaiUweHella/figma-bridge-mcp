@@ -581,7 +581,7 @@ test('figma_run routes Token Import through pre-read and its shared journaled Ap
 test('figma_run routes DESIGN.md context without confirmation, readiness, or Commander', async () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const designMdContextRoute = designMdContextPlanRoute(plan)');
-  const end = source.indexOf('const variableCreateRoute = variableCreatePlanRoute(plan)', start);
+  const end = source.indexOf('const designMdImportRoute = designMdImportPlanRoute(plan)', start);
   const slice = source.slice(start, end);
   assert.match(slice, /runInProcessCommandPlan\(plan/);
   assert.match(slice, /compatibilityFallback:\s*false/);
@@ -597,6 +597,19 @@ test('figma_run routes DESIGN.md context without confirmation, readiness, or Com
   assert.doesNotMatch(result.content[0].text, /Write-confirm mode is on/);
 });
 
+test('figma_run routes simple DESIGN.md mutation through preflight and the journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const designMdImportRoute = designMdImportPlanRoute(plan)');
+  const end = source.indexOf('const variableCreateRoute = variableCreatePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /prepareDesignMdImportPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.ok(slice.indexOf('prepareDesignMdImportPlan')
+    < slice.indexOf('ensurePluginReadiness'));
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeDesignMdImportPlan\(plan, prepared/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
 test('figma_run rejects malformed DESIGN.md context requests before file or Plugin access', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
@@ -604,6 +617,7 @@ test('figma_run rejects malformed DESIGN.md context requests before file or Plug
     ['tokens', 'import-design-md', '--print-context', 'one.md', 'two.md'],
     ['tokens', 'import-design-md', '--print-context', '--future', 'private-value', 'one.md'],
     ['tokens', 'import-design-md', '--print-context', '--collection'],
+    ['tokens', 'import-design-md', '--print-context', '--force-slash', 'one.md'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));

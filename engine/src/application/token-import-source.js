@@ -7,7 +7,8 @@ import { VARIABLE_SCOPES_BY_TYPE } from '../lib/variable-scope-policy.js';
 export const MAX_TOKEN_IMPORT_ITEMS = 10_000;
 export const MAX_TOKEN_IMPORT_NAME_CODE_UNITS = 512;
 export const MAX_TOKEN_IMPORT_STRING_CODE_UNITS = 16_384;
-const UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/u;
+const UNSAFE_CONTROLS =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;
 const META_KEYS = new Set(['$description', '$extensions']);
 
 function sourceError(message) { return new Error(`Invalid token import source: ${message}.`); }

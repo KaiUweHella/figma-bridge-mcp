@@ -76,6 +76,7 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   ], { conflicts: [['--ours', '--theirs']] }),
   'tokens.import-design-md': optionSchema([
     valueOption('-c', '--collection'), flagOption('--print-context'),
+    flagOption('--force-slash'),
   ]),
   'tokens.rebind': optionSchema([
     valueOption('-n', '--node'), flagOption('--page'), flagOption('--apply'),

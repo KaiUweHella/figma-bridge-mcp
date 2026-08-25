@@ -62,6 +62,10 @@ import {
   executeDesignMdContextPlan,
 } from '../application/design-md-context-command.js';
 import {
+  executeDesignMdImportPlan,
+  prepareDesignMdImportPlan,
+} from '../application/design-md-import-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -320,10 +324,6 @@ function printVariableScopeQuestions(questions) {
     console.log(chalk.gray(`    compatible: ${item.allowedScopes.join(', ')}`));
   }
   console.log(chalk.gray('  Scope reference: figma_reference {name:"variable-scopes"}'));
-}
-
-function parsedEvalPayload(result) {
-  try { return JSON.parse(result); } catch { return null; }
 }
 
 // NOTE: there are deliberately NO third-party design-system presets here —
@@ -772,17 +772,19 @@ tokens
 
 tokens
   .command('import-design-md <file>')
-  .description('Import tokens from a DESIGN.md (Figma extraction format with `## 11. Machine-readable tokens` JSON block). Creates color, radius, and typography variables. Also prints a compact context summary for the agent.')
+  .description('Import simple color, radius, and spacing tokens from DESIGN.md. Typography and shadows stay explicit context; extracted multi-Collection snapshots use their separate compatibility path.')
   .option('-c, --collection <name>', 'Collection name (defaults to the design system name)')
   .option('--print-context', 'Just print the agent context summary, do not create variables')
+  .option('--force-slash', 'Allow "/" in --collection for a simple single-Collection import')
   .allowExcessArguments(false)
   .action(async (file, options) => {
     if (options.printContext) {
       try {
         const plan = planFigmaCommand(designMdPlanningArgvFromRequest({
           file,
-          collection: options.collection || null,
+          collection: options.collection ?? null,
           printContext: true,
+          forceSlash: options.forceSlash === true,
         }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
         const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
           async () => executeDesignMdContextPlan(plan, { workspaceIO: workspaceIO() }));
@@ -793,17 +795,47 @@ tokens
       }
       return;
     }
-    let parsed;
+    let plan;
+    let prepared;
     try {
-      const { parseDesignMd } = await import('../design-md.js');
-      parsed = parseDesignMd(file);
-    } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      plan = planFigmaCommand(designMdPlanningArgvFromRequest({
+        file,
+        collection: options.collection ?? null,
+        printContext: false,
+        forceSlash: options.forceSlash === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      prepared = prepareDesignMdImportPlan(plan, { workspaceIO: workspaceIO() });
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+      return;
     }
 
+    if (prepared.kind !== 'legacy-variable-snapshot') {
+      try {
+        const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+          async ({ fileKey, deadline }) => {
+            if (prepared.kind === 'single-collection') {
+              await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            }
+            return executeDesignMdImportPlan(plan, prepared, {
+              evaluate: (code) => daemonExec('eval', {
+                code, ...(fileKey ? { fileKey } : {}),
+              }, Math.max(1, deadline - Date.now())),
+            });
+          });
+        console.log(result.stdout);
+        if (result.stderr) console.error(chalk.yellow(result.stderr));
+      } catch (error) {
+        handleEvalError(error);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    const parsed = prepared.parsed;
     await checkConnection();
-    const { toTokensImportJson, summarizeForLLM, variableImportCode } = await import('../design-md.js');
+    const { summarizeForLLM, variableImportCode } = await import('../design-md.js');
 
     // Authoritative path: the file carries real variable collections (from
     // the `extract` command). Recreate them faithfully — names, modes, alias
@@ -837,85 +869,6 @@ tokens
       console.log(chalk.cyan('──────────────────────────────────────────────'));
       return;
     }
-
-    const tokensData = toTokensImportJson(parsed);
-    const collectionName = options.collection || parsed.meta.source || 'Imported Design System';
-    const colorCount = Object.keys(tokensData.color || {}).length;
-    const radiusCount = Object.keys(tokensData.radius || {}).length;
-    const typoCount = Object.keys(tokensData.typography || {}).length;
-
-    const spinner = progress(`Importing ${colorCount} colors, ${radiusCount} radii, ${typoCount} type styles from ${file}...`).start();
-
-    const code = `(async () => {
-const data = ${JSON.stringify({ ...tokensData.color, _radii: tokensData.radius })};
-const collectionName = ${JSON.stringify(collectionName)};
-${variableScopePolicyCode()}
-
-function hexToRgb(hex) {
-  const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-  if (!r) return null;
-  return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
-}
-
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === collectionName);
-if (!col) col = figma.variables.createVariableCollection(collectionName);
-const modeId = col.modes[0].modeId;
-
-const existingVars = await figma.variables.getLocalVariablesAsync();
-let count = 0;
-const scopeQuestions = [];
-
-// Colors. Skip-check scoped to the TARGET collection so multiple design
-// systems can coexist with overlapping token names (Airbnb's primary AND
-// Cursor's primary, switchable via "Apply variable mode" in Figma).
-for (const [name, entry] of Object.entries(data)) {
-  if (name === '_radii') continue;
-  const value = entry?.value ?? entry;
-  const rgb = typeof value === 'string' ? hexToRgb(value) : null;
-  if (!rgb) continue;
-  if (existingVars.find(v => v.name === name && v.variableCollectionId === col.id)) continue;
-  try {
-    const v = figma.variables.createVariable(name, col, 'COLOR');
-    const scopeQuestion = __variableScopeQuestion(name, 'COLOR', collectionName);
-    if (scopeQuestion) scopeQuestions.push(scopeQuestion);
-    v.setValueForMode(modeId, rgb);
-    count++;
-  } catch (e) {}
-}
-// Radii
-if (data._radii) {
-  for (const [name, entry] of Object.entries(data._radii)) {
-    const num = typeof entry === 'object' ? entry.value : entry;
-    if (typeof num !== 'number') continue;
-    if (existingVars.find(v => v.name === name && v.variableCollectionId === col.id)) continue;
-    try {
-      const v = figma.variables.createVariable(name, col, 'FLOAT');
-      v.scopes = ['CORNER_RADIUS'];
-      v.setValueForMode(modeId, num);
-      count++;
-    } catch (e) {}
-  }
-}
-
-return JSON.stringify({ message: 'Imported ' + count + ' tokens into ' + collectionName, scopeQuestions });
-})()`;
-
-    try {
-      const result = await daemonExec('eval', { code });
-      const payload = typeof result === 'string' ? parsedEvalPayload(result) : result;
-      spinnerSucceed(spinner, payload?.message || result || 'Tokens imported');
-      printVariableScopeQuestions(payload?.scopeQuestions);
-    } catch (error) {
-      spinner.fail('Failed to import tokens');
-      console.error(error.message);
-      process.exit(1);
-    }
-
-    console.log();
-    console.log(chalk.cyan('─── agent context summary ───────────'));
-    console.log(summarizeForLLM(parsed));
-    console.log(chalk.cyan('──────────────────────────────────────────────'));
   });
 
 tokens

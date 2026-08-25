@@ -9,8 +9,8 @@ generated eval, Variable factories, error swallowing or result formatting.
 The first owned slice deliberately covers JSON import into one Collection. A
 separate Application will own multi-Collection Variable snapshots because
 mode topology, merge semantics and cross-Collection aliases require a wider
-transaction and identity model. Simple DESIGN.md fallback can reuse this
-Application after its parser produces the same prepared plan; repository-only
+transaction and identity model. Simple DESIGN.md fallback reuses this
+Application after its parser produces the same prepared items; repository-only
 `--print-context` does not require a Figma target.
 
 Converted CSS, Tailwind and W3C sources no longer round-trip through a

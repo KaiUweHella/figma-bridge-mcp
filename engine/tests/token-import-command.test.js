@@ -109,6 +109,13 @@ test('closed request canonicalizes options and rejects slash mistakes and option
   assert.deepEqual(parseTokenImportRequest(['tokens', 'import', '-c', 'Tokens', '--', '-tokens.json']), {
     file: '-tokens.json', collection: 'Tokens', forceSlash: false,
   });
+  assert.equal(Object.isFrozen(
+    parseTokenImportRequest(['tokens', 'import', '-c', 'Tokens', '--', '-tokens.json']),
+  ), true);
+  assert.throws(
+    () => tokenImportArgvFromRequest({ file: 'tokens.json', collection: 123 }),
+    /declared types/,
+  );
   assert.deepEqual(tokenImportArgvFromRequest({ file: '-tokens.json', collection: 'A/B', forceSlash: true }),
     ['tokens', 'import', '--collection=A/B', '--force-slash', '--', '-tokens.json']);
   for (const argv of [
@@ -168,6 +175,12 @@ test('source preflight fails aliases, cycles, duplicate identities and unsupport
     { a: { $value: '{b}', $type: 'string' }, b: { $value: '{a}', $type: 'string' } },
     { composite: { value: { x: 1 } } },
   ]) assert.throws(() => normalizeTokenImportSource(source), /Invalid token import source/);
+  for (const control of ['\u061c', '\u200e', '\u200f']) {
+    assert.throws(
+      () => normalizeTokenImportSource({ [`safe${control}spoof`]: { value: '#ffffff' } }),
+      /token name is empty, unsafe, or too long/,
+    );
+  }
 });
 
 test('alias graph validation remains linear enough at the declared 10k bound', () => {

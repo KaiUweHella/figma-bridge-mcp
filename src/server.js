@@ -155,6 +155,11 @@ import {
   executeDesignMdContextPlan,
 } from "../engine/src/application/design-md-context-command.js";
 import {
+  designMdImportPlanRoute,
+  executeDesignMdImportPlan,
+  prepareDesignMdImportPlan,
+} from "../engine/src/application/design-md-import-command.js";
+import {
   executeVariableDiscoveryPlan,
   variableDiscoveryPlanRoute,
 } from "../engine/src/application/variable-discovery-command.js";
@@ -2095,6 +2100,35 @@ export async function handleTool(name, rawArgs) {
           compatibilityFallback: false,
         }, async () => executeDesignMdContextPlan(plan, { workspaceIO: WORKSPACE_IO }));
         return resultFromCli(res);
+      }
+      const designMdImportRoute = designMdImportPlanRoute(plan);
+      if (designMdImportRoute === "command-application") {
+        let prepared;
+        try {
+          prepared = prepareDesignMdImportPlan(plan, { workspaceIO: WORKSPACE_IO });
+        } catch (error) {
+          return errorResult(error?.message || String(error));
+        }
+        // Multi-Collection Variable Snapshots retain the compatibility Adapter
+        // until their separately versioned transaction is complete.
+        if (prepared.kind !== "legacy-variable-snapshot") {
+          const res = await runInProcessCommandPlan(plan, {
+            label: input.label,
+            compatibilityFallback: false,
+          }, async ({ fileKey, expectedEditor, deadline }) => {
+            if (prepared.kind === "single-collection") {
+              await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            }
+            return executeDesignMdImportPlan(plan, prepared, {
+              evaluate: (code) => evaluateFigma(code, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              }),
+            });
+          });
+          return resultFromCli(res);
+        }
       }
       const variableCreateRoute = variableCreatePlanRoute(plan);
       if (variableCreateRoute === "command-application") {

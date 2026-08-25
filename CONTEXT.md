@@ -191,13 +191,14 @@ Variable Facts or an Auto Layout Grid primitive.
 _Avoid_: palette eval, first mode, alias flattening, hidden unresolved value, unjournaled canvas
 
 **Single-Collection Token Import**:
-The bounded, non-retrying import of one workspace JSON token source into one
-exact local Collection. Workspace authority and complete legacy/DTCG type,
-value, metadata and alias normalization finish before Plugin readiness. The
-Application uses the Collection's declared default mode, treats exactly
-matching existing Variables as no-ops, rejects all differing or ambiguous
-identities before the first write, journals every created resource immediately
-and verifies either the complete result or bounded rollback residue.
+The bounded, non-retrying import of one workspace JSON token source or one
+prepared simple DESIGN.md projection into one exact local Collection. Workspace
+authority and complete legacy/DTCG or prepared-item normalization finish before
+Plugin readiness. The Application uses the Collection's declared default mode,
+treats exactly matching existing Variables as no-ops, rejects all differing or
+ambiguous identities before the first write, journals every created resource
+immediately and verifies either the complete result or bounded rollback
+residue.
 _Avoid_: token import eval, modes[0], partial import success, first-name collection choice
 
 **DESIGN.md Context Projection**:

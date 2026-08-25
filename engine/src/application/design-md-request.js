@@ -32,6 +32,7 @@ function parsedRequest(args) {
   }
   let collection = null;
   let printContext = false;
+  let forceSlash = false;
   let literal = false;
   const positionals = [];
   for (let index = 2; index < args.length; index++) {
@@ -44,6 +45,12 @@ function parsedRequest(args) {
       if (printContext)
         throw requestError("--print-context may be provided only once");
       printContext = true;
+      continue;
+    }
+    if (!literal && token === "--force-slash") {
+      if (forceSlash)
+        throw requestError("--force-slash may be provided only once");
+      forceSlash = true;
       continue;
     }
     let value;
@@ -74,10 +81,14 @@ function parsedRequest(args) {
   }
   if (positionals.length < 1) throw requestError("file is required");
   if (positionals.length > 1) throw requestError("only one file is accepted");
+  if (printContext && forceSlash) {
+    throw requestError("--force-slash cannot be used with --print-context");
+  }
   return Object.freeze({
     file: identity(positionals[0], "file", MAX_DESIGN_MD_PATH_CODE_UNITS),
     collection,
     printContext,
+    forceSlash,
   });
 }
 
@@ -100,10 +111,21 @@ function typedRequest(request) {
     typeof request !== "object" ||
     Array.isArray(request) ||
     Object.keys(request).some(
-      (key) => !["file", "collection", "printContext"].includes(key)
+      (key) => !["file", "collection", "printContext", "forceSlash"].includes(key)
     )
   ) {
     throw new TypeError("DESIGN.md import request must be a closed object.");
+  }
+  if (
+    typeof request.file !== "string" ||
+    (request.collection != null && typeof request.collection !== "string") ||
+    (request.printContext !== undefined &&
+      typeof request.printContext !== "boolean") ||
+    (request.forceSlash !== undefined && typeof request.forceSlash !== "boolean")
+  ) {
+    throw new TypeError(
+      "DESIGN.md import request fields must preserve their declared types."
+    );
   }
   return parsedRequest([
     "tokens",
@@ -112,6 +134,7 @@ function typedRequest(request) {
       ? []
       : [`--collection=${request.collection}`]),
     ...(request.printContext === true ? ["--print-context"] : []),
+    ...(request.forceSlash === true ? ["--force-slash"] : []),
     "--",
     request.file,
   ]);
@@ -124,6 +147,7 @@ export function designMdArgvFromRequest(request) {
     "import-design-md",
     ...(input.collection == null ? [] : [`--collection=${input.collection}`]),
     ...(input.printContext ? ["--print-context"] : []),
+    ...(input.forceSlash ? ["--force-slash"] : []),
     "--",
     input.file,
   ];
