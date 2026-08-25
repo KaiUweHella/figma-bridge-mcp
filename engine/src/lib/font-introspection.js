@@ -258,33 +258,84 @@ export function axisMetadataExpression(nodeExpression = 'n') {
   })()`;
 }
 
-export function fontInspectCode({ nodeId, start = null, end = null, allOpenType = false }) {
+export function fontInspectCode({
+  nodeId,
+  start = null,
+  end = null,
+  allOpenType = false,
+  bounds,
+}) {
+  const keys = ['maxCharacters', 'maxSegments', 'maxFacts', 'maxString'];
+  if (!bounds || typeof bounds !== 'object' || Array.isArray(bounds)
+    || Object.keys(bounds).length !== keys.length
+    || !keys.every((key) => Number.isSafeInteger(bounds[key]) && bounds[key] > 0)) {
+    throw new TypeError('Font Inspection bounds must be positive safe integers.');
+  }
   return `(async () => {${metadataHelpers()}
+    const bounds = ${JSON.stringify(bounds)};
+    let boundedFacts = 0;
+    const boundedText = (value, limit = bounds ? bounds.maxString : null) => {
+      if (typeof value !== 'string' || (limit !== null && value.length > limit)) {
+        throw new Error('Font Inspection exceeds the bounded result contract.');
+      }
+      return value;
+    };
+    const addFacts = (count) => {
+      boundedFacts += count;
+      if (bounds && boundedFacts > bounds.maxFacts) {
+        throw new Error('Font Inspection exceeds the bounded result contract.');
+      }
+    };
     const node = await textNode(${JSON.stringify(nodeId)});
+    boundedText(node.id);
+    boundedText(node.name);
+    if (bounds && node.characters.length > bounds.maxCharacters) {
+      throw new Error('Font Inspection exceeds the bounded character contract.');
+    }
+    boundedText(node.characters, bounds ? bounds.maxCharacters : null);
     const range = textRange(node, ${JSON.stringify(start)}, ${JSON.stringify(end)});
     const fields = ['fontName', 'fontSize', 'fontWeight', 'openTypeFeatures', 'boundVariables'];
     const rawSegments = range.start === range.end ? [] : node.getStyledTextSegments(fields, range.start, range.end);
+    if (!Array.isArray(rawSegments) || (bounds && rawSegments.length > bounds.maxSegments)) {
+      throw new Error('Font Inspection exceeds the bounded segment contract.');
+    }
     const variableCache = new Map();
     const variableInfo = async (alias) => {
       if (!alias || typeof alias.id !== 'string') return null;
+      boundedText(alias.id);
       if (variableCache.has(alias.id)) return variableCache.get(alias.id);
       let info = { id: alias.id, name: null };
       try {
         const variable = await figma.variables.getVariableByIdAsync(alias.id);
-        if (variable) info = { id: alias.id, name: variable.name };
+        if (variable) info = { id: alias.id, name: boundedText(variable.name) };
       } catch (error) {}
       variableCache.set(alias.id, info);
       return info;
     };
     const segments = [];
     for (const segment of rawSegments) {
+      boundedText(segment.characters, bounds ? bounds.maxCharacters : null);
+      if (!segment.fontName || typeof segment.fontName !== 'object') {
+        throw new Error('Font Inspection returned an unsupported font name.');
+      }
+      boundedText(segment.fontName.family);
+      boundedText(segment.fontName.style);
       const boundVariables = {};
-      for (const [field, alias] of Object.entries(segment.boundVariables || {})) {
-        const info = await variableInfo(Array.isArray(alias) ? alias[0] : alias);
+      const bindingEntries = Object.entries(segment.boundVariables || {});
+      addFacts(bindingEntries.length);
+      for (const [field, alias] of bindingEntries) {
+        boundedText(field);
+        if (Array.isArray(alias)) {
+          throw new Error('Font Inspection returned unsupported binding topology.');
+        }
+        const info = await variableInfo(alias);
         if (info) boundVariables[field] = info;
       }
       const features = segment.openTypeFeatures && typeof segment.openTypeFeatures === 'object'
         ? segment.openTypeFeatures : {};
+      const featureEntries = Object.entries(features);
+      addFacts(featureEntries.length);
+      for (const [tag] of featureEntries) boundedText(tag);
       const out = {
         start: segment.start,
         end: segment.end,
@@ -299,6 +350,15 @@ export function fontInspectCode({ nodeId, start = null, end = null, allOpenType 
       segments.push(out);
     }
     const axisMetadata = readAxisMetadata(node.getPluginData(AXIS_METADATA_KEY));
+    if (bounds && axisMetadata.ranges.length > bounds.maxSegments) {
+      throw new Error('Font Inspection exceeds the bounded axis-range contract.');
+    }
+    for (const axisRange of axisMetadata.ranges) {
+      const axes = Object.entries(axisRange.axes || {});
+      addFacts(axes.length);
+      for (const [tag] of axes) boundedText(tag);
+    }
+    if (axisMetadata.error) boundedText(axisMetadata.error);
     axisMetadata.source = 'plugin-data';
     axisMetadata.appliedToFont = false;
     return {

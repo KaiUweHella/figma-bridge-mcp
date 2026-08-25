@@ -532,6 +532,24 @@ test('token export projects valuesByMode centrally instead of selecting the firs
     'CSS/DTCG export must never silently select the first collection mode');
 });
 
+test('font inspect delegates one Plan-bound bounded-read Command Application', () => {
+  const adapter = sources.get('font.js');
+  assert.ok(adapter, 'font.js exists');
+  const start = adapter.indexOf(".command('inspect <nodeId>')");
+  const end = adapter.indexOf(".command('axes <nodeId>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(fontInspectionPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeFontInspectionPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|fontInspectCode\(|getStyledTextSegments/,
+    'Commander must not retain Font Inspection readiness, capture, or formatting logic');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {

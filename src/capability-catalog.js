@@ -93,6 +93,12 @@ import {
   variableResolutionFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/variable-resolution-request.js';
 import {
+  acceptsFontInspectionArgv,
+  fontInspectionArgvFromRequest,
+  fontInspectionFigmaUrlFileKeyFromArgv,
+  parseFontInspectionRequest,
+} from '../engine/src/application/font-inspection-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -196,7 +202,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
-  'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -310,6 +316,10 @@ function specializedPolicy(name, entry, args) {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
   }
+  if (name === 'font' && sub === 'inspect') {
+    retry = 'safe-read';
+    pathPolicy = 'font-inspection-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -376,6 +386,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'resolve'
     && !action.help && !acceptsVariableResolutionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'font' && args[1] === 'inspect'
+    && !action.help && !acceptsFontInspectionArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -884,6 +898,15 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...variableResolutionArgvFromRequest(parseVariableResolutionRequest(args)));
+      break;
+    }
+    case 'font-inspection-input': {
+      const closedFileKey = fontInspectionFigmaUrlFileKeyFromArgv(args);
+      // Commander accepts options before the node. The closed request owns
+      // semantic target projection; fixed legacy argv positions do not.
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...fontInspectionArgvFromRequest(parseFontInspectionRequest(args)));
       break;
     }
     case 'inspect-input': {

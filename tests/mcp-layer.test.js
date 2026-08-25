@@ -406,7 +406,7 @@ test('figma_run routes Variable Facts through the shared bounded-read Applicatio
 test('figma_run routes Variable Resolution through the shared target-bound Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const variableResolutionRoute = variableResolutionPlanRoute(plan)');
-  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const end = source.indexOf('const fontInspectionRoute = fontInspectionPlanRoute(plan)', start);
   const slice = source.slice(start, end);
   assert.match(slice, /runInProcessCommandPlan\(plan/);
   assert.match(slice, /compatibilityFallback:\s*false/);
@@ -414,6 +414,35 @@ test('figma_run routes Variable Resolution through the shared target-bound Appli
   assert.match(slice, /executeVariableResolutionPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Variable Resolution must not re-enter Commander');
+});
+
+test('figma_run routes Font Inspection through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const fontInspectionRoute = fontInspectionPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeFontInspectionPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Font Inspection must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Font Inspection before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['font', 'inspect'],
+    ['font', 'inspect', 'not-a-node'],
+    ['font', 'inspect', '12:34', '56:78'],
+    ['font', 'inspect', '12:34', '--start', '-1'],
+    ['font', 'inspect', '12:34', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
 });
 
 test('figma_run rejects malformed Variable Resolution before readiness or dispatch', async () => {

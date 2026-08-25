@@ -188,6 +188,17 @@ identity plus the official typed `resolveForConsumer` value within explicit
 string and serialized-size limits. It neither claims the variable is directly
 bound to the consumer nor replaces authored mode metadata from Variable Facts.
 
+`font inspect` owns the adjacent Typography Inspection Facts read. Its closed
+request preserves one semantic Text Node Reference, optional character range
+and the complete OpenType feature projection flag regardless of option order.
+Commander and `figma_run` execute one target-bound safe-read Command Plan and
+Font Inspection Application. Character, segment, feature, binding, metadata
+and serialized-size limits fail explicitly instead of returning plausible
+partial typography. The result keeps Figma's numeric `fontWeight` and authored
+Plugin axis metadata distinct: it does not invent the general variation-axis
+tuple that the Figma Plugin API does not expose. Typography binding mutations
+and metadata writes remain separate Commands.
+
 Current-page Canvas Awareness follows the same rule for `canvas info` and
 `canvas next`. Their closed request Interface owns the complete option surface,
 including bounded numeric gaps and the `right|below` direction. Commander and

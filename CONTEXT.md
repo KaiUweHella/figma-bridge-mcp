@@ -51,6 +51,16 @@ evidence, not authored mode metadata, a direct-binding claim or permission to
 mutate the variable or node.
 _Avoid_: resolved token dump, inferred binding, global token value
 
+**Typography Inspection Facts**:
+The exact, versioned and bounded Figma-reported typography for one explicit
+Text Node or character range. It preserves styled segment boundaries, text,
+font family/style, numeric weight, OpenType feature state and typography
+Variable identities through one shared safe-read Command Application. Optional
+variable-axis tuples are explicitly Plugin metadata and never claimed as Figma
+rendering state because the Plugin API does not expose the general variation
+axis tuple.
+_Avoid_: font dump, inferred variable axes, CSS typography
+
 **Node Discovery**:
 The bounded depth-first search of the fully loaded current Figma page by
 case-insensitive partial node name and optional node type. It returns stable

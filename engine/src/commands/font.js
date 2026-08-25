@@ -1,15 +1,17 @@
 // Command: font — truthful range inspection plus metadata-only variable axes.
 import chalk from 'chalk';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
   program,
   checkConnection,
+  daemonExec,
   fastEval,
   handleEvalError,
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   fontAxesCode,
-  fontInspectCode,
   fontVariableBindingCode,
   forgetAxesCode,
   parseAxisSpec,
@@ -17,6 +19,10 @@ import {
   parseTypographyField,
   rememberAxesCode,
 } from '../lib/font-introspection.js';
+import {
+  executeFontInspectionPlan,
+  fontInspectionPlanningArgvFromRequest,
+} from '../application/font-inspection-command.js';
 
 const font = program
   .command('font')
@@ -83,17 +89,33 @@ rangeOptions(font
   .command('inspect <nodeId>')
   .description('Read Figma-reported range fonts, numeric weights, OpenType features and bindings'))
   .option('--all-open-type', 'Include false OpenType feature values as well as enabled tags')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     try {
-      const id = normalizeNodeId(nodeId).id;
       const range = parsedRange(options);
-      await checkConnection();
-      const result = await fastEval(fontInspectCode({
-        nodeId: id, ...range, allOpenType: options.allOpenType === true,
-      }));
-      print(result);
+      const plan = planFigmaCommand(fontInspectionPlanningArgvFromRequest({
+        nodeId,
+        ...range,
+        allOpenType: options.allOpenType === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeFontInspectionPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
     } catch (error) {
-      handleEvalError(error);
+      console.error(chalk.red('✗ Font inspection failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
