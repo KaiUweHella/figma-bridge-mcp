@@ -384,6 +384,8 @@ test('Capture revision metadata crosses both plugin threads', () => {
   assert.match(PLUGIN_CODE, /documentRevisionAfter/);
   assert.match(UI, /requireDocumentRevision: msg\.requireDocumentRevision === true/);
   assert.match(UI, /metadata: msg\.metadata/);
+  assert.match(PLUGIN_CODE, /createPluginExecutionTiming\(\{ queuedAt, startedAt, finishedAt: Date\.now\(\) \}\)/,
+    'successful eval and structured render responses carry content-free Plugin timing evidence');
 });
 
 test('verify rejects malformed proofs instead of throwing', () => {

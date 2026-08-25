@@ -738,6 +738,13 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
             connectionId: 'FORGED_BY_PLUGIN',
             documentRevisionBefore: 9,
             documentRevisionAfter: 9,
+            executionTiming: {
+              schema: 'figma-bridge/plugin-execution-timing',
+              version: 1,
+              queuedMs: 3,
+              executionMs: 11,
+              totalMs: 14,
+            },
           },
         })));
         resolve();
@@ -762,6 +769,16 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     assert.equal(payload.metadata.pluginVersion, PLUGIN_BUILD_VERSION);
     assert.equal(payload.metadata.documentRevisionBefore, 9);
     assert.equal(payload.metadata.documentRevisionAfter, 9);
+    assert.deepEqual(payload.metadata.pluginExecutionTiming, {
+      schema: 'figma-bridge/plugin-execution-timing',
+      version: 1,
+      queuedMs: 3,
+      executionMs: 11,
+      totalMs: 14,
+    });
+    assert.equal(payload.metadata.bridgeExecutionTiming.schema, 'figma-bridge/bridge-execution-timing');
+    assert.equal(payload.metadata.bridgeExecutionTiming.version, 1);
+    assert.ok(payload.metadata.bridgeExecutionTiming.preResponseMs >= 0);
     const health = await (await httpHealth(auth('GET', '/health'))).json();
     const connection = health.connections.find((item) => item.fileKey === 'REV_FILE_MOVED');
     assert.match(connection.lastResponseAt, /^\d{4}-\d{2}-\d{2}T/,

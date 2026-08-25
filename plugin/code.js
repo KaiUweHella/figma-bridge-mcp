@@ -45,12 +45,86 @@ function ensureDocumentRevisionReady() {
   return documentRevisionReady;
 }
 
-function revisionMetadata(before) {
+function revisionMetadata(before, executionTiming = null) {
   return {
     documentRevisionBefore: before,
     documentRevisionAfter: documentRevisionAvailable ? documentRevision : null,
+    ...(executionTiming ? { executionTiming } : {}),
   };
 }
+
+// Generated runtime: npm run sync:plugin. Edit the canonical module at
+// engine/src/lib/plugin-execution-timing.js, never this marked block.
+// BEGIN PLUGIN EXECUTION TIMING RUNTIME
+const PLUGIN_EXECUTION_TIMING_SCHEMA = 'figma-bridge/plugin-execution-timing';
+const PLUGIN_EXECUTION_TIMING_VERSION = 1;
+const MAX_PLUGIN_EXECUTION_TIMING_MS = 130_000;
+
+const PLUGIN_EXECUTION_TIMING_FIELDS = Object.freeze([
+  'schema',
+  'version',
+  'queuedMs',
+  'executionMs',
+  'totalMs',
+]);
+
+function pluginExecutionDuration(start, end) {
+  return Math.max(0, Math.min(MAX_PLUGIN_EXECUTION_TIMING_MS, Math.round(end - start)));
+}
+
+function createPluginExecutionTiming({ queuedAt, startedAt, finishedAt }) {
+  const queuedMs = pluginExecutionDuration(queuedAt, startedAt);
+  const executionMs = pluginExecutionDuration(startedAt, finishedAt);
+  return Object.freeze({
+    schema: PLUGIN_EXECUTION_TIMING_SCHEMA,
+    version: PLUGIN_EXECUTION_TIMING_VERSION,
+    queuedMs,
+    executionMs,
+    totalMs: Math.min(MAX_PLUGIN_EXECUTION_TIMING_MS, queuedMs + executionMs),
+  });
+}
+
+function pluginExecutionTimingValidationError(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return 'Plugin execution timing must be an object';
+  }
+  const keys = Object.keys(value).sort();
+  const expected = [...PLUGIN_EXECUTION_TIMING_FIELDS].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    return 'Plugin execution timing contains unknown or missing fields';
+  }
+  if (value.schema !== PLUGIN_EXECUTION_TIMING_SCHEMA
+      || value.version !== PLUGIN_EXECUTION_TIMING_VERSION) {
+    return 'Plugin execution timing schema/version is unsupported';
+  }
+  for (const field of ['queuedMs', 'executionMs', 'totalMs']) {
+    if (!Number.isSafeInteger(value[field])
+        || value[field] < 0
+        || value[field] > MAX_PLUGIN_EXECUTION_TIMING_MS) {
+      return `Plugin execution timing ${field} must be a bounded integer`;
+    }
+  }
+  const expectedTotal = Math.min(
+    MAX_PLUGIN_EXECUTION_TIMING_MS,
+    value.queuedMs + value.executionMs,
+  );
+  if (value.totalMs !== expectedTotal) {
+    return 'Plugin execution timing total does not match its segments';
+  }
+  return null;
+}
+
+function parsePluginExecutionTiming(value) {
+  if (pluginExecutionTimingValidationError(value)) return null;
+  return Object.freeze({
+    schema: value.schema,
+    version: value.version,
+    queuedMs: value.queuedMs,
+    executionMs: value.executionMs,
+    totalMs: value.totalMs,
+  });
+}
+// END PLUGIN EXECUTION TIMING RUNTIME
 
 // Generated runtime: npm run sync:plugin. Edit the canonical module at
 // engine/src/lib/dispatch-receipt.js, never this marked block.
@@ -2832,12 +2906,17 @@ figma.ui.onmessage = async (msg) => {
       if (!preflightPluginDispatch(msg, 'eval')) return;
       if (requireDocumentRevision === true) await ensureDocumentRevisionReady();
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
+      const startedAt = Date.now();
+      const timedMetadata = () => revisionMetadata(
+        revisionBefore,
+        createPluginExecutionTiming({ queuedAt, startedAt, finishedAt: Date.now() }),
+      );
       try {
         const remainingMs = remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt);
         if (remainingMs <= 0) {
           postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {
             error: 'Execution deadline elapsed before plugin start',
-            metadata: revisionMetadata(revisionBefore),
+            metadata: timedMetadata(),
           });
           postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
@@ -2847,13 +2926,13 @@ figma.ui.onmessage = async (msg) => {
           timeoutPosted = true;
           postDispatchResult(msg, 'unknown', 'execution-timeout', {
             error: errorMessage(timeoutError),
-            metadata: revisionMetadata(revisionBefore),
+            metadata: timedMetadata(),
           });
         });
         if (!timeoutPosted && !execution.timedOut) {
           postDispatchResult(msg, 'completed', null, {
             result: execution.result,
-            metadata: revisionMetadata(revisionBefore),
+            metadata: timedMetadata(),
           });
         }
         postLaneSettled(
@@ -2864,7 +2943,7 @@ figma.ui.onmessage = async (msg) => {
       } catch (error) {
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
-          metadata: revisionMetadata(revisionBefore),
+          metadata: timedMetadata(),
         });
         postLaneSettled(msg, 'failed', 'execution-error');
       }
@@ -2878,11 +2957,16 @@ figma.ui.onmessage = async (msg) => {
     evalChain = evalChain.then(async () => {
       if (!preflightPluginDispatch(msg, 'render-plan')) return;
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
+      const startedAt = Date.now();
+      const timedMetadata = () => revisionMetadata(
+        revisionBefore,
+        createPluginExecutionTiming({ queuedAt, startedAt, finishedAt: Date.now() }),
+      );
       try {
         if (remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) <= 0) {
           postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {
             error: 'Execution deadline elapsed before plugin start',
-            metadata: revisionMetadata(revisionBefore),
+            metadata: timedMetadata(),
           });
           postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
@@ -2890,7 +2974,7 @@ figma.ui.onmessage = async (msg) => {
         const result = await executeStructuredRenderPlan(figma, plan);
         postDispatchResult(msg, 'completed', null, {
           result,
-          metadata: revisionMetadata(revisionBefore),
+          metadata: timedMetadata(),
         });
         postLaneSettled(msg, 'completed');
       } catch (error) {
@@ -2898,7 +2982,7 @@ figma.ui.onmessage = async (msg) => {
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
           ...(result ? { result } : {}),
-          metadata: revisionMetadata(revisionBefore),
+          metadata: timedMetadata(),
         });
         postLaneSettled(msg, 'failed', 'execution-error');
       }
@@ -2912,11 +2996,16 @@ figma.ui.onmessage = async (msg) => {
     evalChain = evalChain.then(async () => {
       if (!preflightPluginDispatch(msg, 'render-plan-batch')) return;
       const revisionBefore = documentRevisionAvailable ? documentRevision : null;
+      const startedAt = Date.now();
+      const timedMetadata = () => revisionMetadata(
+        revisionBefore,
+        createPluginExecutionTiming({ queuedAt, startedAt, finishedAt: Date.now() }),
+      );
       try {
         if (remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt) <= 0) {
           postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {
             error: 'Execution deadline elapsed before plugin start',
-            metadata: revisionMetadata(revisionBefore),
+            metadata: timedMetadata(),
           });
           postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
@@ -2924,7 +3013,7 @@ figma.ui.onmessage = async (msg) => {
         const result = await executeStructuredRenderPlanBatch(figma, plans, options || {});
         postDispatchResult(msg, 'completed', null, {
           result,
-          metadata: revisionMetadata(revisionBefore),
+          metadata: timedMetadata(),
         });
         postLaneSettled(msg, 'completed');
       } catch (error) {
@@ -2932,7 +3021,7 @@ figma.ui.onmessage = async (msg) => {
         postDispatchResult(msg, 'failed', 'execution-error', {
           error: errorMessage(error),
           ...(result ? { result } : {}),
-          metadata: revisionMetadata(revisionBefore),
+          metadata: timedMetadata(),
         });
         postLaneSettled(msg, 'failed', 'execution-error');
       }

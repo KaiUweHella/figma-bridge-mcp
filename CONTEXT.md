@@ -379,3 +379,7 @@ _Avoid_: feature checklist, workflow matrix, capability claim
 > **Developer:** Code-to-Figma can write a native effect. Does that mean Design-to-Code can safely rebuild it?
 >
 > **Domain expert:** Only when the Round-trip Fidelity Contract classifies the reverse direction and its Capture, projection and verification are implemented. Write support alone never implies reverse fidelity.
+
+> **Developer:** A Figma command was slow. How do we know which Bridge layer caused it?
+>
+> **Domain expert:** Use the runtime workload evidence. It separates Command planning, Daemon preparation, write-lane wait, Plugin round trip and content-free Figma-main-thread queue/execution timing. Missing MCP, process or resource segments stay named as pending; the Bridge never disguises a partial measurement as complete end-to-end proof.

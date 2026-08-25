@@ -57,6 +57,8 @@ import {
   dispatchReceiptIdentityMatches,
   operationCapability,
 } from './lib/dispatch-receipt.js';
+import { parsePluginExecutionTiming } from './lib/plugin-execution-timing.js';
+import { createBridgeExecutionTiming } from './lib/bridge-execution-timing.js';
 import {
   BridgeDaemonError,
   bridgeDaemonErrorBody,
@@ -505,6 +507,7 @@ function resultMetadata(pending, raw) {
     dispatchState: 'completed',
     documentRevisionBefore: before,
     documentRevisionAfter: after,
+    pluginExecutionTiming: parsePluginExecutionTiming(raw?.executionTiming),
   };
 }
 
@@ -713,6 +716,7 @@ async function handleRequest(req, res) {
 }
 
 function handleExec(req, res) {
+  const requestStartedAt = Date.now();
   const bodyChunks = [];
   let receivedBytes = 0;
   let finished = false;
@@ -841,11 +845,16 @@ function handleExec(req, res) {
       const sessionKey = pluginLaneKey(selectedConnection);
       const requestedBudget = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
       const ownerDeadline = boundedDeadline(requestedBudget, deadlineAt);
+      const laneQueuedAt = Date.now();
+      let laneStartedAt = laneQueuedAt;
+      let pluginStartedAt = laneQueuedAt;
+      let pluginFinishedAt = laneQueuedAt;
       const execution = await pluginWriteLanes.run({
         sessionKey,
         deadlineAt: ownerDeadline,
         signal: cancellation.signal,
         operation: async ({ markDispatched }) => {
+          laneStartedAt = Date.now();
           const ms = executionBudget();
           const common = { timeoutMs: ms, deadlineAt: ownerDeadline };
           let data;
@@ -864,14 +873,29 @@ function handleExec(req, res) {
               kind: 'validation', phase: 'request-validation', outcome: 'not-dispatched',
             });
           }
-          return requestViaSocket(selectedWs, action, data, ms, expectedEditor, {
-            expectedConnection: selectedConnection,
-            onDispatch: markDispatched,
-          });
+          pluginStartedAt = Date.now();
+          try {
+            return await requestViaSocket(selectedWs, action, data, ms, expectedEditor, {
+              expectedConnection: selectedConnection,
+              onDispatch: markDispatched,
+            });
+          } finally {
+            pluginFinishedAt = Date.now();
+          }
         },
       });
       result = execution.result;
-      metadata = execution.metadata;
+      metadata = {
+        ...execution.metadata,
+        bridgeExecutionTiming: createBridgeExecutionTiming({
+          requestStartedAt,
+          laneQueuedAt,
+          laneStartedAt,
+          pluginStartedAt,
+          pluginFinishedAt,
+          preResponseAt: Date.now(),
+        }),
+      };
 
       if (!res.destroyed && !res.writableEnded) {
         res.writeHead(200, { 'Content-Type': 'application/json' });

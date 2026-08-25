@@ -18,11 +18,20 @@ const DISPATCH_CANONICAL_PATH = join(
   "lib",
   "dispatch-receipt.js"
 );
+const TIMING_CANONICAL_PATH = join(
+  ROOT,
+  "engine",
+  "src",
+  "lib",
+  "plugin-execution-timing.js"
+);
 const ARTIFACT_PATH = join(ROOT, "plugin", "code.js");
 const BEGIN = "// BEGIN STRUCTURED RENDER RUNTIME";
 const END = "// END STRUCTURED RENDER RUNTIME";
 const DISPATCH_BEGIN = "// BEGIN DISPATCH RECEIPT RUNTIME";
 const DISPATCH_END = "// END DISPATCH RECEIPT RUNTIME";
+const TIMING_BEGIN = "// BEGIN PLUGIN EXECUTION TIMING RUNTIME";
+const TIMING_END = "// END PLUGIN EXECUTION TIMING RUNTIME";
 
 function normalizeLf(source) {
   return String(source).replace(/\r\n?/g, "\n");
@@ -34,7 +43,9 @@ function markedRuntime(source, label, begin = BEGIN, end = END) {
   const endCount = normalized.split(end).length - 1;
   const markerName = begin === BEGIN
     ? "structured-runtime"
-    : "Dispatch Receipt runtime";
+    : begin === DISPATCH_BEGIN
+      ? "Dispatch Receipt runtime"
+      : "Plugin Execution Timing runtime";
   if (beginCount !== 1 || endCount !== 1) {
     throw new Error(
       `${label} must contain exactly one ${markerName} marker pair`
@@ -77,12 +88,22 @@ export function renderPluginDispatchArtifact(canonicalSource, pluginSource) {
   });
 }
 
+export function renderPluginTimingArtifact(canonicalSource, pluginSource) {
+  return replaceMarkedRuntime(canonicalSource, pluginSource, {
+    begin: TIMING_BEGIN,
+    end: TIMING_END,
+    canonicalLabel: "canonical Plugin Execution Timing",
+  });
+}
+
 export function syncPluginArtifact({ check = false } = {}) {
   const canonical = readFileSync(CANONICAL_PATH, "utf8");
   const dispatchCanonical = readFileSync(DISPATCH_CANONICAL_PATH, "utf8");
+  const timingCanonical = readFileSync(TIMING_CANONICAL_PATH, "utf8");
   const current = readFileSync(ARTIFACT_PATH, "utf8");
   const structured = renderPluginArtifact(canonical, current);
-  const expected = renderPluginDispatchArtifact(dispatchCanonical, structured);
+  const dispatched = renderPluginDispatchArtifact(dispatchCanonical, structured);
+  const expected = renderPluginTimingArtifact(timingCanonical, dispatched);
   const normalizedCurrent = normalizeLf(current);
   if (normalizedCurrent === expected)
     return { changed: false, path: ARTIFACT_PATH };

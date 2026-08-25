@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   renderPluginArtifact,
   renderPluginDispatchArtifact,
+  renderPluginTimingArtifact,
 } from "../scripts/sync-plugin-artifact.js";
 
 const canonical = readFileSync(
@@ -16,6 +17,10 @@ const plugin = readFileSync(
 );
 const dispatchCanonical = readFileSync(
   new URL("../engine/src/lib/dispatch-receipt.js", import.meta.url),
+  "utf8"
+);
+const timingCanonical = readFileSync(
+  new URL("../engine/src/lib/plugin-execution-timing.js", import.meta.url),
   "utf8"
 );
 
@@ -101,4 +106,33 @@ test("Plugin build synchronizes the canonical Dispatch Receipt runtime", () => {
       "",
     ].join("\n")
   );
+});
+
+test("Plugin build synchronizes the canonical execution timing runtime", () => {
+  const source = [
+    "// BEGIN PLUGIN EXECUTION TIMING RUNTIME",
+    "export function canonicalTiming() { return 1; }",
+    "// END PLUGIN EXECUTION TIMING RUNTIME",
+    "",
+  ].join("\n");
+  const stale = [
+    "// shell",
+    "// BEGIN PLUGIN EXECUTION TIMING RUNTIME",
+    "function staleTiming() {}",
+    "// END PLUGIN EXECUTION TIMING RUNTIME",
+    "// tail",
+    "",
+  ].join("\n");
+  assert.equal(
+    renderPluginTimingArtifact(source, stale),
+    [
+      "// shell",
+      "// BEGIN PLUGIN EXECUTION TIMING RUNTIME",
+      "function canonicalTiming() { return 1; }",
+      "// END PLUGIN EXECUTION TIMING RUNTIME",
+      "// tail",
+      "",
+    ].join("\n")
+  );
+  assert.equal(renderPluginTimingArtifact(timingCanonical, plugin), plugin.replace(/\r\n?/g, "\n"));
 });

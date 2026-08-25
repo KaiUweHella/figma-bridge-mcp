@@ -7,6 +7,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Added versioned, content-free execution timing evidence across Command
+  planning, authenticated Daemon preparation, per-document write-lane wait,
+  Plugin round trip and Figma-main-thread queue/execution. A maintainer runtime
+  corpus keeps first and warm samples distinct, reports bounded Application
+  outcome/resource facts, and names still-unmeasured MCP/process segments
+  instead of presenting a partial stopwatch as end-to-end proof.
 - Routed `style consumers` through a separate long-budget, paginated Style
   Consumer Application. Results distinguish Figmas complete but
   non-interruptible native scan from bounded page completeness, preserve exact
