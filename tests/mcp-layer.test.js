@@ -446,6 +446,35 @@ test('figma_run rejects malformed Collection reads before readiness or dispatch'
   }
 });
 
+test('figma_run routes Token Publish Status through its shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const tokenPublishStatusRoute = tokenPublishStatusPlanRoute(plan)');
+  const end = source.indexOf('const variableFactsRoute = variableFactsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeTokenPublishStatusPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Token Publish Status must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Token Publish Status before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['var', 'publish-status'],
+    ['var', 'publish-status', 'one', 'two'],
+    ['var', 'publish-status', '--collection'],
+    ['col', 'publish-status', '--collection', 'Theme', 'Theme'],
+    ['col', 'publish-status', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Variable Discovery before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

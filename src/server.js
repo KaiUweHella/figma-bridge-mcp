@@ -106,6 +106,10 @@ import {
   executeCollectionFactsPlan,
 } from "../engine/src/application/collection-facts-command.js";
 import {
+  executeTokenPublishStatusPlan,
+  tokenPublishStatusPlanRoute,
+} from "../engine/src/application/token-publish-status-command.js";
+import {
   executeVariableDiscoveryPlan,
   variableDiscoveryPlanRoute,
 } from "../engine/src/application/variable-discovery-command.js";
@@ -1966,6 +1970,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableDiscoveryPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const tokenPublishStatusRoute = tokenPublishStatusPlanRoute(plan);
+      if (tokenPublishStatusRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenPublishStatusPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

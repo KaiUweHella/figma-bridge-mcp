@@ -13,6 +13,10 @@ import {
   executeCollectionFactsPlan,
 } from '../application/collection-facts-command.js';
 import {
+  executeTokenPublishStatusPlan,
+  tokenPublishStatusPlanningArgvFromRequest,
+} from '../application/token-publish-status-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -39,7 +43,7 @@ import {
 import { normalizeNodeId } from '../lib/node-id.js';
 import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
 import {
-  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode,
+  collectionDeleteCode, collectionExtendCode, collectionModeCode,
   collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
@@ -135,10 +139,29 @@ collections.command('mode-remove <collection> <mode>').action(async (collection,
   try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'remove', mode })), null, 2)); }
   catch (error) { handleEvalError(error); }
 });
-collections.command('publish-status <collection>').action(async (collection) => {
-  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionPublishStatusCode({ collection })), null, 2)); }
-  catch (error) { handleEvalError(error); }
-});
+collections.command('publish-status <collection>')
+  .allowExcessArguments(false)
+  .action(async (collection) => {
+    try {
+      const plan = planFigmaCommand(tokenPublishStatusPlanningArgvFromRequest({
+        kind: 'collection', query: collection,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenPublishStatusPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
+  });
 collections.command('delete <collection>')
   .description('Delete one explicit local collection and its variables')
   .action(async (collection) => {

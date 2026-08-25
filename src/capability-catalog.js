@@ -108,6 +108,11 @@ import {
   variableResolutionFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/variable-resolution-request.js';
 import {
+  acceptsTokenPublishStatusArgv,
+  parseTokenPublishStatusRequest,
+  tokenPublishStatusArgvFromRequest,
+} from '../engine/src/application/token-publish-status-request.js';
+import {
   acceptsFontInspectionArgv,
   fontInspectionArgvFromRequest,
   fontInspectionFigmaUrlFileKeyFromArgv,
@@ -281,6 +286,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'col.list', 'col.show',
+  'var.publish-status', 'col.publish-status',
   'component.main',
   'style.list',
   'style.create',
@@ -443,6 +449,10 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'collection-facts-input';
   }
+  if ((name === 'var' || name === 'col') && sub === 'publish-status') {
+    retry = 'safe-read';
+    pathPolicy = 'token-publish-status-input';
+  }
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
@@ -556,6 +566,10 @@ function commandCapability(args) {
   }
   if (name === 'col' && args[1] === 'show'
     && !action.help && !acceptsCollectionFactsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if ((name === 'var' || name === 'col') && args[1] === 'publish-status'
+    && !action.help && !acceptsTokenPublishStatusArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && args[1] === 'inspect'
@@ -1186,6 +1200,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'collection-facts-input': {
       args.splice(0, args.length,
         ...collectionFactsArgvFromRequest(parseCollectionFactsRequest(args)));
+      break;
+    }
+    case 'token-publish-status-input': {
+      args.splice(0, args.length,
+        ...tokenPublishStatusArgvFromRequest(parseTokenPublishStatusRequest(args)));
       break;
     }
     case 'font-inspection-input': {

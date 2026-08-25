@@ -16,6 +16,10 @@ import {
   variableResolutionPlanningArgvFromRequest,
 } from '../application/variable-resolution-command.js';
 import {
+  executeTokenPublishStatusPlan,
+  tokenPublishStatusPlanningArgvFromRequest,
+} from '../application/token-publish-status-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -28,7 +32,7 @@ import {
 } from '../lib/cli-core.js';
 import {
   parseBoolean, parseScopes, parseVariableLiteral, parseVariableType,
-  variableCodeSyntaxCode, variablePublishStatusCode,
+  variableCodeSyntaxCode,
   variableSetValueCode, variableUpdateCode,
 } from '../lib/variable-management.js';
 
@@ -200,9 +204,27 @@ variables.command('resolve <variable> <nodeId>')
 
 variables.command('publish-status <variable>')
   .option('-c, --collection <collection>')
+  .allowExcessArguments(false)
   .action(async (variable, options) => {
-    try { await checkConnection(); console.log(JSON.stringify(await fastEval(variablePublishStatusCode({ variable, collection: options.collection })), null, 2)); }
-    catch (error) { handleEvalError(error); }
+    try {
+      const plan = planFigmaCommand(tokenPublishStatusPlanningArgvFromRequest({
+        kind: 'variable', query: variable, collection: options.collection || null,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenPublishStatusPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables

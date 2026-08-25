@@ -174,6 +174,15 @@ through one shared safe-read Command Application. It is collection metadata,
 not authored Variable values or permission to mutate the collection.
 _Avoid_: collection dump, inferred mode identity, variable values, collection edit
 
+**Token Publish Status Facts**:
+The compact, versioned read of one Variable or Variable Collection's official
+UNPUBLISHED, CURRENT or CHANGED state. Variable queries may be scoped to one
+Collection and retain the established id, exact-name, path-tail and unique
+partial-name resolution order; Collection queries use id, exact name or one
+unique partial name. The public projection stays the legacy id, name and status
+shape, while resolution and Collection identity remain validated internally.
+_Avoid_: token facts dump, inferred publication state, token mutation, implicit ambiguity choice
+
 **Resolved Variable Value**:
 The exact, versioned and bounded result of resolving one local Figma variable
 for one explicit Scene Node. It preserves variable, collection and consumer

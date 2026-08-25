@@ -180,6 +180,35 @@ test('Collection Catalog and Facts close policy-identical safe reads', () => {
     'a URL-shaped Collection name is payload, never Figma Target Context');
 });
 
+test('Token Publish Status closes Variable and Collection safe reads', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [
+      ['var', 'publish-status', 'space/md', '--collection', 'Primitives'],
+      ['var', 'publish-status', '--collection=Primitives', '--', 'space/md'],
+      'var.publish-status',
+    ],
+    [
+      ['col', 'publish-status', 'Theme'],
+      ['col', 'publish-status', '--', 'Theme'],
+      'col.publish-status',
+    ],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.execution.retry, 'safe-read');
+    assert.equal(cli.audit.capability, action);
+  }
+  for (const argv of [
+    ['var', 'publish-status'], ['var', 'publish-status', 'one', 'two'],
+    ['col', 'publish-status', '--collection', 'Theme', 'Theme'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',

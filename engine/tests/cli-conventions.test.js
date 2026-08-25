@@ -611,6 +611,30 @@ test('var resolve delegates one target-bound Variable Resolution Application', (
     'Commander must not retain Variable Resolution readiness, execution, or formatting logic');
 });
 
+test('var and col publish-status delegate one compact Token Publish Status Application', () => {
+  const variableAdapter = sources.get('variables.js');
+  const collectionAdapter = sources.get('tokens.js');
+  const variableStart = variableAdapter.indexOf("variables.command('publish-status <variable>')");
+  const variableEnd = variableAdapter.indexOf("variables\n  .command('visualize [collection]')", variableStart);
+  const collectionStart = collectionAdapter.indexOf("collections.command('publish-status <collection>')");
+  const collectionEnd = collectionAdapter.indexOf("collections.command('delete <collection>')", collectionStart);
+  for (const action of [
+    variableAdapter.slice(variableStart, variableEnd),
+    collectionAdapter.slice(collectionStart, collectionEnd),
+  ]) {
+    assert.match(action, /tokenPublishStatusPlanningArgvFromRequest/);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+    assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+    assert.match(action, /executeTokenPublishStatusPlan\(plan/);
+    assert.match(action, /daemonExec\('eval'/);
+    assert.match(action, /process\.exitCode = 1/);
+    assert.doesNotMatch(action,
+      /checkConnection\(|fastEval\(|variablePublishStatusCode\(|collectionPublishStatusCode\(/,
+      'Commander must not retain Token Publish Status execution or formatting logic');
+  }
+});
+
 test('canvas info and next delegate one Plan-bound Canvas Awareness Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

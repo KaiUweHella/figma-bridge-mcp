@@ -196,13 +196,6 @@ return __variableFacts(target);
 })()`;
 }
 
-function variablePublishStatusCode({ variable, collection = null }) {
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
-return { id: target.id, name: target.name, publishStatus: await target.getPublishStatusAsync() };
-})()`;
-}
-
 function collectionUpdateCode({ collection, name, hidden }) {
   return `(async () => {${variableHelpersCode()}
 const target = await __resolveCollection(${JSON.stringify(collection)});
@@ -221,10 +214,6 @@ if (target.remote) throw new Error('Remote collections cannot be updated');
 ${action === 'add' ? `const modeId = target.addMode(${JSON.stringify(String(name).trim())});` : `const selected = __resolveMode(target, ${JSON.stringify(mode)}); ${action === 'rename' ? `target.renameMode(selected.modeId, ${JSON.stringify(String(name).trim())});` : 'target.removeMode(selected.modeId);'} `}
 return __collectionFacts(target);
 })()`;
-}
-
-function collectionPublishStatusCode({ collection }) {
-  return `(async () => {${variableHelpersCode()} const target = await __resolveCollection(${JSON.stringify(collection)}); return { id: target.id, name: target.name, publishStatus: await target.getPublishStatusAsync() }; })()`;
 }
 
 function collectionDeleteCode({ collection }) {
@@ -261,8 +250,8 @@ return __collectionFacts(extended);
 
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
-  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode,
+  collectionDeleteCode, collectionExtendCode, collectionModeCode,
   collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes, parseVariableLiteral, parseVariableType,
-  variableCodeSyntaxCode, variablePublishStatusCode,
+  variableCodeSyntaxCode,
   variableSetValueCode, variableUpdateCode,
 };
