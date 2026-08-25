@@ -136,6 +136,23 @@ test('Style Catalog closes one bounded policy-identical CLI/MCP safe read', () =
   assert.equal(cli.audit.capability, 'style.list');
 });
 
+test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
+  const cli = planFigmaCommand([
+    'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'style', 'consumers', '--limit=25', '-tPAINT', '--', 'Surface',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.execution.timeout, 'long');
+  assert.equal(cli.audit.capability, 'style.consumers');
+});
+
 test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['grid', 'list', '10-3', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['grid', 'list', '--json', '10:3'], { adapter: 'mcp' });

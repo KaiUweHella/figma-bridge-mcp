@@ -61,6 +61,15 @@ Catalog rows are follow-up handles, not authored Style Facts or document-wide
 consumer evidence.
 _Avoid_: style dump, complete style values, offset-only pagination, consumer scan
 
+**Style Consumer Facts**:
+The compact, versioned and paginated evidence returned by Figma's native
+document-wide Style consumer scan. It preserves resolved Style identity,
+consumer node identity and exact inherited-style fields, while separately
+reporting native-scan completeness and page completeness through one long
+safe-read Command Application. The native API is complete but not
+interruptible, so these facts do not claim a visit budget.
+_Avoid_: bounded traversal claim, style dump, unpaged document scan, mutation
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

@@ -636,6 +636,33 @@ test('figma_run routes Style Catalog through the shared bounded-read Application
     'Style Catalog must not re-enter Commander');
 });
 
+test('figma_run routes Style Consumer through its longer bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const styleConsumerRoute = styleConsumerPlanRoute(plan)');
+  const end = source.indexOf('const styleFactsRoute = styleFactsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeStyleConsumerPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Style Consumer must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Style Consumer argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['style', 'consumers'],
+    ['style', 'consumers', 'A', 'B'],
+    ['style', 'consumers', '--future', 'private-value'],
+    ['style', 'consumers', '--limit', '0', 'Surface'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Style Catalog argv before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

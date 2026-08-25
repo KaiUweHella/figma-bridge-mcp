@@ -195,6 +195,15 @@ omitted-after, completeness and continuation are explicit, and malformed or
 stale cursors fail rather than turning catalog drift into silent omissions.
 Exact Style values and consumer scans remain separate Applications.
 
+`style consumers` owns the document-wide native consumer read behind a longer
+safe-read Plan. Its closed request canonicalizes bounded style resolution,
+optional family, page limit and a query/family-bound continuation cursor.
+The result distinguishes the complete but non-interruptible native
+`getStyleConsumersAsync()` scan from the completeness of one projected page,
+and preserves only compact node identity plus official inherited-style fields.
+Candidate, page, byte and nested-value limits fail explicitly. This Application
+does not claim a traversal budget the Figma API cannot enforce.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

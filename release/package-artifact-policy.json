@@ -63,6 +63,8 @@
     "engine/src/application/semantic-render-request.js",
     "engine/src/application/style-catalog-command.js",
     "engine/src/application/style-catalog-request.js",
+    "engine/src/application/style-consumer-command.js",
+    "engine/src/application/style-consumer-request.js",
     "engine/src/application/style-facts-command.js",
     "engine/src/application/style-facts-request.js",
     "engine/src/application/verification-artifact.js",

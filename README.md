@@ -294,7 +294,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   `node bindings`, native Inspect `node css`, exact Prototype Inspection,
   Component Identity Facts, Style Facts through `style show`, bounded Style
   Catalog pagination through `style list`, Layout Grid Facts through
-  `grid list`, Variable Facts through `var show`, Design Link
+  `grid list`, paginated Style Consumer Facts through `style consumers`,
+  Variable Facts through `var show`, Design Link
   set/inspect, and Design Contract capture/check
   use the same Implementation from MCP and Commander.
   Other `figma_run` actions remain on the deliberately broad child-process
@@ -1271,6 +1272,15 @@ Use `--type TEXT` (or PAINT/EFFECT/GRID) to load only one native family,
 page size is 100. A continuation page remains `complete: false` because that
 page alone is not the full catalog; `next: null` means no later page remains.
 Use `style show` with an id for the complete authored facts of a row.
+
+`style consumers <style>` is a separate long-budget read because Figma's
+native `getStyleConsumersAsync()` scans the document and cannot be interrupted
+with a visit limit. The result says this explicitly under `scan`, while
+`total`, `returned`, `omitted`, `complete` and `next` describe the bounded
+output page. `--type`, `--limit 1..500` and `--cursor` mirror the catalog flow;
+the cursor is additionally bound to the original style query. Rows contain
+only consumer node identity and official inherited-style fields. No document
+content is changed.
 
 Variables expose the metadata and mode operations that token-file sync does
 not own:

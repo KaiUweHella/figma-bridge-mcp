@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `style consumers` through a separate long-budget, paginated Style
+  Consumer Application. Results distinguish Figmas complete but
+  non-interruptible native scan from bounded page completeness, preserve exact
+  node/field identities, and expose query/type-bound continuation without
+  returning an unbounded document-wide array.
 - Routed `style list` through one compact bounded Style Catalog Application
   shared by Commander and MCP. Family-scoped reads load only the requested
   native catalog; stable identity rows now expose explicit totals, omissions,

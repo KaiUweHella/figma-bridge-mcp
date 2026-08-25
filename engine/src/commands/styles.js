@@ -13,7 +13,11 @@ import {
   styleCatalogPlanningArgvFromRequest,
 } from '../application/style-catalog-command.js';
 import {
-  parseStyleProperties, parseStyleType, styleApplyCode, styleConsumersCode,
+  executeStyleConsumerPlan,
+  styleConsumerPlanningArgvFromRequest,
+} from '../application/style-consumer-command.js';
+import {
+  parseStyleProperties, parseStyleType, styleApplyCode,
   styleBindVariableCode,
   styleCreateCode, styleDeleteCode, stylePublishStatusCode,
   styleUpdateCode,
@@ -110,9 +114,39 @@ styles.command('apply <style> <nodeIds>')
   .action(async (style, nodeIds, options) => {
     try { print(await run(styleApplyCode({ style, nodeIds, field: options.field }))); } catch (error) { handleEvalError(error); }
   });
-styles.command('consumers <style>').action(async (style) => {
-  try { print(await run(styleConsumersCode({ style }))); } catch (error) { handleEvalError(error); }
-});
+styles.command('consumers <style>')
+  .option('-t, --type <type>', 'Narrow style resolution to PAINT, TEXT, EFFECT, or GRID')
+  .option('--limit <count>', 'Maximum consumers returned in this page')
+  .option('--cursor <cursor>', 'Continue from a prior Style Consumer page')
+  .allowExcessArguments(false)
+  .action(async (style, options) => {
+    try {
+      const plan = planFigmaCommand(styleConsumerPlanningArgvFromRequest({
+        style,
+        type: options.type || null,
+        limit: options.limit || null,
+        cursor: options.cursor || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleConsumerPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Consumer failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
 styles.command('publish-status <style>').action(async (style) => {
   try { print(await run(stylePublishStatusCode({ style }))); } catch (error) { handleEvalError(error); }
 });

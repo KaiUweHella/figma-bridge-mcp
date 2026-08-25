@@ -115,6 +115,11 @@ import {
   styleCatalogArgvFromRequest,
 } from '../engine/src/application/style-catalog-request.js';
 import {
+  acceptsStyleConsumerArgv,
+  parseStyleConsumerRequest,
+  styleConsumerArgvFromRequest,
+} from '../engine/src/application/style-consumer-request.js';
+import {
   acceptsLayoutGridFactsArgv,
   layoutGridFactsArgvFromRequest,
   layoutGridFactsFigmaUrlFileKeyFromArgv,
@@ -230,6 +235,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'component.main',
   'style.list',
+  'style.consumers',
   'style.show',
   'grid.list',
 ]);
@@ -386,6 +392,11 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'style-catalog-input';
   }
+  if (name === 'style' && sub === 'consumers') {
+    retry = 'safe-read';
+    timeoutClass = 'long';
+    pathPolicy = 'style-consumer-input';
+  }
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'layout-grid-facts-input';
@@ -473,6 +484,10 @@ function commandCapability(args) {
   }
   if (name === 'style' && args[1] === 'list'
     && !action.help && !acceptsStyleCatalogArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'style' && args[1] === 'consumers'
+    && !action.help && !acceptsStyleConsumerArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'grid' && args[1] === 'list'
@@ -963,6 +978,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'style-catalog-input': {
       args.splice(0, args.length,
         ...styleCatalogArgvFromRequest(parseStyleCatalogRequest(args)));
+      break;
+    }
+    case 'style-consumer-input': {
+      args.splice(0, args.length,
+        ...styleConsumerArgvFromRequest(parseStyleConsumerRequest(args)));
       break;
     }
     case 'layout-grid-facts-input': {
