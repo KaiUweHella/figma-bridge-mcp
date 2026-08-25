@@ -515,6 +515,40 @@ test('figma_run confirms Variable Code Syntax and rejects malformed input before
   }
 });
 
+test('figma_run routes Variable Update through its shared field-rollback Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const variableUpdateRoute = variableUpdatePlanRoute(plan)');
+  const end = source.indexOf('const collectionCreateRoute = collectionCreatePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeVariableUpdatePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Variable Update must not re-enter Commander');
+});
+
+test('figma_run confirms Variable Update and rejects malformed input before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', {
+    args: ['var', 'update', '-c', 'Tokens', '-d', 'Medium', '--scopes', 'GAP', 'space/md'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  for (const args of [
+    ['var', 'update', 'space/md'],
+    ['var', 'update', '-c', 'Tokens', 'space/md'],
+    ['var', 'update', '--hidden', 'maybe', 'space/md'],
+    ['var', 'update', '--scopes', 'FUTURE', 'space/md'],
+    ['var', 'update', '--future', 'private-value', 'space/md'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Collection Catalog and Facts through shared bounded-read Applications', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const collectionCatalogRoute = collectionCatalogPlanRoute(plan)');

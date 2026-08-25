@@ -232,6 +232,31 @@ test('Variable Code Syntax closes set/remove as policy-identical non-retrying wr
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Update closes one policy-identical field-rollback non-retrying write', () => {
+  const cli = planFigmaCommand([
+    'var', 'update', '-cTokens', '-dMedium', '--hidden=false', '--scopes=GAP', 'space/md',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'var', 'update', '--collection=Tokens', '--description=Medium', '--hidden', 'false',
+    '--scopes', 'GAP', '--', 'space/md',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'var.update');
+  for (const argv of [
+    ['var', 'update', 'space/md'],
+    ['var', 'update', '-c', 'Tokens', 'space/md'],
+    ['var', 'update', '--hidden', 'maybe', 'space/md'],
+    ['var', 'update', '--scopes', 'FUTURE', 'space/md'],
+    ['var', 'update', '--future', 'private-value', 'space/md'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Collection Catalog and Facts close policy-identical safe reads', () => {
   for (const [cliArgv, mcpArgv, action] of [
     [['col', 'list', '--json', '--limit', '25'], ['col', 'list', '-l25', '--json'], 'col.list'],

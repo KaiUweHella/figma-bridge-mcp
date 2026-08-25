@@ -36,6 +36,8 @@
     "engine/src/application/variable-code-syntax-command.js",
     "engine/src/application/variable-code-syntax-request.js",
     "engine/src/application/variable-mutation-runtime.js",
+    "engine/src/application/variable-update-command.js",
+    "engine/src/application/variable-update-request.js",
     "engine/src/application/collection-catalog-command.js",
     "engine/src/application/collection-catalog-request.js",
     "engine/src/application/collection-facts-command.js",

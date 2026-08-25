@@ -117,6 +117,11 @@ import {
   variableCodeSyntaxArgvFromRequest,
 } from '../engine/src/application/variable-code-syntax-request.js';
 import {
+  acceptsVariableUpdateArgv,
+  parseVariableUpdateRequest,
+  variableUpdateArgvFromRequest,
+} from '../engine/src/application/variable-update-request.js';
+import {
   acceptsVariableFactsArgv,
   parseVariableFactsRequest,
   variableFactsArgvFromRequest,
@@ -308,6 +313,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.create',
   'var.set-value',
   'var.code-syntax',
+  'var.update',
   'col.list', 'col.show',
   'var.publish-status', 'col.publish-status',
   'col.create',
@@ -464,6 +470,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'var' && sub === 'create') pathPolicy = 'variable-create-input';
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
+  if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
   if (name === 'var' && sub === 'resolve') {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
@@ -594,6 +601,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'code-syntax'
     && !action.help && !acceptsVariableCodeSyntaxArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'update'
+    && !action.help && !acceptsVariableUpdateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'resolve'
@@ -1242,6 +1253,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-code-syntax-input': {
       args.splice(0, args.length,
         ...variableCodeSyntaxArgvFromRequest(parseVariableCodeSyntaxRequest(args)));
+      break;
+    }
+    case 'variable-update-input': {
+      args.splice(0, args.length,
+        ...variableUpdateArgvFromRequest(parseVariableUpdateRequest(args)));
       break;
     }
     case 'variable-resolution-input': {

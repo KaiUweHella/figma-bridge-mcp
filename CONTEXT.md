@@ -186,6 +186,14 @@ write, and restores an overwritten syntax or removes a newly added syntax when
 guarded post-write projection fails.
 _Avoid_: code-syntax eval, unknown platform, retryable setter, unverified metadata write
 
+**Variable Metadata Update**:
+The bounded, non-retrying update of one or more explicit metadata fields on one
+local Variable: name, description, publishing visibility and official scopes.
+It validates complete Variable Facts before mutation, snapshots every requested
+field, validates exact postconditions and restores fields independently so one
+failed restoration does not prevent the others.
+_Avoid_: variable patch eval, implicit field, retryable assignment, all-or-nothing restore attempt
+
 **Collection Catalog**:
 The compact, versioned and bounded inventory of local Variable Collection
 identities. It preserves collection id, publish key, name, extension and

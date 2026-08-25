@@ -24,6 +24,10 @@ import {
   variableCodeSyntaxPlanningArgvFromRequest,
 } from '../application/variable-code-syntax-command.js';
 import {
+  executeVariableUpdatePlan,
+  variableUpdatePlanningArgvFromRequest,
+} from '../application/variable-update-command.js';
+import {
   executeVariableResolutionPlan,
   variableResolutionPlanningArgvFromRequest,
 } from '../application/variable-resolution-command.js';
@@ -41,11 +45,6 @@ import {
   hexToRgb,
   spinnerSucceed
 } from '../lib/cli-core.js';
-import {
-  parseBoolean, parseScopes,
-  variableUpdateCode,
-} from '../lib/variable-management.js';
-
 // ============ VARIABLES ============
 
 const variables = program
@@ -163,14 +162,32 @@ variables.command('show <variable>')
 variables.command('update <variable>')
   .option('-c, --collection <collection>').option('-n, --name <name>')
   .option('-d, --description <text>').option('--hidden <boolean>').option('--scopes <list>', 'Comma-separated Figma variable scopes')
+  .allowExcessArguments(false)
   .action(async (variable, options) => {
     try {
-      if (options.name === undefined && options.description === undefined && options.hidden === undefined && options.scopes === undefined) throw new Error('Provide --name, --description, --hidden, or --scopes');
-      const hidden = options.hidden === undefined ? undefined : parseBoolean(options.hidden, '--hidden');
-      const scopes = options.scopes === undefined ? undefined : parseScopes(options.scopes);
-      await checkConnection();
-      console.log(JSON.stringify(await fastEval(variableUpdateCode({ variable, collection: options.collection, name: options.name, description: options.description, hidden, scopes })), null, 2));
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(variableUpdatePlanningArgvFromRequest({
+        variable,
+        collection: options.collection || null,
+        name: options.name,
+        description: options.description,
+        hidden: options.hidden,
+        scopes: options.scopes,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableUpdatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables.command('set-value <variable> [value]')

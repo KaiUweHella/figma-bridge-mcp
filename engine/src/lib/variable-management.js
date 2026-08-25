@@ -114,14 +114,6 @@ function parseBoolean(value, label = 'value') {
   throw new Error(`${label} must be true or false`);
 }
 
-function parseScopes(value) {
-  if (value === undefined) return undefined;
-  const scopes = String(value).split(',').map((item) => item.trim().toUpperCase()).filter(Boolean);
-  const invalid = scopes.filter((scope) => !VARIABLE_SCOPES.includes(scope));
-  if (invalid.length) throw new Error(`Unknown variable scopes: ${invalid.join(', ')}`);
-  return scopes;
-}
-
 function variableHelpersCode() {
   return `
 const __collections = await figma.variables.getLocalVariableCollectionsAsync();
@@ -184,18 +176,6 @@ const __variableFacts = async (v) => {
 };`;
 }
 
-function variableUpdateCode({ variable, collection = null, name, description, hidden, scopes }) {
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
-if (target.remote) throw new Error('Remote variables cannot be updated');
-${name === undefined ? '' : `target.name = ${JSON.stringify(String(name).trim())};`}
-${description === undefined ? '' : `target.description = ${JSON.stringify(String(description))};`}
-${hidden === undefined ? '' : `target.hiddenFromPublishing = ${parseBoolean(hidden, '--hidden')};`}
-${scopes === undefined ? '' : `target.scopes = ${JSON.stringify(parseScopes(scopes))};`}
-return __variableFacts(target);
-})()`;
-}
-
 function collectionUpdateCode({ collection, name, hidden }) {
   return `(async () => {${variableHelpersCode()}
 const target = await __resolveCollection(${JSON.stringify(collection)});
@@ -252,6 +232,5 @@ export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
   collectionDeleteCode, collectionExtendCode, collectionModeCode,
   collectionUpdateCode, normalizeVariableValue, parseBoolean,
-  parseScopes, parseVariableLiteral, parseVariableType,
-  variableUpdateCode,
+  parseVariableLiteral, parseVariableType,
 };

@@ -3,8 +3,6 @@ import test from 'node:test';
 import { variableFactsCode } from '../src/application/variable-facts-command.js';
 import {
   collectionExtendCode, collectionModeCode, collectionUpdateCode, parseBoolean,
-  parseScopes,
-  variableUpdateCode,
 } from '../src/lib/variable-management.js';
 
 const execute = (code, figma) => new Function('figma', `return ${code}`)(figma);
@@ -44,8 +42,6 @@ function fixture(type = 'FLOAT') {
 
 test('variable metadata parsers are strict and match current plugin typings', () => {
   assert.equal(parseBoolean('false'), false);
-  assert.deepEqual(parseScopes('font_size, line_height'), ['FONT_SIZE', 'LINE_HEIGHT']);
-  assert.throws(() => parseScopes('made_up'), /Unknown variable scopes/);
 });
 
 test('collection extension prefers the native local collection and supports a library key', async () => {
@@ -61,15 +57,11 @@ test('collection extension prefers the native local collection and supports a li
   assert.equal(remote.key, 'LIBRARY_KEY');
 });
 
-test('variable show and update expose metadata, modes, values, scopes, and publish status', async () => {
-  const { variable, figma } = fixture();
+test('variable show exposes metadata, modes, values, scopes, and publish status', async () => {
+  const { figma } = fixture();
   const shown = JSON.parse(await execute(variableFactsCode({ variable: 'space/md' }), figma));
   assert.equal(shown.collection.name, 'Primitives');
   assert.equal(shown.publishStatus, 'CURRENT');
-  const updated = await execute(variableUpdateCode({ variable: 'V:1', description: 'Medium space', hidden: true, scopes: ['GAP'] }), figma);
-  assert.equal(variable.description, 'Medium space');
-  assert.equal(updated.hiddenFromPublishing, true);
-  assert.deepEqual(updated.scopes, ['GAP']);
 });
 
 test('collection metadata and modes stay plugin-first', async () => {
