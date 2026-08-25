@@ -167,6 +167,16 @@ initialization or result projection fails. Intentional duplicates remain an
 explicit capability.
 _Avoid_: variable factory eval, first-name collection choice, retryable create, implicit duplicate
 
+**Variable Batch Creation**:
+The bounded, non-retrying creation of several local Variables in one exact
+local Collection and one explicit or declared-default mode. The complete batch
+is typed before readiness, duplicate intent is explicit, every returned
+Variable is journaled before initialization, and a later failure removes the
+whole journal in reverse before verifying exact absence. It preserves all
+official Variable types and the established batch utility without allowing a
+partially initialized batch to look successful.
+_Avoid_: variable batch eval, partial preflight, first mode, partial success, retryable factory loop
+
 **Variable Mode Value Mutation**:
 The bounded, non-retrying update of one explicit mode value on one local
 Variable. It closes literal-versus-alias intent before readiness, resolves

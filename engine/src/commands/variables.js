@@ -16,6 +16,10 @@ import {
   variableCreatePlanningArgvFromRequest,
 } from '../application/variable-create-command.js';
 import {
+  executeVariableCreateBatchPlan,
+  variableCreateBatchPlanningArgvFromRequest,
+} from '../application/variable-create-batch-command.js';
+import {
   executeVariableSetValuePlan,
   variableSetValuePlanningArgvFromRequest,
 } from '../application/variable-set-value-command.js';
@@ -507,51 +511,33 @@ variables
   .command('create-batch <json>')
   .description('Create multiple variables at once (faster than individual calls)')
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
+  .option('-m, --mode <mode>', 'Mode ID or name; defaults to the Collection default mode')
+  .option('--allow-duplicate', 'Allow exact duplicate names intentionally')
+  .allowExcessArguments(false)
   .action(async (json, options) => {
-    await checkConnection();
-    let vars;
     try {
-      vars = JSON.parse(json);
-    } catch {
-      console.log(chalk.red('Invalid JSON. Expected: [{"name": "color/red", "type": "COLOR", "value": "#ff0000"}, ...]'));
+      const items = JSON.parse(json);
+      const plan = planFigmaCommand(variableCreateBatchPlanningArgvFromRequest({
+        items,
+        collection: options.collection,
+        mode: options.mode || null,
+        allowDuplicate: options.allowDuplicate === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableCreateBatchPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
       process.exitCode = 1;
-      return;
     }
-    if (!Array.isArray(vars)) {
-      console.log(chalk.red('Expected JSON array'));
-      return;
-    }
-
-    const code = `(async () => {
-const vars = ${JSON.stringify(vars)};
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.id === ${JSON.stringify(options.collection)} || c.name === ${JSON.stringify(options.collection)});
-if (!col) return 'Collection not found: ' + ${JSON.stringify(options.collection)};
-const modeId = col.modes[0].modeId;
-
-function hexToRgb(hex) {
-  const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-  return result ? { r: parseInt(result[1], 16) / 255, g: parseInt(result[2], 16) / 255, b: parseInt(result[3], 16) / 255 } : null;
-}
-
-let created = 0;
-for (const v of vars) {
-  const type = (v.type || 'COLOR').toUpperCase();
-  const variable = figma.variables.createVariable(v.name, col, type);
-  if (v.value !== undefined) {
-    let figmaValue = v.value;
-    if (type === 'COLOR') figmaValue = hexToRgb(v.value);
-    else if (type === 'FLOAT') figmaValue = parseFloat(v.value);
-    else if (type === 'BOOLEAN') figmaValue = v.value === true || v.value === 'true';
-    variable.setValueForMode(modeId, figmaValue);
-  }
-  created++;
-}
-return 'Created ' + created + ' variables';
-})()`;
-
-    const result = await daemonExec('eval', { code }, 60000);
-    console.log(chalk.green(result || `✓ Created ${vars.length} variables`));
   });
 
 variables

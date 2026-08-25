@@ -127,6 +127,11 @@ import {
   variableCreateArgvFromRequest,
 } from '../engine/src/application/variable-create-request.js';
 import {
+  acceptsVariableCreateBatchArgv,
+  parseVariableCreateBatchRequest,
+  variableCreateBatchArgvFromRequest,
+} from '../engine/src/application/variable-create-batch-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -336,6 +341,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
+  'var.create-batch',
   'var.set-value',
   'var.code-syntax',
   'var.update',
@@ -498,6 +504,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'variable-discovery-input';
   }
   if (name === 'var' && sub === 'create') pathPolicy = 'variable-create-input';
+  if (name === 'var' && sub === 'create-batch') pathPolicy = 'variable-create-batch-input';
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
@@ -630,6 +637,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'create'
     && !action.help && !acceptsVariableCreateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'create-batch'
+    && !action.help && !acceptsVariableCreateBatchArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'set-value'
@@ -1300,6 +1311,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-create-input': {
       args.splice(0, args.length,
         ...variableCreateArgvFromRequest(parseVariableCreateRequest(args)));
+      break;
+    }
+    case 'variable-create-batch-input': {
+      args.splice(0, args.length,
+        ...variableCreateBatchArgvFromRequest(parseVariableCreateBatchRequest(args)));
       break;
     }
     case 'variable-set-value-input': {

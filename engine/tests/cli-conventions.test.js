@@ -585,6 +585,23 @@ test('var create delegates one Plan-bound journaled non-retrying Application', (
     'Commander must not retain Variable Create execution or formatting logic');
 });
 
+test('var create-batch delegates one Plan-bound journaled non-retrying Application', () => {
+  const adapter = sources.get('variables.js');
+  assert.ok(adapter, 'variables.js exists');
+  const start = adapter.indexOf("variables\n  .command('create-batch <json>')");
+  const end = adapter.indexOf("variables\n  .command('delete <names...>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableCreateBatchPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableCreateBatchPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|createVariable\(|setValueForMode\(/,
+    'Commander must not retain Variable Batch Creation execution or formatting logic');
+});
+
 test('var set-value delegates one Plan-bound rollback-owned non-retrying Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');

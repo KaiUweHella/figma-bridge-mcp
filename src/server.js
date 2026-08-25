@@ -138,6 +138,10 @@ import {
   variableCreatePlanRoute,
 } from "../engine/src/application/variable-create-command.js";
 import {
+  executeVariableCreateBatchPlan,
+  variableCreateBatchPlanRoute,
+} from "../engine/src/application/variable-create-batch-command.js";
+import {
   executeVariableSetValuePlan,
   variableSetValuePlanRoute,
 } from "../engine/src/application/variable-set-value-command.js";
@@ -1976,6 +1980,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableCreatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableCreateBatchRoute = variableCreateBatchPlanRoute(plan);
+      if (variableCreateBatchRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableCreateBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

@@ -178,6 +178,31 @@ test('Variable Create closes one policy-identical non-retrying journaled write',
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Batch Creation closes one policy-identical non-retrying journaled batch', () => {
+  const json = '[{"name":"color/accent","value":"#1234"},{"name":"enabled","type":"BOOLEAN","value":true}]';
+  const cli = planFigmaCommand([
+    'var', 'create-batch', '-cTokens', '-mDark', json,
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'var', 'create-batch', '--collection=Tokens', '--mode=Dark', '--', json,
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'var.create-batch');
+  for (const argv of [
+    ['var', 'create-batch', '-c', 'Tokens', '[]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","future":true}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x"},{"name":"x"}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
   const cli = planFigmaCommand([
     'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',
