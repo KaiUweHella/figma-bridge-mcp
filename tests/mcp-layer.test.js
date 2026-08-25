@@ -662,6 +662,32 @@ test('figma_run routes Style Publish Status through the shared bounded-read Appl
     'Style Publish Status must not re-enter Commander');
 });
 
+test('figma_run routes Style Apply through the shared non-retrying mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const styleApplyRoute = styleApplyPlanRoute(plan)');
+  const end = source.indexOf('const layoutGridFactsRoute = layoutGridFactsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeStyleApplyPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Style Apply must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Style Apply argv before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['style', 'apply', 'Surface', '10:1'],
+    ['style', 'apply', 'Surface', '10:1,10:1', '--field', 'fill'],
+    ['style', 'apply', 'Surface', 'bad', '--field', 'fill'],
+    ['style', 'apply', 'Surface', '10:1', '--field', 'future'],
+  ]) {
+    const result = await handleTool('figma_run', { args, confirm: true });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Style Publish Status argv before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

@@ -329,16 +329,16 @@ sectionCmd
     }
   });
 
-// ============ LAYOUT GRIDS ============
-// Manage column/row grids on frames (12-col grids, baseline grids, etc.)
+// ============ LAYOUT GUIDES ============
+// Manage Figma Layout Guides on frames (12-column guides, baseline guides, etc.).
 
 const gridCmd = program
   .command('grid')
-  .description('Manage layout grids on frames (columns, rows, gutters)');
+  .description('Manage Layout Guides on frames (not Auto Layout Grid)');
 
 gridCmd
   .command('set <nodeId>')
-  .description('Set a column or row grid on a frame')
+  .description('Set a column or row Layout Guide on a frame')
   .option('-c, --columns <n>', 'Number of columns', parseInt)
   .option('-r, --rows <n>', 'Number of rows', parseInt)
   .option('-g, --gutter <n>', 'Gutter size in px', parseInt, 16)
@@ -371,7 +371,7 @@ gridCmd
     const code = `(async () => {
       const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
       if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support layout grids (must be FRAME, COMPONENT, or COMPONENT_SET)');
+      if (!('layoutGrids' in n)) throw new Error('Node does not support Layout Guides (must be FRAME, COMPONENT, or COMPONENT_SET)');
       const newGrids = [${grids.join(',')}];
       n.layoutGrids = ${options.append ? '[...n.layoutGrids, ...newGrids]' : 'newGrids'};
       return { id: n.id, name: n.name, count: n.layoutGrids.length };
@@ -387,8 +387,8 @@ gridCmd
 
 gridCmd
   .command('list [nodeId]')
-  .description('List layout grids on a frame (or current selection)')
-  .option('--json', 'Print exact structured layout-grid facts')
+  .description('List Layout Guides on a frame (or current selection)')
+  .option('--json', 'Print exact structured Layout Guide facts')
   .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     try {
@@ -419,13 +419,13 @@ gridCmd
 
 gridCmd
   .command('clear <nodeId>')
-  .description('Remove all layout grids from a frame')
+  .description('Remove all Layout Guides from a frame')
   .action(async (nodeId) => {
     await checkConnection();
     const code = `(async () => {
       const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
       if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support layout grids');
+      if (!('layoutGrids' in n)) throw new Error('Node does not support Layout Guides');
       n.layoutGrids = [];
       return { id: n.id, name: n.name };
     })()`;

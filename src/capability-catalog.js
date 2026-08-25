@@ -125,6 +125,12 @@ import {
   stylePublishStatusArgvFromRequest,
 } from '../engine/src/application/style-publish-status-request.js';
 import {
+  acceptsStyleApplyArgv,
+  parseStyleApplyRequest,
+  styleApplyArgvFromRequest,
+  styleApplyFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/style-apply-request.js';
+import {
   acceptsLayoutGridFactsArgv,
   layoutGridFactsArgvFromRequest,
   layoutGridFactsFigmaUrlFileKeyFromArgv,
@@ -184,7 +190,7 @@ const COMMANDS = Object.freeze({
   slot: readGroup('Create, configure, validate, or reset component slots', ['inspect', 'validate']),
   draw: readGroup('Inspect or manage native Figma Draw features', ['inspect']),
   section: readGroup('Inspect or manage Figma sections', ['list']),
-  grid: readGroup('Inspect or manage layout grids', ['list']),
+  grid: readGroup('Inspect or manage Layout Guides (not Auto Layout Grid)', ['list']),
   dev: readGroup('Inspect or manage dev-resource links', ['list']),
   annotate: readGroup('Inspect or manage annotations and categories', ['list', 'categories']),
   a11y: { summary: 'Run accessibility checks', mutation: 'read' },
@@ -240,6 +246,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'component.main',
   'style.list',
+  'style.apply',
   'style.consumers',
   'style.publish-status',
   'style.show',
@@ -407,6 +414,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'style-publish-status-input';
   }
+  if (name === 'style' && sub === 'apply') pathPolicy = 'style-apply-input';
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'layout-grid-facts-input';
@@ -502,6 +510,10 @@ function commandCapability(args) {
   }
   if (name === 'style' && args[1] === 'publish-status'
     && !action.help && !acceptsStylePublishStatusArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'style' && args[1] === 'apply'
+    && !action.help && !acceptsStyleApplyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'grid' && args[1] === 'list'
@@ -1002,6 +1014,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'style-publish-status-input': {
       args.splice(0, args.length,
         ...stylePublishStatusArgvFromRequest(parseStylePublishStatusRequest(args)));
+      break;
+    }
+    case 'style-apply-input': {
+      const closedFileKey = styleApplyFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...styleApplyArgvFromRequest(parseStyleApplyRequest(args)));
       break;
     }
     case 'layout-grid-facts-input': {

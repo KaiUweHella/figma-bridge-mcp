@@ -77,6 +77,16 @@ scope through one shared safe-read Command Application, while complete authored
 Style values remain a separate Style Facts read.
 _Avoid_: style dump, authored values, publication write, inferred status
 
+**Style Apply**:
+The bounded, non-retrying application of one resolved PAINT, TEXT, EFFECT or
+GRID Style to an explicit ordered node set. It resolves and preflights every
+target before the first write, applies sequentially, rolls back confirmed prior
+changes after a later failure where the previous Style id is recoverable, and
+reports possible residue otherwise. Its `layout-guide` field and legacy `grid`
+alias bind a Grid Style through `setGridStyleIdAsync`; they never mutate Auto
+Layout Grid properties.
+_Avoid_: style helper, bulk style eval, auto-layout grid mutation, atomic claim
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

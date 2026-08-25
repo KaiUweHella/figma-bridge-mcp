@@ -169,6 +169,22 @@ test('Style Publish Status closes one compact policy-identical CLI/MCP safe read
   assert.equal(cli.audit.capability, 'style.publish-status');
 });
 
+test('Style Apply closes one targeted policy-identical non-retrying write', () => {
+  const cli = planFigmaCommand([
+    'style', 'apply', 'Surface', '10-2,10:3', '--field', 'fill',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'style', 'apply', '--field=FILL', '--', 'Surface', '10:2,10:3',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'style.apply');
+});
+
 test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['grid', 'list', '10-3', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['grid', 'list', '--json', '10:3'], { adapter: 'mcp' });

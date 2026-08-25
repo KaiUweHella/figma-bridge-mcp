@@ -204,6 +204,17 @@ and preserves only compact node identity plus official inherited-style fields.
 Candidate, page, byte and nested-value limits fail explicitly. This Application
 does not claim a traversal budget the Figma API cannot enforce.
 
+`style apply` owns a separate non-retrying mutation Application. Its closed
+request canonicalizes one bounded Style reference, one field and at most 500
+unique semantic Node References before confirmation or readiness. The Plugin
+resolves the required Style family and preflights every target before the first
+write, then mutates sequentially. A later failure rolls back confirmed prior
+writes where their old Style ids remain recoverable and reports bounded possible
+residue otherwise. Results contain compact identity only, so GRID Style values
+cannot lose Auto Layout Guide counts through plain JSON. The readable
+`layout-guide` field and backward-compatible `grid` alias both bind Grid Styles;
+Auto Layout Grid remains exclusively under `layout grid`.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

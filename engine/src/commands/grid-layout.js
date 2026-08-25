@@ -6,8 +6,8 @@ import {
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
 const run = async (code) => { await checkConnection(); return fastEval(code); };
-const layout = program.command('layout').description('Manage native auto-layout features');
-const grid = layout.command('grid').description('Manage auto-layout GRID containers (not layout guides)');
+const layout = program.command('layout').description('Manage native Auto Layout features');
+const grid = layout.command('grid').description('Manage Auto Layout Grid containers (not Layout Guides)');
 
 grid.command('inspect <nodeId>').action(async (nodeId) => { try { print(await run(gridLayoutInspectCode({ nodeId }))); } catch (error) { handleEvalError(error); } });
 grid.command('set <nodeId>')

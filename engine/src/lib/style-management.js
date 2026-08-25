@@ -94,29 +94,6 @@ return __styleFacts(target);
 })()`;
 }
 
-function styleApplyCode({ style, nodeIds, field }) {
-  const normalizedField = String(field || '').toLowerCase();
-  const fields = ['fill', 'stroke', 'text', 'effect', 'grid'];
-  if (!fields.includes(normalizedField)) throw new Error(`Style field must be one of: ${fields.join(', ')}`);
-  const ids = String(nodeIds).split(/[\s,]+/).filter(Boolean);
-  if (!ids.length) throw new Error('At least one node ID is required');
-  const expected = { fill: 'PAINT', stroke: 'PAINT', text: 'TEXT', effect: 'EFFECT', grid: 'GRID' }[normalizedField];
-  const method = { fill: 'setFillStyleIdAsync', stroke: 'setStrokeStyleIdAsync', text: 'setTextStyleIdAsync', effect: 'setEffectStyleIdAsync', grid: 'setGridStyleIdAsync' }[normalizedField];
-  return `(async () => {${styleHelpersCode()}
-const style = await __resolveStyle(${JSON.stringify(style)}, ${JSON.stringify(expected)});
-const ids = ${JSON.stringify(ids)};
-const applied = [];
-for (const id of ids) {
-  const node = await figma.getNodeByIdAsync(id);
-  if (!node) throw new Error('Node not found: ' + id);
-  if (typeof node.${method} !== 'function') throw new Error(node.type + ' does not support ${normalizedField} styles: ' + id);
-  await node.${method}(style.id);
-  applied.push({ id: node.id, name: node.name, type: node.type });
-}
-return { style: __styleFacts(style), field: ${JSON.stringify(normalizedField)}, applied };
-})()`;
-}
-
 function styleDeleteCode({ style }) {
   return `(async () => {${styleHelpersCode()}
 const target = await __resolveStyle(${JSON.stringify(style)}, null);
@@ -159,5 +136,5 @@ return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)},
 export {
   STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
   styleBindVariableCode,
-  styleApplyCode, styleCreateCode, styleDeleteCode, styleUpdateCode,
+  styleCreateCode, styleDeleteCode, styleUpdateCode,
 };

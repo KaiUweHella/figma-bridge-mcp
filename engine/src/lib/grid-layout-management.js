@@ -33,13 +33,13 @@ function gridNodeCode(nodeId, body) {
   return `(async () => {${gridFactsCode()}
 const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
 if (!node) throw new Error('Node not found: ${String(nodeId)}');
-if (!('layoutMode' in node)) throw new Error(node.type + ' does not support auto layout grid');
+if (!('layoutMode' in node)) throw new Error(node.type + ' does not support Auto Layout Grid');
 ${body}
 })()`;
 }
 
 function gridLayoutInspectCode({ nodeId }) {
-  return gridNodeCode(nodeId, `if (node.layoutMode !== 'GRID') throw new Error('Node is not a GRID auto-layout container'); return __gridFacts(node);`);
+  return gridNodeCode(nodeId, `if (node.layoutMode !== 'GRID') throw new Error('Node is not an Auto Layout Grid container'); return __gridFacts(node);`);
 }
 
 function gridLayoutSetCode({ nodeId, rows, columns, rowGap, columnGap, rowSizes, columnSizes }) {
@@ -68,7 +68,7 @@ return { before, after: __gridFacts(node) };`);
 function gridLayoutPlaceCode({ gridId, childId, row, column }) {
   const parsedRow = Number(row), parsedColumn = Number(column);
   if (!Number.isInteger(parsedRow) || parsedRow < 0 || !Number.isInteger(parsedColumn) || parsedColumn < 0) throw new Error('Row and column must be zero-based integers');
-  return gridNodeCode(gridId, `if (node.layoutMode !== 'GRID' || typeof node.appendChildAt !== 'function') throw new Error('Node is not a GRID auto-layout container');
+  return gridNodeCode(gridId, `if (node.layoutMode !== 'GRID' || typeof node.appendChildAt !== 'function') throw new Error('Node is not an Auto Layout Grid container');
 const child = await figma.getNodeByIdAsync(${JSON.stringify(childId)}); if (!child || !('x' in child)) throw new Error('Scene child not found: ${String(childId)}');
 node.appendChildAt(child, ${parsedRow}, ${parsedColumn});
 return { grid: __gridFacts(node), child: { id: child.id, name: child.name, row: child.gridRowAnchorIndex, column: child.gridColumnAnchorIndex } };`);
@@ -79,7 +79,7 @@ function gridLayoutAutoFlowCode({ nodeId, autoTracks, positioning }) {
   const items = String(positioning || '').toUpperCase();
   if (!['NONE', 'ROWS'].includes(tracks)) throw new Error('--auto-tracks must be none or rows');
   if (!['MANUAL', 'ROW_AUTO_FLOW'].includes(items)) throw new Error('--positioning must be manual or row_auto_flow');
-  return gridNodeCode(nodeId, `if (node.layoutMode !== 'GRID') throw new Error('Node is not a GRID auto-layout container'); node.gridAutoTracks = ${JSON.stringify(tracks)}; node.gridItemsPositioning = ${JSON.stringify(items)}; return __gridFacts(node);`);
+  return gridNodeCode(nodeId, `if (node.layoutMode !== 'GRID') throw new Error('Node is not an Auto Layout Grid container'); node.gridAutoTracks = ${JSON.stringify(tracks)}; node.gridItemsPositioning = ${JSON.stringify(items)}; return __gridFacts(node);`);
 }
 
 function gridLayoutReorderCode({ nodeId, axis, from, insertionIndex }) {

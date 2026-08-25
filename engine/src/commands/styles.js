@@ -21,7 +21,11 @@ import {
   stylePublishStatusPlanningArgvFromRequest,
 } from '../application/style-publish-status-command.js';
 import {
-  parseStyleProperties, parseStyleType, styleApplyCode,
+  executeStyleApplyPlan,
+  styleApplyPlanningArgvFromRequest,
+} from '../application/style-apply-command.js';
+import {
+  parseStyleProperties, parseStyleType,
   styleBindVariableCode,
   styleCreateCode, styleDeleteCode,
   styleUpdateCode,
@@ -114,9 +118,32 @@ styles.command('update <style>')
     } catch (error) { handleEvalError(error); }
   });
 styles.command('apply <style> <nodeIds>')
-  .requiredOption('-f, --field <field>', 'fill, stroke, text, effect, or grid')
+  .requiredOption('-f, --field <field>', 'fill, stroke, text, effect, or layout-guide/Grid Style (grid alias; not Auto Layout Grid)')
+  .allowExcessArguments(false)
   .action(async (style, nodeIds, options) => {
-    try { print(await run(styleApplyCode({ style, nodeIds, field: options.field }))); } catch (error) { handleEvalError(error); }
+    try {
+      const plan = planFigmaCommand(styleApplyPlanningArgvFromRequest({
+        style, nodeIds, field: options.field,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleApplyPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Apply failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 styles.command('consumers <style>')
   .option('-t, --type <type>', 'Narrow style resolution to PAINT, TEXT, EFFECT, or GRID')

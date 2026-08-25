@@ -322,6 +322,43 @@ test('style list delegates one Plan-bound bounded Style Catalog Application', ()
     'Commander must not retain Style Catalog readiness, capture, or formatting logic');
 });
 
+test('style apply delegates one Plan-bound preflighted mutation Application', () => {
+  const adapter = sources.get('styles.js');
+  assert.ok(adapter, 'styles.js exists');
+  const start = adapter.indexOf("styles.command('apply <style> <nodeIds>')");
+  const end = adapter.indexOf("styles.command('consumers <style>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /layout-guide\/Grid Style \(grid alias; not Auto Layout Grid\)/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(styleApplyPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeStyleApplyPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|styleApplyCode\(/,
+    'Commander must not retain Style Apply readiness, mutation, or formatting logic');
+});
+
+test('grid command vocabulary separates Layout Guides from Auto Layout Grid', () => {
+  const guides = sources.get('misc.js');
+  const autoLayout = sources.get('grid-layout.js');
+  assert.ok(guides, 'misc.js exists');
+  assert.ok(autoLayout, 'grid-layout.js exists');
+
+  const guideStart = guides.indexOf(".command('grid')");
+  const guideEnd = guides.indexOf('// ============ COMPONENT PROPERTIES', guideStart);
+  const guideCommands = guides.slice(guideStart, guideEnd);
+  assert.match(guideCommands, /Manage Layout Guides on frames \(not Auto Layout Grid\)/);
+  assert.match(guideCommands, /Set a column or row Layout Guide/);
+  assert.match(guideCommands, /List Layout Guides/);
+  assert.match(guideCommands, /Remove all Layout Guides/);
+
+  assert.match(autoLayout, /Manage Auto Layout Grid containers \(not Layout Guides\)/);
+  assert.match(autoLayout, /command\('layout'\).*Manage native Auto Layout features/s);
+});
+
 test('style consumers delegates one Plan-bound bounded Consumer Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');

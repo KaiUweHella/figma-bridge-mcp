@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  parseStyleProperties, parseStyleType, styleApplyCode,
+  parseStyleProperties, parseStyleType,
   styleBindVariableCode, styleCreateCode, styleUpdateCode,
 } from '../src/lib/style-management.js';
 
@@ -57,16 +57,4 @@ test('style update resolves local styles without REST', async () => {
   const updated = await execute(styleUpdateCode({ style: 'Brand', type: 'PAINT', name: 'Primary', properties: { paints: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }] } }), figma);
   assert.equal(updated.name, 'Primary');
   assert.equal(updated.paints.length, 1);
-});
-
-test('style apply calls the official async API', async () => {
-  const calls = [];
-  const node = { id: '1:2', name: 'Card', type: 'FRAME', setFillStyleIdAsync: async (id) => calls.push(id) };
-  const style = {
-    id: 'S:3', key: 'k', type: 'PAINT', remote: false, name: 'Surface', description: '', paints: [],
-  };
-  const figma = { ...emptyLists, getStyleByIdAsync: async () => style, getNodeByIdAsync: async () => node };
-  const applied = await execute(styleApplyCode({ style: 'S:3', nodeIds: '1:2', field: 'fill' }), figma);
-  assert.deepEqual(calls, ['S:3']);
-  assert.equal(applied.applied[0].id, '1:2');
 });
