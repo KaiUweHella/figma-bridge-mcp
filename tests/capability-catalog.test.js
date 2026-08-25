@@ -178,6 +178,30 @@ test('Variable Create closes one policy-identical non-retrying journaled write',
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
+  const cli = planFigmaCommand([
+    'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'var', 'set-value', '--mode=Mode 1', '--collection=Tokens', '--', 'space/md', '20',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'var.set-value');
+  for (const argv of [
+    ['var', 'set-value', 'space/md', '20'],
+    ['var', 'set-value', '-m', 'Mode 1', 'space/md'],
+    ['var', 'set-value', '-m', 'Mode 1', '--alias', 'space/lg', 'space/md', '20'],
+    ['var', 'set-value', '-m', 'Mode 1', '--future', 'private-value', 'space/md'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Collection Catalog and Facts close policy-identical safe reads', () => {
   for (const [cliArgv, mcpArgv, action] of [
     [['col', 'list', '--json', '--limit', '25'], ['col', 'list', '-l25', '--json'], 'col.list'],

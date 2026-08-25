@@ -107,6 +107,11 @@ import {
   variableCreateArgvFromRequest,
 } from '../engine/src/application/variable-create-request.js';
 import {
+  acceptsVariableSetValueArgv,
+  parseVariableSetValueRequest,
+  variableSetValueArgvFromRequest,
+} from '../engine/src/application/variable-set-value-request.js';
+import {
   acceptsVariableFactsArgv,
   parseVariableFactsRequest,
   variableFactsArgvFromRequest,
@@ -296,6 +301,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
+  'var.set-value',
   'col.list', 'col.show',
   'var.publish-status', 'col.publish-status',
   'col.create',
@@ -450,6 +456,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'variable-discovery-input';
   }
   if (name === 'var' && sub === 'create') pathPolicy = 'variable-create-input';
+  if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'resolve') {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
@@ -572,6 +579,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'create'
     && !action.help && !acceptsVariableCreateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'set-value'
+    && !action.help && !acceptsVariableSetValueArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'resolve'
@@ -1210,6 +1221,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-create-input': {
       args.splice(0, args.length,
         ...variableCreateArgvFromRequest(parseVariableCreateRequest(args)));
+      break;
+    }
+    case 'variable-set-value-input': {
+      args.splice(0, args.length,
+        ...variableSetValueArgvFromRequest(parseVariableSetValueRequest(args)));
       break;
     }
     case 'variable-resolution-input': {

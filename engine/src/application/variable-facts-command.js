@@ -260,7 +260,7 @@ function boundedJsonValue(value, depth, state) {
       && boundedJsonValue(value[key], depth + 1, state));
 }
 
-function validPayload(value) {
+export function isVariableFactsPayload(value) {
   if (!exactKeys(value, [
     'schemaVersion', 'id', 'key', 'name', 'description', 'resolvedType', 'remote',
     'variableCollectionId', 'collection', 'hiddenFromPublishing', 'scopes',
@@ -325,11 +325,18 @@ export async function executeVariableFacts(request, adapters = {}) {
   } catch {
     throw new Error('Variable Facts returned an invalid bounded result.');
   }
-  if (!validPayload(payload)) {
+  if (!isVariableFactsPayload(payload)) {
     throw new Error('Variable Facts returned an invalid bounded result.');
   }
+  return { stdout: safePrettyJson(variableFactsLegacyProjection(payload)), stderr: '', result: payload };
+}
+
+export function variableFactsLegacyProjection(payload) {
+  if (!isVariableFactsPayload(payload)) {
+    throw new Error('Variable Facts projection requires a valid bounded payload.');
+  }
   const { schemaVersion: _schemaVersion, ...legacyProjection } = payload;
-  return { stdout: safePrettyJson(legacyProjection), stderr: '', result: payload };
+  return legacyProjection;
 }
 
 export function variableFactsPlanRoute(plan) {

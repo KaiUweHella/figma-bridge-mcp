@@ -167,6 +167,17 @@ initialization or result projection fails. Intentional duplicates remain an
 explicit capability.
 _Avoid_: variable factory eval, first-name collection choice, retryable create, implicit duplicate
 
+**Variable Mode Value Mutation**:
+The bounded, non-retrying update of one explicit mode value on one local
+Variable. It closes literal-versus-alias intent before readiness, resolves
+Variable, Collection and mode ambiguity before the setter, preserves every
+official Variable type and validates complete post-write Variable Facts. If a
+prior value existed, any guarded post-set failure restores it. Figma exposes no
+Plugin API to remove one newly-added mode value, so a failure after setting a
+previously empty mode is reported truthfully as partial residue rather than as
+rollback or success.
+_Avoid_: variable value eval, retryable setter, implicit ambiguity, fabricated rollback
+
 **Collection Catalog**:
 The compact, versioned and bounded inventory of local Variable Collection
 identities. It preserves collection id, publish key, name, extension and

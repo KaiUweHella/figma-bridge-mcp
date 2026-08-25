@@ -16,6 +16,10 @@ import {
   variableCreatePlanningArgvFromRequest,
 } from '../application/variable-create-command.js';
 import {
+  executeVariableSetValuePlan,
+  variableSetValuePlanningArgvFromRequest,
+} from '../application/variable-set-value-command.js';
+import {
   executeVariableResolutionPlan,
   variableResolutionPlanningArgvFromRequest,
 } from '../application/variable-resolution-command.js';
@@ -36,7 +40,7 @@ import {
 import {
   parseBoolean, parseScopes,
   variableCodeSyntaxCode,
-  variableSetValueCode, variableUpdateCode,
+  variableUpdateCode,
 } from '../lib/variable-management.js';
 
 // ============ VARIABLES ============
@@ -169,12 +173,31 @@ variables.command('update <variable>')
 variables.command('set-value <variable> [value]')
   .requiredOption('-m, --mode <mode>', 'Mode ID or name').option('-c, --collection <collection>')
   .option('--alias <variable>', 'Set a variable alias instead of a literal value')
+  .allowExcessArguments(false)
   .action(async (variable, value, options) => {
     try {
-      if (value === undefined && !options.alias) throw new Error('Provide a value or --alias');
-      await checkConnection();
-      console.log(JSON.stringify(await fastEval(variableSetValueCode({ variable, value, alias: options.alias, mode: options.mode, collection: options.collection })), null, 2));
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(variableSetValuePlanningArgvFromRequest({
+        variable,
+        value,
+        alias: options.alias || null,
+        mode: options.mode,
+        collection: options.collection || null,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableSetValuePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables.command('code-syntax <variable> <platform> [value]')
