@@ -190,6 +190,16 @@ a palette for inspecting and editing bindings, not resolved token export,
 Variable Facts or an Auto Layout Grid primitive.
 _Avoid_: palette eval, first mode, alias flattening, hidden unresolved value, unjournaled canvas
 
+**Token Preset Creation**:
+The bounded, non-retrying and journaled creation of the built-in neutral spacing
+or radius scale in one exact local Collection. It creates the Collection when
+absent, uses its declared default mode, scopes only newly created FLOAT
+Variables to GAP or CORNER_RADIUS and preserves existing authored Variables.
+Existing matching values are reused; missing, different or incompatible values
+or scopes remain unchanged and are reported explicitly. These two utility scales are not
+a default Tailwind, brand or third-party design system.
+_Avoid_: preset eval, first mode, global Variable scan, cross-Collection name skip, overwrite existing token, branded default
+
 **Variable Mode Value Mutation**:
 The bounded, non-retrying update of one explicit mode value on one local
 Variable. It closes literal-versus-alias intent before readiness, resolves

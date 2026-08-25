@@ -130,6 +130,10 @@ import {
   tokenPublishStatusPlanRoute,
 } from "../engine/src/application/token-publish-status-command.js";
 import {
+  executeTokenPresetPlan,
+  tokenPresetPlanRoute,
+} from "../engine/src/application/token-preset-command.js";
+import {
   executeVariableDiscoveryPlan,
   variableDiscoveryPlanRoute,
 } from "../engine/src/application/variable-discovery-command.js";
@@ -1967,6 +1971,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executePrototypeInspectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const tokenPresetRoute = tokenPresetPlanRoute(plan);
+      if (tokenPresetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenPresetPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

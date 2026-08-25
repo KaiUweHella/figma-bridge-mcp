@@ -61,6 +61,8 @@
     "engine/src/application/collection-update-request.js",
     "engine/src/application/token-publish-status-command.js",
     "engine/src/application/token-publish-status-request.js",
+    "engine/src/application/token-preset-command.js",
+    "engine/src/application/token-preset-request.js",
     "engine/src/application/variable-resolution-command.js",
     "engine/src/application/variable-resolution-request.js",
     "engine/src/application/code-spec-command.js",

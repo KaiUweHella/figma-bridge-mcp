@@ -37,6 +37,10 @@ import {
   tokenPublishStatusPlanningArgvFromRequest,
 } from '../application/token-publish-status-command.js';
 import {
+  executeTokenPresetPlan,
+  tokenPresetPlanningArgvFromRequest,
+} from '../application/token-preset-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -310,95 +314,40 @@ function parsedEvalPayload(result) {
 // `tokens import`, `tokens import-design-md` or
 // `import <tailwind.config|css|tokens|storybook>`.
 
-tokens
-  .command('spacing')
+async function runTokenPreset(preset, collection) {
+  try {
+    const plan = planFigmaCommand(tokenPresetPlanningArgvFromRequest({ preset, collection }), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeTokenPresetPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error);
+    process.exitCode = 1;
+  }
+}
+
+tokens.command('spacing')
   .description('Create spacing scale (4px base)')
   .option('-c, --collection <name>', 'Collection name', 'Spacing')
-  .action(async (options) => {
-    await checkConnection();
-    const spinner = progress('Creating spacing scale...').start();
+  .allowExcessArguments(false)
+  .action(async (options) => runTokenPreset('spacing', options.collection));
 
-    const spacings = {
-      '0': 0, '0.5': 2, '1': 4, '1.5': 6, '2': 8, '2.5': 10,
-      '3': 12, '3.5': 14, '4': 16, '5': 20, '6': 24, '7': 28,
-      '8': 32, '9': 36, '10': 40, '11': 44, '12': 48,
-      '14': 56, '16': 64, '20': 80, '24': 96, '28': 112,
-      '32': 128, '36': 144, '40': 160, '44': 176, '48': 192
-    };
-
-    const code = `(async () => {
-const spacings = ${JSON.stringify(spacings)};
-${variableScopePolicyCode()}
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === ${JSON.stringify(options.collection)});
-if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(options.collection)});
-const modeId = col.modes[0].modeId;
-const existingVars = await figma.variables.getLocalVariablesAsync();
-let count = 0;
-for (const [name, value] of Object.entries(spacings)) {
-  const existing = existingVars.find(v => v.name === 'spacing/' + name);
-  if (!existing) {
-    const v = figma.variables.createVariable('spacing/' + name, col, 'FLOAT');
-    __scopeTokenVariable(v, 'spacing/' + name, 'FLOAT');
-    v.setValueForMode(modeId, value);
-    count++;
-  }
-}
-return 'Created ' + count + ' spacing variables';
-})()`;
-
-    try {
-      const result = await evalPrint(code, { silent: true });
-      spinnerSucceed(spinner, result?.trim() || 'Created spacing scale');
-    } catch (error) {
-      spinner.fail('Failed to create spacing scale');
-      process.exitCode = 1;
-    }
-  });
-
-tokens
-  .command('radii')
+tokens.command('radii')
   .description('Create border radius scale')
   .option('-c, --collection <name>', 'Collection name', 'Radii')
-  .action(async (options) => {
-    await checkConnection();
-    const spinner = progress('Creating border radii...').start();
-
-    const radii = {
-      'none': 0, 'sm': 2, 'default': 4, 'md': 6, 'lg': 8,
-      'xl': 12, '2xl': 16, '3xl': 24, 'full': 9999
-    };
-
-    const code = `(async () => {
-const radii = ${JSON.stringify(radii)};
-${variableScopePolicyCode()}
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === ${JSON.stringify(options.collection)});
-if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(options.collection)});
-const modeId = col.modes[0].modeId;
-const existingVars = await figma.variables.getLocalVariablesAsync();
-let count = 0;
-for (const [name, value] of Object.entries(radii)) {
-  const existing = existingVars.find(v => v.name === 'radius/' + name);
-  if (!existing) {
-    const v = figma.variables.createVariable('radius/' + name, col, 'FLOAT');
-    __scopeTokenVariable(v, 'radius/' + name, 'FLOAT');
-    v.setValueForMode(modeId, value);
-    count++;
-  }
-}
-return 'Created ' + count + ' radius variables';
-})()
-`;
-
-    try {
-      const result = await evalPrint(code, { silent: true });
-      spinnerSucceed(spinner, result?.trim() || 'Created border radii');
-    } catch (error) {
-      spinner.fail('Failed to create radii');
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (options) => runTokenPreset('radii', options.collection));
 
 tokens
   .command('import <file>')

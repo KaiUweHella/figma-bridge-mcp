@@ -58,6 +58,8 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
     valueOption('--mode'), valueOption('--apply-to'), valueOption('--direction'),
     valueOption('--stops'), valueOption('--blur'), flagOption('--no-trim'), flagOption('--json'),
   ]),
+  'tokens.spacing': optionSchema([valueOption('-c', '--collection')]),
+  'tokens.radii': optionSchema([valueOption('-c', '--collection')]),
   'tokens.import': optionSchema([
     valueOption('-c', '--collection'), flagOption('--force-slash'),
   ]),

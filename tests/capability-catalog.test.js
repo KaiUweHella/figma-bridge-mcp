@@ -217,6 +217,21 @@ test('Variable Visualization closes one policy-identical non-retrying journaled 
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Token Presets close policy-identical non-retrying journaled scale writes', () => {
+  for (const preset of ['spacing', 'radii']) {
+    const cli = planFigmaCommand(['tokens', preset, '-cFoundation'], { adapter: 'cli' });
+    const mcp = planFigmaCommand(['tokens', preset, '--collection=Foundation'], { adapter: 'mcp' });
+    assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+    assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, `tokens.${preset}`);
+  }
+  for (const argv of [
+    ['tokens', 'spacing', 'extra'], ['tokens', 'radii', '--collection'],
+    ['tokens', 'spacing', '-cOne', '-cTwo'], ['tokens', 'radii', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
   const cli = planFigmaCommand([
     'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',

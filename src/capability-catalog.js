@@ -137,6 +137,11 @@ import {
   variableVisualizationArgvFromRequest,
 } from '../engine/src/application/variable-visualization-request.js';
 import {
+  acceptsTokenPresetArgv,
+  parseTokenPresetRequest,
+  tokenPresetArgvFromRequest,
+} from '../engine/src/application/token-preset-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -348,6 +353,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.create',
   'var.create-batch',
   'var.visualize',
+  'tokens.spacing',
+  'tokens.radii',
   'var.set-value',
   'var.code-syntax',
   'var.update',
@@ -515,6 +522,9 @@ function specializedPolicy(name, entry, args, actionId) {
     timeoutClass = 'long';
     pathPolicy = 'variable-visualization-input';
   }
+  if (name === 'tokens' && ['spacing', 'radii'].includes(sub)) {
+    pathPolicy = 'token-preset-input';
+  }
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
@@ -655,6 +665,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'visualize'
     && !action.help && !acceptsVariableVisualizationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'tokens' && ['spacing', 'radii'].includes(args[1])
+    && !action.help && !acceptsTokenPresetArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'set-value'
@@ -1335,6 +1349,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-visualization-input': {
       args.splice(0, args.length,
         ...variableVisualizationArgvFromRequest(parseVariableVisualizationRequest(args)));
+      break;
+    }
+    case 'token-preset-input': {
+      args.splice(0, args.length,
+        ...tokenPresetArgvFromRequest(parseTokenPresetRequest(args)));
       break;
     }
     case 'variable-set-value-input': {

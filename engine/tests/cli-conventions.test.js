@@ -789,6 +789,21 @@ test('col extend delegates one Plan-bound journaled non-retrying Application', (
     'Commander must not retain Collection Extension readiness, creation, or formatting logic');
 });
 
+test('tokens spacing and radii delegate one Plan-bound journaled Preset Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf('async function runTokenPreset');
+  const end = adapter.indexOf("tokens\n  .command('import <file>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /tokenPresetPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeTokenPresetPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/); assert.match(action, /process\.exitCode = 1/);
+  assert.equal((action.match(/\.allowExcessArguments\(false\)/g) || []).length, 2);
+  assert.doesNotMatch(action, /checkConnection\(|evalPrint\(|createVariableCollection\(|setValueForMode\(/,
+    'Commander must not retain Token Preset readiness, factory, mode, or formatting logic');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
