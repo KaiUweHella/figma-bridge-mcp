@@ -126,6 +126,21 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(figma.created.length, 0);
   });
 
+  it('normalizes whitespace-equivalent empty and nested self-closing JSX', () => {
+    const client = new FigmaClient();
+    const compact = client.planJSX('<Frame/>');
+    assert.deepEqual(client.planJSX('<Frame />'), compact);
+    assert.deepEqual(client.planJSX('<Frame></Frame>'), compact);
+
+    const compactNested = client.planJSX(
+      '<Frame><Frame/><Slot/><Text/><Rect/></Frame>',
+    );
+    const spacedNested = client.planJSX(
+      '<Frame><Frame /><Slot /><Text /><Rect /></Frame>',
+    );
+    assert.deepEqual(compactNested, spacedNested);
+  });
+
   it('creates and then exactly reuses a semantic named Text Style', async () => {
     const plan = new FigmaClient().planJSX(
       '<Frame name="Typography"><Text style="Typography/Eyebrow" font="DM Sans" size="10" weight="700" lineHeight="13" letterSpacing="1.2">SYSTEM MAP</Text></Frame>',

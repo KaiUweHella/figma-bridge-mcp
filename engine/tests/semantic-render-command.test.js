@@ -225,6 +225,20 @@ test('simple, compound and named compatibility Render modes remain explicitly re
   }
 });
 
+test('empty root spellings prepare the same native Semantic Render Plan', (t) => {
+  const prepared = ['<Frame/>', '<Frame />', '<Frame></Frame>'].map((jsx) => {
+    const { plan, io } = renderPlan(t, ['render', jsx]);
+    return prepareSemanticRenderPlan(plan, { workspaceIO: io });
+  });
+  assert.deepEqual(prepared[1].renderPlan, prepared[0].renderPlan);
+  assert.deepEqual(prepared[2].renderPlan, prepared[0].renderPlan);
+  assert.deepEqual(prepared.map((entry) => entry.support), [
+    { supported: true, problems: [] },
+    { supported: true, problems: [] },
+    { supported: true, problems: [] },
+  ]);
+});
+
 test('render-batch is owned by the compound Command Application', (t) => {
   const { root, io } = workspace(t);
   const plan = planFigmaCommand([

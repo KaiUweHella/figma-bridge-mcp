@@ -335,11 +335,11 @@ export class FigmaClient {
   parseJSXTree(jsx) {
     const source = String(jsx || '');
     this.validateJSXStructure(source);
-    const openMatch = source.match(/<Frame(?:\s+([^>]*?))?>/);
+    const openMatch = source.match(/<Frame(?:\s+([^>]*?))?\s*(\/?)>/);
     if (!openMatch) throw new Error('Invalid JSX: must start with <Frame>');
     if (openMatch.index !== source.search(/\S/)) throw new Error('Invalid JSX: root element must be <Frame>');
     const rootTail = source.slice(openMatch.index + openMatch[0].length);
-    const selfClosing = /\/\s*>$/.test(openMatch[0]);
+    const selfClosing = openMatch[2] === '/';
     let content = '';
     if (selfClosing) {
       if (rootTail.trim()) throw new Error('Invalid JSX: exactly one root <Frame> is required');

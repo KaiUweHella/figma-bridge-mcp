@@ -762,6 +762,15 @@ test('figma_render exposes complete typed simple and compound requests', async (
     assert.match(compatibility.content[0].text, /Write-confirm mode is on/);
     assert.doesNotMatch(compatibility.content[0].text, /Invalid JSX|Usage:|getComputedStyle/);
   }
+
+  for (const jsx of ['<Frame/>', '<Frame />', '<Frame></Frame>']) {
+    const typed = await handleTool('figma_render', { jsx });
+    assert.equal(typed.isError, undefined, `typed ${jsx}`);
+    assert.match(typed.content[0].text, /Write-confirm mode is on/);
+    const generic = await handleTool('figma_run', { args: ['render', jsx] });
+    assert.equal(generic.isError, undefined, `generic ${jsx}`);
+    assert.match(generic.content[0].text, /Write-confirm mode is on/);
+  }
 });
 
 test('malformed Render argv and JSX fail before confirmation or Plugin readiness', async () => {
