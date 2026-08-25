@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { variableFactsCode } from '../src/application/variable-facts-command.js';
 import {
-  collectionExtendCode, collectionModeCode, parseBoolean,
+  collectionExtendCode, parseBoolean,
 } from '../src/lib/variable-management.js';
 
 const execute = (code, figma) => new Function('figma', `return ${code}`)(figma);
@@ -62,10 +62,4 @@ test('variable show exposes metadata, modes, values, scopes, and publish status'
   const shown = JSON.parse(await execute(variableFactsCode({ variable: 'space/md' }), figma));
   assert.equal(shown.collection.name, 'Primitives');
   assert.equal(shown.publishStatus, 'CURRENT');
-});
-
-test('collection modes stay plugin-first', async () => {
-  const { figma } = fixture();
-  const withMode = await execute(collectionModeCode({ collection: 'C:1', action: 'add', name: 'Dark' }), figma);
-  assert.equal(withMode.modes.at(-1).name, 'Dark');
 });

@@ -21,6 +21,10 @@ import {
   executeCollectionUpdatePlan,
 } from '../application/collection-update-command.js';
 import {
+  collectionModePlanningArgvFromRequest,
+  executeCollectionModePlan,
+} from '../application/collection-mode-command.js';
+import {
   executeTokenPublishStatusPlan,
   tokenPublishStatusPlanningArgvFromRequest,
 } from '../application/token-publish-status-command.js';
@@ -50,7 +54,7 @@ import {
 import { normalizeNodeId } from '../lib/node-id.js';
 import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
 import {
-  collectionDeleteCode, collectionExtendCode, collectionModeCode,
+  collectionDeleteCode, collectionExtendCode,
 } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
@@ -169,18 +173,39 @@ collections.command('update <collection>')
     }
   });
 
-collections.command('mode-add <collection> <name>').action(async (collection, name) => {
-  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'add', name })), null, 2)); }
-  catch (error) { handleEvalError(error); }
-});
-collections.command('mode-rename <collection> <mode> <name>').action(async (collection, mode, name) => {
-  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'rename', mode, name })), null, 2)); }
-  catch (error) { handleEvalError(error); }
-});
-collections.command('mode-remove <collection> <mode>').action(async (collection, mode) => {
-  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionModeCode({ collection, action: 'remove', mode })), null, 2)); }
-  catch (error) { handleEvalError(error); }
-});
+async function runCollectionMode(request) {
+  try {
+    const plan = planFigmaCommand(collectionModePlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeCollectionModePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error);
+    process.exitCode = 1;
+  }
+}
+
+collections.command('mode-add <collection> <name>')
+  .allowExcessArguments(false)
+  .action(async (collection, name) => runCollectionMode({ action: 'add', collection, name }));
+collections.command('mode-rename <collection> <mode> <name>')
+  .allowExcessArguments(false)
+  .action(async (collection, mode, name) => runCollectionMode({
+    action: 'rename', collection, mode, name,
+  }));
+collections.command('mode-remove <collection> <mode>')
+  .allowExcessArguments(false)
+  .action(async (collection, mode) => runCollectionMode({ action: 'remove', collection, mode }));
 collections.command('publish-status <collection>')
   .allowExcessArguments(false)
   .action(async (collection) => {

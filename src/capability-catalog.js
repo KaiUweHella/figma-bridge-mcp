@@ -86,6 +86,11 @@ import {
   parseCollectionUpdateRequest,
 } from '../engine/src/application/collection-update-request.js';
 import {
+  acceptsCollectionModeArgv,
+  collectionModeArgvFromRequest,
+  parseCollectionModeRequest,
+} from '../engine/src/application/collection-mode-request.js';
+import {
   acceptsPageNavigationArgv,
   pageNavigationArgvFromRequest,
   parsePageNavigationRequest,
@@ -323,6 +328,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.publish-status', 'col.publish-status',
   'col.create',
   'col.update',
+  'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'component.main',
   'style.list',
   'style.create',
@@ -495,6 +501,9 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'col' && sub === 'create') pathPolicy = 'collection-create-input';
   if (name === 'col' && sub === 'update') pathPolicy = 'collection-update-input';
+  if (name === 'col' && ['mode-add', 'mode-rename', 'mode-remove'].includes(sub)) {
+    pathPolicy = 'collection-mode-input';
+  }
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
@@ -636,6 +645,10 @@ function commandCapability(args) {
   }
   if (name === 'col' && args[1] === 'update'
     && !action.help && !acceptsCollectionUpdateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'col' && ['mode-add', 'mode-rename', 'mode-remove'].includes(args[1])
+    && !action.help && !acceptsCollectionModeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && args[1] === 'inspect'
@@ -1301,6 +1314,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'collection-update-input': {
       args.splice(0, args.length,
         ...collectionUpdateArgvFromRequest(parseCollectionUpdateRequest(args)));
+      break;
+    }
+    case 'collection-mode-input': {
+      args.splice(0, args.length,
+        ...collectionModeArgvFromRequest(parseCollectionModeRequest(args)));
       break;
     }
     case 'font-inspection-input': {

@@ -114,6 +114,10 @@ import {
   executeCollectionUpdatePlan,
 } from "../engine/src/application/collection-update-command.js";
 import {
+  collectionModePlanRoute,
+  executeCollectionModePlan,
+} from "../engine/src/application/collection-mode-command.js";
+import {
   executeTokenPublishStatusPlan,
   tokenPublishStatusPlanRoute,
 } from "../engine/src/application/token-publish-status-command.js";
@@ -2045,6 +2049,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeCollectionUpdatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const collectionModeRoute = collectionModePlanRoute(plan);
+      if (collectionModeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionModePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

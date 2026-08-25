@@ -226,6 +226,15 @@ validates exact postconditions and restores fields independently so one failed
 restoration does not prevent the other.
 _Avoid_: collection patch eval, implicit field, retryable assignment, all-or-nothing restore attempt
 
+**Collection Mode Mutation**:
+The bounded, non-retrying add, rename or remove of one explicit mode in one
+local Variable Collection. Add journals the returned mode identity and removes
+it after guarded postcondition failure; Rename restores the prior name. Remove
+preflights the affected Variable-value count but has no reversal API after the
+mode and its values are deleted, so post-remove validation failure is reported
+as irreversible applied state rather than rollback.
+_Avoid_: collection mode eval, implicit mode match, retryable mode write, reversible removal claim
+
 **Token Publish Status Facts**:
 The compact, versioned read of one Variable or Variable Collection's official
 UNPUBLISHED, CURRENT or CHANGED state. Variable queries may be scoped to one

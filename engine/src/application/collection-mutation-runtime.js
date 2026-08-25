@@ -23,6 +23,17 @@ const __bridgeResolveCollection = (query) => {
   if (!matches.length) throw new Error('Variable Collection not found.');
   return { collection: matches[0], resolution: 'name' };
 };
+const __bridgeResolveMode = (collection, query) => {
+  const direct = collection.modes.filter((mode) => mode.modeId === query);
+  if (direct.length) return { mode: direct[0], resolution: 'id' };
+  const exact = collection.modes.filter((mode) => mode.name === query);
+  const partial = collection.modes.filter((mode) =>
+    mode.name.toLowerCase().includes(query.toLowerCase()));
+  const matches = exact.length ? exact : partial;
+  if (matches.length > 1) throw new Error('Collection mode is ambiguous; use its id.');
+  if (!matches.length) throw new Error('Collection mode not found.');
+  return { mode: matches[0], resolution: 'name' };
+};
 const __bridgeCollectionFacts = async (collection) => ({
   schemaVersion: 1, id: collection.id, key: collection.key || null,
   name: collection.name, remote: !!collection.remote,

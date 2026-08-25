@@ -45,6 +45,8 @@
     "engine/src/application/collection-create-command.js",
     "engine/src/application/collection-create-request.js",
     "engine/src/application/collection-mutation-runtime.js",
+    "engine/src/application/collection-mode-command.js",
+    "engine/src/application/collection-mode-request.js",
     "engine/src/application/collection-update-command.js",
     "engine/src/application/collection-update-request.js",
     "engine/src/application/token-publish-status-command.js",
