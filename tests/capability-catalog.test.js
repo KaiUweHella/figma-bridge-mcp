@@ -203,6 +203,20 @@ test('Variable Batch Creation closes one policy-identical non-retrying journaled
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Visualization closes one policy-identical non-retrying journaled canvas write', () => {
+  const cli = planFigmaCommand(['var', 'visualize', '-mDark', 'Semantic Colors'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['var', 'visualize', '--mode=Dark', '--', 'Semantic Colors'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.timeout, 'long');
+  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'var.visualize');
+  for (const argv of [
+    ['var', 'visualize', 'One', 'Two'], ['var', 'visualize', '--mode'],
+    ['var', 'visualize', '-mLight', '-mDark'], ['var', 'visualize', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
   const cli = planFigmaCommand([
     'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',

@@ -482,6 +482,32 @@ test('figma_run confirms Variable Batch Creation and rejects malformed input bef
   }
 });
 
+test('figma_run routes Variable Visualization through its shared journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const variableVisualizationRoute = variableVisualizationPlanRoute(plan)');
+  const end = source.indexOf('const variableSetValueRoute = variableSetValuePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeVariableVisualizationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run confirms Variable Visualization and rejects malformed input before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', { args: ['var', 'visualize', 'Semantic Colors'] });
+  assert.equal(preview.isError, undefined); assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  for (const args of [
+    ['var', 'visualize', 'One', 'Two'], ['var', 'visualize', '--mode'],
+    ['var', 'visualize', '-mLight', '-mDark'], ['var', 'visualize', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true); assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Variable Set Value through its shared rollback-owned Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const variableSetValueRoute = variableSetValuePlanRoute(plan)');

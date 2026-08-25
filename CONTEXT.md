@@ -177,6 +177,19 @@ official Variable types and the established batch utility without allowing a
 partially initialized batch to look successful.
 _Avoid_: variable batch eval, partial preflight, first mode, partial success, retryable factory loop
 
+**Variable Visualization**:
+The bounded, non-retrying and journaled canvas projection of local COLOR
+Variables. It resolves an optional Collection unambiguously, uses an explicit
+mode or each Collection's declared default, preserves semantic aliases and
+creates directly editable native Variable bindings in Auto Layout containers.
+Missing authored mode values remain bound and are reported as unresolved;
+malformed authored values fail preflight. Variable metadata, selected mode
+values, font resources and canvas geometry preflight before the first node; a
+later failure removes the complete node journal. It is
+a palette for inspecting and editing bindings, not resolved token export,
+Variable Facts or an Auto Layout Grid primitive.
+_Avoid_: palette eval, first mode, alias flattening, hidden unresolved value, unjournaled canvas
+
 **Variable Mode Value Mutation**:
 The bounded, non-retrying update of one explicit mode value on one local
 Variable. It closes literal-versus-alias intent before readiness, resolves

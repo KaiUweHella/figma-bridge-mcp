@@ -602,6 +602,21 @@ test('var create-batch delegates one Plan-bound journaled non-retrying Applicati
     'Commander must not retain Variable Batch Creation execution or formatting logic');
 });
 
+test('var visualize delegates one Plan-bound journaled non-retrying Application', () => {
+  const adapter = sources.get('variables.js');
+  const start = adapter.indexOf("variables\n  .command('visualize [collection]')");
+  const end = adapter.indexOf("variables\n  .command('create-batch <json>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableVisualizationPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableVisualizationPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/); assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|createFrame\(|setBoundVariableForPaint\(/,
+    'Commander must not retain Variable Visualization execution or formatting logic');
+});
+
 test('var set-value delegates one Plan-bound rollback-owned non-retrying Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
