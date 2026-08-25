@@ -713,6 +713,29 @@ test('figma_run rejects malformed Style Update argv before confirmation or readi
   }
 });
 
+test('figma_run routes Style Delete through the shared compact mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const styleDeleteRoute = styleDeletePlanRoute(plan)');
+  const end = source.indexOf('if (styleApplyRoute === "command-application")', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /executeStyleDeletePlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Style Delete argv before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['style', 'delete'], ['style', 'delete', 'A', 'B'],
+    ['style', 'delete', 'A', '--type', 'FUTURE'], ['style', 'delete', 'A', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args, confirm: true });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Style Create argv before confirmation or readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

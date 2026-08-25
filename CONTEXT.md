@@ -106,6 +106,13 @@ failure evidence contain compact identity and field names, never raw Style
 values; failed restoration reports possible residue instead of atomicity.
 _Avoid_: style patch eval, best-effort update, raw Style result, atomic update claim
 
+**Style Deletion**:
+The bounded, non-retrying removal of one resolved local Style. It closes query
+and optional family narrowing before readiness, rejects remote Styles, and
+returns only the removed compact identity. A removal error reports that the
+target may remain; deletion is irreversible and never described as rollback.
+_Avoid_: style delete eval, raw deleted Style, retryable delete, rollback claim
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

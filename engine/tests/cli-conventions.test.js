@@ -431,6 +431,19 @@ test('style publish-status delegates one Plan-bound bounded-read Application', (
     'Commander must not retain Style Publish Status readiness, capture, or formatting logic');
 });
 
+test('style delete delegates one Plan-bound compact non-retrying Application', () => {
+  const adapter = sources.get('styles.js');
+  const start = adapter.indexOf("styles.command('delete <style>')");
+  const end = adapter.indexOf("styles.command('bind-font <style> <field>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /styleDeletePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeStyleDeletePlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /fastEval\(|styleDeleteCode\(/);
+});
+
 test('grid list delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

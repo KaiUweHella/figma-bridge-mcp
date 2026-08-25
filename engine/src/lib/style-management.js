@@ -62,14 +62,6 @@ const __styleFacts = (s) => {
 };`;
 }
 
-function styleDeleteCode({ style }) {
-  return `(async () => {${styleHelpersCode()}
-const target = await __resolveStyle(${JSON.stringify(style)}, null);
-if (target.remote) throw new Error('Remote styles cannot be deleted');
-const facts = __styleFacts(target); target.remove(); return facts;
-})()`;
-}
-
 const TEXT_VARIABLE_FIELDS = Object.freeze([
   'fontFamily', 'fontSize', 'fontStyle', 'fontWeight', 'letterSpacing',
   'lineHeight', 'paragraphSpacing', 'paragraphIndent',
@@ -104,5 +96,4 @@ return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)},
 export {
   STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
   styleBindVariableCode,
-  styleDeleteCode,
 };

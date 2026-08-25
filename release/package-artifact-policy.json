@@ -67,6 +67,8 @@
     "engine/src/application/style-apply-request.js",
     "engine/src/application/style-create-command.js",
     "engine/src/application/style-create-request.js",
+    "engine/src/application/style-delete-command.js",
+    "engine/src/application/style-delete-request.js",
     "engine/src/application/style-mutation-values.js",
     "engine/src/application/style-update-command.js",
     "engine/src/application/style-update-request.js",

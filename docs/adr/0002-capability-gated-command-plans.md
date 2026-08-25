@@ -236,6 +236,13 @@ retried. Success and failure expose compact identity plus field names rather
 than raw Style values, so GRID Auto Layout Guide counts cannot become JSON
 `null` on this compatibility path.
 
+`style delete` owns the irreversible local Style removal Application. Its
+closed request canonicalizes one bounded Style reference and optional family
+before confirmation or readiness. Resolution is bounded, remote Styles are
+rejected and removal is never retried. Success returns compact pre-removal
+identity only; a thrown remover reports possible residue without claiming that
+the existing Style was rolled back or projecting authored GRID values.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one
