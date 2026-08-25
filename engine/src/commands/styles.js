@@ -29,10 +29,12 @@ import {
   styleCreatePlanningArgvFromRequest,
 } from '../application/style-create-command.js';
 import {
-  parseStyleProperties, parseStyleType,
+  executeStyleUpdatePlan,
+  styleUpdatePlanningArgvFromRequest,
+} from '../application/style-update-command.js';
+import {
   styleBindVariableCode,
   styleDeleteCode,
-  styleUpdateCode,
 } from '../lib/style-management.js';
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
@@ -131,14 +133,32 @@ styles.command('create <type> <name>')
 styles.command('update <style>')
   .option('-t, --type <type>', 'Required when using --properties')
   .option('-n, --name <name>').option('-d, --description <text>').option('-p, --properties <json>')
+  .allowExcessArguments(false)
   .action(async (style, options) => {
     try {
-      if (options.name === undefined && options.description === undefined && options.properties === undefined) throw new Error('Provide --name, --description, or --properties');
-      if (options.properties !== undefined && !options.type) throw new Error('--type is required with --properties');
-      const type = options.type ? parseStyleType(options.type) : undefined;
-      const properties = options.properties === undefined ? undefined : parseStyleProperties(options.properties, type);
-      print(await run(styleUpdateCode({ style, type, name: options.name, description: options.description, properties })));
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(styleUpdatePlanningArgvFromRequest({
+        style, type: options.type, name: options.name,
+        description: options.description, properties: options.properties,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleUpdatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Style Update failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 styles.command('apply <style> <nodeIds>')
   .requiredOption('-f, --field <field>', 'fill, stroke, text, effect, or layout-guide/Grid Style (grid alias; not Auto Layout Grid)')

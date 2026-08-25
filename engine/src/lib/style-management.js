@@ -62,23 +62,6 @@ const __styleFacts = (s) => {
 };`;
 }
 
-function styleUpdateCode({ style, name, description, properties, type }) {
-  const normalized = type ? parseStyleType(type) : null;
-  const props = properties === undefined ? null : parseStyleProperties(properties, normalized);
-  return `(async () => {${styleHelpersCode()}
-const target = await __resolveStyle(${JSON.stringify(style)}, ${JSON.stringify(normalized)});
-if (target.remote) throw new Error('Remote styles cannot be updated');
-${name === undefined ? '' : `target.name = ${JSON.stringify(String(name).trim())};`}
-${description === undefined ? '' : `target.description = ${JSON.stringify(String(description))};`}
-const props = ${JSON.stringify(props)};
-if (props) {
-  if (target.type === 'TEXT' && props.fontName) await figma.loadFontAsync(props.fontName);
-  for (const [key, value] of Object.entries(props)) target[key] = value;
-}
-return __styleFacts(target);
-})()`;
-}
-
 function styleDeleteCode({ style }) {
   return `(async () => {${styleHelpersCode()}
 const target = await __resolveStyle(${JSON.stringify(style)}, null);
@@ -121,5 +104,5 @@ return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)},
 export {
   STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
   styleBindVariableCode,
-  styleDeleteCode, styleUpdateCode,
+  styleDeleteCode,
 };

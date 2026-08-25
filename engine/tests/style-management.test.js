@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   parseStyleProperties, parseStyleType,
-  styleBindVariableCode, styleUpdateCode,
+  styleBindVariableCode,
 } from '../src/lib/style-management.js';
 
 const emptyLists = {
@@ -33,12 +33,4 @@ test('text style variable binding uses the native TextStyle API and supports unb
   await execute(styleBindVariableCode({ style: 'S:4', field: 'fontSize' }), figma);
   assert.deepEqual(bindings, [['fontSize', variable], ['fontSize', null]]);
   assert.throws(() => styleBindVariableCode({ style: 'S:4', field: 'width', variable: 'V:1' }), /Text style variable field/);
-});
-
-test('style update resolves local styles without REST', async () => {
-  const style = { id: 'S:2', key: 'k', type: 'PAINT', remote: false, name: 'Brand', description: '', paints: [] };
-  const figma = { ...emptyLists, getLocalPaintStylesAsync: async () => [style], getStyleByIdAsync: async () => null };
-  const updated = await execute(styleUpdateCode({ style: 'Brand', type: 'PAINT', name: 'Primary', properties: { paints: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }] } }), figma);
-  assert.equal(updated.name, 'Primary');
-  assert.equal(updated.paints.length, 1);
 });

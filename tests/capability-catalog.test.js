@@ -201,6 +201,24 @@ test('Style Create closes one policy-identical non-retrying journaled write', ()
   assert.equal(cli.audit.capability, 'style.create');
 });
 
+test('Style Update closes one policy-identical non-retrying rollback-owned write', () => {
+  const cli = planFigmaCommand([
+    'style', 'update', 'Columns/Auto', '--type', 'GRID', '--description', 'Responsive',
+    '--properties', '{"layoutGrids":[]}',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'style', 'update', '--properties={"layoutGrids":[]}', '-dResponsive', '-tgrid',
+    '--', 'Columns/Auto',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'style.update');
+});
+
 test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['grid', 'list', '10-3', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['grid', 'list', '--json', '10:3'], { adapter: 'mcp' });

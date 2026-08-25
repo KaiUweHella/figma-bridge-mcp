@@ -96,6 +96,16 @@ metadata or property assignment fails. Cleanup failure returns typed bounded
 Style residue; success returns compact identity rather than raw Style values.
 _Avoid_: create-then-configure helper, unjournaled Style factory, raw Style result
 
+**Style Update**:
+The bounded, non-retrying mutation of one resolved local PAINT, TEXT, EFFECT or
+GRID Style. It closes metadata and type-specific property input before
+readiness, loads fallible resources before the first write, snapshots every
+requested field, mutates sequentially and restores the failing field plus
+confirmed prior fields in reverse order after an assignment error. Results and
+failure evidence contain compact identity and field names, never raw Style
+values; failed restoration reports possible residue instead of atomicity.
+_Avoid_: style patch eval, best-effort update, raw Style result, atomic update claim
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

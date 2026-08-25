@@ -136,6 +136,11 @@ import {
   styleCreateArgvFromRequest,
 } from '../engine/src/application/style-create-request.js';
 import {
+  acceptsStyleUpdateArgv,
+  parseStyleUpdateRequest,
+  styleUpdateArgvFromRequest,
+} from '../engine/src/application/style-update-request.js';
+import {
   acceptsLayoutGridFactsArgv,
   layoutGridFactsArgvFromRequest,
   layoutGridFactsFigmaUrlFileKeyFromArgv,
@@ -252,6 +257,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'component.main',
   'style.list',
   'style.create',
+  'style.update',
   'style.apply',
   'style.consumers',
   'style.publish-status',
@@ -421,6 +427,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'style-publish-status-input';
   }
   if (name === 'style' && sub === 'create') pathPolicy = 'style-create-input';
+  if (name === 'style' && sub === 'update') pathPolicy = 'style-update-input';
   if (name === 'style' && sub === 'apply') pathPolicy = 'style-apply-input';
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
@@ -521,6 +528,10 @@ function commandCapability(args) {
   }
   if (name === 'style' && args[1] === 'create'
     && !action.help && !acceptsStyleCreateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'style' && args[1] === 'update'
+    && !action.help && !acceptsStyleUpdateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'style' && args[1] === 'apply'
@@ -1029,6 +1040,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'style-create-input': {
       args.splice(0, args.length, ...styleCreateArgvFromRequest(parseStyleCreateRequest(args)));
+      break;
+    }
+    case 'style-update-input': {
+      args.splice(0, args.length, ...styleUpdateArgvFromRequest(parseStyleUpdateRequest(args)));
       break;
     }
     case 'style-apply-input': {

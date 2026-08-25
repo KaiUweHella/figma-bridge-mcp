@@ -225,6 +225,17 @@ removes it where Figma permits and otherwise reports one typed bounded Style
 residue. Success projects compact identity only, so raw GRID values never cross
 this mutation seam as lossy JSON.
 
+`style update` owns the adjacent existing-resource mutation Application. Its
+closed request canonicalizes one bounded Style reference, optional family,
+metadata fields and one non-empty type-specific property object before
+confirmation or readiness. Create and Update share one exact Style mutation
+value contract. Font loading and all resolution checks precede the first
+write; requested fields are snapshotted, assigned sequentially and restored
+from the failing field backwards after an assignment error. Writes are never
+retried. Success and failure expose compact identity plus field names rather
+than raw Style values, so GRID Auto Layout Guide counts cannot become JSON
+`null` on this compatibility path.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

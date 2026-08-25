@@ -138,6 +138,10 @@ import {
   styleCreatePlanRoute,
 } from "../engine/src/application/style-create-command.js";
 import {
+  executeStyleUpdatePlan,
+  styleUpdatePlanRoute,
+} from "../engine/src/application/style-update-command.js";
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
@@ -2038,6 +2042,7 @@ export async function handleTool(name, rawArgs) {
       }
       const styleApplyRoute = styleApplyPlanRoute(plan);
       const styleCreateRoute = styleCreatePlanRoute(plan);
+      const styleUpdateRoute = styleUpdatePlanRoute(plan);
       if (styleCreateRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
@@ -2045,6 +2050,22 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeStyleCreatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      if (styleUpdateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeStyleUpdatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

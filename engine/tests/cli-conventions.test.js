@@ -340,6 +340,24 @@ test('style create delegates one Plan-bound journaled mutation Application', () 
     'Commander must not retain Style Create readiness, mutation, or formatting logic');
 });
 
+test('style update delegates one Plan-bound rollback-owned mutation Application', () => {
+  const adapter = sources.get('styles.js');
+  assert.ok(adapter, 'styles.js exists');
+  const start = adapter.indexOf("styles.command('update <style>')");
+  const end = adapter.indexOf("styles.command('apply <style> <nodeIds>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(styleUpdatePlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeStyleUpdatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|styleUpdateCode\(/,
+    'Commander must not retain Style Update readiness, mutation, or formatting logic');
+});
+
 test('style apply delegates one Plan-bound preflighted mutation Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');
