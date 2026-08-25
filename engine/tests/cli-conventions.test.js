@@ -838,6 +838,20 @@ test('tokens overlap delegates one Plan-bound bounded-read Application', () => {
     'Commander must not retain Token Overlap readiness, resolution, set arithmetic, or formatting');
 });
 
+test('tokens rebind delegates one Plan-bound dry-run and rollback-owned Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf(".command('rebind <collection>')");
+  const action = adapter.slice(start);
+  assert.match(action, /tokenRebindPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeTokenRebindPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|getLocalVariablesAsync|setBoundVariableForPaint/,
+    'Commander must not retain Token Rebind gates, resolution, mutation, rollback, or formatting');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
@@ -1102,7 +1116,10 @@ test('unsafe legacy bulk writes stop before connection or generated mutation cod
   const tokens = sources.get('tokens.js');
   const rebindStart = tokens.indexOf(".command('rebind <collection>')");
   const rebind = tokens.slice(rebindStart);
-  assert.ok(rebind.indexOf('options.page && options.apply') < rebind.indexOf('await checkConnection()'));
+  assert.match(rebind, /tokenRebindPlanningArgvFromRequest/);
+  assert.match(rebind, /executeTokenRebindPlan\(plan/);
+  assert.doesNotMatch(rebind, /checkConnection\(|fastEval\(|rebindCode\(/,
+    'Commander delegates the page gate and all rebinding work to the closed Application');
 
   const nodes = sources.get('node-ops.js');
   for (const [action, endMarker] of [

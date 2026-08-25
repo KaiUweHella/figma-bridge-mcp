@@ -219,6 +219,20 @@ Request order remains output order; ambiguity, missing Collections and repeated
 resolved identity fail the whole read rather than producing a partial answer.
 _Avoid_: first partial Collection match, global Variable scan, duplicate-name collapse, unbounded missing-name matrix, silent truncation
 
+**Variable Rebinding**:
+The bounded theme switch that repoints supported Variable bindings in one
+explicit SceneNode subtree to same-named Variables in one unambiguous target
+Collection. Dry-run and apply share the same targeted Collection membership,
+source-alias and iterative subtree preflight; dry-run is a safe-retrying read,
+while apply is confirmed, non-retrying, freshly verified and rollback-owned.
+Existing source aliases may be local or remote; the replacement target remains
+one exact local Collection.
+SOLID fill/stroke color aliases and direct scalar aliases remain useful;
+missing, incompatible and unsupported topology stay unchanged and are reported
+separately. Whole-page apply and PAGE/DOCUMENT roots remain unavailable, while
+whole-current-page dry-run remains available for planning.
+_Avoid_: first partial Collection match, global Variable scan, duplicate target name, page-root gate bypass, optimistic unbounded traversal, partial theme switch reported as success
+
 **Variable Mode Value Mutation**:
 The bounded, non-retrying update of one explicit mode value on one local
 Variable. It closes literal-versus-alias intent before readiness, resolves

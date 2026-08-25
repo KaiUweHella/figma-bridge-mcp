@@ -152,6 +152,11 @@ import {
   tokenOverlapArgvFromRequest,
 } from '../engine/src/application/token-overlap-request.js';
 import {
+  acceptsTokenRebindArgv,
+  parseTokenRebindRequest,
+  tokenRebindArgvFromRequest,
+} from '../engine/src/application/token-rebind-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -367,6 +372,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.radii',
   'tokens.add',
   'tokens.overlap',
+  'tokens.rebind',
   'var.set-value',
   'var.code-syntax',
   'var.update',
@@ -543,6 +549,11 @@ function specializedPolicy(name, entry, args, actionId) {
     timeoutClass = 'long';
     pathPolicy = 'token-overlap-input';
   }
+  if (name === 'tokens' && sub === 'rebind') {
+    retry = args.includes('--apply') ? 'never' : 'safe-read';
+    timeoutClass = 'long';
+    pathPolicy = 'token-rebind-input';
+  }
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
@@ -695,6 +706,10 @@ function commandCapability(args) {
   }
   if (name === 'tokens' && args[1] === 'overlap'
     && !action.help && !acceptsTokenOverlapArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'tokens' && args[1] === 'rebind'
+    && !action.help && !acceptsTokenRebindArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'set-value'
@@ -1390,6 +1405,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'token-overlap-input': {
       args.splice(0, args.length,
         ...tokenOverlapArgvFromRequest(parseTokenOverlapRequest(args)));
+      break;
+    }
+    case 'token-rebind-input': {
+      args.splice(0, args.length,
+        ...tokenRebindArgvFromRequest(parseTokenRebindRequest(args)));
       break;
     }
     case 'variable-set-value-input': {

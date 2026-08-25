@@ -270,6 +270,28 @@ test('Token Overlap closes one long policy-identical bounded safe read', () => {
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Token Rebind closes one safe dry-run and one rollback-owned scoped write', () => {
+  const dryCli = planFigmaCommand(['tokens', 'rebind', 'Theme', '-n12-34'], { adapter: 'cli' });
+  const dryMcp = planFigmaCommand(['tokens', 'rebind', '--node', '12:34', '--', 'Theme'], { adapter: 'mcp' });
+  assert.equal(dryCli.allowed, true); assert.equal(dryMcp.allowed, true);
+  assert.deepEqual(dryCli.argv, dryMcp.argv); assert.deepEqual(dryCli.effects, dryMcp.effects);
+  assert.equal(dryCli.effects.figma, 'read'); assert.equal(dryCli.execution.retry, 'safe-read');
+  assert.equal(dryCli.execution.timeout, 'long'); assert.equal(dryCli.confirmation, 'none');
+  assert.equal(dryCli.audit.capability, 'tokens.rebind');
+
+  const apply = planFigmaCommand(['tokens', 'rebind', 'Theme', '--node', '12:34', '--apply'], {
+    adapter: 'mcp',
+  });
+  assert.equal(apply.allowed, true); assert.equal(apply.effects.figma, 'write');
+  assert.equal(apply.execution.retry, 'never'); assert.equal(apply.confirmation, 'configured');
+  for (const argv of [
+    ['tokens', 'rebind', 'Theme'],
+    ['tokens', 'rebind', 'Theme', '--page', '--apply'],
+    ['tokens', 'rebind', 'Theme', '--node', '1:2', '--page'],
+    ['tokens', 'rebind', '--future', 'private-value', '--node', '1:2', 'Theme'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
   const cli = planFigmaCommand([
     'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',

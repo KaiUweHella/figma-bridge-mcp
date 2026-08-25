@@ -1,11 +1,8 @@
-// `node bind` and `tokens rebind` — the two capabilities rebuilt from the
-// deleted selection-driven commands. Both build an eval string, so every
-// generated snippet is parsed here: a syntax error inside a template literal
-// is invisible to `node --check` and only surfaces in Figma.
+// `node bind` retains a generated compatibility snippet. Token Rebind now has
+// its own closed Command Application and executable fixture tests elsewhere.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseBindRequest, bindCode } from '../src/commands/node-ops.js';
-import { rebindCode } from '../src/commands/tokens.js';
 import { isWrite } from '../../src/server.js';
 
 // `new Function(code)` here is a PARSER, not an executor: it compiles the body
@@ -69,33 +66,6 @@ describe('bindCode', () => {
   test('type mismatch is caught before the plugin call', () => {
     const code = bindCode([{ nodeId: '1:2', property: 'radius', varName: 'x', collection: null }]);
     assert.ok(/resolvedType !== spec\.type/.test(code), 'the variable type is checked against the property');
-  });
-});
-
-describe('rebindCode', () => {
-  test('node-rooted and page-wide forms both parse', () => {
-    parses(rebindCode({ target: 'TARGET_COLLECTION', rootId: '1:2', wholePage: false, apply: false }), 'rebind --node');
-    parses(rebindCode({ target: 'SOURCE_COLLECTION', rootId: null, wholePage: true, apply: true }), 'rebind --page');
-  });
-
-  test('a collection name with a quote stays inert', () => {
-    parses(rebindCode({ target: 'He said "hi"', rootId: '1:2', wholePage: false, apply: false }), 'quoted collection');
-  });
-
-  test('without --apply the eval never writes', () => {
-    const plan = rebindCode({ target: 'TARGET_COLLECTION', rootId: '1:2', wholePage: false, apply: false });
-    assert.ok(plan.includes('const apply = false;'), 'plan mode is compiled in, not decided at runtime');
-    // Both write paths are guarded by that flag.
-    assert.ok(/if \(changed && apply\)/.test(plan), 'paint writes are guarded');
-    assert.ok(/if \(apply\) \{\s*try \{ n\.setBoundVariable/.test(plan), 'scalar writes are guarded');
-  });
-
-  test('bindings already in the target collection are skipped', () => {
-    const code = rebindCode({ target: 'TARGET_COLLECTION', rootId: '1:2', wholePage: false, apply: true });
-    assert.ok(
-      (code.match(/variableCollectionId === targetCol\.id/g) || []).length >= 2,
-      'both the paint and the scalar branch skip already-correct bindings',
-    );
   });
 });
 

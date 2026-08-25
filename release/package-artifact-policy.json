@@ -67,6 +67,8 @@
     "engine/src/application/token-add-request.js",
     "engine/src/application/token-overlap-command.js",
     "engine/src/application/token-overlap-request.js",
+    "engine/src/application/token-rebind-command.js",
+    "engine/src/application/token-rebind-request.js",
     "engine/src/application/variable-resolution-command.js",
     "engine/src/application/variable-resolution-request.js",
     "engine/src/application/code-spec-command.js",
