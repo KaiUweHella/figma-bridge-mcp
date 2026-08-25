@@ -76,6 +76,11 @@ import {
   parseCollectionFactsRequest,
 } from '../engine/src/application/collection-facts-request.js';
 import {
+  acceptsCollectionCreateArgv,
+  collectionCreateArgvFromRequest,
+  parseCollectionCreateRequest,
+} from '../engine/src/application/collection-create-request.js';
+import {
   acceptsPageNavigationArgv,
   pageNavigationArgvFromRequest,
   parsePageNavigationRequest,
@@ -287,6 +292,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.list', 'var.find',
   'col.list', 'col.show',
   'var.publish-status', 'col.publish-status',
+  'col.create',
   'component.main',
   'style.list',
   'style.create',
@@ -453,6 +459,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'token-publish-status-input';
   }
+  if (name === 'col' && sub === 'create') pathPolicy = 'collection-create-input';
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
@@ -570,6 +577,10 @@ function commandCapability(args) {
   }
   if ((name === 'var' || name === 'col') && args[1] === 'publish-status'
     && !action.help && !acceptsTokenPublishStatusArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'col' && args[1] === 'create'
+    && !action.help && !acceptsCollectionCreateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && args[1] === 'inspect'
@@ -1205,6 +1216,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'token-publish-status-input': {
       args.splice(0, args.length,
         ...tokenPublishStatusArgvFromRequest(parseTokenPublishStatusRequest(args)));
+      break;
+    }
+    case 'collection-create-input': {
+      args.splice(0, args.length,
+        ...collectionCreateArgvFromRequest(parseCollectionCreateRequest(args)));
       break;
     }
     case 'font-inspection-input': {

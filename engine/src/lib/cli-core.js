@@ -515,16 +515,6 @@ async function selectNode(nodeId) {
   return 'Selected';
 }
 
-/** Create a variable collection; returns its id. */
-async function createCollection(name, { silent = false } = {}) {
-  const result = await daemonClient().evaluate(`(() => {
-    const col = figma.variables.createVariableCollection(${JSON.stringify(String(name))});
-    return col.id;
-  })()`, { expectedEditor: expectedEditorForCommand() });
-  if (!silent) console.log(chalk.green('\u2713 Created collection: ' + name));
-  return result;
-}
-
 // Single source of truth for "daemon up AND plugin bridge connected". All
 // connection checks (checkConnection, `status`) go through this so
 // the health contract lives in one place.
@@ -595,7 +585,6 @@ export {
   progress,
   spinnerSucceed,
   selectNode,
-  createCollection,
   generateFillCode,
   generateStrokeCode,
   getDaemonToken,

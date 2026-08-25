@@ -174,6 +174,14 @@ through one shared safe-read Command Application. It is collection metadata,
 not authored Variable values or permission to mutate the collection.
 _Avoid_: collection dump, inferred mode identity, variable values, collection edit
 
+**Collection Creation**:
+The bounded, non-retrying creation of one local Variable Collection. It closes
+and validates the name before readiness, preflights exact-name duplicates,
+creates once, journals the returned identity immediately and removes the new
+Collection if result validation or projection fails. Exact duplicates are
+rejected by default but remain available through explicit duplicate intent.
+_Avoid_: collection factory eval, implicit duplicate, retryable create, atomic claim
+
 **Token Publish Status Facts**:
 The compact, versioned read of one Variable or Variable Collection's official
 UNPUBLISHED, CURRENT or CHANGED state. Variable queries may be scoped to one

@@ -209,6 +209,29 @@ test('Token Publish Status closes Variable and Collection safe reads', () => {
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Collection Create closes one policy-identical non-retrying journaled write', () => {
+  const cli = planFigmaCommand(['col', 'create', '--allow-duplicate', 'Theme'], {
+    adapter: 'cli',
+  });
+  const mcp = planFigmaCommand(['col', 'create', '--allow-duplicate', '--', 'Theme'], {
+    adapter: 'mcp',
+  });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'col.create');
+  for (const argv of [
+    ['col', 'create'], ['col', 'create', 'one', 'two'],
+    ['col', 'create', '--allow-duplicate', '--allow-duplicate', 'Theme'],
+    ['col', 'create', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',

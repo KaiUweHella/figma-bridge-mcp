@@ -593,6 +593,23 @@ test('col list and show delegate separate Plan-bound bounded read Applications',
   }
 });
 
+test('col create delegates one Plan-bound journaled non-retrying Application', () => {
+  const adapter = sources.get('tokens.js');
+  assert.ok(adapter, 'tokens.js exists');
+  const start = adapter.indexOf("collections\n  .command('create <name>')");
+  const end = adapter.indexOf("collections.command('show <collection>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /collectionCreatePlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeCollectionCreatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|createCollection\(/,
+    'Commander must not retain Collection Create execution or formatting logic');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
