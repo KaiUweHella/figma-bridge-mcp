@@ -1,6 +1,11 @@
 // Commands: misc (extracted from index.js)
 import chalk from 'chalk';
 import * as apiDocs from '../api-docs.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import {
+  ensurePluginReadiness,
+  runInProcessCommandPlan,
+} from '../../../src/engine.js';
 import { componentInventoryCode } from '../lib/component-inventory.js';
 import { parseVariantPairs, addVariantCode } from '../lib/variant-snippets.js';
 import { normalizeNodeId } from '../lib/node-id.js';
@@ -12,11 +17,14 @@ import {
 import {
   program,
   checkConnection,
-  componentContextExpr,
   daemonExec,
   getDaemonToken,
   handleEvalError
 } from '../lib/cli-core.js';
+import {
+  componentMainPlanningArgvFromRequest,
+  executeComponentMainPlan,
+} from '../application/component-main-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -553,43 +561,31 @@ componentCmd
   .command('main <instanceId>')
   .description('Resolve an instance to its main component (and variant set, if any)')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (instanceId, options) => {
-    await checkConnection();
-    // Resolution shared with `inspect` via componentContextExpr — one source
-    // of truth for instance → main component / variant set / property facts.
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(instanceId)});
-      if (!n) throw new Error('Node not found: ' + ${JSON.stringify(instanceId)});
-      if (n.type !== 'INSTANCE') throw new Error('Not an INSTANCE (got ' + n.type + '): ' + n.name);
-      const ctx = ${componentContextExpr('n')};
-      if (!ctx.mainComponent) throw new Error('Instance has no resolvable main component (library not loaded?)');
-      return { instance: { id: n.id, name: n.name }, ...ctx };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (options.json) {
-        console.log(JSON.stringify(r, null, 2));
-        return;
-      }
-      console.log(chalk.cyan(`\n${r.instance.name} ${chalk.gray('(' + r.instance.id + ')')}`));
-      console.log(`  main: ${chalk.white(r.mainComponent.name)} ${chalk.gray('(' + r.mainComponent.id + (r.mainComponent.key ? ', key ' + r.mainComponent.key : '') + (r.mainComponent.remote ? ', remote library' : '') + ')')}`);
-      if (r.set) {
-        console.log(`  set:  ${chalk.white(r.set.name)} ${chalk.gray('(' + r.set.id + (r.set.key ? ', key ' + r.set.key : '') + ', ' + r.set.variants.length + ' variants)')}`);
-      }
-      if (r.variantProperties && Object.keys(r.variantProperties).length > 0) {
-        console.log('  variant values:');
-        Object.entries(r.variantProperties).forEach(([k, v]) => console.log(chalk.gray(`    ${k} = ${v}`)));
-      }
-      if (r.componentPropertyDefinitions && Object.keys(r.componentPropertyDefinitions).length > 0) {
-        console.log('  property definitions:');
-        Object.entries(r.componentPropertyDefinitions).forEach(([k, def]) => {
-          const opts = def.variantOptions ? ` [${def.variantOptions.join(' | ')}]` : '';
-          console.log(chalk.gray(`    ${k}: ${def.type}${opts} (default: ${JSON.stringify(def.defaultValue)})`));
+      const plan = planFigmaCommand(componentMainPlanningArgvFromRequest({
+        instanceId,
+        json: options.json === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentMainPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
         });
-      }
-      console.log();
-    } catch (e) {
-      handleEvalError(e);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Main failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

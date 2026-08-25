@@ -158,6 +158,16 @@ Application with a decreasing deadline. Property count, names, values and
 metadata are bounded below the Plugin protocol cap; invalid or oversized
 results fail explicitly instead of being truncated into plausible CSS.
 
+`component main` owns the adjacent Component Identity Facts read. Its closed
+request accepts one semantic Instance Node Reference plus text or JSON
+projection regardless of option order. Commander and `figma_run` execute one
+target-bound safe-read Command Plan and Component Main Command Application.
+Instance, main component, optional set, publish keys, variants and component
+property facts cross the Plugin seam as one versioned, deeply bounded result;
+invalid or oversized values fail rather than becoming plausible component
+identity. Names remain display facts and never replace a key, node reference or
+Design Entity link.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

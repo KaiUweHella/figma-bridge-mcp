@@ -7,6 +7,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Routed `component main` through one exact, versioned and deeply bounded
+  Component Identity Facts Application shared by Commander and MCP. Semantic
+  URL targeting, safe-read retry and one decreasing deadline now preserve main
+  component/set keys, variants and property facts without Commander re-entry
+  or name-based identity guesses.
+
 - Routed `var show` through one exact, versioned and deeply bounded Variable
   Facts Application shared by Commander and MCP. Mode values, aliases, scopes,
   code syntax, collection identity and publish status now retain their official

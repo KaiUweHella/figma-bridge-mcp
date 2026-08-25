@@ -109,6 +109,10 @@ import {
   fontInspectionPlanRoute,
 } from "../engine/src/application/font-inspection-command.js";
 import {
+  componentMainPlanRoute,
+  executeComponentMainPlan,
+} from "../engine/src/application/component-main-command.js";
+import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
@@ -1907,6 +1911,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeFontInspectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentMainRoute = componentMainPlanRoute(plan);
+      if (componentMainRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentMainPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

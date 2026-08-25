@@ -99,6 +99,12 @@ import {
   parseFontInspectionRequest,
 } from '../engine/src/application/font-inspection-request.js';
 import {
+  acceptsComponentMainArgv,
+  componentMainArgvFromRequest,
+  componentMainFigmaUrlFileKeyFromArgv,
+  parseComponentMainRequest,
+} from '../engine/src/application/component-main-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -203,6 +209,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'component.main',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -320,6 +327,10 @@ function specializedPolicy(name, entry, args) {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
   }
+  if (name === 'component' && sub === 'main') {
+    retry = 'safe-read';
+    pathPolicy = 'component-main-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -390,6 +401,10 @@ function commandCapability(args) {
   }
   if (name === 'font' && args[1] === 'inspect'
     && !action.help && !acceptsFontInspectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'main'
+    && !action.help && !acceptsComponentMainArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -857,6 +872,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           markRead(args[imageIndex], 'node-image');
         }
       }
+      break;
+    }
+    case 'component-main-input': {
+      const closedFileKey = componentMainFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...componentMainArgvFromRequest(parseComponentMainRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {

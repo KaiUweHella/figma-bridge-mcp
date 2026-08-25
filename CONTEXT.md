@@ -33,6 +33,15 @@ _Avoid_: walker output, cache entry
 The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
 _Avoid_: binding dump, token proof, complete variable capture
 
+**Component Identity Facts**:
+The exact, versioned and deeply bounded resolution of one explicit Figma
+Instance to its main component and optional component set. It preserves native
+node and publish keys, remote status, variants, current variant/property values
+and property definitions through one shared safe-read Command Application. It
+is identity evidence for reuse and follow-up reads, not a Design Entity link,
+full component inventory or permission to mutate the instance.
+_Avoid_: component dump, name-based component identity, component mutation
+
 **Variable Facts**:
 The exact, versioned and deeply bounded read of one local Figma variable by id
 or unambiguous name, optionally scoped to one collection. It preserves authored

@@ -485,6 +485,13 @@ Auto Layout container/child properties, polygon/star geometry, and Section
 visibility. Legacy selection-based and network-backed `create` subcommands
 remain unreachable through `figma_run`.
 
+`component main <instanceId>` is the bounded identity read for reuse. Commander
+and MCP resolve the same explicit Instance through one safe-read Command
+Application and return its native main component, optional set, publish keys,
+variants and component-property facts. A full Figma node URL may supply the
+target file; display names remain descriptive and are never treated as durable
+component identity.
+
 The operation audit is pinned to the installed official
 `@figma/plugin-typings` version. It exhaustively classifies every PluginAPI
 creator and structural method, checks every engine command against the Safe
