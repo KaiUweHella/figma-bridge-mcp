@@ -146,6 +146,10 @@ import {
   styleDeletePlanRoute,
 } from "../engine/src/application/style-delete-command.js";
 import {
+  executeTextStyleVariableBindingPlan,
+  textStyleVariableBindingPlanRoute,
+} from "../engine/src/application/text-style-variable-binding-command.js";
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
@@ -2048,6 +2052,7 @@ export async function handleTool(name, rawArgs) {
       const styleCreateRoute = styleCreatePlanRoute(plan);
       const styleUpdateRoute = styleUpdatePlanRoute(plan);
       const styleDeleteRoute = styleDeletePlanRoute(plan);
+      const textStyleBindingRoute = textStyleVariableBindingPlanRoute(plan);
       if (styleCreateRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
@@ -2092,6 +2097,16 @@ export async function handleTool(name, rawArgs) {
             }),
           });
         });
+        return resultFromCli(res);
+      }
+      if (textStyleBindingRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false },
+          async ({ fileKey, expectedEditor, deadline }) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            return executeTextStyleVariableBindingPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }) });
+          });
         return resultFromCli(res);
       }
       if (styleApplyRoute === "command-application") {

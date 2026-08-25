@@ -72,6 +72,8 @@
     "engine/src/application/style-mutation-values.js",
     "engine/src/application/style-update-command.js",
     "engine/src/application/style-update-request.js",
+    "engine/src/application/text-style-variable-binding-command.js",
+    "engine/src/application/text-style-variable-binding-request.js",
     "engine/src/application/style-consumer-command.js",
     "engine/src/application/style-consumer-request.js",
     "engine/src/application/style-facts-command.js",

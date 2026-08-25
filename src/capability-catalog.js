@@ -146,6 +146,11 @@ import {
   styleDeleteArgvFromRequest,
 } from '../engine/src/application/style-delete-request.js';
 import {
+  acceptsTextStyleVariableBindingArgv,
+  parseTextStyleVariableBindingRequest,
+  textStyleVariableBindingArgvFromRequest,
+} from '../engine/src/application/text-style-variable-binding-request.js';
+import {
   acceptsLayoutGridFactsArgv,
   layoutGridFactsArgvFromRequest,
   layoutGridFactsFigmaUrlFileKeyFromArgv,
@@ -264,6 +269,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'style.create',
   'style.update',
   'style.delete',
+  'style.bind-font',
+  'style.unbind-font',
   'style.apply',
   'style.consumers',
   'style.publish-status',
@@ -435,6 +442,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'style' && sub === 'create') pathPolicy = 'style-create-input';
   if (name === 'style' && sub === 'update') pathPolicy = 'style-update-input';
   if (name === 'style' && sub === 'delete') pathPolicy = 'style-delete-input';
+  if (name === 'style' && ['bind-font', 'unbind-font'].includes(sub)) pathPolicy = 'text-style-binding-input';
   if (name === 'style' && sub === 'apply') pathPolicy = 'style-apply-input';
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
@@ -543,6 +551,10 @@ function commandCapability(args) {
   }
   if (name === 'style' && args[1] === 'delete'
     && !action.help && !acceptsStyleDeleteArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'style' && ['bind-font', 'unbind-font'].includes(args[1])
+    && !action.help && !acceptsTextStyleVariableBindingArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'style' && args[1] === 'apply'
@@ -1059,6 +1071,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'style-delete-input': {
       args.splice(0, args.length, ...styleDeleteArgvFromRequest(parseStyleDeleteRequest(args)));
+      break;
+    }
+    case 'text-style-binding-input': {
+      args.splice(0, args.length, ...textStyleVariableBindingArgvFromRequest(
+        parseTextStyleVariableBindingRequest(args)));
       break;
     }
     case 'style-apply-input': {

@@ -243,6 +243,15 @@ rejected and removal is never retried. Success returns compact pre-removal
 identity only; a thrown remover reports possible residue without claiming that
 the existing Style was rolled back or projecting authored GRID values.
 
+`style bind-font` and `style unbind-font` own one Text Style Variable Binding
+Application. Their closed requests canonicalize one bounded Text Style
+reference, one supported field and, for binding, one bounded local Variable
+reference before confirmation or readiness. Style, type-compatible Variable
+and prior binding resolution finish before the synchronous setter. A setter
+failure attempts to restore the prior binding and reports possible residue if
+that restoration fails. Writes are never retried, and only compact identities
+cross the result seam.
+
 `prototype inspect` is the exact bounded verification read for native Figma
 prototype reactions. Its closed request owns one semantic Node Reference and
 URL-derived target before readiness. Commander and `figma_run` execute one

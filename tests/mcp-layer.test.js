@@ -736,6 +736,23 @@ test('figma_run rejects malformed Style Delete argv before confirmation or readi
   }
 });
 
+test('figma_run routes Text Style binding through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const textStyleBindingRoute = textStyleVariableBindingPlanRoute(plan)');
+  const end = source.indexOf('if (styleApplyRoute === "command-application")', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /executeTextStyleVariableBindingPlan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Text Style binding before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [['style','bind-font','Body','fontSize'], ['style','unbind-font','Body','width'], ['style','unbind-font','Body','fontSize','--variable','V:1']]) {
+    const result = await handleTool('figma_run', { args, confirm: true }); assert.equal(result.isError, true); assert.match(result.content[0].text, /Unknown or unsupported/);
+  }
+});
+
 test('figma_run rejects malformed Style Create argv before confirmation or readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

@@ -444,6 +444,17 @@ test('style delete delegates one Plan-bound compact non-retrying Application', (
   assert.doesNotMatch(action, /fastEval\(|styleDeleteCode\(/);
 });
 
+test('Text Style bind and unbind delegate one preflighted rollback-owned Application', () => {
+  const adapter = sources.get('styles.js');
+  const start = adapter.indexOf("styles.command('bind-font <style> <field>')");
+  const slice = adapter.slice(start);
+  assert.match(slice, /\.allowExcessArguments\(false\)/);
+  assert.match(slice, /textStyleVariableBindingPlanningArgvFromRequest/);
+  assert.match(slice, /executeTextStyleVariableBindingPlan/);
+  assert.match(slice, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.doesNotMatch(slice, /styleBindVariableCode\(|fastEval\(/);
+});
+
 test('grid list delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

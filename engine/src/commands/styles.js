@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
-  checkConnection, daemonExec, fastEval, handleEvalError, program,
+  daemonExec, program,
 } from '../lib/cli-core.js';
 import {
   executeStyleFactsPlan,
@@ -37,11 +37,9 @@ import {
   styleDeletePlanningArgvFromRequest,
 } from '../application/style-delete-command.js';
 import {
-  styleBindVariableCode,
-} from '../lib/style-management.js';
-
-const print = (value) => console.log(JSON.stringify(value, null, 2));
-const run = async (code) => { await checkConnection(); return fastEval(code); };
+  executeTextStyleVariableBindingPlan,
+  textStyleVariableBindingPlanningArgvFromRequest,
+} from '../application/text-style-variable-binding-command.js';
 const styles = program.command('style').description('Manage local paint, text, effect, and grid styles');
 
 styles.command('list')
@@ -279,9 +277,26 @@ styles.command('delete <style>')
   });
 styles.command('bind-font <style> <field>')
   .requiredOption('--variable <variable>', 'Local variable ID or name')
+  .allowExcessArguments(false)
   .action(async (style, field, options) => {
-    try { print(await run(styleBindVariableCode({ style, field, variable: options.variable }))); } catch (error) { handleEvalError(error); }
+    try { await runTextStyleBinding({ action: 'bind', style, field, variable: options.variable }); }
+    catch (error) { console.error(chalk.red('✗ Text Style binding failed: ' + (error?.message || String(error)))); process.exitCode = 1; }
   });
-styles.command('unbind-font <style> <field>').action(async (style, field) => {
-  try { print(await run(styleBindVariableCode({ style, field, variable: null }))); } catch (error) { handleEvalError(error); }
+styles.command('unbind-font <style> <field>').allowExcessArguments(false).action(async (style, field) => {
+  try { await runTextStyleBinding({ action: 'unbind', style, field }); }
+  catch (error) { console.error(chalk.red('✗ Text Style unbinding failed: ' + (error?.message || String(error)))); process.exitCode = 1; }
 });
+
+async function runTextStyleBinding(request) {
+  const plan = planFigmaCommand(textStyleVariableBindingPlanningArgvFromRequest(request), {
+    adapter: 'cli', fileKey: program.opts().figmaFile || null,
+  });
+  const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false }, async ({ fileKey, deadline }) => {
+    await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+    return executeTextStyleVariableBindingPlan(plan, { evaluate: (code) => daemonExec('eval', {
+      code, ...(fileKey ? { fileKey } : {}),
+    }, Math.max(1, deadline - Date.now())) });
+  });
+  if (result.stderr) console.error(chalk.yellow(result.stderr));
+  console.log(result.stdout);
+}

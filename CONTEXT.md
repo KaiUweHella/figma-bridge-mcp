@@ -113,6 +113,14 @@ returns only the removed compact identity. A removal error reports that the
 target may remain; deletion is irreversible and never described as rollback.
 _Avoid_: style delete eval, raw deleted Style, retryable delete, rollback claim
 
+**Text Style Variable Binding**:
+The bounded, non-retrying bind or unbind of one supported Text Style field to
+one type-compatible local Variable. It resolves the local Text Style, target
+Variable and any prior binding before the first write, restores the prior
+binding after a setter failure where possible, and returns compact identities
+without authored Text Style values.
+_Avoid_: font binding eval, raw Text Style result, retryable binding, atomic claim
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

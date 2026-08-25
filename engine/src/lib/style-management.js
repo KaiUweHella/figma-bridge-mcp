@@ -32,68 +32,6 @@ function parseStyleProperties(raw, type) {
   return value;
 }
 
-function styleHelpersCode() {
-  return `
-const __styleLists = async () => ({
-  PAINT: await figma.getLocalPaintStylesAsync(),
-  TEXT: await figma.getLocalTextStylesAsync(),
-  EFFECT: await figma.getLocalEffectStylesAsync(),
-  GRID: await figma.getLocalGridStylesAsync(),
-});
-const __resolveStyle = async (query, type) => {
-  const direct = await figma.getStyleByIdAsync(query);
-  if (direct && (!type || direct.type === type)) return direct;
-  const lists = await __styleLists();
-  const pool = type ? lists[type] : Object.values(lists).flat();
-  const exact = pool.filter(s => s.name === query);
-  const matches = exact.length ? exact : pool.filter(s => s.name.toLowerCase().includes(String(query).toLowerCase()));
-  if (matches.length > 1) throw new Error('Ambiguous style "' + query + '": ' + matches.map(s => s.type + ':' + s.name).join(', '));
-  if (!matches.length) throw new Error('Style not found: ' + query);
-  return matches[0];
-};
-const __styleFacts = (s) => {
-  const out = { id: s.id, key: s.key || null, name: s.name, description: s.description || '', type: s.type, remote: !!s.remote };
-  if (s.type === 'PAINT') out.paints = s.paints;
-  if (s.type === 'TEXT') for (const key of ${JSON.stringify(STYLE_FIELDS.TEXT)}) out[key] = s[key];
-  if (s.type === 'EFFECT') out.effects = s.effects;
-  if (s.type === 'GRID') out.layoutGrids = s.layoutGrids;
-  if (s.boundVariables) out.boundVariables = s.boundVariables;
-  return out;
-};`;
-}
-
-const TEXT_VARIABLE_FIELDS = Object.freeze([
-  'fontFamily', 'fontSize', 'fontStyle', 'fontWeight', 'letterSpacing',
-  'lineHeight', 'paragraphSpacing', 'paragraphIndent',
-]);
-
-function styleBindVariableCode({ style, field, variable = null }) {
-  const normalizedField = String(field || '').trim();
-  if (!TEXT_VARIABLE_FIELDS.includes(normalizedField)) {
-    throw new Error(`Text style variable field must be one of: ${TEXT_VARIABLE_FIELDS.join(', ')}`);
-  }
-  return `(async () => {${styleHelpersCode()}
-const target = await __resolveStyle(${JSON.stringify(style)}, 'TEXT');
-if (target.remote) throw new Error('Remote text styles cannot be updated');
-let variable = null;
-if (${JSON.stringify(variable)} !== null) {
-  const vars = await figma.variables.getLocalVariablesAsync();
-  const query = ${JSON.stringify(variable)};
-  variable = await figma.variables.getVariableByIdAsync(query);
-  if (!variable) {
-    const exact = vars.filter(v => v.name === query);
-    const matches = exact.length ? exact : vars.filter(v => v.name.toLowerCase().includes(String(query).toLowerCase()));
-    if (matches.length > 1) throw new Error('Ambiguous variable "' + query + '": ' + matches.map(v => v.name).join(', '));
-    if (!matches.length) throw new Error('Variable not found: ' + query);
-    variable = matches[0];
-  }
-}
-target.setBoundVariable(${JSON.stringify(normalizedField)}, variable);
-return { style: __styleFacts(target), field: ${JSON.stringify(normalizedField)}, variable: variable ? { id: variable.id, name: variable.name, resolvedType: variable.resolvedType } : null };
-})()`;
-}
-
 export {
-  STYLE_FIELDS, STYLE_TYPES, TEXT_VARIABLE_FIELDS, parseStyleProperties, parseStyleType,
-  styleBindVariableCode,
+  STYLE_FIELDS, STYLE_TYPES, parseStyleProperties, parseStyleType,
 };
