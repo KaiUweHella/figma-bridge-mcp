@@ -194,6 +194,16 @@ field, validates exact postconditions and restores fields independently so one
 failed restoration does not prevent the others.
 _Avoid_: variable patch eval, implicit field, retryable assignment, all-or-nothing restore attempt
 
+**Variable Deletion**:
+The bounded, non-retrying and irreversible removal of one explicit batch of
+local Variables by id or exact name, optionally scoped to one resolved
+Collection. It preflights the complete target set before the first removal,
+rejects ambiguous names and duplicate resolved identity, preserves missing
+inputs as non-target results, and verifies every targeted id absent after the
+batch. Failure distinguishes unchanged, partial residue and unavailable
+post-dispatch verification without claiming rollback.
+_Avoid_: variable delete eval, first exact-name match, retryable deletion, reversible batch claim
+
 **Collection Catalog**:
 The compact, versioned and bounded inventory of local Variable Collection
 identities. It preserves collection id, publish key, name, extension and

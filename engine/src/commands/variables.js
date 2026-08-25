@@ -36,6 +36,10 @@ import {
   tokenPublishStatusPlanningArgvFromRequest,
 } from '../application/token-publish-status-command.js';
 import {
+  executeVariableDeletePlan,
+  variableDeletePlanningArgvFromRequest,
+} from '../application/variable-delete-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -552,24 +556,29 @@ return 'Created ' + created + ' variables';
 
 variables
   .command('delete <names...>')
-  .description('Delete specific variables by exact name (e.g. "space/7px"). Safer counterpart to delete-all.')
-  .action(async (names) => {
-    await checkConnection();
-    const code = `(async () => {
-const want = ${JSON.stringify(names)};
-const vars = await figma.variables.getLocalVariablesAsync();
-const deleted = [], missing = [];
-for (const name of want) {
-  const v = vars.find(x => x.name === name);
-  if (!v) { missing.push(name); continue; }
-  try { v.remove(); deleted.push(name); }
-  catch (e) { missing.push(name + ' (' + e.message + ')'); }
-}
-return { deleted, missing };
-})()`;
-    const result = await daemonExec('eval', { code }, 60000);
-    if (result.deleted?.length) console.log(chalk.green('✓'), `Deleted: ${result.deleted.join(', ')}`);
-    if (result.missing?.length) console.log(chalk.yellow('⚠'), `Not deleted: ${result.missing.join(', ')}`);
+  .description('Delete exact local Variables by id or name; use --collection to scope duplicate names')
+  .option('-c, --collection <collection>', 'Scope exact names to one Collection id or name')
+  .allowExcessArguments(false)
+  .action(async (names, options) => {
+    try {
+      const plan = planFigmaCommand(variableDeletePlanningArgvFromRequest({
+        names, collection: options.collection || null,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableDeletePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables

@@ -142,6 +142,11 @@ import {
   variableUpdateArgvFromRequest,
 } from '../engine/src/application/variable-update-request.js';
 import {
+  acceptsVariableDeleteArgv,
+  parseVariableDeleteRequest,
+  variableDeleteArgvFromRequest,
+} from '../engine/src/application/variable-delete-request.js';
+import {
   acceptsVariableFactsArgv,
   parseVariableFactsRequest,
   variableFactsArgvFromRequest,
@@ -334,6 +339,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.set-value',
   'var.code-syntax',
   'var.update',
+  'var.delete',
   'col.list', 'col.show',
   'var.publish-status', 'col.publish-status',
   'col.create',
@@ -495,6 +501,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
+  if (name === 'var' && sub === 'delete') pathPolicy = 'variable-delete-input';
   if (name === 'var' && sub === 'resolve') {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
@@ -635,6 +642,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'update'
     && !action.help && !acceptsVariableUpdateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'delete'
+    && !action.help && !acceptsVariableDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'resolve'
@@ -1304,6 +1315,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-update-input': {
       args.splice(0, args.length,
         ...variableUpdateArgvFromRequest(parseVariableUpdateRequest(args)));
+      break;
+    }
+    case 'variable-delete-input': {
+      args.splice(0, args.length,
+        ...variableDeleteArgvFromRequest(parseVariableDeleteRequest(args)));
       break;
     }
     case 'variable-resolution-input': {

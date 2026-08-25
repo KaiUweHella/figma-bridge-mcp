@@ -636,6 +636,21 @@ test('var update delegates one Plan-bound field-rollback non-retrying Applicatio
     'Commander must not retain Variable Update execution or formatting logic');
 });
 
+test('var delete delegates one Plan-bound exact irreversible Application', () => {
+  const adapter = sources.get('variables.js');
+  const start = adapter.indexOf(".command('delete <names...>')");
+  const end = adapter.indexOf(".command('delete-all')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableDeletePlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableDeletePlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|const code =|getLocalVariablesAsync/,
+    'Commander must not retain Variable Deletion readiness, resolution, or mutation logic');
+});
+
 test('col list and show delegate separate Plan-bound bounded read Applications', () => {
   const adapter = sources.get('tokens.js');
   assert.ok(adapter, 'tokens.js exists');

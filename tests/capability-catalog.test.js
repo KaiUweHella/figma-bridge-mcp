@@ -257,6 +257,25 @@ test('Variable Update closes one policy-identical field-rollback non-retrying wr
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Deletion closes exact scoped batches as policy-identical non-retrying writes', () => {
+  const cli = planFigmaCommand([
+    'var', 'delete', '-cPrimitives', 'space/md', 'space/lg',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'var', 'delete', '--collection=Primitives', '--', 'space/md', 'space/lg',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'var.delete');
+  for (const argv of [
+    ['var', 'delete'],
+    ['var', 'delete', 'space/md', 'space/md'],
+    ['var', 'delete', '--collection', 'Primitives'],
+    ['var', 'delete', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Collection Catalog and Facts close policy-identical safe reads', () => {
   for (const [cliArgv, mcpArgv, action] of [
     [['col', 'list', '--json', '--limit', '25'], ['col', 'list', '-l25', '--json'], 'col.list'],

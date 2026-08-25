@@ -150,6 +150,10 @@ import {
   variableUpdatePlanRoute,
 } from "../engine/src/application/variable-update-command.js";
 import {
+  executeVariableDeletePlan,
+  variableDeletePlanRoute,
+} from "../engine/src/application/variable-delete-command.js";
+import {
   executeVariableFactsPlan,
   variableFactsPlanRoute,
 } from "../engine/src/application/variable-facts-command.js";
@@ -2023,6 +2027,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableUpdatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableDeleteRoute = variableDeletePlanRoute(plan);
+      if (variableDeleteRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableDeletePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
