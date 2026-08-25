@@ -270,6 +270,22 @@ variable and collection identities plus type in deterministic order; candidate,
 row, label and serialized-size limits fail or report explicit omission rather
 than returning an unbounded name dump. Other regex syntax is inert text.
 
+`col list` owns the adjacent compact Collection Catalog. Its closed request
+owns output mode and result limit before readiness. Commander and `figma_run`
+execute one safe-read Command Plan and deterministic Application that preserves
+stable id, key, name, extension and publishing flags plus mode and Variable
+counts. Collection, per-collection membership and serialized-size limits fail
+or report explicit omission rather than returning an unbounded collection dump.
+
+`col show` is a separate exact Collection Facts read. Its closed request owns
+one collection id/name as payload and never derives Figma Target Context from
+it. Commander and `figma_run` execute one safe-read Plan and Application that
+preserves publish status, default mode, every mode identity and Variable
+membership within explicit candidate, mode, string and serialized-size bounds.
+Ambiguous names and malformed results fail rather than selecting a collection
+or projecting plausible partial facts. Collection and Variable mutations remain
+separate non-retrying Commands.
+
 `var show` is a separate Variable Facts read for exact token metadata. Its
 closed request owns one variable id/name and an optional collection id/name;
 neither payload field contributes a Figma URL target. Commander and

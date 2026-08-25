@@ -66,6 +66,16 @@ import {
   parseCanvasAwarenessRequest,
 } from '../engine/src/application/canvas-awareness-request.js';
 import {
+  acceptsCollectionCatalogArgv,
+  collectionCatalogArgvFromRequest,
+  parseCollectionCatalogRequest,
+} from '../engine/src/application/collection-catalog-request.js';
+import {
+  acceptsCollectionFactsArgv,
+  collectionFactsArgvFromRequest,
+  parseCollectionFactsRequest,
+} from '../engine/src/application/collection-facts-request.js';
+import {
   acceptsPageNavigationArgv,
   pageNavigationArgvFromRequest,
   parsePageNavigationRequest,
@@ -270,6 +280,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
   'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
+  'col.list', 'col.show',
   'component.main',
   'style.list',
   'style.create',
@@ -424,6 +435,14 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'variable-resolution-input';
   }
+  if (name === 'col' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'collection-catalog-input';
+  }
+  if (name === 'col' && sub === 'show') {
+    retry = 'safe-read';
+    pathPolicy = 'collection-facts-input';
+  }
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
@@ -529,6 +548,14 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'resolve'
     && !action.help && !acceptsVariableResolutionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'col' && args[1] === 'list'
+    && !action.help && !acceptsCollectionCatalogArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'col' && args[1] === 'show'
+    && !action.help && !acceptsCollectionFactsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && args[1] === 'inspect'
@@ -1149,6 +1176,16 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...variableResolutionArgvFromRequest(parseVariableResolutionRequest(args)));
+      break;
+    }
+    case 'collection-catalog-input': {
+      args.splice(0, args.length,
+        ...collectionCatalogArgvFromRequest(parseCollectionCatalogRequest(args)));
+      break;
+    }
+    case 'collection-facts-input': {
+      args.splice(0, args.length,
+        ...collectionFactsArgvFromRequest(parseCollectionFactsRequest(args)));
       break;
     }
     case 'font-inspection-input': {

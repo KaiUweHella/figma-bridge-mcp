@@ -416,6 +416,36 @@ test('figma_run routes Variable Discovery through the shared bounded-read Applic
     'Variable Discovery must not re-enter Commander');
 });
 
+test('figma_run routes Collection Catalog and Facts through shared bounded-read Applications', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const collectionCatalogRoute = collectionCatalogPlanRoute(plan)');
+  const end = source.indexOf('if (variableDiscoveryRoute === "command-application")', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /executeCollectionCatalogPlan\(plan/);
+  assert.match(slice, /executeCollectionFactsPlan\(plan/);
+  assert.equal((slice.match(/runInProcessCommandPlan\(plan/g) || []).length, 2);
+  assert.equal((slice.match(/compatibilityFallback:\s*false/g) || []).length, 2);
+  assert.equal((slice.match(/await ensurePluginReadiness\(\{ deadline/g) || []).length, 2);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Collection reads must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Collection reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['col', 'list', '--limit', '0'],
+    ['col', 'list', 'private-value'],
+    ['col', 'show'],
+    ['col', 'show', 'one', 'two'],
+    ['col', 'show', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Variable Discovery before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

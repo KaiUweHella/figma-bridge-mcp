@@ -153,6 +153,33 @@ test('Variable Discovery closes policy-identical list and wildcard-find reads', 
   }
 });
 
+test('Collection Catalog and Facts close policy-identical safe reads', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [['col', 'list', '--json', '--limit', '25'], ['col', 'list', '-l25', '--json'], 'col.list'],
+    [['col', 'show', 'Theme'], ['col', 'show', '--', 'Theme'], 'col.show'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.execution.retry, 'safe-read');
+    assert.equal(cli.audit.capability, action);
+  }
+  for (const argv of [
+    ['col', 'list', '--future'], ['col', 'list', 'private-value'],
+    ['col', 'show'], ['col', 'show', 'one', 'two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+  const urlShapedName = planFigmaCommand([
+    'col', 'show', 'https://www.figma.com/design/FILEA/Payload?node-id=10-2',
+  ], { adapter: 'mcp' });
+  assert.equal(urlShapedName.allowed, true);
+  assert.equal(urlShapedName.target.fileKey, null,
+    'a URL-shaped Collection name is payload, never Figma Target Context');
+});
+
 test('Style Consumer closes one longer policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand([
     'style', 'consumers', '--type', 'paint', '--limit', '25', 'Surface',

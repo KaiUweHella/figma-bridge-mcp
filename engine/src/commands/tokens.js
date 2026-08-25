@@ -2,6 +2,16 @@
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join, resolve as resolvePath, dirname } from 'path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  collectionCatalogPlanningArgvFromRequest,
+  executeCollectionCatalogPlan,
+} from '../application/collection-catalog-command.js';
+import {
+  collectionFactsArgvFromRequest,
+  executeCollectionFactsPlan,
+} from '../application/collection-facts-command.js';
 import {
   progress,
   program,
@@ -9,7 +19,6 @@ import {
   daemonExec,
   fastEval,
   evalPrint,
-  listCollections,
   createCollection,
   handleEvalError,
   hexToRgb,
@@ -30,7 +39,7 @@ import {
 import { normalizeNodeId } from '../lib/node-id.js';
 import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
 import {
-  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
+  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode,
   collectionUpdateCode, parseBoolean,
 } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
@@ -46,9 +55,30 @@ const collections = program
 collections
   .command('list')
   .description('List all collections')
-  .action(async () => {
-    await checkConnection();
-    await listCollections();
+  .option('-l, --limit <count>', 'Maximum collections returned')
+  .option('--json', 'Return bounded identity facts as JSON')
+  .allowExcessArguments(false)
+  .action(async (options) => {
+    try {
+      const plan = planFigmaCommand(collectionCatalogPlanningArgvFromRequest({
+        limit: options.limit || null,
+        json: options.json === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionCatalogPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 collections
@@ -59,10 +89,29 @@ collections
     await createCollection(name);
   });
 
-collections.command('show <collection>').action(async (collection) => {
-  try { await checkConnection(); console.log(JSON.stringify(await fastEval(collectionShowCode({ collection })), null, 2)); }
-  catch (error) { handleEvalError(error); }
-});
+collections.command('show <collection>')
+  .allowExcessArguments(false)
+  .action(async (collection) => {
+    try {
+      const plan = planFigmaCommand(collectionFactsArgvFromRequest({ collection }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionFactsPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
+  });
 
 collections.command('update <collection>')
   .option('-n, --name <name>').option('--hidden <boolean>')

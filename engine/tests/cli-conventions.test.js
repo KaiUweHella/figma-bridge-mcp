@@ -568,6 +568,31 @@ test('var list and find delegate one Plan-bound bounded Variable Discovery Appli
     'Commander must not retain Variable Discovery readiness, matching, or formatting logic');
 });
 
+test('col list and show delegate separate Plan-bound bounded read Applications', () => {
+  const adapter = sources.get('tokens.js');
+  assert.ok(adapter, 'tokens.js exists');
+  const listStart = adapter.indexOf("collections\n  .command('list')");
+  const listEnd = adapter.indexOf("collections\n  .command('create <name>')", listStart);
+  const showStart = adapter.indexOf("collections.command('show <collection>')");
+  const showEnd = adapter.indexOf("collections.command('update <collection>')", showStart);
+  const list = adapter.slice(listStart, listEnd);
+  const show = adapter.slice(showStart, showEnd);
+
+  assert.match(list, /collectionCatalogPlanningArgvFromRequest/);
+  assert.match(list, /executeCollectionCatalogPlan\(plan/);
+  assert.match(show, /collectionFactsArgvFromRequest/);
+  assert.match(show, /executeCollectionFactsPlan\(plan/);
+  for (const action of [list, show]) {
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+    assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+    assert.match(action, /daemonExec\('eval'/);
+    assert.match(action, /process\.exitCode = 1/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|listCollections\(|collectionShowCode\(/,
+      'Commander must not retain Collection read execution or formatting logic');
+  }
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');

@@ -203,10 +203,6 @@ return { id: target.id, name: target.name, publishStatus: await target.getPublis
 })()`;
 }
 
-function collectionShowCode({ collection }) {
-  return `(async () => {${variableHelpersCode()} return __collectionFacts(await __resolveCollection(${JSON.stringify(collection)})); })()`;
-}
-
 function collectionUpdateCode({ collection, name, hidden }) {
   return `(async () => {${variableHelpersCode()}
 const target = await __resolveCollection(${JSON.stringify(collection)});
@@ -265,7 +261,7 @@ return __collectionFacts(extended);
 
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
-  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode, collectionShowCode,
+  collectionDeleteCode, collectionExtendCode, collectionModeCode, collectionPublishStatusCode,
   collectionUpdateCode, parseBoolean, parseCodePlatform, parseScopes, parseVariableLiteral, parseVariableType,
   variableCodeSyntaxCode, variablePublishStatusCode,
   variableSetValueCode, variableUpdateCode,

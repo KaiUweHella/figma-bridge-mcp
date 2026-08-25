@@ -98,6 +98,14 @@ import {
   prototypeInspectionPlanRoute,
 } from "../engine/src/application/prototype-inspection-command.js";
 import {
+  collectionCatalogPlanRoute,
+  executeCollectionCatalogPlan,
+} from "../engine/src/application/collection-catalog-command.js";
+import {
+  collectionFactsPlanRoute,
+  executeCollectionFactsPlan,
+} from "../engine/src/application/collection-facts-command.js";
+import {
   executeVariableDiscoveryPlan,
   variableDiscoveryPlanRoute,
 } from "../engine/src/application/variable-discovery-command.js";
@@ -1907,6 +1915,40 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executePrototypeInspectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const collectionCatalogRoute = collectionCatalogPlanRoute(plan);
+      if (collectionCatalogRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionCatalogPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const collectionFactsRoute = collectionFactsPlanRoute(plan);
+      if (collectionFactsRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCollectionFactsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

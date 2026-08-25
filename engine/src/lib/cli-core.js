@@ -515,16 +515,6 @@ async function selectNode(nodeId) {
   return 'Selected';
 }
 
-/** List variable collections as "name (N vars)" lines. */
-async function listCollections({ silent = false } = {}) {
-  const result = await daemonClient().evaluate(`(async () => {
-    const cols = await figma.variables.getLocalVariableCollectionsAsync();
-    return cols.map(c => c.name + ' (' + c.variableIds.length + ' vars)').join('\\n');
-  })()`, { expectedEditor: expectedEditorForCommand() });
-  if (!silent) console.log(result);
-  return result;
-}
-
 /** Create a variable collection; returns its id. */
 async function createCollection(name, { silent = false } = {}) {
   const result = await daemonClient().evaluate(`(() => {
@@ -605,7 +595,6 @@ export {
   progress,
   spinnerSucceed,
   selectNode,
-  listCollections,
   createCollection,
   generateFillCode,
   generateStrokeCode,

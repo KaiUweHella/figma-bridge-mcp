@@ -158,6 +158,22 @@ Discovery rows are follow-up handles, not authored Variable Facts, resolved
 consumer values or permission to mutate tokens.
 _Avoid_: variable dump, executable regex, name-only identity, variable edit
 
+**Collection Catalog**:
+The compact, versioned and bounded inventory of local Variable Collection
+identities. It preserves collection id, publish key, name, extension and
+publishing flags plus mode and variable counts in deterministic order through
+one shared safe-read Command Application. Catalog rows are follow-up handles,
+not complete mode membership, Variable Facts or permission to mutate tokens.
+_Avoid_: collection dump, name-only collection identity, variable inventory, collection edit
+
+**Collection Facts**:
+The exact, versioned and bounded read of one local Variable Collection by id or
+unambiguous name. It preserves publish identity and state, extension and
+publishing flags, every mode identity, default mode and Variable membership
+through one shared safe-read Command Application. It is collection metadata,
+not authored Variable values or permission to mutate the collection.
+_Avoid_: collection dump, inferred mode identity, variable values, collection edit
+
 **Resolved Variable Value**:
 The exact, versioned and bounded result of resolving one local Figma variable
 for one explicit Scene Node. It preserves variable, collection and consumer
