@@ -577,7 +577,7 @@ The closed, versioned and deeply bounded result of one simple or compound Semant
 _Avoid_: render response, console result, Plugin result
 
 **Figma Render Executor**:
-The static plugin runtime that applies one or a bounded batch of structurally preflighted **Semantic Render Plans** through native Figma operations. It advertises explicit single/batch plan capabilities during the authenticated handshake and must reject unsupported structure before creating canvas nodes. External component, image, font and variable resources are prepared explicitly before the visible tree; batch failures remove already-created root frames. Generated JavaScript remains a temporary compatibility adapter, never an automatic retry after an uncertain write.
+The static plugin runtime that applies one or a bounded batch of structurally preflighted **Semantic Render Plans** through native Figma operations. It advertises explicit single/batch plan capabilities during the authenticated handshake and must reject unsupported structure before creating canvas nodes. External component, image, font and variable resources are prepared explicitly before the visible tree; batch failures remove already-created root frames. Generated JavaScript remains a temporary compatibility adapter only for locally unsupported, unmigrated facts. A supported typed plan never changes protocol identity through eval, even when an older Plugin rejects the capability before dispatch.
 _Avoid_: eval renderer, plugin action, plan interpreter
 
 **Boundary Fallback Annotation**:

@@ -13,7 +13,6 @@ import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblin
 import { cachedInventoryCode } from '../lib/component-inventory.js';
 import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/design-link-registry.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
-import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js';
 import {
   executePreparedCompoundSemanticRender,
   executePreparedSemanticRender,
@@ -755,17 +754,10 @@ program
       const structuredSupport = inspectStructuredRenderPlan(renderPlan);
       let result;
       if (structuredSupport.supported) {
-        try {
-          result = await daemonExec('render-plan', { plan: renderPlan, timeoutMs: 90000 });
-        } catch (error) {
-          // Compatibility is allowed only after the daemon proves that the
-          // structured action was rejected before reaching a capable plugin.
-          // Other failures are uncertain writes and must never be retried.
-          const knownPreflightRejection = permitsCompatibilityRedispatch(error);
-          if (!knownPreflightRejection) throw error;
-          const code = await client.compileRenderPlan(renderPlan);
-          result = await daemonExec('eval', { code, timeoutMs: 90000 });
-        }
+        // Supported semantic facts are a migrated typed mutation. Missing or
+        // stale Plugin capability must fail with upgrade guidance; it must
+        // never change protocol identity by redispatching generated code.
+        result = await daemonExec('render-plan', { plan: renderPlan, timeoutMs: 90000 });
       } else {
         const code = await client.compileRenderPlan(renderPlan);
         result = await daemonExec('eval', { code, timeoutMs: 90000 });

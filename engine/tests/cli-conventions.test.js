@@ -1113,7 +1113,7 @@ test('simple render delegates one non-retrying Semantic Render Application', () 
   assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(helper, /executePreparedSemanticRender\(prepared/);
   assert.match(helper, /daemonExec\('render-plan'/);
-  assert.match(application, /permitsCompatibilityRedispatch/);
+  assert.doesNotMatch(application, /permitsCompatibilityRedispatch/);
 });
 
 test('render rejects duplicate and malformed raw options before compatibility can run', () => {

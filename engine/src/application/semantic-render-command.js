@@ -19,7 +19,6 @@ import {
   namedContainers,
 } from '../lib/render-lint.js';
 import { cachedInventoryCode } from '../lib/component-inventory.js';
-import { permitsCompatibilityRedispatch } from '../lib/daemon-error-envelope.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import {
   assertSemanticRenderOutcome,
@@ -427,8 +426,12 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   if (!PREPARED_COMPOUND_RENDER_REQUESTS.has(prepared)) {
     throw new TypeError('Compound Semantic Render execution requires a prepared request from this Application.');
   }
-  if (typeof adapters.renderPlanBatch !== 'function' || typeof adapters.evaluate !== 'function') {
-    throw new TypeError('Compound Semantic Render requires renderPlanBatch and evaluate adapters.');
+  if (typeof adapters.renderPlanBatch !== 'function') {
+    throw new TypeError('Compound Semantic Render requires a renderPlanBatch adapter.');
+  }
+  if (!prepared.supports.every((support) => support.supported)
+    && typeof adapters.evaluate !== 'function') {
+    throw new TypeError('Unmigrated compound Semantic Render facts require an evaluate compatibility adapter.');
   }
   if (prepared.request.stages.verification && typeof adapters.writeVerification !== 'function') {
     throw new TypeError('Compound Semantic Render verification requires a writeVerification adapter.');
@@ -468,11 +471,8 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
       raw = await adapters.renderPlanBatch(prepared.renderPlans, options);
       executor = 'structured-batch-v1';
     } catch (error) {
-      if (!permitsCompatibilityRedispatch(error)) {
-        stages.push(compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
-        throw attachFailure(error, 'structured-batch-v1');
-      }
-      compatibilityReason = 'Plugin did not advertise native compound Semantic Render before dispatch.';
+      stages.push(compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
+      throw attachFailure(error, 'structured-batch-v1');
     }
   } else {
     compatibilityReason = `Native compound preflight unsupported: ${prepared.supports
@@ -629,8 +629,11 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   if (!PREPARED_RENDER_REQUESTS.has(prepared)) {
     throw new TypeError('Semantic Render execution requires a prepared request from this Application.');
   }
-  if (typeof adapters.renderPlan !== 'function' || typeof adapters.evaluate !== 'function') {
-    throw new TypeError('Semantic Render requires renderPlan and evaluate adapters.');
+  if (typeof adapters.renderPlan !== 'function') {
+    throw new TypeError('Semantic Render requires a renderPlan adapter.');
+  }
+  if (!prepared.support.supported && typeof adapters.evaluate !== 'function') {
+    throw new TypeError('Unmigrated Semantic Render facts require an evaluate compatibility adapter.');
   }
 
   let raw;
@@ -663,8 +666,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
       raw = await adapters.renderPlan(prepared.renderPlan);
       executor = 'structured-v1';
     } catch (error) {
-      if (!permitsCompatibilityRedispatch(error)) throw attachFailureOutcome(error, 'structured-v1');
-      compatibilityReason = 'Plugin did not advertise the native Semantic Render capability before dispatch.';
+      throw attachFailureOutcome(error, 'structured-v1');
     }
   } else {
     compatibilityReason = `Native preflight unsupported: ${prepared.support.problems.slice(0, 5).map((problem) => boundedText(problem)).join('; ')}`;

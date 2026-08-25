@@ -660,25 +660,20 @@ test('compound structural findings are an explicit accepted stage', async (t) =>
   assert.equal(semanticRenderOutcomeCode(outcome), 1);
 });
 
-test('compound generated compatibility is chosen only from proven pre-dispatch capability failure', async (t) => {
+test('typed compound render never redispatches as eval after a capability failure', async (t) => {
   const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
   const { plan, io } = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
   let nativeCalls = 0;
   let evalCalls = 0;
-  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+  const error = redispatchableCapabilityError();
+  await assert.rejects(() => executeCompoundSemanticRenderPlan(plan, {
     workspaceIO: io,
-    renderPlanBatch: async () => { nativeCalls++; throw redispatchableCapabilityError(); },
-    evaluate: async (code) => {
-      evalCalls++;
-      assert.match(code, /const results = \[\]/);
-      return [{ id: '50:60', name: 'Card 1' }, { id: '51:61', name: 'Card 2' }];
-    },
-  });
+    renderPlanBatch: async () => { nativeCalls++; throw error; },
+    evaluate: async () => { evalCalls++; return []; },
+  }), (actual) => actual === error);
   assert.equal(nativeCalls, 1);
-  assert.equal(evalCalls, 1);
-  assert.deepEqual(outcome.executor, { kind: 'generated-eval-batch-compatibility', version: 1 });
-  assert.deepEqual(outcome.roots.map((root) => root.handle), ['50:60', '51:61']);
-  assert.equal(outcome.stages.find((stage) => stage.kind === 'structural-gate').status, 'skipped');
+  assert.equal(evalCalls, 0);
+  assert.deepEqual(error.semanticRenderOutcome.executor, { kind: 'structured-batch', version: 1 });
 });
 
 test('the native Semantic Render executor is dispatched exactly once without generated eval', async (t) => {
@@ -692,7 +687,6 @@ test('the native Semantic Render executor is dispatched exactly once without gen
       assert.equal(structuredPlan.kind, 'figma-bridge/semantic-render-plan');
       return nativeResult();
     },
-    evaluate: async () => { evalCalls += 1; return { id: '9:9' }; },
   });
 
   assert.equal(nativeCalls, 1);
@@ -705,25 +699,11 @@ test('the native Semantic Render executor is dispatched exactly once without gen
   assert.equal(semanticRenderOutcomeCode(result), 0);
 });
 
-test('generated compatibility dispatch is allowed only before a native write could dispatch', async (t) => {
+test('typed Semantic Render never redispatches as eval, including before native dispatch', async (t) => {
   const { plan, io } = renderPlan(t);
-  let nativeCalls = 0;
-  let evalCalls = 0;
-  const fallback = await executeSemanticRenderPlan(plan, {
-    workspaceIO: io,
-    renderPlan: async () => { nativeCalls += 1; throw redispatchableCapabilityError(); },
-    evaluate: async (code) => {
-      evalCalls += 1;
-      assert.equal(typeof code, 'string');
-      assert.match(code, /createFrame/);
-      return { id: '2:3', name: 'Compatibility' };
-    },
-  });
-  assert.equal(nativeCalls, 1);
-  assert.equal(evalCalls, 1);
-  assert.deepEqual(fallback.executor, { kind: 'generated-eval-compatibility', version: 1 });
-
   const denied = [
+    { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
+    { kind: 'plugin-capability', phase: 'request-validation', outcome: 'not-dispatched' },
     { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'unknown-after-dispatch' },
     { kind: 'plugin-timeout', phase: 'plugin-execution', outcome: 'unknown-after-dispatch' },
     { kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch' },
@@ -739,19 +719,6 @@ test('generated compatibility dispatch is allowed only before a native write cou
     }), (actual) => actual === error);
     assert.equal(deniedEvalCalls, 0, JSON.stringify(facts));
   }
-
-  let legacyEvalCalls = 0;
-  const legacy = await executeSemanticRenderPlan(plan, {
-    workspaceIO: io,
-    renderPlan: async () => {
-      throw Object.assign(new Error('old daemon supports eval only'), {
-        kind: 'plugin-capability', phase: 'request-validation', outcome: 'not-dispatched',
-      });
-    },
-    evaluate: async () => { legacyEvalCalls++; return { id: '4:5', name: 'Legacy daemon' }; },
-  });
-  assert.equal(legacyEvalCalls, 1);
-  assert.deepEqual(legacy.executor, { kind: 'generated-eval-compatibility', version: 1 });
 });
 
 test('locally unsupported native plans choose one generated execution before dispatch', async (t) => {
