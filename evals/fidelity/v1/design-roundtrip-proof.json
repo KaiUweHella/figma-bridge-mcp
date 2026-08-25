@@ -1,0 +1,30 @@
+{
+  "schema": "figma-bridge/fidelity-workflow-proof/v1",
+  "workflowId": "design-screen-roundtrip",
+  "fixtureId": "design-roundtrip",
+  "rootEntityId": "fidelity.design-roundtrip",
+  "componentEntityId": "corpus.control",
+  "inputDigests": {
+    "evals/fidelity/v1/design-roundtrip.jsx": "sha256:f8eb08a7db1e1bd3aabf168a6250961b53adbe04d453391448759a1d8a182656",
+    "evals/fidelity/v1/design-tokens.json": "sha256:fcd86a58ce8b950bc2f8c39f492ec4edd321df75e3911048297ae47de5ff1284",
+    "evals/fidelity/v1/component-contract.json": "sha256:044d534444c3c36b9a0950d9349d5881bd4ab5df30c1a4352552911925bf7815",
+    "evals/fidelity/v1/prototype-reactions.json": "sha256:bf2a7a6e4092a09bd8b727b91bf02cb1d5913b2dd123537695abbe6cf134b024",
+    "evals/fidelity/v1/assets/bridge-glyph.svg": "sha256:c96054c5cad312fbaab046aa965c45c1f174b4f0657ce4dadbe8a728f2410d6b"
+  },
+  "semanticPlanDigest": "sha256:6113e44dcef4088f65c136d8f4b9a99cb2be27467ba4b3dad422aeedf2ee2209",
+  "visualTolerancePct": 1,
+  "nonExactOutcomes": [
+    "auto-layout-semantics:code-to-figma:structural:normalized",
+    "auto-layout-semantics:figma-to-code:structural:normalized",
+    "native-mask:figma-to-code:semantic:normalized",
+    "ordered-effects:figma-to-code:semantic:normalized",
+    "prototype-reactions:code-to-figma:semantic:normalized",
+    "prototype-reactions:figma-to-code:semantic:normalized",
+    "responsive-constraints:code-to-figma:semantic:normalized",
+    "responsive-constraints:code-to-figma:structural:normalized",
+    "responsive-constraints:figma-to-code:semantic:normalized",
+    "responsive-constraints:figma-to-code:structural:normalized",
+    "rich-text-runs:code-to-figma:semantic:normalized",
+    "rich-text-runs:figma-to-code:semantic:normalized"
+  ]
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import {
   formatDesignLinkResult,
   inspectDesignEntityCode, setDesignEntityCode,
 } from '../src/application/design-link-command.js';
+import { createWorkspaceIO } from '../src/lib/workspace-io.js';
 
 const figmaResult = {
   id: '9:9', name: 'Settings', type: 'FRAME', entityId: 'screen.settings', kind: 'screen',
@@ -41,6 +42,41 @@ test('Design Link Command writes both adapters and inspect resolves the same ent
   const inspected = await executeDesignLink({ action: 'inspect', nodeId: '9:9', manifestPath }, { evaluate });
   assert.equal(inspected.plugin.id, 'screen.settings');
   assert.equal(inspected.entity.code.export, 'SettingsScreen');
+});
+
+test('a private nested Registry resolves code from its authorized Workspace root', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'design-link-private-registry-'));
+  const manifestPath = join(root, 'docs-local/evidence/figma-bridge.json');
+  mkdirSync(join(root, 'docs-local/evidence'), { recursive: true });
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/Settings.tsx'), 'export const Settings = () => null;');
+  const io = createWorkspaceIO({ root });
+  const rawSnapshot = {
+    rootId: '9:9', rootName: 'Settings', rootType: 'FRAME', fileKey: 'FILE', fileName: 'App', page: 'Screens',
+    nodes: [{
+      id: '9:9', name: 'Settings', type: 'FRAME', path: 'Settings', parentId: null,
+      index: 0, x: 0, y: 0, w: 100, h: 100, props: {},
+    }],
+  };
+  const evaluate = async (code) => {
+    if (code.includes('setPluginData')) return figmaResult;
+    if (code.includes('const root =')) return rawSnapshot;
+    return {
+      ...figmaResult,
+      pluginData: JSON.stringify({ version: 1, id: 'screen.settings', kind: 'screen' }),
+    };
+  };
+
+  await executeDesignLink({
+    action: 'set', nodeId: '9:9', entityId: 'screen.settings', kind: 'screen',
+    source: 'src/Settings.tsx', manifestPath,
+  }, { evaluate, workspaceIO: io });
+  const status = await executeDesignLink({
+    action: 'status', entityId: 'screen.settings', manifestPath,
+  }, { evaluate, workspaceIO: io });
+
+  assert.equal(status.plan.status, 'untracked');
+  assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).entities[0].code.path, 'src/Settings.tsx');
 });
 
 test('Design Link list is repository-only and includes legacy adapter entities', async () => {

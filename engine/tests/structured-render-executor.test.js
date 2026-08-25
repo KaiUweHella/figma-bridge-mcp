@@ -1016,6 +1016,8 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(result.createdVariables, undefined);
     assert.equal(frame.fills[0].boundVariables.color, surface.id);
     assert.equal(text.fills[0].boundVariables.color, surface.id);
+    assert.deepEqual(frame.fills[0].color, { r: 0.1, g: 0.2, b: 0.3 });
+    assert.deepEqual(text.fills[0].color, { r: 0.1, g: 0.2, b: 0.3 });
     assert.deepEqual(surface.scopes, ['ALL_FILLS']);
   });
 

@@ -5,7 +5,9 @@
 // tests call this Module directly with an evaluate adapter.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, extname, resolve as resolvePath } from 'node:path';
+import {
+  dirname, extname, isAbsolute, relative, resolve as resolvePath, sep,
+} from 'node:path';
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
@@ -43,6 +45,21 @@ const DESIGN_LINK_APPLICATION_IDS = new Set(['link.inspect', 'link.set']);
 const DESIGN_LINK_COMPATIBILITY_IDS = new Set([
   'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
 ]);
+
+function pathWithin(root, candidate) {
+  const value = relative(resolvePath(root), resolvePath(candidate));
+  return value === ''
+    || (value !== '..' && !value.startsWith(`..${sep}`) && !isAbsolute(value));
+}
+
+function projectRootForManifest(manifestPath, io) {
+  const target = io?.authorizePath
+    ? io.authorizePath(manifestPath, {
+      access: 'read-optional', role: 'design-link-manifest', kind: 'file',
+    }).canonical
+    : resolvePath(manifestPath);
+  return io?.roots?.find((root) => pathWithin(root, target)) || dirname(target);
+}
 
 function nodeExpression(nodeId) {
   return nodeId
@@ -400,7 +417,11 @@ export function formatDesignLinkResult(result) {
 export async function executeDesignLink(request, adapters = {}) {
   const manifestPath = request?.manifestPath;
   if (!manifestPath) throw new Error('Design Link Registry path is required.');
-  const projectRoot = dirname(manifestPath);
+  // A registry may intentionally live below the repository root (for example
+  // an ignored docs-local evidence tree). Keep code paths relative to the
+  // already-authorized Workspace root instead of silently redefining the
+  // manifest directory as the project boundary.
+  const projectRoot = projectRootForManifest(manifestPath, adapters.workspaceIO);
   const registryOptions = {
     manifestPath,
     ...(adapters.workspaceIO ? { io: adapters.workspaceIO } : {}),

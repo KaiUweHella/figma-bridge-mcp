@@ -1,4 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  existsSync, mkdtempSync, readFileSync, writeFileSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
@@ -8,15 +13,21 @@ import {
   FIDELITY_CORPUS_SCHEMA,
   FIDELITY_DIMENSIONS,
   FIDELITY_RUN_SCHEMA,
+  FIDELITY_WORKFLOW_RUN_SCHEMA,
   auditFidelityCorpus,
   formatFidelityScore,
+  formatFidelityWorkflowScore,
   scoreFidelityRun,
+  scoreFidelityWorkflowRun,
 } from '../engine/src/lib/fidelity-corpus.js';
 import { FigmaClient } from '../engine/src/lib/jsx-render.js';
 import { inspectStructuredRenderPlan } from '../engine/src/lib/structured-render-executor.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpus = JSON.parse(readFileSync(join(ROOT, 'evals/fidelity/v1/corpus.json'), 'utf8'));
+const workflowProof = JSON.parse(
+  readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip-proof.json'), 'utf8'),
+);
 const DIGEST = `sha256:${'a'.repeat(64)}`;
 
 function expectedCells(value = corpus) {
@@ -96,7 +107,76 @@ test('the Design fixture adapts into one supported typed Semantic Render Plan', 
   const plan = client.planJSX(readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip.jsx'), 'utf8'));
   assert.equal(plan.kind, 'figma-bridge/semantic-render-plan');
   assert.equal(plan.version, 1);
+  const instance = plan.root.children.find((node) => node.source.type === 'instance');
+  assert.equal(instance.source.props.entity, 'corpus.control');
+  assert.equal(instance.source.props.key, 'PLACEHOLDERCORPUSSETKEY');
   assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
+});
+
+test('Design Entity links materialize local instance anchors and reject identity conflicts', () => {
+  const local = new FigmaClient();
+  local.setComponentLinks({ 'corpus.control': { entityId: 'corpus.control', id: '12:34' } });
+  const plan = local.planJSX(
+    '<Frame name="Local"><Instance entity="corpus.control" variant="State=Ready, Size=Medium" /></Frame>',
+  );
+  assert.equal(plan.root.children[0].source.props.id, '12:34');
+  assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
+
+  const conflicting = new FigmaClient();
+  conflicting.setComponentLinks({ 'corpus.control': { entityId: 'corpus.control', key: 'registry-key' } });
+  assert.throws(
+    () => conflicting.planJSX('<Frame><Instance entity="corpus.control" key="source-key" /></Frame>'),
+    /conflicting key anchors/,
+  );
+});
+
+test('the representative round-trip proof pins clean inputs, deterministic output and every non-exact fact', () => {
+  const digest = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  assert.equal(workflowProof.schema, 'figma-bridge/fidelity-workflow-proof/v1');
+  assert.equal(workflowProof.workflowId, 'design-screen-roundtrip');
+  assert.equal(workflowProof.rootEntityId, 'fidelity.design-roundtrip');
+  assert.equal(workflowProof.componentEntityId, 'corpus.control');
+  assert.equal(workflowProof.visualTolerancePct, corpus.releaseProfile.maxVisualDiffPct);
+  for (const [path, expected] of Object.entries(workflowProof.inputDigests)) {
+    assert.equal(digest(readFileSync(join(ROOT, path))), expected, path);
+  }
+
+  const client = new FigmaClient();
+  client.setIcons({
+    'bridge-glyph': readFileSync(join(ROOT, 'evals/fidelity/v1/assets/bridge-glyph.svg'), 'utf8'),
+  });
+  client.setComponentLinks({
+    'corpus.control': { entityId: 'corpus.control', key: 'PLACEHOLDERCORPUSSETKEY' },
+  });
+  const source = readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip.jsx'), 'utf8');
+  const firstPlan = client.planJSX(source);
+  const title = firstPlan.root.children[0].children[0].children[0];
+  assert.equal(title.source.props.weight, '400');
+  assert.deepEqual(title.source.props.runs, [
+    { start: 0, end: 14, style: {} },
+    { start: 14, end: 22, style: { weight: 'bold' } },
+  ]);
+  const first = JSON.stringify(firstPlan);
+  const second = JSON.stringify(client.planJSX(source));
+  assert.equal(first, second);
+  assert.equal(digest(first), workflowProof.semanticPlanDigest);
+
+  const workflow = corpus.workflows.find((item) => item.id === workflowProof.workflowId);
+  const facts = new Map(corpus.facts.map((fact) => [fact.id, fact]));
+  const nonExact = [];
+  for (const factId of workflow.factIds) {
+    const fact = facts.get(factId);
+    for (const direction of workflow.directions) {
+      for (const [dimension, target] of Object.entries(fact.targets[direction])) {
+        if (target.outcome !== 'exact') {
+          nonExact.push(`${factId}:${direction}:${dimension}:${target.outcome}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(nonExact.sort(), [...workflowProof.nonExactOutcomes].sort());
+  assert.equal(workflowProof.nonExactOutcomes.some((item) => item.endsWith(':unsupported')), false);
+  assert.equal(workflowProof.nonExactOutcomes.some((item) => item.endsWith(':approximated')), false);
 });
 
 test('release-v1 requires complete evidence and scores every dimension independently', () => {
@@ -113,6 +193,57 @@ test('release-v1 requires complete evidence and scores every dimension independe
   assert.ok(report.platformLimited.some((item) => item.factId === 'dev-mode-static-design-write'));
   assert.match(formatFidelityScore(report), /^RELEASE PASS/);
   assert.match(formatFidelityScore(report), /Platform-limited facts:/);
+});
+
+test('one representative workflow is scored without inventing evidence for other editors', () => {
+  const run = passingRun();
+  run.schema = FIDELITY_WORKFLOW_RUN_SCHEMA;
+  run.observations = run.observations.filter((item) => item.workflowId === 'design-screen-roundtrip');
+  const report = scoreFidelityWorkflowRun(corpus, 'design-screen-roundtrip', run);
+
+  assert.equal(report.accepted, true);
+  assert.equal('release' in report, false);
+  assert.deepEqual(report.scope, { kind: 'workflow', workflowId: 'design-screen-roundtrip' });
+  assert.equal(report.missingObservations, 0);
+  assert.match(formatFidelityWorkflowScore(report), /^WORKFLOW PASS · design-screen-roundtrip/);
+
+  run.observations.pop();
+  const incomplete = scoreFidelityWorkflowRun(corpus, 'design-screen-roundtrip', run);
+  assert.equal(incomplete.accepted, false);
+  assert.equal(incomplete.missingObservations, 1);
+});
+
+test('workflow validation verifies every referenced artifact digest before scoring', () => {
+  const run = passingRun();
+  run.schema = FIDELITY_WORKFLOW_RUN_SCHEMA;
+  run.observations = run.observations.filter((item) => item.workflowId === 'design-screen-roundtrip');
+  const artifact = 'evals/fidelity/v1/assets/bridge-glyph.svg';
+  const digest = `sha256:${createHash('sha256').update(readFileSync(join(ROOT, artifact))).digest('hex')}`;
+  for (const observation of run.observations) {
+    for (const evidence of observation.evidence) {
+      evidence.artifact = artifact;
+      evidence.digest = digest;
+    }
+  }
+  const directory = mkdtempSync(join(tmpdir(), 'fidelity-workflow-validator-'));
+  const runPath = join(directory, 'run.json');
+  writeFileSync(runPath, JSON.stringify(run));
+  const valid = spawnSync(process.execPath, [
+    join(ROOT, 'scripts/validate-fidelity-corpus.js'),
+    '--workflow', 'design-screen-roundtrip', '--run', runPath,
+  ], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.match(valid.stdout, /^WORKFLOW PASS/);
+  assert.match(valid.stdout, /verified artifacts: 1/);
+
+  run.observations.at(-1).evidence[0].digest = `sha256:${'0'.repeat(64)}`;
+  writeFileSync(runPath, JSON.stringify(run));
+  const invalid = spawnSync(process.execPath, [
+    join(ROOT, 'scripts/validate-fidelity-corpus.js'),
+    '--workflow', 'design-screen-roundtrip', '--run', runPath,
+  ], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /evidence digest mismatch/);
 });
 
 test('a silently lost fact is a release failure even when every other observation passes', () => {

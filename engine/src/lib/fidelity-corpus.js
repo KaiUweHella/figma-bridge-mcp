@@ -2,6 +2,7 @@ import { roundTripFidelityEvidenceRegistry } from './round-trip-fidelity-contrac
 
 export const FIDELITY_CORPUS_SCHEMA = 'figma-bridge/fidelity-corpus/v1';
 export const FIDELITY_RUN_SCHEMA = 'figma-bridge/fidelity-run/v1';
+export const FIDELITY_WORKFLOW_RUN_SCHEMA = 'figma-bridge/fidelity-workflow-run/v1';
 export const FIDELITY_DIMENSIONS = Object.freeze([
   'structural',
   'semantic',
@@ -325,13 +326,20 @@ function evidenceProblems(observation, target, maxVisualDiffPct) {
   return problems;
 }
 
-export function scoreFidelityRun(corpus, run) {
+function scoreFidelityRunScope(corpus, run, {
+  schema = FIDELITY_RUN_SCHEMA,
+  workflowId = null,
+} = {}) {
   const corpusAudit = auditFidelityCorpus(corpus);
   const errors = [...corpusAudit.errors];
   if (!isRecord(run)) {
-    return deepFreeze({ ok: false, release: false, errors: [...errors, 'run must be an object'] });
+    return deepFreeze({
+      ok: false,
+      ...(workflowId ? { accepted: false } : { release: false }),
+      errors: [...errors, 'run must be an object'],
+    });
   }
-  if (run.schema !== FIDELITY_RUN_SCHEMA) errors.push(`run.schema must be ${FIDELITY_RUN_SCHEMA}`);
+  if (run.schema !== schema) errors.push(`run.schema must be ${schema}`);
   if (run.corpusId !== corpus.id || run.corpusVersion !== corpus.version) {
     errors.push('run corpus identity does not match the scored corpus');
   }
@@ -343,7 +351,12 @@ export function scoreFidelityRun(corpus, run) {
     errors.push('run implementation must name an exact version and configuration');
   }
 
-  const cells = corpusAudit.ok ? expectedCells(corpus) : [];
+  if (workflowId && !corpus.workflows?.some((workflow) => workflow.id === workflowId)) {
+    errors.push(`unknown fidelity workflow ${workflowId}`);
+  }
+  const cells = corpusAudit.ok
+    ? expectedCells(corpus).filter((cell) => !workflowId || cell.workflowId === workflowId)
+    : [];
   const expectedByKey = new Map(cells.map((cell) => [cell.key, cell]));
   const observedByKey = new Map();
   for (const [index, observation] of (Array.isArray(run.observations) ? run.observations : []).entries()) {
@@ -420,7 +433,8 @@ export function scoreFidelityRun(corpus, run) {
   const profile = corpus.releaseProfile;
   const thresholdFailures = [];
   for (const dimension of FIDELITY_DIMENSIONS) {
-    if (dimensions[dimension].score < profile.minimumScores[dimension]) {
+    if (dimensions[dimension].total > 0
+      && dimensions[dimension].score < profile.minimumScores[dimension]) {
       thresholdFailures.push(`${dimension} score ${dimensions[dimension].score.toFixed(4)} is below ${profile.minimumScores[dimension].toFixed(4)}`);
     }
   }
@@ -431,10 +445,13 @@ export function scoreFidelityRun(corpus, run) {
   if (evidencePassRate < profile.minimumEvidencePassRate) {
     thresholdFailures.push(`evidence pass rate ${evidencePassRate.toFixed(4)} is below ${profile.minimumEvidencePassRate.toFixed(4)}`);
   }
-  const release = errors.length === 0 && thresholdFailures.length === 0 && findings.length === 0;
+  const accepted = errors.length === 0 && thresholdFailures.length === 0 && findings.length === 0;
   return deepFreeze({
     ok: errors.length === 0,
-    release,
+    ...(workflowId ? {
+      accepted,
+      scope: { kind: 'workflow', workflowId },
+    } : { release: accepted }),
     corpus: { id: corpus.id, version: corpus.version, profile: profile.id },
     implementation: run.implementation || null,
     dimensions,
@@ -445,6 +462,17 @@ export function scoreFidelityRun(corpus, run) {
     findings,
     thresholdFailures,
     errors,
+  });
+}
+
+export function scoreFidelityRun(corpus, run) {
+  return scoreFidelityRunScope(corpus, run);
+}
+
+export function scoreFidelityWorkflowRun(corpus, workflowId, run) {
+  return scoreFidelityRunScope(corpus, run, {
+    schema: FIDELITY_WORKFLOW_RUN_SCHEMA,
+    workflowId,
   });
 }
 
@@ -464,6 +492,24 @@ export function formatFidelityScore(report) {
       lines.push(`- ${item.factId} (${item.platform}): ${item.reason}`);
     }
   }
+  if (report.thresholdFailures?.length || report.errors?.length) {
+    lines.push('', 'Failures:');
+    for (const message of [...(report.errors || []), ...(report.thresholdFailures || [])]) lines.push(`- ${message}`);
+  }
+  return lines.join('\n');
+}
+
+export function formatFidelityWorkflowScore(report) {
+  const workflowId = report.scope?.workflowId || 'unknown';
+  const lines = [
+    `${report.accepted ? 'WORKFLOW PASS' : 'WORKFLOW FAIL'} · ${workflowId} · ${report.corpus?.id || 'unknown'} v${report.corpus?.version || '?'}`,
+  ];
+  for (const dimension of FIDELITY_DIMENSIONS) {
+    const result = report.dimensions?.[dimension];
+    if (result?.total) lines.push(`${dimension}: ${(result.score * 100).toFixed(2)}% (${result.passed}/${result.total})`);
+  }
+  lines.push(`evidence: ${report.evidence?.passed || 0}/${report.evidence?.total || 0}`);
+  lines.push(`silent loss: ${report.silentLoss || 0} · missing: ${report.missingObservations || 0}`);
   if (report.thresholdFailures?.length || report.errors?.length) {
     lines.push('', 'Failures:');
     for (const message of [...(report.errors || []), ...(report.thresholdFailures || [])]) lines.push(`- ${message}`);

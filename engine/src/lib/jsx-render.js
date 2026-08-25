@@ -23,6 +23,33 @@ function resourceRecord(map) {
   return record;
 }
 
+function materializeComponentLinks(model, componentLinks) {
+  const visit = (node) => {
+    if (node?.source?.type === 'instance') {
+      const props = node.source.props || {};
+      const entity = typeof props.entity === 'string' ? props.entity : null;
+      const link = entity ? componentLinks[entity] : null;
+      if (link) {
+        for (const field of ['key', 'id']) {
+          if (props[field] && link[field] && props[field] !== link[field]) {
+            throw new Error(
+              `Design Entity ${entity} has conflicting ${field} anchors in JSX and the Design Link Registry`,
+            );
+          }
+        }
+        node.source.props = {
+          ...props,
+          ...(link.key ? { key: link.key } : {}),
+          ...(link.id ? { id: link.id } : {}),
+        };
+      }
+    }
+    for (const child of node?.children || []) visit(child);
+  };
+  visit(model?.root);
+  return model;
+}
+
 // NOTE: there is deliberately no built-in semantic color table here. An
 // unresolved `var:` reference falls back to neutral grey and is reported via
 // __unresolvedVars — the tool ships no design-system defaults of its own.
@@ -492,7 +519,10 @@ export class FigmaClient {
   }
 
   renderPlanForTree(tree) {
-    const semanticModel = assertSemanticModel(this.semanticModelForTree(tree));
+    const semanticModel = materializeComponentLinks(
+      assertSemanticModel(this.semanticModelForTree(tree)),
+      this.componentLinks,
+    );
     return createSemanticRenderPlan(semanticModel, {
       adapter: 'jsx',
       variableCollection: this.collectionFilter,

@@ -112,7 +112,10 @@ link
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (options) => {
     try {
-      const result = await executeDesignLink({ action: 'list', manifestPath: manifest(options) });
+      const result = await executeDesignLink(
+        { action: 'list', manifestPath: manifest(options) },
+        { workspaceIO: workspaceIO() },
+      );
       if (!result.entities.length) {
         console.log(chalk.gray(`No Design Entities in ${result.path}.`));
         return;
@@ -136,7 +139,7 @@ link
       const result = await executeDesignLink({
         action: 'configure', designDoc: options.designDoc, tokens: options.tokens,
         manifestPath: manifest(options),
-      });
+      }, { workspaceIO: workspaceIO() });
       console.log(chalk.green('✓'), `Configured Project Design Context in ${result.path}`);
       for (const [key, value] of Object.entries(result.project)) console.log(`  ${key}: ${value}`);
     } catch (error) {
@@ -154,7 +157,7 @@ link
     try {
       const result = await executeDesignLink({
         action: 'status', entityId, manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }) });
+      }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
       console.log(formatRoundTripPlan(result.entity, result.plan, { baseline: result.entity.baseline }));
     } catch (error) {
       handleEvalError(error);
@@ -173,7 +176,7 @@ link
       const result = await executeDesignLink({
         action: 'accept', entityId, comparePath: options.compare ? resolve(options.compare) : undefined,
         maxDiff: options.maxDiff, manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }) });
+      }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
       console.log(chalk.green('✓'), `Accepted current code and Figma state for ${result.entity.id}`);
       console.log(formatRoundTripPlan(result.entity, result.plan, { baseline: result.baseline }));
     } catch (error) {
@@ -190,7 +193,7 @@ link
     try {
       const result = await executeDesignLink({
         action: 'context', entityId, manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }) });
+      }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
       console.log(formatProjectDesignContext(result.context));
     } catch (error) {
       handleEvalError(error);

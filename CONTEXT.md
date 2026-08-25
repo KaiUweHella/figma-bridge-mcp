@@ -598,6 +598,14 @@ unexpected unsupported output and every silently lost fact fail the release
 profile.
 _Avoid_: demo frame, screenshot-only benchmark, post-hoc exception, competitor-specific fixture
 
+**Workflow Fidelity Run**:
+A reproducible evidence record for exactly one named Fidelity Corpus workflow.
+It uses the corpus's existing direction, dimension, target and Evidence ID
+contracts, verifies every referenced artifact digest inside the authorized
+repository, and may report workflow acceptance only. It never fills unrelated
+workflow cells or presents its result as a full release.
+_Avoid_: partial release, manual pass note, shared screenshot assertion
+
 **Fidelity Comparison Baseline**:
 The dated, machine-audited capability snapshot of the accepted Fidelity Corpus
 across Figma Bridge and exact pinned reference implementations. It keeps
@@ -648,6 +656,10 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Code and Figma are both different. Which one should the agent overwrite?
 >
 > **Domain expert:** Neither by default. The Round-trip Plan compares both with the Accepted Design Baseline and reports a conflict when both moved.
+
+> **Developer:** Can a private Design Link Registry live below `docs-local/` and still link repository code?
+>
+> **Domain expert:** Yes. Its canonical path stays under WorkspaceIO authority, while code links resolve from the containing authorized Workspace root. Moving the Registry deeper never grants access outside that root.
 
 > **Developer:** What should the agent read before changing that screen?
 >
@@ -700,6 +712,8 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can Code-to-Figma turn a similarly named layer into an existing component instance?
 >
 > **Domain expert:** No. A native instance requires an explicit Design Entity and its Registry key or current-file node id. The Figma Render Executor resolves that identity and any requested variant before creating canvas nodes; display names are never identity.
+
+> **Domain expert:** JSX may name only the Design Entity. Before structural preflight, the JSX Adapter materializes its published key and/or current-file node id from the Design Link Registry into the typed Semantic Render Plan. If JSX and Registry provide conflicting anchors, preparation fails before Plugin readiness; neither side silently wins.
 
 > **Developer:** How do native instance overrides identify properties, layers and swap targets?
 >

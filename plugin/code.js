@@ -2358,11 +2358,23 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
     const binding = bindingFor(node, key);
     if (binding) created.setBoundVariable(field, binding.variable);
   };
+  const solidPaint = (input, fallback) => {
+    if (input && typeof input === 'object'
+      && ['r', 'g', 'b'].every((channel) => Number.isFinite(Number(input[channel])))) {
+      const alpha = Number.isFinite(Number(input.a)) ? Number(input.a) : 1;
+      return {
+        type: 'SOLID',
+        color: { r: Number(input.r), g: Number(input.g), b: Number(input.b) },
+        ...(alpha < 1 ? { opacity: alpha } : {}),
+      };
+    }
+    return hex(input || fallback);
+  };
   const boundPaint = (node, key, raw, fallback = '#808080', target = null) => {
     const binding = bindingFor(node, key);
     const spec = structuredVariableSpec(raw);
-    const resolved = spec?.fallback || (binding ? fallback : raw || fallback);
-    const paint = binding ? hex(resolved) : structuredGradientPaint(resolved, target) || hex(resolved);
+    const resolved = binding?.value ?? spec?.fallback ?? raw ?? fallback;
+    const paint = binding ? solidPaint(resolved, fallback) : structuredGradientPaint(resolved, target) || hex(resolved);
     return binding ? figmaApi.variables.setBoundVariableForPaint(paint, 'color', binding.variable) : paint;
   };
   const boundPaints = (node, key, raw, fallback = '#808080', target = null) => {
