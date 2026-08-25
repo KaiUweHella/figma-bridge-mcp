@@ -59,6 +59,7 @@
     "check:plugin": "node scripts/sync-plugin-artifact.js --check",
     "check:release": "node scripts/sync-release-version.js --check",
     "check:workflow-evals": "node scripts/validate-workflow-evals.js",
+    "check:fidelity-corpus": "node scripts/validate-fidelity-corpus.js",
     "check:architecture-latency": "node scripts/check-architecture-latency.js",
     "accept:runtime-soak": "node scripts/runtime-soak.js",
     "check:public-safety": "node scripts/check-public-safety.js",
@@ -71,7 +72,7 @@
     "build:package-artifact": "node scripts/verify-package-artifact.js",
     "sync:release-version": "node scripts/sync-release-version.js",
     "sync:plugin": "node scripts/sync-plugin-artifact.js",
-    "test": "npm run check:contracts && npm run check:release && npm run check:plugin && npm run check:workflow-evals && node --test",
+    "test": "npm run check:contracts && npm run check:release && npm run check:plugin && npm run check:workflow-evals && npm run check:fidelity-corpus && node --test",
     "prepublishOnly": "npm run check:public-safety && npm test && npm run check:package-artifact",
     "prepare": "husky"
   },

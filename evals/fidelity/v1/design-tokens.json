@@ -1,0 +1,13 @@
+{
+  "color": {
+    "accent": { "$type": "color", "$value": "#2563EB" },
+    "text": { "$type": "color", "$value": "#0F172A" },
+    "muted": { "$type": "color", "$value": "#475569" },
+    "border": { "$type": "color", "$value": "#CBD5E1" },
+    "surface": { "$type": "color", "$value": "#F8FAFC" }
+  },
+  "space": {
+    "base": { "$type": "dimension", "$value": { "value": 16, "unit": "px" } },
+    "card": { "$type": "dimension", "$value": "{space.base}" }
+  }
+}

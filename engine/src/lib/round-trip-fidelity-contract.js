@@ -214,6 +214,26 @@ const evidenceRegistry = deepFreeze({
     label: 'implemented behaviour tests',
     source: 'engine/tests/prototype-management.test.js',
   },
+  'verification.editor-dispatch-receipt': {
+    kind: 'gate',
+    label: 'editor-bound Dispatch Receipt',
+    source: 'engine/src/lib/dispatch-receipt.js',
+  },
+  'verification.figjam-inspection': {
+    kind: 'check',
+    label: 'FigJam native inspection',
+    source: 'engine/src/lib/jam-snippets.js',
+  },
+  'verification.slides-inspection': {
+    kind: 'check',
+    label: 'Slides native inspection',
+    source: 'engine/src/lib/slides-snippets.js',
+  },
+  'verification.dev-mode-inspection': {
+    kind: 'gate',
+    label: 'Dev Mode measurement editor gate',
+    source: 'engine/src/lib/measurement-management.js',
+  },
 });
 
 export function roundTripFidelityEvidenceRegistry() {

@@ -1,0 +1,13 @@
+{
+  "schema": "figma-bridge/fidelity-component-contract/v1",
+  "entityId": "corpus.control",
+  "componentSetKey": "PLACEHOLDERCORPUSSETKEY",
+  "axes": {
+    "State": ["Ready", "Busy"],
+    "Size": ["Small", "Medium"]
+  },
+  "requiredVariant": {
+    "State": "Ready",
+    "Size": "Medium"
+  }
+}

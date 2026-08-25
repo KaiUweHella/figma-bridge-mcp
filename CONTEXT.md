@@ -588,6 +588,16 @@ _Avoid_: warning label, generated comment, fallback badge
 The versioned executable classification of core Figma fact families across Design Capture, agent-facing projections, Semantic Render Plans, Figma Commands and verification. Every direction is explicitly exact, conditional, structural, visual, code-only, Figma-only or stopped. Verification claims resolve through stable Evidence IDs to real checks, gates, probes or tests; an unknown Evidence ID or unclassified core fact is a failing contract rather than an implicit omission.
 _Avoid_: feature checklist, workflow matrix, capability claim
 
+**Fidelity Corpus**:
+The versioned, redistributable set of workflow fixtures and direction-specific
+expected facts used to measure Figma Bridge and comparison implementations.
+It scores structural, semantic, visual and operational conformance separately
+through reproducible Round-trip Fidelity Evidence IDs. Known normalization,
+approximation and platform limits are declared before a run; missing evidence,
+unexpected unsupported output and every silently lost fact fail the release
+profile.
+_Avoid_: demo frame, screenshot-only benchmark, post-hoc exception, competitor-specific fixture
+
 ## Example dialogue
 
 > **Developer:** Does `figma_spec` behave differently through MCP and the CLI?

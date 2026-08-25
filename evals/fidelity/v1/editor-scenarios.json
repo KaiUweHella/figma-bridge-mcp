@@ -1,0 +1,23 @@
+{
+  "schema": "figma-bridge/fidelity-editor-scenarios/v1",
+  "scenarios": [
+    {
+      "editorType": "figjam",
+      "direction": "figma-to-code",
+      "command": ["jam", "list"],
+      "expected": "bounded native FigJam structure"
+    },
+    {
+      "editorType": "slides",
+      "direction": "figma-to-code",
+      "command": ["slides", "inspect"],
+      "expected": "bounded native deck and slide structure"
+    },
+    {
+      "editorType": "dev",
+      "direction": "code-to-figma",
+      "command": ["measurements", "create", "PLACEHOLDERNODEID"],
+      "expected": "explicit editor-gated boundary; no static design write"
+    }
+  ]
+}

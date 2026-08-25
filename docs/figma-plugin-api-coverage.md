@@ -46,7 +46,7 @@ remote images only through the validated renderer, and video export as a read.
 The operation audit answers whether Bridge can invoke a concrete Figma API
 operation. It does not prove that the same fact survives Design Capture,
 agent-facing projections, Semantic Render Plans and verification in both
-directions. The separate executable Round-trip Fidelity Contract classifies 11
+directions. The separate executable Round-trip Fidelity Contract classifies 15
 core fact families independently for Code → Figma and Figma → code. CI checks
 that both directions are classified, their official Figma type names still
 exist, executable mappings name an implementation and verification seam, and

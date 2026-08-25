@@ -1,0 +1,16 @@
+{
+  "schema": "figma-bridge/fidelity-prototype/v1",
+  "sourceSemanticPath": "bridge-fidelity-corpus-v1/corpus-control",
+  "reactions": [
+    {
+      "trigger": { "type": "ON_CLICK" },
+      "actions": [
+        {
+          "type": "NODE",
+          "navigation": "CHANGE_TO",
+          "destinationVariant": { "State": "Busy", "Size": "Medium" }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,489 @@
+{
+  "schema": "figma-bridge/fidelity-corpus/v1",
+  "version": 1,
+  "id": "bridge-core-roundtrip",
+  "title": "Figma Bridge core bidirectional fidelity corpus",
+  "license": "MIT",
+  "fixtures": [
+    {
+      "id": "design-roundtrip",
+      "license": "MIT",
+      "provenance": "authored-for-figma-bridge",
+      "paths": [
+        "evals/fidelity/v1/design-roundtrip.jsx",
+        "evals/fidelity/v1/design-tokens.json",
+        "evals/fidelity/v1/component-contract.json",
+        "evals/fidelity/v1/prototype-reactions.json",
+        "evals/fidelity/v1/assets/bridge-glyph.svg"
+      ]
+    },
+    {
+      "id": "editor-scenarios",
+      "license": "MIT",
+      "provenance": "authored-for-figma-bridge",
+      "paths": ["evals/fidelity/v1/editor-scenarios.json"]
+    }
+  ],
+  "workflows": [
+    {
+      "id": "design-screen-roundtrip",
+      "fixtureId": "design-roundtrip",
+      "directions": ["code-to-figma", "figma-to-code"],
+      "editorTypes": ["figma"],
+      "factIds": [
+        "auto-layout-semantics",
+        "responsive-constraints",
+        "rich-text-runs",
+        "component-variant-identity",
+        "variable-alias-topology",
+        "ordered-effects",
+        "native-mask",
+        "source-asset-identity",
+        "prototype-reactions",
+        "figma-design-dispatch"
+      ]
+    },
+    {
+      "id": "figjam-inspection",
+      "fixtureId": "editor-scenarios",
+      "directions": ["figma-to-code"],
+      "editorTypes": ["figjam"],
+      "factIds": ["figjam-native-structure"]
+    },
+    {
+      "id": "slides-inspection",
+      "fixtureId": "editor-scenarios",
+      "directions": ["figma-to-code"],
+      "editorTypes": ["slides"],
+      "factIds": ["slides-native-structure"]
+    },
+    {
+      "id": "dev-mode-write-boundary",
+      "fixtureId": "editor-scenarios",
+      "directions": ["code-to-figma"],
+      "editorTypes": ["dev"],
+      "factIds": ["dev-mode-static-design-write"]
+    }
+  ],
+  "facts": [
+    {
+      "id": "auto-layout-semantics",
+      "family": "auto-layout",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "normalized",
+            "evidence": ["verification.structural-report"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.layout-provenance"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "normalized",
+            "evidence": ["verification.layer-coverage"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.layout-provenance"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        }
+      }
+    },
+    {
+      "id": "responsive-constraints",
+      "family": "constraints",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "normalized",
+            "evidence": ["verification.structural-gate"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.layout-provenance"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": [
+              "verification.pixel-comparison",
+              "verification.responsive-probes"
+            ]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "normalized",
+            "evidence": ["verification.layer-coverage"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.layout-provenance"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": [
+              "verification.pixel-comparison",
+              "verification.responsive-probes"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "rich-text-runs",
+      "family": "text",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.rich-text-range-readback"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.font-preflight"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.rich-text-range-readback"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.browser-font-check"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        }
+      }
+    },
+    {
+      "id": "component-variant-identity",
+      "family": "components-variants",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.component-contract-inspection"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.design-contract"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": [
+              "verification.pixel-comparison",
+              "verification.rendered-state-comparison"
+            ]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.design-contract-axes-properties"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.component-state-lattice"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": [
+              "verification.pixel-comparison",
+              "verification.rendered-state-comparison"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "variable-alias-topology",
+      "family": "variables-aliases",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.variable-report"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.mode-write-readback"]
+          },
+          "operational": {
+            "outcome": "exact",
+            "evidence": ["verification.variable-scope-gate"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.multi-mode-token-projection"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.build-token-reference-check"]
+          },
+          "operational": {
+            "outcome": "exact",
+            "evidence": ["verification.selected-mode-value-check"]
+          }
+        }
+      }
+    },
+    {
+      "id": "ordered-effects",
+      "family": "effects",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.effect-readback"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.property-readback"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.effect-readback"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.unconsumed-effect-check"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        }
+      }
+    },
+    {
+      "id": "native-mask",
+      "family": "masks",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.mask-type-readback"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.structural-gate"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.mask-fact-coverage"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.fact-coverage"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        }
+      }
+    },
+    {
+      "id": "source-asset-identity",
+      "family": "assets",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.image-vector-readback"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.asset-manifest-v2"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.asset-manifest-coverage"]
+          },
+          "semantic": {
+            "outcome": "exact",
+            "evidence": ["verification.asset-digest-integrity"]
+          },
+          "visual": {
+            "outcome": "exact",
+            "evidence": ["verification.pixel-comparison"]
+          }
+        }
+      }
+    },
+    {
+      "id": "prototype-reactions",
+      "family": "prototypes",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.prototype-inspection"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.design-contract-transition-rules"]
+          },
+          "operational": {
+            "outcome": "exact",
+            "evidence": ["verification.implemented-behaviour-test"]
+          }
+        },
+        "figma-to-code": {
+          "structural": {
+            "outcome": "exact",
+            "evidence": ["verification.prototype-inspection"]
+          },
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.design-contract-transition-rules"]
+          },
+          "operational": {
+            "outcome": "exact",
+            "evidence": ["verification.implemented-behaviour-test"]
+          }
+        }
+      }
+    },
+    {
+      "id": "figma-design-dispatch",
+      "family": "editor-context",
+      "platformLimited": null,
+      "targets": {
+        "code-to-figma": {
+          "operational": {
+            "outcome": "exact",
+            "evidence": ["verification.editor-dispatch-receipt"]
+          }
+        },
+        "figma-to-code": {
+          "operational": {
+            "outcome": "exact",
+            "evidence": ["verification.editor-dispatch-receipt"]
+          }
+        }
+      }
+    },
+    {
+      "id": "figjam-native-structure",
+      "family": "editor-context",
+      "platformLimited": null,
+      "targets": {
+        "figma-to-code": {
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.figjam-inspection"]
+          },
+          "operational": {
+            "outcome": "exact",
+            "evidence": [
+              "verification.editor-dispatch-receipt",
+              "verification.figjam-inspection"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "slides-native-structure",
+      "family": "editor-context",
+      "platformLimited": null,
+      "targets": {
+        "figma-to-code": {
+          "semantic": {
+            "outcome": "normalized",
+            "evidence": ["verification.slides-inspection"]
+          },
+          "operational": {
+            "outcome": "exact",
+            "evidence": [
+              "verification.editor-dispatch-receipt",
+              "verification.slides-inspection"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "dev-mode-static-design-write",
+      "family": "editor-context",
+      "platformLimited": {
+        "platform": "Figma Dev Mode",
+        "reason": "Dev Mode exposes measurement context but is not a Figma Design document-authoring editor.",
+        "source": "installed @figma/plugin-typings editorType contract"
+      },
+      "targets": {
+        "code-to-figma": {
+          "operational": {
+            "outcome": "unsupported",
+            "evidence": [
+              "verification.dev-mode-inspection",
+              "verification.editor-dispatch-receipt"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "releaseProfile": {
+    "id": "release-v1",
+    "minimumScores": {
+      "structural": 1,
+      "semantic": 1,
+      "visual": 1,
+      "operational": 1
+    },
+    "maxSilentLoss": 0,
+    "maxMissingObservations": 0,
+    "minimumEvidencePassRate": 1,
+    "maxVisualDiffPct": 1
+  }
+}
