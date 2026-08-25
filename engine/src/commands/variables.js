@@ -20,6 +20,10 @@ import {
   variableSetValuePlanningArgvFromRequest,
 } from '../application/variable-set-value-command.js';
 import {
+  executeVariableCodeSyntaxPlan,
+  variableCodeSyntaxPlanningArgvFromRequest,
+} from '../application/variable-code-syntax-command.js';
+import {
   executeVariableResolutionPlan,
   variableResolutionPlanningArgvFromRequest,
 } from '../application/variable-resolution-command.js';
@@ -39,7 +43,6 @@ import {
 } from '../lib/cli-core.js';
 import {
   parseBoolean, parseScopes,
-  variableCodeSyntaxCode,
   variableUpdateCode,
 } from '../lib/variable-management.js';
 
@@ -202,12 +205,31 @@ variables.command('set-value <variable> [value]')
 
 variables.command('code-syntax <variable> <platform> [value]')
   .option('-c, --collection <collection>').option('--remove', 'Remove the platform definition')
+  .allowExcessArguments(false)
   .action(async (variable, platform, value, options) => {
     try {
-      if (!options.remove && value === undefined) throw new Error('Provide a syntax value or --remove');
-      await checkConnection();
-      console.log(JSON.stringify(await fastEval(variableCodeSyntaxCode({ variable, collection: options.collection, platform, value, remove: options.remove })), null, 2));
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(variableCodeSyntaxPlanningArgvFromRequest({
+        variable,
+        platform,
+        value,
+        collection: options.collection || null,
+        remove: options.remove === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableCodeSyntaxPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
   });
 
 variables.command('resolve <variable> <nodeId>')

@@ -122,13 +122,6 @@ function parseScopes(value) {
   return scopes;
 }
 
-function parseCodePlatform(value) {
-  const key = String(value).trim().toLowerCase();
-  const platform = { web: 'WEB', android: 'ANDROID', ios: 'iOS' }[key];
-  if (!platform) throw new Error('Platform must be WEB, ANDROID, or iOS');
-  return platform;
-}
-
 function variableHelpersCode() {
   return `
 const __collections = await figma.variables.getLocalVariableCollectionsAsync();
@@ -203,50 +196,6 @@ return __variableFacts(target);
 })()`;
 }
 
-function variableSetValueCode({ variable, collection = null, mode, value, alias = null }) {
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
-if (target.remote) throw new Error('Remote variables cannot be updated');
-const col = await __resolveCollection(target.variableCollectionId);
-const resolvedMode = __resolveMode(col, ${JSON.stringify(mode)});
-let nextValue;
-if (${JSON.stringify(alias)} !== null) {
-  const aliasTarget = await __resolveVariable(${JSON.stringify(alias)}, null);
-  if (aliasTarget.resolvedType !== target.resolvedType) throw new Error('Alias type ' + aliasTarget.resolvedType + ' does not match ' + target.resolvedType);
-  nextValue = figma.variables.createVariableAlias(aliasTarget);
-} else {
-  const raw = ${JSON.stringify(value)};
-  if (target.resolvedType === 'BOOLEAN') {
-    if (!/^(true|false)$/i.test(raw)) throw new Error('BOOLEAN value must be true or false');
-    nextValue = raw.toLowerCase() === 'true';
-  } else if (target.resolvedType === 'FLOAT') {
-    nextValue = Number(raw); if (!Number.isFinite(nextValue)) throw new Error('FLOAT value must be a finite number');
-  } else if (target.resolvedType === 'COLOR') {
-    const match = String(raw).match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
-    if (!match) throw new Error('COLOR value must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA');
-    let hex = match[1]; if (hex.length <= 4) hex = [...hex].map(c => c + c).join('');
-    nextValue = { r: parseInt(hex.slice(0,2),16)/255, g: parseInt(hex.slice(2,4),16)/255, b: parseInt(hex.slice(4,6),16)/255 };
-    if (hex.length === 8) nextValue.a = parseInt(hex.slice(6,8),16)/255;
-  } else if (target.resolvedType === 'STRING') nextValue = raw;
-  else {
-    try { nextValue = JSON.parse(raw); } catch { throw new Error(target.resolvedType + ' value must be JSON'); }
-  }
-}
-target.setValueForMode(resolvedMode.modeId, nextValue);
-return { variable: await __variableFacts(target), mode: resolvedMode, value: target.valuesByMode[resolvedMode.modeId] };
-})()`;
-}
-
-function variableCodeSyntaxCode({ variable, collection = null, platform, value, remove = false }) {
-  const normalized = parseCodePlatform(platform);
-  return `(async () => {${variableHelpersCode()}
-const target = await __resolveVariable(${JSON.stringify(variable)}, ${JSON.stringify(collection)});
-if (target.remote) throw new Error('Remote variables cannot be updated');
-${remove ? `target.removeVariableCodeSyntax(${JSON.stringify(normalized)});` : `target.setVariableCodeSyntax(${JSON.stringify(normalized)}, ${JSON.stringify(String(value))});`}
-return __variableFacts(target);
-})()`;
-}
-
 function collectionUpdateCode({ collection, name, hidden }) {
   return `(async () => {${variableHelpersCode()}
 const target = await __resolveCollection(${JSON.stringify(collection)});
@@ -302,8 +251,7 @@ return __collectionFacts(extended);
 export {
   EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
   collectionDeleteCode, collectionExtendCode, collectionModeCode,
-  collectionUpdateCode, normalizeVariableValue, parseBoolean, parseCodePlatform,
+  collectionUpdateCode, normalizeVariableValue, parseBoolean,
   parseScopes, parseVariableLiteral, parseVariableType,
-  variableCodeSyntaxCode,
-  variableSetValueCode, variableUpdateCode,
+  variableUpdateCode,
 };

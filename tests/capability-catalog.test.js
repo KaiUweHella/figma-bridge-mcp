@@ -202,6 +202,36 @@ test('Variable Set Value closes one policy-identical non-retrying rollback-owned
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Code Syntax closes set/remove as policy-identical non-retrying writes', () => {
+  for (const [cliArgv, mcpArgv] of [
+    [
+      ['var', 'code-syntax', '-cTokens', 'space/md', 'web', 'var(--space-md)'],
+      ['var', 'code-syntax', '--collection=Tokens', '--', 'space/md', 'WEB', 'var(--space-md)'],
+    ],
+    [
+      ['var', 'code-syntax', '--remove', 'space/md', 'ios'],
+      ['var', 'code-syntax', '--remove', '--', 'space/md', 'iOS'],
+    ],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.confirmation, 'configured');
+    assert.equal(cli.audit.capability, 'var.code-syntax');
+  }
+  for (const argv of [
+    ['var', 'code-syntax', 'space/md', 'WEB'],
+    ['var', 'code-syntax', '--remove', 'space/md', 'WEB', 'value'],
+    ['var', 'code-syntax', 'space/md', 'FUTURE', 'value'],
+    ['var', 'code-syntax', '--future', 'private-value', 'space/md', 'WEB'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Collection Catalog and Facts close policy-identical safe reads', () => {
   for (const [cliArgv, mcpArgv, action] of [
     [['col', 'list', '--json', '--limit', '25'], ['col', 'list', '-l25', '--json'], 'col.list'],

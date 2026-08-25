@@ -482,6 +482,39 @@ test('figma_run confirms Variable Set Value and rejects malformed input before r
   }
 });
 
+test('figma_run routes Variable Code Syntax through its shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const variableCodeSyntaxRoute = variableCodeSyntaxPlanRoute(plan)');
+  const end = source.indexOf('const collectionCreateRoute = collectionCreatePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeVariableCodeSyntaxPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Variable Code Syntax must not re-enter Commander');
+});
+
+test('figma_run confirms Variable Code Syntax and rejects malformed input before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', {
+    args: ['var', 'code-syntax', '-c', 'Tokens', 'space/md', 'WEB', 'var(--space-md)'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  for (const args of [
+    ['var', 'code-syntax', 'space/md', 'WEB'],
+    ['var', 'code-syntax', '--remove', 'space/md', 'WEB', 'value'],
+    ['var', 'code-syntax', 'space/md', 'FUTURE', 'value'],
+    ['var', 'code-syntax', '--future', 'private-value', 'space/md', 'WEB'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Collection Catalog and Facts through shared bounded-read Applications', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const collectionCatalogRoute = collectionCatalogPlanRoute(plan)');

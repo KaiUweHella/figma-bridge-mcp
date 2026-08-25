@@ -602,6 +602,23 @@ test('var set-value delegates one Plan-bound rollback-owned non-retrying Applica
     'Commander must not retain Variable Set Value execution or formatting logic');
 });
 
+test('var code-syntax delegates one Plan-bound rollback-owned non-retrying Application', () => {
+  const adapter = sources.get('variables.js');
+  assert.ok(adapter, 'variables.js exists');
+  const start = adapter.indexOf("variables.command('code-syntax <variable> <platform> [value]')");
+  const end = adapter.indexOf("variables.command('resolve <variable> <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableCodeSyntaxPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableCodeSyntaxPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|variableCodeSyntaxCode\(/,
+    'Commander must not retain Variable Code Syntax execution or formatting logic');
+});
+
 test('col list and show delegate separate Plan-bound bounded read Applications', () => {
   const adapter = sources.get('tokens.js');
   assert.ok(adapter, 'tokens.js exists');

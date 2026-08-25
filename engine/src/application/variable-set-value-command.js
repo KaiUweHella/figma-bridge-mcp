@@ -16,6 +16,7 @@ import {
   variableSetValueArgvFromRequest,
   variableSetValuePlanningArgvFromRequest,
 } from './variable-set-value-request.js';
+import { variableMutationPluginRuntimeCode } from './variable-mutation-runtime.js';
 
 export { variableSetValueArgvFromRequest, variableSetValuePlanningArgvFromRequest } from './variable-set-value-request.js';
 
@@ -37,43 +38,10 @@ export function variableSetValueCommandCode(request) {
     const modeQuery = ${JSON.stringify(input.mode)};
     const literal = ${JSON.stringify(input.value)};
     const aliasQuery = ${JSON.stringify(input.alias)};
-    const [collections, variables] = await Promise.all([
-      figma.variables.getLocalVariableCollectionsAsync(),
-      figma.variables.getLocalVariablesAsync(),
-    ]);
-    if (!Array.isArray(collections) || collections.length > ${MAX_VARIABLE_SET_VALUE_CANDIDATES}
-      || !Array.isArray(variables) || variables.length > ${MAX_VARIABLE_SET_VALUE_CANDIDATES}) {
-      throw new Error('Variable Set Value candidate limit exceeded.');
-    }
-    const resolveOne = (kind, value, pool, exact, tail = null) => {
-      const exactMatches = pool.filter((item) => exact(item, value));
-      const tailMatches = tail ? pool.filter((item) => tail(item, value)) : [];
-      const partial = pool.filter((item) => item.name.toLowerCase().includes(value.toLowerCase()));
-      const matches = exactMatches.length ? exactMatches : (tailMatches.length ? tailMatches : partial);
-      if (matches.length > 1) throw new Error(kind + ' is ambiguous; use its id.');
-      if (!matches.length) throw new Error(kind + ' not found.');
-      return matches[0];
-    };
-    let selectedCollection = null;
-    if (collectionHint !== null) {
-      const direct = collections.filter((item) => item.id === collectionHint);
-      selectedCollection = direct.length ? direct[0] : resolveOne(
-        'Variable Collection', collectionHint, collections, (item, value) => item.name === value,
-      );
-    }
-    const resolveVariable = (value, collection = null) => {
-      const pool = collection
-        ? variables.filter((item) => item.variableCollectionId === collection.id) : variables;
-      const direct = pool.filter((item) => item.id === value);
-      return direct.length ? direct[0] : resolveOne(
-        'Variable', value, pool, (item, candidate) => item.name === candidate,
-        (item, candidate) => item.name.endsWith('/' + candidate),
-      );
-    };
-    const variable = resolveVariable(query, selectedCollection);
-    const collection = selectedCollection || collections.find((item) =>
-      item.id === variable.variableCollectionId);
-    if (!collection) throw new Error('Variable Collection not found.');
+    ${variableMutationPluginRuntimeCode({ candidateLimit: MAX_VARIABLE_SET_VALUE_CANDIDATES })}
+    const resolved = __bridgeResolveVariable(query, collectionHint);
+    const variable = resolved.variable;
+    const collection = resolved.collection;
     if (variable.remote || collection.remote) throw new Error('Remote Variables cannot be updated.');
     const exactModes = collection.modes.filter((mode) =>
       mode.modeId === modeQuery || mode.name === modeQuery);
@@ -92,7 +60,7 @@ export function variableSetValueCommandCode(request) {
       'QUICK', 'BOUNCY', 'SLOW', 'CUSTOM_SPRING', 'HOLD',
     ]);
     if (aliasQuery !== null) {
-      aliasTarget = resolveVariable(aliasQuery);
+      aliasTarget = __bridgeResolveVariable(aliasQuery).variable;
       if (aliasTarget.resolvedType !== variable.resolvedType) {
         throw new Error('Alias type does not match the target Variable type.');
       }
@@ -133,106 +101,18 @@ export function variableSetValueCommandCode(request) {
       }
     }
 
+    const preflightFacts = await __bridgeVariableFacts(variable, collection);
+    if (!__bridgeValidateVariableFacts(preflightFacts)) {
+      throw new Error('Variable Set Value encountered incompatible preflight metadata.');
+    }
     const hadPrevious = Object.prototype.hasOwnProperty.call(variable.valuesByMode, mode.modeId);
     const previous = hadPrevious ? variable.valuesByMode[mode.modeId] : null;
     let attempted = false;
     try {
       attempted = true;
       variable.setValueForMode(mode.modeId, nextValue);
-      const facts = {
-        schemaVersion: 1, id: variable.id, key: variable.key || null,
-        name: variable.name, description: variable.description || '',
-        resolvedType: variable.resolvedType, remote: !!variable.remote,
-        variableCollectionId: variable.variableCollectionId,
-        collection: { id: collection.id, name: collection.name },
-        hiddenFromPublishing: !!variable.hiddenFromPublishing,
-        scopes: variable.scopes, codeSyntax: variable.codeSyntax,
-        valuesByMode: variable.valuesByMode,
-        modes: collection.modes.map((entry) => ({ modeId: entry.modeId, name: entry.name })),
-        publishStatus: await variable.getPublishStatusAsync(),
-      };
-      const allowedTypes = new Set(['BOOLEAN', 'COLOR', 'EASING', 'FLOAT', 'STRING', 'TIMING']);
-      const allowedStatuses = new Set(['UNPUBLISHED', 'CURRENT', 'CHANGED']);
-      const allowedScopes = new Set(${JSON.stringify([
-        'ALL_SCOPES', 'TEXT_CONTENT', 'CORNER_RADIUS', 'WIDTH_HEIGHT', 'GAP',
-        'ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL', 'STROKE_COLOR',
-        'STROKE_FLOAT', 'EFFECT_FLOAT', 'EFFECT_COLOR', 'OPACITY', 'FONT_FAMILY',
-        'FONT_STYLE', 'FONT_WEIGHT', 'FONT_SIZE', 'LINE_HEIGHT', 'LETTER_SPACING',
-        'PARAGRAPH_SPACING', 'PARAGRAPH_INDENT',
-      ])});
-      const boundedText = (value, empty = true) => typeof value === 'string'
-        && value.length <= ${MAX_VARIABLE_FACTS_STRING_CODE_UNITS}
-        && (empty || value.length > 0);
-      const exactObject = (value, keys) => {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-        const actual = Object.keys(value);
-        return actual.length === keys.length && actual.every((key) => keys.includes(key));
-      };
-      const aliasValue = (value) => value && typeof value === 'object'
-        && exactObject(value, ['type', 'id'])
-        && value.type === 'VARIABLE_ALIAS' && boundedText(value.id, false);
-      const unit = (value) => typeof value === 'number' && Number.isFinite(value)
-        && value >= 0 && value <= 1;
-      const valueForType = (value, type) => {
-        if (aliasValue(value)) return true;
-        if (type === 'BOOLEAN') return typeof value === 'boolean';
-        if (type === 'STRING') return boundedText(value);
-        if (type === 'FLOAT' || type === 'TIMING') {
-          return typeof value === 'number' && Number.isFinite(value);
-        }
-        if (type === 'COLOR') return (exactObject(value, ['r', 'g', 'b'])
-          || exactObject(value, ['r', 'g', 'b', 'a']))
-          && unit(value.r) && unit(value.g) && unit(value.b)
-          && (value.a === undefined || unit(value.a));
-        if (!value || typeof value !== 'object' || Array.isArray(value)
-          || !easingTypes.has(value.type)
-          || !Object.keys(value).every((key) => [
-            'type', 'easingFunctionCubicBezier', 'easingFunctionSpring',
-          ].includes(key))) return false;
-        if (value.easingFunctionCubicBezier !== undefined) {
-          const bezier = value.easingFunctionCubicBezier;
-          if (!exactObject(bezier, ['x1', 'y1', 'x2', 'y2'])
-            || !unit(bezier.x1) || !unit(bezier.x2)
-            || typeof bezier.y1 !== 'number' || !Number.isFinite(bezier.y1)
-            || typeof bezier.y2 !== 'number' || !Number.isFinite(bezier.y2)) return false;
-        }
-        if (value.easingFunctionSpring !== undefined) {
-          const spring = value.easingFunctionSpring;
-          if (!exactObject(spring, ['bounce']) || !unit(spring.bounce)) return false;
-        }
-        return true;
-      };
-      const modeIds = new Set();
-      const validModes = Array.isArray(facts.modes)
-        && facts.modes.length <= ${MAX_VARIABLE_FACTS_CONTAINER_ENTRIES}
-        && facts.modes.every((entry) => {
-          if (!entry || typeof entry !== 'object' || Array.isArray(entry)
-            || Object.keys(entry).length !== 2 || !boundedText(entry.modeId, false)
-            || !boundedText(entry.name, false) || modeIds.has(entry.modeId)) return false;
-          modeIds.add(entry.modeId);
-          return true;
-        });
-      const validCodeSyntax = facts.codeSyntax && typeof facts.codeSyntax === 'object'
-        && !Array.isArray(facts.codeSyntax) && Object.entries(facts.codeSyntax).every(
-          ([platform, syntax]) => ['WEB', 'ANDROID', 'iOS'].includes(platform)
-            && boundedText(syntax),
-        );
-      const validValues = facts.valuesByMode && typeof facts.valuesByMode === 'object'
-        && !Array.isArray(facts.valuesByMode)
-        && Object.entries(facts.valuesByMode).length <= ${MAX_VARIABLE_FACTS_CONTAINER_ENTRIES}
-        && Object.entries(facts.valuesByMode).every(([modeId, value]) =>
-          modeId.length <= 128 && modeIds.has(modeId)
-            && valueForType(value, facts.resolvedType));
-      if (!boundedText(facts.id, false) || !(facts.key === null || boundedText(facts.key, false))
-        || !boundedText(facts.name, false) || !boundedText(facts.description)
-        || !facts.name || !allowedTypes.has(facts.resolvedType) || facts.remote
-        || !boundedText(facts.variableCollectionId, false)
-        || facts.variableCollectionId !== collection.id
-        || !facts.collection || facts.collection.id !== collection.id
-        || !boundedText(facts.collection.name, false)
-        || !Array.isArray(facts.scopes) || !facts.scopes.every((scope) => allowedScopes.has(scope))
-        || !validCodeSyntax || !validModes || !validValues
-        || !allowedStatuses.has(facts.publishStatus)
+      const facts = await __bridgeVariableFacts(variable, collection);
+      if (!__bridgeValidateVariableFacts(facts)
         || !Object.prototype.hasOwnProperty.call(facts.valuesByMode, mode.modeId)) {
         throw new Error('Variable Set Value encountered incompatible result metadata.');
       }
@@ -267,7 +147,7 @@ export function variableSetValueCommandCode(request) {
         seen.delete(value);
       };
       const complete = {
-        schemaVersion: 1, status: 'updated', resolution: variable.id === query ? 'id' : 'name',
+        schemaVersion: 1, status: 'updated', resolution: resolved.resolution,
         query, collectionHint, matchedName: variable.name, source,
         aliasTarget: aliasTarget === null ? null : {
           id: aliasTarget.id, name: aliasTarget.name, resolvedType: aliasTarget.resolvedType,

@@ -19,12 +19,13 @@ function fixture({
   publishFails = false,
   restoreFails = false,
   type = 'FLOAT',
-} = {}) {
+  } = {}) {
   const mode = { modeId: 'ModeId:default', name: 'Mode 1' };
   const collection = {
     id: 'VariableCollectionId:1', name: 'Tokens', remote: false, modes: [mode],
   };
   let setterCalls = 0;
+  let publishCalls = 0;
   const variable = {
     id: 'VariableID:1', key: 'variable-key', name: 'space/md', description: 'Spacing',
     resolvedType: type, remote: false, variableCollectionId: collection.id,
@@ -36,7 +37,8 @@ function fixture({
       this.valuesByMode[modeId] = value;
     },
     async getPublishStatusAsync() {
-      if (publishFails) throw new Error('publish failed');
+      publishCalls++;
+      if (publishFails && publishCalls > 1) throw new Error('publish failed');
       return 'CURRENT';
     },
   };

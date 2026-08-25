@@ -178,6 +178,14 @@ previously empty mode is reported truthfully as partial residue rather than as
 rollback or success.
 _Avoid_: variable value eval, retryable setter, implicit ambiguity, fabricated rollback
 
+**Variable Code Syntax Mutation**:
+The bounded, non-retrying set or removal of one official platform syntax on one
+local Variable. It closes platform, value-versus-remove intent and Variable
+identity before readiness, validates full Variable Facts before and after the
+write, and restores an overwritten syntax or removes a newly added syntax when
+guarded post-write projection fails.
+_Avoid_: code-syntax eval, unknown platform, retryable setter, unverified metadata write
+
 **Collection Catalog**:
 The compact, versioned and bounded inventory of local Variable Collection
 identities. It preserves collection id, publish key, name, extension and

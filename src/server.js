@@ -126,6 +126,10 @@ import {
   variableSetValuePlanRoute,
 } from "../engine/src/application/variable-set-value-command.js";
 import {
+  executeVariableCodeSyntaxPlan,
+  variableCodeSyntaxPlanRoute,
+} from "../engine/src/application/variable-code-syntax-command.js";
+import {
   executeVariableFactsPlan,
   variableFactsPlanRoute,
 } from "../engine/src/application/variable-facts-command.js";
@@ -1965,6 +1969,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableSetValuePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableCodeSyntaxRoute = variableCodeSyntaxPlanRoute(plan);
+      if (variableCodeSyntaxRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableCodeSyntaxPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

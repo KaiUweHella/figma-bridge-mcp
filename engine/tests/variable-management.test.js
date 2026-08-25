@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { variableFactsCode } from '../src/application/variable-facts-command.js';
 import {
-  collectionExtendCode, collectionModeCode, collectionUpdateCode, parseBoolean, parseCodePlatform,
-  parseScopes, variableCodeSyntaxCode, variableSetValueCode,
+  collectionExtendCode, collectionModeCode, collectionUpdateCode, parseBoolean,
+  parseScopes,
   variableUpdateCode,
 } from '../src/lib/variable-management.js';
 
@@ -44,7 +44,6 @@ function fixture(type = 'FLOAT') {
 
 test('variable metadata parsers are strict and match current plugin typings', () => {
   assert.equal(parseBoolean('false'), false);
-  assert.equal(parseCodePlatform('ios'), 'iOS');
   assert.deepEqual(parseScopes('font_size, line_height'), ['FONT_SIZE', 'LINE_HEIGHT']);
   assert.throws(() => parseScopes('made_up'), /Unknown variable scopes/);
 });
@@ -73,21 +72,10 @@ test('variable show and update expose metadata, modes, values, scopes, and publi
   assert.deepEqual(updated.scopes, ['GAP']);
 });
 
-test('variable values parse by resolved type and aliases use createVariableAlias', async () => {
-  const { variable, figma } = fixture();
-  const result = await execute(variableSetValueCode({ variable: 'V:1', mode: 'Light', value: '12' }), figma);
-  assert.equal(result.value, 12);
-  await execute(variableSetValueCode({ variable: 'V:1', mode: 'M:1', alias: 'V:1' }), figma);
-  assert.deepEqual(variable.valuesByMode['M:1'], { type: 'VARIABLE_ALIAS', id: 'V:1' });
-});
-
-test('code syntax, collection metadata, and modes stay plugin-first', async () => {
-  const { collection, variable, figma } = fixture();
-  const syntax = await execute(variableCodeSyntaxCode({ variable: 'V:1', platform: 'web', value: 'var(--space-md)' }), figma);
-  assert.equal(syntax.codeSyntax.WEB, 'var(--space-md)');
+test('collection metadata and modes stay plugin-first', async () => {
+  const { collection, figma } = fixture();
   await execute(collectionUpdateCode({ collection: 'Primitives', name: 'Core', hidden: true }), figma);
   assert.equal(collection.name, 'Core');
   const withMode = await execute(collectionModeCode({ collection: 'C:1', action: 'add', name: 'Dark' }), figma);
   assert.equal(withMode.modes.at(-1).name, 'Dark');
-  assert.equal(variable.codeSyntax.WEB, 'var(--space-md)');
 });
