@@ -232,6 +232,25 @@ test('Token Presets close policy-identical non-retrying journaled scale writes',
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Token Add closes one policy-identical non-retrying journaled write', () => {
+  const cli = planFigmaCommand([
+    'tokens', 'add', '-cFoundation', '-tFLOAT', '--allow-duplicate', '--', '-space/md', '-4',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'tokens', 'add', '--collection=Foundation', '--type=FLOAT', '--allow-duplicate',
+    '--', '-space/md', '-4',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'tokens.add');
+  for (const argv of [
+    ['tokens', 'add', 'name'], ['tokens', 'add', 'name', 'value', 'extra'],
+    ['tokens', 'add', '--collection'], ['tokens', 'add', '-cOne', '-cTwo', 'name', 'value'],
+    ['tokens', 'add', '--future', 'private-value', 'name', 'value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
   const cli = planFigmaCommand([
     'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',

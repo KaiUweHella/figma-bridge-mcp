@@ -60,6 +60,10 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   ]),
   'tokens.spacing': optionSchema([valueOption('-c', '--collection')]),
   'tokens.radii': optionSchema([valueOption('-c', '--collection')]),
+  'tokens.add': optionSchema([
+    valueOption('-c', '--collection'), valueOption('-t', '--type'),
+    flagOption('--allow-duplicate'),
+  ]),
   'tokens.import': optionSchema([
     valueOption('-c', '--collection'), flagOption('--force-slash'),
   ]),

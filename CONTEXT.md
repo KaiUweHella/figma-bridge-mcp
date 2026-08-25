@@ -200,6 +200,16 @@ or scopes remain unchanged and are reported explicitly. These two utility scales
 a default Tailwind, brand or third-party design system.
 _Avoid_: preset eval, first mode, global Variable scan, cross-Collection name skip, overwrite existing token, branded default
 
+**Single Token Creation**:
+The bounded, non-retrying creation of one typed token Variable in one exact
+local Collection, creating and journaling that Collection when absent. Type
+inference remains a closed host concern; the Plugin uses the declared default
+mode, applies only safe semantic scopes, freshly verifies the native value and
+removes every command-created resource after later failure. Exact duplicate
+names require explicit intent, while ambiguous scopes remain unrestricted and
+surface a human decision instead of a guess.
+_Avoid_: token-name eval, implicit duplicate, first mode, global Variable scan, guessed narrow scope, unverified setter
+
 **Variable Mode Value Mutation**:
 The bounded, non-retrying update of one explicit mode value on one local
 Variable. It closes literal-versus-alias intent before readiness, resolves

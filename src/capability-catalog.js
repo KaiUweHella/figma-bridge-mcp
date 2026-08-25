@@ -142,6 +142,11 @@ import {
   tokenPresetArgvFromRequest,
 } from '../engine/src/application/token-preset-request.js';
 import {
+  acceptsTokenAddArgv,
+  parseTokenAddRequest,
+  tokenAddArgvFromRequest,
+} from '../engine/src/application/token-add-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -355,6 +360,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.visualize',
   'tokens.spacing',
   'tokens.radii',
+  'tokens.add',
   'var.set-value',
   'var.code-syntax',
   'var.update',
@@ -525,6 +531,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'tokens' && ['spacing', 'radii'].includes(sub)) {
     pathPolicy = 'token-preset-input';
   }
+  if (name === 'tokens' && sub === 'add') pathPolicy = 'token-add-input';
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
@@ -669,6 +676,10 @@ function commandCapability(args) {
   }
   if (name === 'tokens' && ['spacing', 'radii'].includes(args[1])
     && !action.help && !acceptsTokenPresetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'tokens' && args[1] === 'add'
+    && !action.help && !acceptsTokenAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'set-value'
@@ -1354,6 +1365,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'token-preset-input': {
       args.splice(0, args.length,
         ...tokenPresetArgvFromRequest(parseTokenPresetRequest(args)));
+      break;
+    }
+    case 'token-add-input': {
+      args.splice(0, args.length,
+        ...tokenAddArgvFromRequest(parseTokenAddRequest(args)));
       break;
     }
     case 'variable-set-value-input': {

@@ -41,6 +41,10 @@ import {
   tokenPresetPlanningArgvFromRequest,
 } from '../application/token-preset-command.js';
 import {
+  executeTokenAddPlan,
+  tokenAddPlanningArgvFromRequest,
+} from '../application/token-add-command.js';
+import {
   progress,
   program,
   checkConnection,
@@ -64,7 +68,6 @@ import {
   hexToFigmaRgb,
 } from '../lib/token-sync.js';
 import { normalizeNodeId } from '../lib/node-id.js';
-import { parseVariableLiteral, parseVariableType } from '../lib/variable-management.js';
 import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 
@@ -1033,41 +1036,28 @@ tokens
   .description('Add a single token')
   .option('-c, --collection <name>', 'Collection name', 'Tokens')
   .option('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN, EASING, TIMING (auto-detected if not set)')
+  .option('--allow-duplicate', 'Intentionally allow an exact duplicate name in the Collection')
+  .allowExcessArguments(false)
   .action(async (name, value, options) => {
-    let type;
-    if (options.type) type = parseVariableType(options.type);
-    else if (value.startsWith('#')) type = 'COLOR';
-    else if (!Number.isNaN(Number(value))) type = 'FLOAT';
-    else if (/^(true|false)$/i.test(value)) type = 'BOOLEAN';
-    else type = 'STRING';
-    const parsedValue = parseVariableLiteral(value, type);
-    await checkConnection();
-
-    const code = `(async () => {
-${variableScopePolicyCode()}
-const value = ${JSON.stringify(parsedValue)};
-const type = ${JSON.stringify(type)};
-
-const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === ${JSON.stringify(options.collection)});
-if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(options.collection)});
-const modeId = col.modes[0].modeId;
-
-const v = figma.variables.createVariable(${JSON.stringify(name)}, col, type);
-__scopeTokenVariable(v, ${JSON.stringify(name)}, type);
-const scopeQuestion = __variableScopeQuestion(${JSON.stringify(name)}, type, ${JSON.stringify(options.collection)});
-v.setValueForMode(modeId, value);
-
-return { message: 'Created ' + type.toLowerCase() + ' token: ${name}', scopeQuestions: scopeQuestion ? [scopeQuestion] : [] };
-})()`;
-
     try {
-      const result = await evalPrint(code, { silent: true });
-      const payload = parsedEvalPayload(result);
-      console.log(chalk.green(payload?.message || result?.trim() || `✓ Created token: ${name}`));
-      printVariableScopeQuestions(payload?.scopeQuestions);
+      const plan = planFigmaCommand(tokenAddPlanningArgvFromRequest({
+        name, value, collection: options.collection, type: options.type,
+        allowDuplicate: options.allowDuplicate === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenAddPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(chalk.green(result.stdout));
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
     } catch (error) {
-      console.log(chalk.red(`✗ Failed to create token: ${name}`));
+      handleEvalError(error);
       process.exitCode = 1;
     }
   });
