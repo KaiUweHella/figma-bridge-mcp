@@ -241,6 +241,7 @@
     "engine/src/lib/round-trip-fidelity-contract.js",
     "engine/src/lib/revision-context.js",
     "engine/src/lib/round-trip-planner.js",
+    "engine/src/lib/runtime-trace.js",
     "engine/src/lib/safe-read-retry.js",
     "engine/src/lib/semantic-dom-model.js",
     "engine/src/lib/semantic-render-outcome.js",

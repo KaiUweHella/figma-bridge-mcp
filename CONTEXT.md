@@ -512,6 +512,16 @@ _Avoid_: Figma undo, atomic transaction, version restore
 The closed maintainer evidence from a sustained two-file Bridge session. It records bounded latency, recovery outcomes, cross-target mismatches, uncertain-write residue and cleanup state using target aliases only; Figma file keys, document names, node names, argv and error prose never enter the report.
 _Avoid_: debug log, connection dump, live file transcript
 
+**Complete MCP Runtime Evidence**:
+The versioned maintainer measurement of one real STDIO server process and a
+representative Figma Command. It separates server startup, first and warm MCP
+calls, MCP-only work, Daemon transport, Plugin queue/execution, exact final
+envelope bytes, Audit lifecycle count and peak process RSS. Its opt-in trace is
+content-free and never changes dispatch, retry or result semantics. Compatibility
+child work remains explicitly identified until the owning Command Application
+moves in-process.
+_Avoid_: benchmark mode, production telemetry, one stopwatch, universal machine limit
+
 **MCP Server Identity**:
 The stable `figma-bridge-mcp` attribution attached to every tool result, with the `figma-bridge` namespace and a server-local failure scope. It lets agents distinguish this Bridge transport from other installed Figma MCPs; one server failure never proves Figma or another server unavailable and never authorizes switching write semantics.
 _Avoid_: tool prefix, Figma availability
@@ -733,7 +743,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 
 > **Developer:** A Figma command was slow. How do we know which Bridge layer caused it?
 >
-> **Domain expert:** Use the runtime workload evidence. It separates Command planning, Daemon preparation, write-lane wait, Plugin round trip and content-free Figma-main-thread queue/execution timing. Missing MCP, process or resource segments stay named as pending; the Bridge never disguises a partial measurement as complete end-to-end proof.
+> **Domain expert:** Use Complete MCP Runtime Evidence for process startup, MCP/Audit/confirmation, exact envelope size, RSS and the dominant end-to-end segment. Use the Command Application workload evidence for finer planning and projection facts. The live corpus repeats read, write, native render, capture and tracked background work; compatibility children remain named instead of being folded into Plugin time.
 
 > **Developer:** Can the pinned Figma typings prove that every live runtime field exists?
 >

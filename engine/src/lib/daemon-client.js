@@ -10,6 +10,12 @@ import {
   parseBridgeDaemonError,
 } from './daemon-error-envelope.js';
 import { typedReadRequestValidationError } from './typed-read-operations.js';
+import {
+  recordRuntimeTrace,
+  runtimeDuration,
+  runtimeNow,
+  runtimeTraceEnabled,
+} from './runtime-trace.js';
 
 export class DaemonClientError extends Error {
   constructor(message, {
@@ -173,6 +179,8 @@ export function createDaemonClient({
 
   /** @param {string} action @param {Record<string, any>} [data] @param {{timeoutMs?:number,fileKey?:string|null,expectedEditor?:'figma'|'figjam'|'slides'|'dev'}} [options] */
   async function executeWithMetadata(action, data = {}, { timeoutMs = 90000, fileKey, expectedEditor } = {}) {
+    const traceEnabled = runtimeTraceEnabled();
+    const traceStartedAt = traceEnabled ? runtimeNow() : null;
     if (!['figma', 'figjam', 'slides', 'dev'].includes(expectedEditor)) {
       throw new TypeError('Daemon Client execution requires expectedEditor from the Command Plan');
     }
@@ -187,13 +195,25 @@ export function createDaemonClient({
     payload.timeoutMs = timeoutMs;
     payload.deadlineAt = Date.now() + timeoutMs;
     const body = JSON.stringify(payload);
-    const response = await request('/exec', {
-      method: 'POST',
-      body,
-      timeoutMs,
-      headers: { 'Content-Type': 'application/json' },
-      execution: true,
-    });
+    let response;
+    try {
+      response = await request('/exec', {
+        method: 'POST',
+        body,
+        timeoutMs,
+        headers: { 'Content-Type': 'application/json' },
+        execution: true,
+      });
+    } catch (error) {
+      if (traceEnabled) {
+        recordRuntimeTrace({
+          kind: 'daemon-execution', action, ok: false,
+          elapsedMs: runtimeDuration(traceStartedAt),
+          requestBytes: Buffer.byteLength(body, 'utf8'),
+        });
+      }
+      throw error;
+    }
 
     if (!response.ok || response.data?.error || response.data?.bridgeError) {
       const raw = typeof response.data?.error === 'string'
@@ -223,10 +243,21 @@ export function createDaemonClient({
         status: response.status,
       });
     }
-    return {
+    const outcome = {
       value: response.data?.result,
       metadata: response.data?.metadata || null,
     };
+    if (traceEnabled) {
+      recordRuntimeTrace({
+        kind: 'daemon-execution', action, ok: true,
+        elapsedMs: runtimeDuration(traceStartedAt),
+        requestBytes: Buffer.byteLength(body, 'utf8'),
+        responseBytes: Buffer.byteLength(response.text || '', 'utf8'),
+        pluginExecutionTiming: outcome.metadata?.pluginExecutionTiming,
+        bridgeExecutionTiming: outcome.metadata?.bridgeExecutionTiming,
+      });
+    }
+    return outcome;
   }
 
   async function execute(action, data = {}, options = {}) {

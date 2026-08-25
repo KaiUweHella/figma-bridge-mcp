@@ -291,6 +291,12 @@ import {
 } from "../engine/src/application/verification-artifact.js";
 import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
 import { getAuditStatus } from "./audit-trail.js";
+import {
+  recordRuntimeTrace,
+  runtimeDuration,
+  runtimeNow,
+  runtimeTraceEnabled,
+} from "../engine/src/lib/runtime-trace.js";
 import { createTrackedJobRegistry } from "./tracked-job-registry.js";
 
 export const MCP_SERVER_ID = "figma-bridge-mcp";
@@ -3327,14 +3333,27 @@ async function main() {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    const traceEnabled = runtimeTraceEnabled();
+    const traceStartedAt = traceEnabled ? runtimeNow() : null;
+    let result;
     try {
-      return await handleTool(name, args);
+      result = await handleTool(name, args);
     } catch (err) {
-      return errorResult(formatPublicError(err), {
+      result = errorResult(formatPublicError(err), {
         audit: err?.audit || getAuditStatus(),
         structuredContent: err?.semanticRenderOutcome,
       });
     }
+    if (traceEnabled) {
+      recordRuntimeTrace({
+        kind: "mcp-tool",
+        toolName: name,
+        ok: result?.isError !== true,
+        elapsedMs: runtimeDuration(traceStartedAt),
+        envelopeBytes: Buffer.byteLength(JSON.stringify(result), "utf8"),
+      });
+    }
+    return result;
   });
 
   const transport = new StdioServerTransport();
