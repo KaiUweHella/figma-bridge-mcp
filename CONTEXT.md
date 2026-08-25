@@ -210,6 +210,15 @@ names require explicit intent, while ambiguous scopes remain unrestricted and
 surface a human decision instead of a guess.
 _Avoid_: token-name eval, implicit duplicate, first mode, global Variable scan, guessed narrow scope, unverified setter
 
+**Token Overlap Facts**:
+The bounded, deterministic comparison of exact local Collection memberships for
+theme-switch compatibility. It resolves every requested Collection before one
+coherent targeted read, treats duplicate Variable names as ambiguity, and
+projects common, unique and missing names with explicit completeness facts.
+Request order remains output order; ambiguity, missing Collections and repeated
+resolved identity fail the whole read rather than producing a partial answer.
+_Avoid_: first partial Collection match, global Variable scan, duplicate-name collapse, unbounded missing-name matrix, silent truncation
+
 **Variable Mode Value Mutation**:
 The bounded, non-retrying update of one explicit mode value on one local
 Variable. It closes literal-versus-alias intent before readiness, resolves

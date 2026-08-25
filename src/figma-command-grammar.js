@@ -64,6 +64,9 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
     valueOption('-c', '--collection'), valueOption('-t', '--type'),
     flagOption('--allow-duplicate'),
   ]),
+  'tokens.overlap': optionSchema([
+    valueOption('-l', '--limit'), flagOption('--json'),
+  ]),
   'tokens.import': optionSchema([
     valueOption('-c', '--collection'), flagOption('--force-slash'),
   ]),

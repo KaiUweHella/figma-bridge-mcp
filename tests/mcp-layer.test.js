@@ -565,6 +565,32 @@ test('figma_run confirms Token Add and rejects malformed input before readiness'
   }
 });
 
+test('figma_run routes Token Overlap through its shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const tokenOverlapRoute = tokenOverlapPlanRoute(plan)');
+  const end = source.indexOf('const variableCreateRoute = variableCreatePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeTokenOverlapPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run executes Token Overlap without confirmation and rejects malformed input', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['tokens', 'overlap', 'One'], ['tokens', 'overlap', 'One', 'one'],
+    ['tokens', 'overlap', '--limit', 'One', 'Two'],
+    ['tokens', 'overlap', '--future', 'private-value', 'One', 'Two'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Variable Set Value through its shared rollback-owned Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const variableSetValueRoute = variableSetValuePlanRoute(plan)');

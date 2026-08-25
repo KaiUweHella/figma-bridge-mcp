@@ -251,6 +251,25 @@ test('Token Add closes one policy-identical non-retrying journaled write', () =>
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Token Overlap closes one long policy-identical bounded safe read', () => {
+  const cli = planFigmaCommand(['tokens', 'overlap', '--json', '-l25', 'Alpha', 'Beta'], {
+    adapter: 'cli',
+  });
+  const mcp = planFigmaCommand([
+    'tokens', 'overlap', '--limit=25', '--json', '--', 'Alpha', 'Beta',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'read'); assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.execution.timeout, 'long'); assert.equal(cli.confirmation, 'none');
+  assert.equal(cli.audit.capability, 'tokens.overlap');
+  for (const argv of [
+    ['tokens', 'overlap', 'One'], ['tokens', 'overlap', 'One', 'one'],
+    ['tokens', 'overlap', '--limit', 'One', 'Two'],
+    ['tokens', 'overlap', '--future', 'private-value', 'One', 'Two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Set Value closes one policy-identical non-retrying rollback-owned write', () => {
   const cli = planFigmaCommand([
     'var', 'set-value', '-mMode 1', '-cTokens', 'space/md', '20',

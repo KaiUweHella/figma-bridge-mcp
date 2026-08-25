@@ -821,6 +821,23 @@ test('tokens add delegates one Plan-bound journaled Token Add Application', () =
     'Commander must not retain Token Add readiness, inference, factories, scope, or formatting logic');
 });
 
+test('tokens overlap delegates one Plan-bound bounded-read Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf(".command('overlap <collections...>')");
+  const end = adapter.indexOf(".command('import-design-md <file>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /tokenOverlapPlanningArgvFromRequest/);
+  assert.match(action, /--limit <count>/); assert.match(action, /--json/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeTokenOverlapPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/); assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|getLocalVariablesAsync|new Set\(|commonCore|missing_here|only_here/,
+    'Commander must not retain Token Overlap readiness, resolution, set arithmetic, or formatting');
+});
+
 test('var resolve delegates one target-bound Variable Resolution Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');

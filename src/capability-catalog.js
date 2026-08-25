@@ -147,6 +147,11 @@ import {
   tokenAddArgvFromRequest,
 } from '../engine/src/application/token-add-request.js';
 import {
+  acceptsTokenOverlapArgv,
+  parseTokenOverlapRequest,
+  tokenOverlapArgvFromRequest,
+} from '../engine/src/application/token-overlap-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -361,6 +366,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.spacing',
   'tokens.radii',
   'tokens.add',
+  'tokens.overlap',
   'var.set-value',
   'var.code-syntax',
   'var.update',
@@ -532,6 +538,11 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'token-preset-input';
   }
   if (name === 'tokens' && sub === 'add') pathPolicy = 'token-add-input';
+  if (name === 'tokens' && sub === 'overlap') {
+    retry = 'safe-read';
+    timeoutClass = 'long';
+    pathPolicy = 'token-overlap-input';
+  }
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
@@ -680,6 +691,10 @@ function commandCapability(args) {
   }
   if (name === 'tokens' && args[1] === 'add'
     && !action.help && !acceptsTokenAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'tokens' && args[1] === 'overlap'
+    && !action.help && !acceptsTokenOverlapArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'set-value'
@@ -1370,6 +1385,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'token-add-input': {
       args.splice(0, args.length,
         ...tokenAddArgvFromRequest(parseTokenAddRequest(args)));
+      break;
+    }
+    case 'token-overlap-input': {
+      args.splice(0, args.length,
+        ...tokenOverlapArgvFromRequest(parseTokenOverlapRequest(args)));
       break;
     }
     case 'variable-set-value-input': {
