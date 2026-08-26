@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import {
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -14,6 +13,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { readPackageArtifactPolicy } from "./lib/package-artifact-policy.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -36,6 +36,146 @@ function sameSortedValues(actual, expected) {
 function difference(left, right) {
   const allowed = new Set(right);
   return [...left].filter((value) => !allowed.has(value)).sort();
+}
+
+function readTarString(block, offset, length) {
+  const field = block.subarray(offset, offset + length);
+  const end = field.indexOf(0);
+  return field.subarray(0, end === -1 ? field.length : end).toString("utf8");
+}
+
+function readTarOctal(block, offset, length, label) {
+  const raw = readTarString(block, offset, length).trim();
+  if (!/^[0-7]+$/.test(raw)) {
+    throw new Error(`npm tarball has an invalid ${label} field`);
+  }
+  return Number.parseInt(raw, 8);
+}
+
+function tarHeaderChecksum(block) {
+  let checksum = 0;
+  for (let index = 0; index < block.length; index += 1) {
+    checksum += index >= 148 && index < 156 ? 0x20 : block[index];
+  }
+  return checksum;
+}
+
+function writeTarOctal(block, offset, length, value) {
+  const octal = value.toString(8);
+  if (octal.length > length - 1) {
+    throw new Error("npm tarball field exceeds the portable octal range");
+  }
+  block.write(`${octal.padStart(length - 1, "0")}\0`, offset, length, "ascii");
+}
+
+function writeTarChecksum(block) {
+  block.fill(0x20, 148, 156);
+  const checksum = tarHeaderChecksum(block);
+  block.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
+}
+
+function isZeroBlock(block) {
+  return block.every((byte) => byte === 0);
+}
+
+function assertPortablePackagePath(path) {
+  if (
+    !path.startsWith("package/") ||
+    path.includes("\\") ||
+    path
+      .slice("package/".length)
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error(`npm tarball has an unsafe package path: ${path}`);
+  }
+}
+
+export function canonicalizePackageTarball(tarball, { executables = [] } = {}) {
+  const archive = gunzipSync(tarball, { maxOutputLength: 128 * 1024 * 1024 });
+  if (archive.length % 512 !== 0) {
+    throw new Error("npm tarball payload is not block-aligned");
+  }
+
+  const approvedExecutables = new Set(executables);
+  const seenPaths = new Set();
+  const seenExecutables = new Set();
+  const rawFiles = [];
+  const files = [];
+  let offset = 0;
+  let terminated = false;
+
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    if (isZeroBlock(header)) {
+      terminated = true;
+      break;
+    }
+
+    const storedChecksum = readTarOctal(header, 148, 8, "checksum");
+    if (storedChecksum !== tarHeaderChecksum(header)) {
+      throw new Error("npm tarball has an invalid header checksum");
+    }
+
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const path = prefix ? `${prefix}/${name}` : name;
+    assertPortablePackagePath(path);
+    const relativePath = path.slice("package/".length);
+    if (seenPaths.has(relativePath)) {
+      throw new Error(`npm tarball has a duplicate path: ${relativePath}`);
+    }
+    seenPaths.add(relativePath);
+
+    const type = readTarString(header, 156, 1) || "0";
+    if (type !== "0") {
+      throw new Error(
+        `npm tarball entry is not a regular file: ${relativePath}`
+      );
+    }
+
+    const size = readTarOctal(header, 124, 12, "size");
+    const mode = readTarOctal(header, 100, 8, "mode") & 0o7777;
+    const paddedSize = Math.ceil(size / 512) * 512;
+    if (offset + 512 + paddedSize > archive.length) {
+      throw new Error(`npm tarball entry exceeds the archive: ${relativePath}`);
+    }
+
+    rawFiles.push({ path: relativePath, size, mode });
+    if ((mode & 0o022) !== 0) {
+      throw new Error(
+        `group/world-writable file in npm tarball: ${relativePath}`
+      );
+    }
+    if ((mode & 0o111) !== 0 && !approvedExecutables.has(relativePath)) {
+      throw new Error(`unreviewed executable in npm tarball: ${relativePath}`);
+    }
+
+    const canonicalMode = approvedExecutables.has(relativePath) ? 0o755 : 0o644;
+    if (approvedExecutables.has(relativePath))
+      seenExecutables.add(relativePath);
+    writeTarOctal(header, 100, 8, canonicalMode);
+    writeTarChecksum(header);
+    files.push({ path: relativePath, size, mode: canonicalMode });
+    offset += 512 + paddedSize;
+  }
+
+  if (!terminated || !isZeroBlock(archive.subarray(offset))) {
+    throw new Error("npm tarball has invalid trailing data");
+  }
+  const missingExecutables = difference(executables, seenExecutables);
+  if (missingExecutables.length) {
+    throw new Error(
+      `declared executable is missing from npm tarball: ${missingExecutables.join(", ")}`
+    );
+  }
+
+  const canonicalTarball = gzipSync(archive, { level: 9 });
+  // zlib writes a host-specific gzip OS byte (for example macOS=19 and
+  // Windows=0). It is not covered by the payload checksum, so normalize it to
+  // "unknown" and keep identical package bytes across operating systems.
+  canonicalTarball[9] = 0xff;
+  return { tarball: canonicalTarball, rawFiles, files };
 }
 
 function canonicalInventory(files) {
@@ -148,9 +288,13 @@ export function npmPackInvocation({
   execPath = process.execPath,
 } = {}) {
   if (platform !== "win32") return { command: "npm", args: [] };
-  const npmCli = npmExecPath || join(dirname(execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  const npmCli =
+    npmExecPath ||
+    join(dirname(execPath), "node_modules", "npm", "bin", "npm-cli.js");
   if (!npmExecPath && !existsSync(npmCli)) {
-    throw new Error("Cannot locate npm's JavaScript CLI for the Windows package verifier");
+    throw new Error(
+      "Cannot locate npm's JavaScript CLI for the Windows package verifier"
+    );
   }
   return { command: execPath, args: [npmCli] };
 }
@@ -165,7 +309,14 @@ function packInto(directory) {
   const npm = npmPackInvocation();
   const stdout = execFileSync(
     npm.command,
-    [...npm.args, "pack", "--json", "--ignore-scripts", "--pack-destination", directory],
+    [
+      ...npm.args,
+      "pack",
+      "--json",
+      "--ignore-scripts",
+      "--pack-destination",
+      directory,
+    ],
     {
       cwd: ROOT,
       encoding: "utf8",
@@ -179,23 +330,45 @@ function packInto(directory) {
       `npm pack returned ${Array.isArray(result) ? result.length : "an invalid number of"} artifacts`
     );
   }
-  const metadata = result[0];
-  const tarballPath = join(directory, metadata.filename);
-  const tarball = readFileSync(tarballPath);
-  const sha1 = digest("sha1", tarball);
-  const sha512 = digest("sha512", tarball, "base64");
-  if (metadata.shasum !== sha1)
+  const rawMetadata = result[0];
+  const tarballPath = join(directory, rawMetadata.filename);
+  const rawTarball = readFileSync(tarballPath);
+  const rawSha1 = digest("sha1", rawTarball);
+  const rawSha512 = digest("sha512", rawTarball, "base64");
+  if (rawMetadata.shasum !== rawSha1)
     throw new Error("npm's tarball SHA-1 does not match the packed bytes");
-  if (metadata.integrity !== `sha512-${sha512}`) {
+  if (rawMetadata.integrity !== `sha512-${rawSha512}`) {
     throw new Error(
       "npm's tarball SHA-512 integrity does not match the packed bytes"
     );
   }
+
+  const policy = readPackageArtifactPolicy({ root: ROOT });
+  const canonical = canonicalizePackageTarball(rawTarball, {
+    executables: policy.executables,
+  });
+  if (
+    canonicalInventory(rawMetadata.files || []) !==
+    canonicalInventory(canonical.rawFiles)
+  ) {
+    throw new Error("npm's JSON inventory does not match its tarball bytes");
+  }
+
+  const tarball = canonical.tarball;
+  const sha1 = digest("sha1", tarball);
+  const sha512 = digest("sha512", tarball, "base64");
+  const metadata = {
+    ...rawMetadata,
+    size: tarball.length,
+    shasum: sha1,
+    integrity: `sha512-${sha512}`,
+    files: canonical.files,
+  };
   return {
     metadata,
     tarball,
     sha256: digest("sha256", tarball),
-    inventory: verifyPackageMetadata(metadata),
+    inventory: verifyPackageMetadata(metadata, { policy }),
   };
 }
 
@@ -237,10 +410,9 @@ export function buildVerifiedPackage({ outputDir = null } = {}) {
     if (outputDir) {
       const destination = resolve(ROOT, outputDir);
       mkdirSync(destination, { recursive: true });
-      copyFileSync(
-        join(firstDir, first.metadata.filename),
-        join(destination, "package.tgz")
-      );
+      writeFileSync(join(destination, "package.tgz"), first.tarball, {
+        mode: 0o644,
+      });
       writeFileSync(
         join(destination, "integrity.json"),
         `${JSON.stringify(evidence, null, 2)}\n`,

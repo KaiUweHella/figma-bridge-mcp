@@ -305,5 +305,5 @@
     "src/server.js",
     "src/tracked-job-registry.js"
   ],
-  "executables": ["engine/src/index.js"]
+  "executables": ["engine/src/index.js", "src/server.js"]
 }

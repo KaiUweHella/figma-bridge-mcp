@@ -33,7 +33,8 @@ checkout after verification.
 
    This compares the complete packed path list with
    `release/package-artifact-policy.json`, rejects unexpected executable bits
-   and symlinks, requires two byte-identical packs, and writes
+   and symlinks, normalizes the reviewed executable modes and gzip header
+   across operating systems, requires two byte-identical packs, and writes
    `release-artifact/integrity.json` with artifact and inventory digests. A
    deliberate new runtime file must be added to the policy in the same reviewed
    change.
