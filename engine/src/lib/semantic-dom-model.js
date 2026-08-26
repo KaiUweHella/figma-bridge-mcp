@@ -549,6 +549,7 @@ export function jsxTreeToSemanticModel(rootProps, children, {
     const path = parentPath ? `${parentPath}/${name}` : name;
     const isContainer = type === 'frame' || type === 'slot';
     const flex = String(props?.flex || 'col');
+    const sourceChildren = props?._children || [];
     let layout = { kind: 'leaf' };
     if (isContainer && flex === 'grid') {
       layout = {
@@ -558,9 +559,14 @@ export function jsxTreeToSemanticModel(rootProps, children, {
         rowGap: finite(props.rowGap), columnGap: finite(props.columnGap ?? props.gap),
         autoFlow: props.gridAutoFlow || 'row',
       };
-    } else if (isContainer && ['none', 'stack', 'free'].includes(flex)) {
+    } else if (isContainer && ['none', 'stack', 'free'].includes(flex) && sourceChildren.length > 0) {
       layout = { kind: 'free', reason: 'explicit-free-layout' };
       diagnostics.classifiedFallbacks.push({ path, fact: `flex=${flex}`, fallback: 'explicit-free-layout' });
+    } else if (isContainer && ['none', 'stack', 'free'].includes(flex)) {
+      // A visual primitive with no descendants has no child layout to flatten.
+      // Keep it a leaf so the Structural Gate does not require a free-layout
+      // approval for every bar, orb, divider or decorative shape.
+      layout = { kind: 'leaf' };
     } else if (isContainer && ['row', 'col', 'column'].includes(flex)) {
       layout = { kind: 'flex', direction: flex === 'row' ? 'row' : 'column' };
     } else if (isContainer) {
@@ -601,7 +607,6 @@ export function jsxTreeToSemanticModel(rootProps, children, {
     // properties. Child order is canonical in `children`, while element type
     // is explicit metadata. Keeping `_children` here duplicated the complete
     // subtree at every level and made stable plan serialization impossible.
-    const sourceChildren = props?._children || [];
     const sourceProps = Object.fromEntries(Object.entries(props || {})
       .filter(([key]) => !['_children', '_type', '_index', '_fallbackAnnotations'].includes(key)));
     const background = jsxColorIntent(sourceProps);

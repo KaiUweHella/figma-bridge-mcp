@@ -745,7 +745,9 @@ export function designToCodePrompt(args = {}) {
           `existing stack; use exported source assets instead of UI/icon-library ` +
           `approximations. Prefer exact Design Entity and Storybook links over name-only ` +
           `matches. Read global structure, tokens and assets once, scope style ` +
-          `reads per section, and parallelize only substantial sections with disjoint ` +
+          `reads per section, keep a fact ledger for artwork, paints, effects, strokes, ` +
+          `fonts and responsive sizing, ask before changing design semantics, and ` +
+          `parallelize only substantial sections with disjoint ` +
           `files. Run the project checks and verify-build pixel comparison before ` +
           `declaring parity. Do not install Playwright solely for capture without approval.`,
       },
@@ -820,32 +822,32 @@ export function createFigmaComponentPrompt(args = {}) {
 // tests/mcp-layer.test.js. Put details into WORKFLOW_GUIDE (served via
 // figma_reference name "workflow") or into tool OUTPUTS, which are never
 // truncated this way.
-export const INSTRUCTIONS = `Server figma-bridge-mcp: its failure does not prove Figma unavailable; never switch MCPs for writes.
+export const INSTRUCTIONS = `Server figma-bridge-mcp: failure does not prove Figma unavailable; never switch MCPs for writes.
 
-Design-to-code: Figma is the spec. Never invent or drop text, assets,
+Design-to-code: Figma is the spec. Never drop text, assets,
 tokens, layout or states. Follow this order:
 1. figma_screenshot, then read the PNG as visual ground truth.
-2. Use one figma_spec call with phase "all", format "tree", depth 3-4. Copy
-   hierarchy, text, ids and exact styles; use structure for a very large frame.
+2. One figma_spec call: phase "all", format "tree", depth 3-4. Copy hierarchy,
+   text, ids and exact styles; use structure for huge frames.
 3. figma_run ["export","css","<nodeId>"] and wire up the scoped tokens/fonts.
 4. figma_run ["export","assets","<nodeId>","-o","/abs/project/src/assets"]
    for images/SVGs plus assets.json. Never substitute CSS placeholders or
    inline SVGs. If still RUNNING, poll the same call.
-5. If deeper style facts are missing, use one figma_spec nodeIds[] batch for
-   all section ids. Use depth 0 and dedup for repeats. Do not call each
-   section separately; one batch needs one manual approval.
-6. Implement every interactive state flagged by component sets.
-7. Before declaring done, run figma_run ["verify-build","/abs/project"] and
+5. Missing styles: use one figma_spec nodeIds[] batch for all section ids;
+   depth 0, dedup repeats. Do not call each section separately.
+6. Per-section fact ledger: artwork, paints/blends/effects, side strokes,
+   fonts, fill/hug. Account for each. Ask the user before changing design semantics.
+7. Implement every interactive state flagged by component sets.
+8. Before done, run figma_run ["verify-build","/abs/project"] and
    fix every missing asset/lint. Screenshot the build at the design width and
    compare it to Figma (verify-build --compare/--design).
 
-Preserve the target project's stack. Never add Tailwind, a UI kit or an icon
-library solely for this build, and never replace exported artwork with an
-approximation.
+Preserve the target stack. Never add Tailwind, a UI kit or icon library solely
+for this build; never approximate exported artwork.
 Do not finish until assets.json is covered and the visual diff is inspected.
 Never estimate values from the screenshot.
 Full guide: figma_reference {name:"workflow"}. Use fileKey with multiple open
-Figma windows. figma_run accepts --help.`;
+Figma windows.`;
 
 // Long-form workflow guide, served in
 // full through figma_reference {name:"workflow"} (tool results are not subject
@@ -869,7 +871,9 @@ specification — copy it, never interpret it. Follow these steps in order:
    Fonts: the export names each font family and where to get it (Fontshare/
    Google/Vercel/...). Load those exact families (download if freely
    available, otherwise ask the user for the files) — a system-font fallback
-   distorts metrics and does not count as done.
+   distorts metrics and does not count as done. Verify the browser's computed
+   font-family and loaded face for every source typography role; a family name
+   appearing somewhere in CSS is not evidence that the correct node uses it.
    Project contract: inspect the target repository first and keep its framework,
    styling system and conventions. Reuse an existing component only when its
    rendered design and states match. Never add Tailwind, a UI kit or an icon
@@ -900,6 +904,13 @@ specification — copy it, never interpret it. Follow these steps in order:
    W x H — these are rendered values that match the file exactly. Keep
    overlays marked "overhangs parent" even when they stick out; never
    approximate artwork with CSS.
+   Before implementation, keep a per-section fact ledger covering exported
+   artwork and decorative layers, paints/gradients, blend modes, every effect,
+   per-side strokes, typography roles and fill/hug/responsive sizing. Each
+   scoped source fact must be accounted for in the fact ledger and checked
+   against the rendered build. Do not silently normalize or improve the design:
+   ask the user before changing design semantics, such as converting plain
+   status text into a pill, tag or other component.
 6. Interactive states: the spec ends with "Component sets used on this
    screen". Add the listed SET node ids to the same nodeIds[] batch when
    possible; one bounded set read captures every variant and its exact styles.
@@ -1010,7 +1021,9 @@ tokens first, then components, then screens:
    unclassified layout fallbacks stop the render instead of silently flattening
    it. Unresolved icon roles are reported and must receive SVG or Design Entity
    mappings before acceptance. Hand-authored JSX remains the path for new
-   components that do not yet have a rendered DOM.
+   components that do not yet have a rendered DOM. Acceptance evidence for an
+   existing UI must identify the DOM-capture adapter; a hand-authored JSX
+   render cannot substitute for that provenance.
    Reviewed boundary defaults are: minmax.native-grid,
    space-around.equal-slots, border.single-paint-native, sticky.metadata-only and
    filters.layer-stack. CSS masks only proceed when a real Figma mask shape can

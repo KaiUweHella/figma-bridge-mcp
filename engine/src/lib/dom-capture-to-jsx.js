@@ -446,16 +446,25 @@ function orderedDirectContent(node, semantic) {
     return coalesceAdjacentText(explicit.map((item) => item.kind === 'text'
       ? { kind: 'text', index: item.index, value: texts[item.index] }
       : { kind: 'element', index: item.index, value: children[item.index] })
-      .filter((item) => item.value));
+      .filter(isRenderableDirectItem));
   }
   const combined = [
     ...texts.map((value, index) => ({ kind: 'text', index, value })),
     ...children.map((value, index) => ({ kind: 'element', index, value })),
   ];
   const layout = semantic?.layout;
-  if (!['flex', 'flow', 'grid'].includes(layout?.kind)) return coalesceAdjacentText(combined);
+  const renderable = combined.filter(isRenderableDirectItem);
+  if (!['flex', 'flow', 'grid'].includes(layout?.kind)) return coalesceAdjacentText(renderable);
   const axis = layout.kind === 'flex' && layout.direction === 'row' ? 'x' : 'y';
-  return coalesceAdjacentText(combined.sort((a, b) => finite(a.value.rect?.[axis]) - finite(b.value.rect?.[axis])));
+  return coalesceAdjacentText(renderable.sort((a, b) => finite(a.value.rect?.[axis]) - finite(b.value.rect?.[axis])));
+}
+
+function isRenderableDirectItem(item) {
+  if (!item?.value?.rect || item.value.rect.w <= 0 || item.value.rect.h <= 0) return false;
+  if (item.kind === 'text') return true;
+  const display = String(item.value.style?.display || '').toLowerCase();
+  const visibility = String(item.value.style?.visibility || '').toLowerCase();
+  return display !== 'none' && !['hidden', 'collapse'].includes(visibility);
 }
 
 function coalesceAdjacentText(items) {
@@ -494,6 +503,32 @@ function autoMarginSpacer(node, parentSemantic, side) {
   });
 }
 
+function autoCrossMarginWrapper(node, parentSemantic, rendered) {
+  if (!rendered || parentSemantic?.layout?.kind !== 'flex'
+    || node?.style?.position === 'absolute' || node?.style?.position === 'fixed') return rendered;
+  const direction = parentSemantic.layout.direction;
+  const leading = direction === 'column' ? 'Left' : 'Top';
+  const trailing = direction === 'column' ? 'Right' : 'Bottom';
+  const leadingAuto = String(node.authoredStyle?.[`margin${leading}`] || '').trim().toLowerCase() === 'auto';
+  const trailingAuto = String(node.authoredStyle?.[`margin${trailing}`] || '').trim().toLowerCase() === 'auto';
+  if (!leadingAuto && !trailingAuto) return rendered;
+
+  // Figma Auto Layout has no per-child equivalent for CSS cross-axis auto
+  // margins. Preserve the authored relationship with one editable, fill-sized
+  // wrapper instead of freezing the browser's measured x/y position.
+  const justify = leadingAuto && trailingAuto ? 'center' : leadingAuto ? 'end' : 'start';
+  const logicalAxis = direction === 'column' ? 'inline' : 'block';
+  const autoSide = leadingAuto ? leading : trailing;
+  const suffix = leadingAuto && trailingAuto ? 'auto' : `${autoSide.toLowerCase()}-auto`;
+  return renderElement('frame', {
+    name: `css-margin-${logicalAxis}.${suffix}`,
+    flex: direction === 'column' ? 'row' : 'col',
+    w: direction === 'column' ? 'fill' : round(node.rect.w),
+    h: direction === 'column' ? round(node.rect.h) : 'fill',
+    justify,
+  }, [rendered]);
+}
+
 function measuredFlowSpacer(size, direction, index) {
   if (!(size > 0.5)) return null;
   return renderElement('frame', {
@@ -512,7 +547,8 @@ function textSizingForContainer(text, node, semantic) {
 }
 
 function renderNode(node, parentRect, state, { root = false, suffix = '', forceLocal = null, semantic = null, parentSemantic = null, slotIndex = null } = {}) {
-  if (!node?.rect || node.rect.w <= 0 || node.rect.h <= 0 || node.style?.display === 'none') return null;
+  if (!node?.rect || node.rect.w <= 0 || node.rect.h <= 0 || node.style?.display === 'none'
+    || ['hidden', 'collapse'].includes(String(node.style?.visibility || '').toLowerCase())) return null;
   state.elementCount++;
   const local = forceLocal || {
     x: node.rect.x - parentRect.x,
@@ -663,7 +699,7 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
           parentSemantic: semantic,
           slotIndex: directIndex,
         });
-        if (rendered) layers.push(rendered);
+        if (rendered) layers.push(autoCrossMarginWrapper(item.value, semantic, rendered));
         const afterSpacer = autoMarginSpacer(item.value, semantic, semantic?.layout?.direction === 'column' ? 'Bottom' : 'Right');
         if (afterSpacer) layers.push(afterSpacer);
       }

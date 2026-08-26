@@ -28,7 +28,8 @@ contract. Preserve all three instead of drawing a flattened approximation.
 2. For an existing browser-rendered UI, use the Bridge DOM-capture workflow:
    `render --print-browser-capture`, capture at the reference viewport, then
    `render --dom-capture ... --verify`. Do not manually translate the same UI
-   into simplified JSX.
+   into simplified JSX. Acceptance evidence must identify the `dom-capture`
+   adapter; hand-authored JSX cannot substitute for that provenance.
 3. Use hand-authored Bridge JSX only for new views or components that do not yet
    have a renderable DOM source.
 4. Call `figma_reference` with `name: "workflow:code-to-figma"` once and follow
@@ -88,6 +89,8 @@ contract. Preserve all three instead of drawing a flattened approximation.
    viewport. Check fonts, images, clipping, component variants, responsive
    sizing, overlays, masks, blend modes, effects and prototype reactions
    explicitly.
+   For an existing UI, confirm the render result came from the `dom-capture`
+   adapter before interpreting the screenshot comparison.
 3. Create or repair the Design Entity link with `link set`, then record a
    visually verified baseline with `link accept --compare --max-diff`.
 4. Report the entity id, reused and created components, token bindings, checks,

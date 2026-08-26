@@ -163,6 +163,17 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Browser DOM capture now preserves cross-axis CSS auto margins with editable
+  fill-sized Auto Layout wrappers, so `margin-inline:auto` and block-axis
+  equivalents retain start/center/end relationships instead of frozen geometry.
+- Hidden or zero-sized DOM children no longer corrupt measured flow gaps, and
+  empty visual primitives remain semantic leaves instead of requiring Free
+  Layout approval. This prevents oversized Figma content bounds from a leading
+  `display:none` child while keeping bars, orbs and dividers easy to render.
+- Figma-to-code guidance now requires a per-section source-fact ledger,
+  computed typography-role verification and user approval before design
+  normalization. Existing rendered UIs require DOM-capture provenance for the
+  Code-to-Figma acceptance path.
 - `component prop list` now derives read effects, no confirmation, safe-read
   retry and Audit facts from its complete canonical action id; its nested
   mutating siblings remain non-retrying writes and unknown actions fail closed.

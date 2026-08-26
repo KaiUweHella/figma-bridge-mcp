@@ -59,6 +59,12 @@ for sections whose facts are still missing; put all known same-scope section
 reads into one `nodeIds[]` batch. If Figma changes during the task, invalidate the
 affected evidence and recapture it.
 
+Before implementation, keep a compact fact ledger per section. Account for
+every exported/decorative layer, paint or gradient, blend mode, effect,
+per-side stroke, typography role, and fill/hug/responsive relationship from
+the scoped evidence. A fact may be implemented, intentionally code-only, or an
+explicit user-approved deviation; it may never disappear silently.
+
 ## Preserve source fidelity
 
 - Reuse an existing project component only when its rendered design and states
@@ -79,6 +85,9 @@ affected evidence and recapture it.
   translate Figma navigation, overlays or back actions blindly into app routes.
 - Preserve fill, hug, grid, and responsive relationships. Do not turn the whole
   design into a fixed-size canvas merely to match one screenshot.
+- Do not silently normalize or improve the design. If implementation would
+  change semantics or presentation — for example plain status text becoming a
+  pill/tag — show the inconsistency and ask the user before changing it.
 
 ## Parallelize only independent sections
 
@@ -111,10 +120,15 @@ workers duplicate project context even when their Figma reads are disjoint.
 3. Capture the running build at the design width and full rendered height with
    an already available browser tool or project test harness. Wait for fonts,
    images, and stable animation state.
+   Verify the computed `font-family` and loaded face for every typography role
+   in the fact ledger. A font name elsewhere in CSS does not prove that the
+   correct element uses it; if a required face is unavailable, ask the user for
+   the font or permission to continue with a named fallback.
 4. Do not install Playwright or another browser dependency solely to capture the
    screenshot. Use it when it is already available; otherwise request approval
    before adding or downloading a standalone browser tool.
 5. Run `verify-build --compare`, inspect the generated diff image and worst
    regions, and iterate until the agreed pixel threshold passes.
 6. Report the final diff, asset coverage, checks run, and any explicit deviation.
-   Do not declare parity without the visual comparison.
+   Do not declare parity without the visual comparison or with an unaccounted
+   fact-ledger entry.

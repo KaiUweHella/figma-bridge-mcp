@@ -132,6 +132,95 @@ describe('DOM capture to Figma JSX', () => {
     assert.match(icons['dom-svg-1'], /#7657e8/);
     assert.equal(diagnostics.pseudos, 1);
     assert.match(jsx, /<Text[^>]+w="34"[^>]*>TEAM<\/Text>/);
+
+    const { renderPlan } = domCaptureToRenderPlan(capture);
+    const orb = renderPlan.root.children.find((node) => node.name === 'orb.orb-two');
+    assert.equal(orb.layout.kind, 'leaf', 'empty visual primitives are leaves, not free-layout containers');
+  });
+
+  it('preserves main-axis and cross-axis auto margins as editable Auto Layout structure', () => {
+    const marginCapture = {
+      version: 2,
+      root: {
+        tag: 'section', classes: 'card', rect: { x: 0, y: 0, w: 400, h: 300 },
+        style: style({
+          display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+          backgroundColor: 'rgb(255, 255, 255)',
+        }),
+        authoredStyle: { display: 'flex', flexDirection: 'column' },
+        texts: [], contentOrder: [
+          { kind: 'element', index: 0 },
+          { kind: 'element', index: 1 },
+          { kind: 'element', index: 2 },
+        ], before: null, after: null,
+        children: [
+          {
+            tag: 'header', classes: 'header', rect: { x: 0, y: 0, w: 400, h: 40 },
+            style: style({ display: 'flex', flexDirection: 'row' }),
+            authoredStyle: { display: 'flex' }, texts: [], contentOrder: [],
+            before: null, after: null, children: [],
+          },
+          {
+            tag: 'div', classes: 'confidence-orbit', rect: { x: 140, y: 40, w: 120, h: 120 },
+            style: style({ backgroundColor: 'rgb(237, 255, 200)', borderTopLeftRadius: '60px', borderTopRightRadius: '60px', borderBottomRightRadius: '60px', borderBottomLeftRadius: '60px' }),
+            authoredStyle: { marginLeft: 'auto', marginRight: 'auto', width: '120px', height: '120px' },
+            texts: [], contentOrder: [], before: null, after: null, children: [],
+          },
+          {
+            tag: 'div', classes: 'mini-bars', rect: { x: 0, y: 269, w: 400, h: 31 },
+            style: style({ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }),
+            authoredStyle: { display: 'grid', marginTop: 'auto', height: '31px' },
+            texts: [], contentOrder: [], before: null, after: null, children: [],
+          },
+        ],
+      },
+    };
+
+    const { jsx } = domCaptureToJsx(marginCapture);
+    assert.match(jsx, /name="css-margin-inline\.auto"[^>]+flex="row"[^>]+w="fill"[^>]+h="120"[^>]+justify="center"/);
+    assert.match(jsx, /name="css-margin-inline\.auto"[^>]*>[^]*name="confidence-orbit"[^>]+w="120"[^>]+h="120"/);
+    assert.match(jsx, /name="css-margin-top\.auto"[^>]+grow="1"/);
+
+    marginCapture.root.children[1].authoredStyle = { marginLeft: 'auto', width: '120px', height: '120px' };
+    const { jsx: leadingOnly } = domCaptureToJsx(marginCapture);
+    assert.match(leadingOnly, /name="css-margin-inline\.left-auto"[^>]+justify="end"/);
+
+    marginCapture.root.children[1].authoredStyle = { marginRight: 'auto', width: '120px', height: '120px' };
+    const { jsx: trailingOnly } = domCaptureToJsx(marginCapture);
+    assert.match(trailingOnly, /name="css-margin-inline\.right-auto"[^>]+justify="start"/);
+  });
+
+  it('excludes a hidden leading child from measured flow-gap geometry', () => {
+    const hiddenCapture = {
+      version: 2,
+      root: {
+        tag: 'div', classes: 'confidence-orbit', rect: { x: 1170, y: 2761, w: 120, h: 120 },
+        style: style({ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }),
+        authoredStyle: { display: 'flex', flexDirection: 'column' },
+        texts: [], contentOrder: [
+          { kind: 'element', index: 0 },
+          { kind: 'element', index: 1 },
+        ], before: null, after: null,
+        children: [
+          {
+            tag: 'i', classes: '', rect: { x: 0, y: 0, w: 0, h: 0 },
+            style: style({ display: 'none' }), authoredStyle: { display: 'none' },
+            texts: [], contentOrder: [], before: null, after: null, children: [],
+          },
+          {
+            tag: 'b', classes: '', rect: { x: 1207, y: 2802, w: 46, h: 27 },
+            style: style({ display: 'block', fontSize: '23px' }), authoredStyle: {},
+            texts: [{ text: '94%', rect: { x: 1207, y: 2802, w: 46, h: 27 }, style: style({ fontSize: '23px' }) }],
+            contentOrder: [{ kind: 'text', index: 0 }], before: null, after: null, children: [],
+          },
+        ],
+      },
+    };
+
+    const { jsx } = domCaptureToJsx(hiddenCapture);
+    assert.doesNotMatch(jsx, /css-flow-gap[^>]+h="(?:2[0-9]{3}|[3-9][0-9]{3,})/);
+    assert.doesNotMatch(jsx, /name="i"/);
+    assert.match(jsx, /name="b"/);
   });
 
   it('keeps a static pseudo-element in Flex flow and preserves its ring shadow', () => {

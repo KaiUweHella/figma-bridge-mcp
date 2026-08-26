@@ -1941,6 +1941,8 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   assert.match(INSTRUCTIONS, /verify-build/);
   assert.match(INSTRUCTIONS, /Do not finish|before declaring done/i);
   assert.match(INSTRUCTIONS, /Never add Tailwind/);
+  assert.match(INSTRUCTIONS, /fact ledger/i);
+  assert.match(INSTRUCTIONS, /ask the user\s+before changing design semantics/i);
   assert.match(INSTRUCTIONS, /figma_reference \{name:"workflow"\}/);
   assert.match(WORKFLOW_GUIDE, /never border-image/);
   assert.match(WORKFLOW_GUIDE, /verify-build/);
@@ -1949,10 +1951,14 @@ test('MCP handshake keeps the complete fidelity path in the initial context', as
   assert.match(WORKFLOW_GUIDE, /Workers must not repeat global Figma reads/);
   assert.match(WORKFLOW_GUIDE, /Prototype reaction:/);
   assert.match(WORKFLOW_GUIDE, /corner\s+smoothing/);
+  assert.match(WORKFLOW_GUIDE, /computed\s+font-family and loaded face/i);
+  assert.match(WORKFLOW_GUIDE, /accounted for in the fact ledger/i);
+  assert.match(WORKFLOW_GUIDE, /ask the user before changing design semantics/i);
   assert.ok(workflowGuideFor('workflow:design-to-code').length < WORKFLOW_GUIDE.length);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /Code-to-Figma workflow/);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /SCOPE DECISION REQUIRED/);
   assert.match(workflowGuideFor('workflow:code-to-figma'), /prototype","inspect/);
+  assert.match(workflowGuideFor('workflow:code-to-figma'), /DOM-capture adapter/i);
   assert.match(VARIABLE_SCOPE_GUIDE, /COLOR: ALL_SCOPES, ALL_FILLS/);
   assert.match(VARIABLE_SCOPE_GUIDE, /FLOAT: ALL_SCOPES, CORNER_RADIUS, WIDTH_HEIGHT, GAP/);
   assert.match(VARIABLE_SCOPE_GUIDE, /Ask whether it should/);
