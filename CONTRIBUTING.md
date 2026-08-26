@@ -94,16 +94,24 @@ a real Figma Desktop and say so in the PR — what you ran and what you saw.
 
 ## Attribution
 
-`engine/` began as a fork of figma-ds-cli v2.1.0 (MIT, © Sil Bormüller). Four
-files are still byte-identical to upstream; the rest has been rewritten. Two
-things must stay regardless of how far the fork travels:
+`engine/` began as a fork of figma-ds-cli v2.1.0 (MIT, © Sil Bormüller). Its
+remaining explicitly derived source files have diverged; the provenance
+manifest owns their exact upstream and local hashes.
+
+Attribution inventory: 3 retained modified-derived source files, 0 byte-identical source files, and 1 verbatim upstream license file.
+
+Three things must stay regardless of how far the fork travels:
 
 - `engine/LICENSE` — the upstream MIT text, verbatim.
 - `NOTICE` — what was derived and what changed. If you delete or rewrite a
   file that `NOTICE` names, update `NOTICE` in the same commit.
+- `UPSTREAM_PROVENANCE.json` — exact upstream revision, retained paths, and
+  hashes. Update the local hash when a retained derived file changes; change
+  lineage fields only after a deliberate attribution review.
 
-`tests/packaging.test.js` asserts both ship in the npm tarball. That test is
-the guard; do not relax it.
+`tests/packaging.test.js` asserts all three ship in the npm tarball, while
+`tests/upstream-provenance.test.js` validates the revision, inventory text and
+local hashes offline. Those tests are the guard; do not relax them.
 
 Third-party material embedded in source (currently Feather icon paths in
 `engine/src/lib/builtin-icons.js`) belongs in `NOTICE` too — add it when you

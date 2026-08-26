@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "upstreams": [
+    {
+      "id": "silships/figma-cli",
+      "role": "engine-origin",
+      "repository": "https://github.com/silships/figma-cli",
+      "version": "2.1.0",
+      "tag": "v2.1.0",
+      "tagObject": "6ccbee66012764502ef513ed3e44e182052b3368",
+      "revision": "e69cba0dae4478e844516e84ba13e838f6616b6b",
+      "sourceTree": "https://github.com/silships/figma-cli/tree/e69cba0dae4478e844516e84ba13e838f6616b6b",
+      "license": {
+        "spdx": "MIT",
+        "localPath": "engine/LICENSE",
+        "upstreamPath": "LICENSE",
+        "relationship": "byte-identical-license",
+        "upstreamSha256": "b2e6e28b7a55220865242f9bdf6904e01abe6173327e57159c4148bc11cf1b93",
+        "localSha256": "b2e6e28b7a55220865242f9bdf6904e01abe6173327e57159c4148bc11cf1b93"
+      },
+      "retainedDerivedFiles": [
+        {
+          "localPath": "engine/src/code-import/css.js",
+          "upstreamPath": "src/code-import/css.js",
+          "relationship": "modified-derived",
+          "upstreamSha256": "10da7f650ce64bb37e1dfe353bf824b667cdd3e43892b9b12eb4fb703bf086ba",
+          "localSha256": "256a947b8bbab1e853131fc420c1c97d4b41ebad9cd36b4070baa52881c02e5e"
+        },
+        {
+          "localPath": "engine/src/code-import/w3c-tokens.js",
+          "upstreamPath": "src/code-import/w3c-tokens.js",
+          "relationship": "modified-derived",
+          "upstreamSha256": "213c921b334a27d6707e16bad37eae2c2d871ef706b64f08fab440f8733a3b5a",
+          "localSha256": "72dd207f9d5f0f50bf13714a7caed77feb6d8ce825877f662b4e8ad9da56d03d"
+        },
+        {
+          "localPath": "engine/src/lib/design-md-locate.js",
+          "upstreamPath": "src/lib/design-md-locate.js",
+          "relationship": "modified-derived",
+          "upstreamSha256": "3a79eace799921ae0d0ef7a602b93c789f807dd43c65389e2caf8287f1256148",
+          "localSha256": "5137bb3f095569e90676b463f61c37e31100503c0a58b36d6e6731460e49e71c"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "retainedModifiedDerivedSourceFiles": 3,
+    "byteIdenticalSourceFiles": 0,
+    "verbatimUpstreamLicenseFiles": 1
+  }
+}

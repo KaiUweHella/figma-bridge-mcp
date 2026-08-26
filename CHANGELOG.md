@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Added a published, machine-verifiable upstream provenance manifest for the
+  original figma-cli v2.1.0 engine lineage. Offline release tests pin the exact
+  tag object and commit, validate every retained modified-derived source hash,
+  keep README/NOTICE/contributor attribution counts synchronized, and confirm
+  the unchanged upstream MIT license ships with the npm artifact.
 - Added an append-only Plugin compatibility fingerprint covering the shipped
   Plugin, UI, protocol and generated runtimes. CI and prepublish now reject
   behavior changes unless the daemon build and UI handshake versions advance

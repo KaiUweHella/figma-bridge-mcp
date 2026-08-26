@@ -10,6 +10,7 @@
     "NOTICE",
     "README.md",
     "SECURITY.md",
+    "UPSTREAM_PROVENANCE.json",
     "engine/LICENSE",
     "engine/package.json",
     "engine/src/api-docs.js",

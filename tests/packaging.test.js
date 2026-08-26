@@ -19,7 +19,7 @@ test("package.json files covers every runtime directory", () => {
     "src", "engine/src", "engine/package.json", "plugin", "NOTICE", "engine/LICENSE",
     // Shipped deliberately: the npm page is where most people decide whether to
     // trust an MCP server with write access to their design file.
-    "SECURITY.md", "CHANGELOG.md", "README.md", "LICENSE",
+    "SECURITY.md", "CHANGELOG.md", "README.md", "LICENSE", "UPSTREAM_PROVENANCE.json",
   ]) {
     assert.ok(
       pkg.files.includes(required),

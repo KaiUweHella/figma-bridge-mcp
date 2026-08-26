@@ -1786,9 +1786,14 @@ Two projects shaped this one, in different ways.
 the `engine/` directory comes from: it was vendored at v2.1.0 in July 2026 and
 has diverged since — the CDP transport and the binary-patching installer are
 gone, the plugin socket is authenticated, and most of what the engine does now
-was written here. Four files remain byte-identical to upstream. The upstream
-MIT license is retained in full at [`engine/LICENSE`](engine/LICENSE), and
-[`NOTICE`](NOTICE) records what changed.
+was written here. The remaining explicitly derived source files have all
+diverged from their upstream bytes. The upstream MIT license is retained in
+full at [`engine/LICENSE`](engine/LICENSE), and [`NOTICE`](NOTICE) records what
+changed.
+
+Attribution inventory: 3 retained modified-derived source files, 0 byte-identical source files, and 1 verbatim upstream license file.
+The exact revision, paths, and reference hashes are machine-verifiable in
+[`UPSTREAM_PROVENANCE.json`](UPSTREAM_PROVENANCE.json).
 
 [**figma-console-mcp**](https://github.com/southleft/figma-console-mcp)
 contributed an idea rather than code: that a Figma bridge can be genuinely
