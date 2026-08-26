@@ -1,5 +1,9 @@
+# Source inspections, provenance hashes, and release artifacts must see the
+# same bytes on every runner. Binary files remain untouched by `text=auto`.
+* text=auto eol=lf
+
 # The shipped Figma Plugin contains a generated runtime copied from the
-# canonical ESM module. Fixed line endings keep the artifact byte-deterministic
-# across Windows, macOS, and Linux checkouts.
+# canonical ESM module. Keep the two generated counterparts explicit as
+# documentation of their byte-for-byte release contract.
 plugin/code.js text eol=lf
 engine/src/lib/structured-render-executor.js text eol=lf

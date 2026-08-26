@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { locateDesignMd } from '../src/lib/design-md-locate.js';
@@ -20,8 +20,8 @@ test('locateDesignMd prefers a file containing a Components section', () => {
   const cwd = process.cwd();
   process.chdir(dir);
   try {
-    // process.cwd() resolves macOS /var → /private/var symlinks, matching what
-    // the scanner returns; derive the expected path from it, not from `good`.
-    assert.equal(locateDesignMd(), join(process.cwd(), 'DESIGN.md'));
+    // Resolve both macOS /var aliases and Windows 8.3 path aliases before
+    // comparing with the scanner's canonical result.
+    assert.equal(locateDesignMd(), realpathSync.native(join(process.cwd(), 'DESIGN.md')));
   } finally { process.chdir(cwd); }
 });

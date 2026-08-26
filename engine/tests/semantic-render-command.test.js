@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   executeCompoundSemanticRenderPlan,
@@ -334,7 +334,7 @@ test('compound assets and verification are explicit Command Plan effects', (t) =
     figma: 'write', workspace: 'read', network: 'read', shared: 'write',
   });
   assert.equal(mcp.outputs.length, 2);
-  assert.deepEqual(mcp.outputs.map((output) => output.path.split('/').at(-1)), [
+  assert.deepEqual(mcp.outputs.map((output) => basename(output.path)), [
     'root-001.png', 'root-002.png',
   ]);
   assert.ok(mcp.outputs.every((output) => output.scope === 'private-temporary'));

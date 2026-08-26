@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   runtimeSoakErrorFacts,
 } from "../scripts/lib/runtime-soak-harness.js";
 import { writeRuntimeSoakReport } from "../scripts/runtime-soak.js";
+import { assertPosixMode } from "../test-support/posix-permissions.js";
 
 function transient(kind = "plugin-unavailable") {
   return Object.assign(
@@ -295,7 +296,7 @@ test("Runtime Soak reports are new private workspace files", () => {
   const reportPath = join(root, "docs-local", "evidence", "runtime-soak.json");
   const report = { schema: RUNTIME_SOAK_REPORT_SCHEMA, status: "passed" };
   writeRuntimeSoakReport(report, reportPath, { root });
-  assert.equal(statSync(reportPath).mode & 0o777, 0o600);
+  assertPosixMode(reportPath, 0o600);
   assert.deepEqual(JSON.parse(readFileSync(reportPath, "utf8")), report);
   assert.throws(
     () => writeRuntimeSoakReport(report, reportPath, { root }),

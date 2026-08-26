@@ -7,7 +7,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -17,6 +16,7 @@ import {
   AUDIT_SCHEMA_VERSION,
   createAuditTrail,
 } from "../src/audit-trail.js";
+import { assertPosixMode } from "../test-support/posix-permissions.js";
 
 function records(file) {
   return readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
@@ -57,8 +57,8 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
   });
 
   assert.deepEqual(status, { status: "healthy" });
-  assert.equal(statSync(directory).mode & 0o777, 0o700);
-  assert.equal(statSync(auditPath).mode & 0o777, 0o600);
+  assertPosixMode(directory, 0o700);
+  assertPosixMode(auditPath, 0o600);
 
   const content = readFileSync(auditPath, "utf8");
   for (const raw of [
@@ -118,7 +118,7 @@ test("Audit Trail failure is explicit and non-blocking, then clears after recove
   const recovered = trail.begin({ capability: "inspect", operation: "read" });
   assert.deepEqual(trail.finish(recovered, { ok: true }), { status: "healthy" });
   assert.deepEqual(trail.status(), { status: "healthy" });
-  assert.equal(statSync(blocker).mode & 0o777, 0o700);
+  assertPosixMode(blocker, 0o700);
 });
 
 test("Audit Trail keeps one bounded private rotation", () => {
@@ -137,16 +137,16 @@ test("Audit Trail keeps one bounded private rotation", () => {
   assert.equal(existsSync(`${auditPath}.1`), true);
   assert.equal(lstatSync(auditPath).isFile(), true);
   assert.equal(lstatSync(`${auditPath}.1`).isFile(), true);
-  assert.equal(statSync(auditPath).mode & 0o777, 0o600);
-  assert.equal(statSync(`${auditPath}.1`).mode & 0o777, 0o600);
+  assertPosixMode(auditPath, 0o600);
+  assertPosixMode(`${auditPath}.1`, 0o600);
 
   // Correct deliberately broad pre-existing active and rotated permissions.
   chmodSync(auditPath, 0o666);
   chmodSync(`${auditPath}.1`, 0o666);
   const final = trail.begin({ capability: "inspect", operation: "read" });
   trail.finish(final, { ok: true });
-  assert.equal(statSync(auditPath).mode & 0o777, 0o600);
-  assert.equal(statSync(`${auditPath}.1`).mode & 0o777, 0o600);
+  assertPosixMode(auditPath, 0o600);
+  assertPosixMode(`${auditPath}.1`, 0o600);
 });
 
 test("Audit Trail retains only a safe API material version", () => {

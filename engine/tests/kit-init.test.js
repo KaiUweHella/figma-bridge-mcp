@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,14 +56,30 @@ function startFakeDaemon(evalResult) {
 }
 
 async function runKit(args, port) {
+  const state = mkdtempSync(join(tmpdir(), 'kit-daemon-state-'));
+  const tokenFile = join(state, 'daemon-token');
+  writeFileSync(tokenFile, 'kit-test-token', { mode: 0o600 });
   try {
     const { stdout, stderr } = await execFileAsync(
       process.execPath, [CLI, 'kit', 'init', ...args],
-      { env: { ...process.env, DAEMON_PORT: String(port) }, timeout: 120000 },
+      {
+        env: {
+          ...process.env,
+          DAEMON_PORT: String(port),
+          DAEMON_TOKEN_FILE: tokenFile,
+          DAEMON_PID_FILE: join(state, 'daemon.pid'),
+          DAEMON_PORT_FILE: join(state, 'daemon-port'),
+          PLUGIN_KEY_FILE: join(state, 'plugin-key'),
+          FIGMA_SKIP_DAEMON_SPAWN: '1',
+        },
+        timeout: 120000,
+      },
     );
     return { code: 0, out: stdout + stderr };
   } catch (e) {
     return { code: e.code ?? 1, out: (e.stdout || '') + (e.stderr || '') };
+  } finally {
+    rmSync(state, { recursive: true, force: true });
   }
 }
 

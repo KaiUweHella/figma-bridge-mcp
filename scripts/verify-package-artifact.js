@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   copyFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -141,8 +142,17 @@ export function verifyPackageMetadata(
   };
 }
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
+export function npmPackInvocation({
+  platform = process.platform,
+  npmExecPath = process.env.npm_execpath,
+  execPath = process.execPath,
+} = {}) {
+  if (platform !== "win32") return { command: "npm", args: [] };
+  const npmCli = npmExecPath || join(dirname(execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  if (!npmExecPath && !existsSync(npmCli)) {
+    throw new Error("Cannot locate npm's JavaScript CLI for the Windows package verifier");
+  }
+  return { command: execPath, args: [npmCli] };
 }
 
 function packInto(directory) {
@@ -152,9 +162,10 @@ function packInto(directory) {
   const cache =
     process.env.FIGMA_BRIDGE_PACKAGE_CACHE ||
     join(tmpdir(), "figma-bridge-package-cache");
+  const npm = npmPackInvocation();
   const stdout = execFileSync(
-    npmCommand(),
-    ["pack", "--json", "--ignore-scripts", "--pack-destination", directory],
+    npm.command,
+    [...npm.args, "pack", "--json", "--ignore-scripts", "--pack-destination", directory],
     {
       cwd: ROOT,
       encoding: "utf8",

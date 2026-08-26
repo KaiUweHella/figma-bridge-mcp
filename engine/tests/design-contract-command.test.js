@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
@@ -109,14 +109,15 @@ test('Design Contract request Interface is closed and round-trips typed Adapter 
     '--manifest', '/work/figma-bridge.json',
     '--file', '/work/contracts/ui.button.json',
   ]);
+  const workspaceDir = resolve('/work');
   const cliDefault = planFigmaCommand(designContractArgvFromRequest({
     action: 'capture', entityId: 'ui.button',
-    manifestPath: '/work/figma-bridge.json',
-    contractPath: '/work/design-contracts/ui.button.json',
+    manifestPath: join(workspaceDir, 'figma-bridge.json'),
+    contractPath: join(workspaceDir, 'design-contracts', 'ui.button.json'),
     depth: 12, includeHidden: false, geometryTolerance: 0.5,
-  }), { adapter: 'cli', workspaceDir: '/work' });
+  }), { adapter: 'cli', workspaceDir });
   const mcpDefault = planFigmaCommand(['contract', 'capture', 'ui.button'], {
-    adapter: 'mcp', workspaceDir: '/work',
+    adapter: 'mcp', workspaceDir,
   });
   assert.deepEqual(cliDefault.argv, mcpDefault.argv);
 

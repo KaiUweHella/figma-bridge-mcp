@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync,
+  existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,7 @@ import {
   createSnapshotStore,
   MAX_SNAPSHOT_COMPRESSED_BYTES,
 } from '../src/lib/snapshot-store.js';
+import { assertPosixMode } from '../../test-support/posix-permissions.js';
 
 // A tiny document: page → Hero → [Title, Button]
 function rawDoc(overrides = {}) {
@@ -256,8 +257,8 @@ test('the store saves, lists, reads back and resolves refs', () => {
     store.save(a);
     const saved = store.save(b);
     assert.ok(existsSync(saved.path));
-    assert.equal(statSync(saved.path).mode & 0o777, 0o600);
-    assert.equal(statSync(store.directory('FILEKEY123')).mode & 0o777, 0o700);
+    assertPosixMode(saved.path, 0o600);
+    assertPosixMode(store.directory('FILEKEY123'), 0o700);
 
     const list = store.list('FILEKEY123');
     assert.equal(list.length, 2);
@@ -409,7 +410,8 @@ test('snapshot reads require an owned unchanged descriptor and redact host failu
     const ref = store.resolve('latest', 'FILEKEY123');
     assert.throws(() => store.read({ ...ref }), /requires a ref resolved by this Snapshot Store/);
 
-    rmSync(ref.path);
+    // Rewrite the already-resolved file in place. This preserves its inode and
+    // proves the descriptor protects the snapshot bytes, not only the path.
     writeFileSync(ref.path, gzipSync(JSON.stringify({ replaced: true })), { mode: 0o600 });
     let failure;
     try { store.read(ref); } catch (error) { failure = error; }

@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -24,6 +23,7 @@ import {
   API_REFERENCE_POLICY,
   OFFICIAL_TYPINGS_PATH,
 } from '../engine/src/lib/api-reference-policy.js';
+import { assertPosixMode } from '../test-support/posix-permissions.js';
 
 const SOURCE = `/** Official root API. */
 interface PluginAPI {
@@ -90,12 +90,12 @@ test('setup reads a read-only package and atomically publishes private material'
   assert.equal(installed.materialVersion, value.policy.materialVersion);
   assert.equal(installed.entries, 3);
   assert.deepEqual(readdirSync(value.sourceDirectory).sort(), before);
-  assert.equal(statSync(value.stateRoot).mode & 0o777, 0o700);
+  assertPosixMode(value.stateRoot, 0o700);
   const referenceDir = join(value.stateRoot, 'api-reference');
-  assert.equal(statSync(referenceDir).mode & 0o777, 0o700);
+  assertPosixMode(referenceDir, 0o700);
   const files = readdirSync(referenceDir);
   assert.equal(files.length, 1);
-  assert.equal(statSync(join(referenceDir, files[0])).mode & 0o777, 0o600);
+  assertPosixMode(join(referenceDir, files[0]), 0o600);
   assert.equal(store.load().entries[0].name, 'PluginAPI');
   assert.ok(store.ageInDays() < 1);
   assert.equal(store.install().reused, true);

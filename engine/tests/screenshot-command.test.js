@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
@@ -21,6 +21,7 @@ import {
   MAX_VERIFICATION_PNG_DIMENSION,
 } from '../src/application/verification-artifact.js';
 import { createWorkspaceIO } from '../src/lib/workspace-io.js';
+import { assertPosixMode } from '../../test-support/posix-permissions.js';
 
 function pngHeader(width, height) {
   const bytes = Buffer.alloc(24);
@@ -165,8 +166,8 @@ test('default screenshot persistence is an exact private Plan artifact', async (
   const saved = JSON.parse(result.stdout).saved;
   assert.equal(saved, plan.outputs[0].path);
   assert.deepEqual(readFileSync(saved), PNG);
-  assert.equal(statSync(dirname(saved)).mode & 0o777, 0o700);
-  assert.equal(statSync(saved).mode & 0o777, 0o600);
+  assertPosixMode(dirname(saved), 0o700);
+  assertPosixMode(saved, 0o600);
   await assert.rejects(() => executeScreenshotPlan(plan, { workspaceIO: io, evaluate: async () => capture }),
     /private temporary directory already exists/);
   assert.deepEqual(readFileSync(saved), PNG, 'a collision never deletes or replaces the prior artifact');

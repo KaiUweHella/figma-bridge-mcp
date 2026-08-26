@@ -5,8 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildVerifiedPackage,
+  npmPackInvocation,
   verifyPackageMetadata,
 } from "../scripts/verify-package-artifact.js";
+
+test("Windows pack runs npm's JavaScript entry through Node without a shell", () => {
+  const npmExecPath = "C:\\node\\node_modules\\npm\\bin\\npm-cli.js";
+  assert.deepEqual(
+    npmPackInvocation({ platform: "win32", npmExecPath }),
+    { command: process.execPath, args: [npmExecPath] }
+  );
+});
 
 test(
   "release artifact is allowlisted and byte-reproducible",

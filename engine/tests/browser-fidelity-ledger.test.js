@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import {
   normalizeBrowserFidelityLedger,
@@ -196,7 +197,7 @@ it('verify-build gates a release on the bounded source-fact result', async () =>
   writeFileSync(capturePath, JSON.stringify(realisticLargeCapture));
   const entry = new URL('../src/index.js', import.meta.url);
   const result = await promisify(execFile)(process.execPath, [
-    entry.pathname, 'verify-build', root,
+    fileURLToPath(entry), 'verify-build', root,
     '--fidelity-ledger', ledgerPath, '--browser-capture', capturePath, '--json',
   ], { env: { ...process.env, FIGMA_BRIDGE_WORKSPACE_ROOTS: root } })
     .then((value) => ({ code: 0, ...value }), (error) => ({

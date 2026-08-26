@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { join, resolve } from 'node:path';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   executeTokenImport,
@@ -246,12 +247,14 @@ test('alias graph validation remains linear enough at the declared 10k bound', (
 });
 
 test('Workspace source is read exactly once while preparing the Command Plan', () => {
-  const plan = planFigmaCommand(['tokens', 'import', 'tokens.json'], { adapter: 'mcp', workspaceDir: '/workspace' });
+  const workspaceDir = resolve('/workspace');
+  const tokenPath = join(workspaceDir, 'tokens.json');
+  const plan = planFigmaCommand(['tokens', 'import', 'tokens.json'], { adapter: 'mcp', workspaceDir });
   let reads = 0;
   const ready = prepareTokenImportPlan(plan, { workspaceIO: {
     limits: { jsonBytes: 1024, nestingDepth: 16, collectionEntries: 100 },
     readText(path, options) {
-      reads++; assert.equal(path, '/workspace/tokens.json'); assert.deepEqual(options, { role: 'token-file' });
+      reads++; assert.equal(path, tokenPath); assert.deepEqual(options, { role: 'token-file' });
       return '{"space":{"sm":{"value":8,"type":"float"}}}';
     },
   } });

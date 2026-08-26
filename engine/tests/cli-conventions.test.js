@@ -113,6 +113,12 @@ test('the shared eval error reporter sets exitCode without terminating reusable 
   assert.match(result.stderr, /fixture failure/);
 });
 
+test('token commands report failures without abruptly terminating active transports', () => {
+  const adapter = sources.get('tokens.js');
+  assert.ok(adapter, 'tokens.js exists');
+  assert.doesNotMatch(adapter, /process\.exit\(/);
+});
+
 test('eval uses the one Daemon Client path and lets execution errors reject', () => {
   const src = sources.get('export-eval.js');
   assert.ok(src, 'export-eval.js exists');

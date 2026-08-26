@@ -10,6 +10,14 @@ const PUBLISH_WORKFLOW = readFileSync(
   new URL("../.github/workflows/publish.yml", import.meta.url),
   "utf8"
 );
+const GIT_ATTRIBUTES = readFileSync(
+  new URL("../.gitattributes", import.meta.url),
+  "utf8"
+);
+
+test("repository text bytes stay LF-stable on every release runner", () => {
+  assert.match(GIT_ATTRIBUTES, /^\* text=auto eol=lf$/m);
+});
 
 test("release workflows pin every third-party Action to an immutable commit", () => {
   const uses = [

@@ -252,19 +252,20 @@ test('Token Add closes one policy-identical non-retrying journaled write', () =>
 });
 
 test('Token Import closes one long policy-identical workspace-backed write', () => {
+  const workspaceDir = resolve('/workspace');
   const cli = planFigmaCommand(['tokens', 'import', '-cTokens', 'tokens.json'], {
-    adapter: 'cli', workspaceDir: '/workspace',
+    adapter: 'cli', workspaceDir,
   });
   const mcp = planFigmaCommand([
     'tokens', 'import', '--collection=Tokens', '--', 'tokens.json',
-  ], { adapter: 'mcp', workspaceDir: '/workspace' });
+  ], { adapter: 'mcp', workspaceDir });
   assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
   assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
   assert.equal(cli.effects.workspace, 'read'); assert.equal(cli.effects.figma, 'write');
   assert.equal(cli.execution.retry, 'never'); assert.equal(cli.execution.timeout, 'long');
   assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'tokens.import');
   assert.deepEqual(cli.argv, [
-    'tokens', 'import', '--collection=Tokens', '--', '/workspace/tokens.json',
+    'tokens', 'import', '--collection=Tokens', '--', join(workspaceDir, 'tokens.json'),
   ]);
   for (const argv of [
     ['tokens', 'import'],
@@ -722,8 +723,9 @@ test('literal help after the option terminator retains write policy and Audit cl
 });
 
 test('literal payload cannot impersonate mutation, target, network, or output policy', () => {
+  const workspaceDir = resolve('/work');
   for (const literal of ['--print-browser-capture', '--structural-gate', '--verify']) {
-    const plan = planFigmaCommand(['render', '--', literal], { workspaceDir: '/work' });
+    const plan = planFigmaCommand(['render', '--', literal], { workspaceDir });
     assert.equal(plan.allowed, true, literal);
     assert.equal(plan.effects.figma, 'write', literal);
     assert.equal(plan.target.kind, 'plugin-file', literal);
@@ -733,52 +735,52 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   }
 
   const tokenLiteral = planFigmaCommand(['tokens', 'sync', '--', '--apply'], {
-    workspaceDir: '/work',
+    workspaceDir,
   });
   assert.equal(tokenLiteral.effects.figma, 'read');
   assert.equal(tokenLiteral.confirmation, 'none');
-  assert.deepEqual(tokenLiteral.argv, ['tokens', 'sync', '--', '/work/--apply']);
+  assert.deepEqual(tokenLiteral.argv, ['tokens', 'sync', '--', join(workspaceDir, '--apply')]);
   assert.equal(planFigmaCommand(['tokens', 'sync', '--apply', 'tokens.json'], {
-    workspaceDir: '/work',
+    workspaceDir,
   }).effects.figma, 'write');
 
   const gradientLiteral = planFigmaCommand(['gradient', 'extract', '--', '--apply-to'], {
-    workspaceDir: '/work',
+    workspaceDir,
   });
   assert.equal(gradientLiteral.effects.figma, 'none');
   assert.equal(gradientLiteral.target.kind, 'none');
-  assert.deepEqual(gradientLiteral.argv, ['gradient', 'extract', '--', '/work/--apply-to']);
+  assert.deepEqual(gradientLiteral.argv, ['gradient', 'extract', '--', join(workspaceDir, '--apply-to')]);
   assert.equal(planFigmaCommand([
     'gradient', 'extract', 'hero.png', '--apply-to', '1:2',
-  ], { workspaceDir: '/work' }).effects.figma, 'write');
+  ], { workspaceDir }).effects.figma, 'write');
 
   assert.equal(planFigmaCommand(['spec', '--', '--check']).target.kind, 'none');
   assert.equal(planFigmaCommand(['spec', 'Button', '--check', '1:2']).target.kind, 'plugin-file');
   assert.equal(planFigmaCommand(['verify-build', '--', '--node'], {
-    workspaceDir: '/work',
+    workspaceDir,
   }).target.kind, 'none');
   assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2'], {
-    workspaceDir: '/work',
+    workspaceDir,
   }).target.kind, 'plugin-file');
 
   const outputLiteral = planFigmaCommand(['export', 'node', '1:2', '--', '--output'], {
-    workspaceDir: '/work',
+    workspaceDir,
   });
   assert.deepEqual(outputLiteral.argv, [
-    'export', 'node', '1:2', '-o', '/work/node-export.png', '--', '--output',
+    'export', 'node', '1:2', '-o', join(workspaceDir, 'node-export.png'), '--', '--output',
   ]);
-  assert.equal(outputLiteral.outputs[0].path, '/work/node-export.png');
+  assert.equal(outputLiteral.outputs[0].path, join(workspaceDir, 'node-export.png'));
 
   const networkLiteral = planFigmaCommand([
     'kit', 'init', '.', '--', '--storybook=https://example.test/private',
-  ], { workspaceDir: '/work' });
+  ], { workspaceDir });
   assert.equal(networkLiteral.effects.network, 'none');
   assert.equal(planFigmaCommand([
     'map', 'storybook', '--output', 'map.json', 'https://example.test/storybook',
-  ], { workspaceDir: '/work' }).effects.network, 'read');
+  ], { workspaceDir }).effects.network, 'read');
   assert.equal(planFigmaCommand([
     'map', 'storybook', '--', '--output=https://example.test/literal',
-  ], { workspaceDir: '/work' }).effects.network, 'none');
+  ], { workspaceDir }).effects.network, 'none');
 
   const historyLiteral = planFigmaCommand(['history', 'save', '--', '--json']);
   assert.equal(historyLiteral.effects.figma, 'write');
@@ -805,20 +807,21 @@ test('policy options reject unknown, duplicate, missing, and conflicting forms b
 });
 
 test('short-attached Legacy option values keep Commander meaning during path planning', () => {
+  const workspaceDir = resolve('/work');
   const exportPlan = planFigmaCommand([
     'export', 'node', '1:2', '-onode.png', '-fpng', '-s2',
-  ], { workspaceDir: '/work' });
+  ], { workspaceDir });
   assert.equal(exportPlan.allowed, true);
   assert.deepEqual(exportPlan.argv, [
-    'export', 'node', '1:2', '-o/work/node.png', '-fpng', '-s2',
+    'export', 'node', '1:2', `-o${join(workspaceDir, 'node.png')}`, '-fpng', '-s2',
   ]);
-  assert.equal(exportPlan.outputs[0].path, '/work/node.png');
+  assert.equal(exportPlan.outputs[0].path, join(workspaceDir, 'node.png'));
 
   const specPlan = planFigmaCommand([
     'spec', 'Button', '-fDESIGN.md',
-  ], { workspaceDir: '/work' });
+  ], { workspaceDir });
   assert.equal(specPlan.allowed, true);
-  assert.deepEqual(specPlan.argv, ['spec', 'Button', '-f/work/DESIGN.md']);
+  assert.deepEqual(specPlan.argv, ['spec', 'Button', `-f${join(workspaceDir, 'DESIGN.md')}`]);
 });
 
 test('CLI and MCP receive identical option-region and literal-payload plans', () => {
@@ -1148,15 +1151,16 @@ test('Design Link planning fails closed on malformed argv and keeps inspect regi
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 
   const intents = [];
+  const workspaceDir = resolve('/work');
   const plan = planFigmaCommand(['link', 'inspect', '1:2'], {
-    workspaceDir: '/work',
+    workspaceDir,
     workspaceIO: {
       authorizePath(path, intent) { intents.push({ path, ...intent }); },
     },
   });
   assert.equal(plan.allowed, true);
   assert.deepEqual(intents, [{
-    path: '/work/figma-bridge.json',
+    path: join(workspaceDir, 'figma-bridge.json'),
     access: 'read-optional',
     role: 'design-link-manifest',
     kind: 'file',
@@ -1205,18 +1209,20 @@ test('CLI and MCP decide identical policy and accepted outcomes for Design Contr
 test('one Command Plan resolves its Figma Target Context after path normalization', () => {
   let targetResolutions = 0;
   let authorizedPaths = 0;
+  const workspaceDir = resolve('/work/project');
+  const manifestPath = join(workspaceDir, 'figma-bridge.json');
   const plan = planFigmaCommand(['link', 'context', 'screen.settings'], {
-    workspaceDir: '/work/project',
+    workspaceDir,
     workspaceIO: {
       authorizePath(path, intent) {
         authorizedPaths++;
-        assert.equal(path, '/work/project/figma-bridge.json');
+        assert.equal(path, manifestPath);
         assert.equal(intent.role, 'design-link-manifest');
       },
     },
     registryFileKey(argv) {
       targetResolutions++;
-      assert.deepEqual(argv.slice(-2), ['--manifest', '/work/project/figma-bridge.json']);
+      assert.deepEqual(argv.slice(-2), ['--manifest', manifestPath]);
       assert.equal(Object.isFrozen(argv), true);
       return 'REGISTRYPLACEHOLDERKEY';
     },

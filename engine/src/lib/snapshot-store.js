@@ -51,6 +51,23 @@ function inodeMatches(left, right) {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
+function fileIdentity(metadata) {
+  return Object.freeze({
+    dev: metadata.dev,
+    ino: metadata.ino,
+    size: metadata.size,
+    mtimeMs: metadata.mtimeMs,
+    ctimeMs: metadata.ctimeMs,
+  });
+}
+
+function fileMatches(metadata, identity) {
+  return inodeMatches(metadata, identity)
+    && metadata.size === identity.size
+    && metadata.mtimeMs === identity.mtimeMs
+    && metadata.ctimeMs === identity.ctimeMs;
+}
+
 function safeKey(fileKey) {
   const key = String(fileKey || 'local');
   if (/^[A-Za-z0-9_-]{1,64}$/.test(key)) return key;
@@ -149,7 +166,7 @@ export function createSnapshotStore({ root = STATE_DIR, limits = {} } = {}) {
       path: full,
       bytes: metadata.size,
       fileKey: safeKey(fileKey),
-      fileStat: Object.freeze({ dev: metadata.dev, ino: metadata.ino }),
+      fileStat: fileIdentity(metadata),
       directoryStat: Object.freeze({ dev: dir.stat.dev, ino: dir.stat.ino }),
     });
     descriptors.add(value);
@@ -198,8 +215,8 @@ export function createSnapshotStore({ root = STATE_DIR, limits = {} } = {}) {
       const opened = fstatSync(fd);
       const current = lstatSync(ref.path);
       const currentDir = lstatSync(dir.path);
-      if (!opened.isFile() || !inodeMatches(opened, ref.fileStat)
-        || !inodeMatches(current, ref.fileStat)
+      if (!opened.isFile() || !fileMatches(opened, ref.fileStat)
+        || !fileMatches(current, ref.fileStat)
         || !inodeMatches(currentDir, ref.directoryStat)) {
         reject('snapshot changed while it was opened');
       }
@@ -251,7 +268,7 @@ export function createSnapshotStore({ root = STATE_DIR, limits = {} } = {}) {
       if (!parent.isDirectory() || parent.isSymbolicLink()
         || !inodeMatches(parent, item.directoryStat)
         || !current.isFile() || current.isSymbolicLink()
-        || !inodeMatches(current, item.fileStat)) return false;
+        || !fileMatches(current, item.fileStat)) return false;
       unlinkSync(item.path);
       return true;
     } catch { return false; }

@@ -553,13 +553,15 @@ tokens
 
     if (options.ours && options.theirs) {
       console.error(chalk.red('✗ --ours and --theirs are mutually exclusive.'));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const filePath = resolvePath(file);
     if (!existsSync(filePath)) {
       console.error(chalk.red(`✗ Token file not found: ${filePath}`));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
     const lockPath = options.lockfile
       ? resolvePath(options.lockfile)
@@ -570,7 +572,8 @@ tokens
       codeTokens = parseTokenFile(filePath, workspaceIO().readText(filePath, { role: 'token-file' }));
     } catch (e) {
       console.error(chalk.red(`✗ ${e.message}`));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
     const declaredElsewhere = [];
     for (const [name, token] of codeTokens) {
@@ -586,7 +589,8 @@ tokens
     if (!codeTokens.size) {
       console.error(chalk.yellow(`⚠ No tokens found in ${filePath}.`));
       console.error(chalk.gray('  Syncing an empty file would look like "delete everything" — stopping instead.'));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const lock = existsSync(lockPath)
@@ -658,7 +662,8 @@ tokens
 
     if (plan.conflict.length) {
       console.log(chalk.red(`\n✗ ${plan.conflict.length} conflict(s) — nothing was applied.`));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     if (!options.apply) {
@@ -695,7 +700,8 @@ tokens
       for (const f of result.failed.slice(0, 10)) console.log(chalk.red('  ' + f));
       console.log(chalk.yellow('\n  The lockfile was NOT updated — fix these and re-run, or the next'));
       console.log(chalk.yellow('  sync would treat the failed writes as deliberate Figma edits.'));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     // Only now, after every write succeeded, does the lock advance — a lock
@@ -862,7 +868,8 @@ tokens
       } catch (error) {
         spinner.fail('Failed to import variable collections');
         console.error(error.message);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
       console.log();
       console.log(chalk.cyan('─── agent context summary ───────────'));
