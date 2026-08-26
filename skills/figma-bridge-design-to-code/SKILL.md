@@ -35,11 +35,21 @@ the project's framework, styling system, components, or conventions.
 4. Call `figma_reference` with `name: "workflow:design-to-code"` once and follow
    the returned workflow. It is the canonical detailed guide for the installed
    Bridge version.
+5. For a web target that emits HTML plus custom CSS, SCSS, CSS Modules,
+   styled-components, or equivalent authored styles, read
+   [references/web-css-html.md](references/web-css-html.md) before
+   implementation. It adapts the bundled Modern CSS & HTML guidance to this
+   fidelity workflow. Do not load it for React Native or other non-web targets.
 
 Use evidence in this order: an exact Design Entity or Storybook mapping,
 component documentation and Figma annotations, compatible project components
 and tokens, then raw node facts. A name-only component match is evidence, not
 identity.
+
+When web-platform guidance conflicts with an exact Figma fact, an established
+project convention, or proven application behavior, preserve those contracts.
+Do not invent breakpoints, fluid values, semantics, or interactions merely to
+apply a newer browser feature.
 
 ## Build one reference package
 

@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- The bundled Figma-to-code skill now loads focused Modern CSS & HTML guidance
+  for web targets. Semantic markup, progressive enhancement, accessibility,
+  responsive evidence and performance practices remain subordinate to exact
+  Figma facts and the target project's existing stack, so modern-platform
+  preferences cannot silently redesign the source or invent breakpoints.
 - Tool Discovery now has an explicit 16 KiB metadata ceiling with 4 KiB kept
   in reserve, plus a conservative estimated-token ceiling with 1,024 tokens
   reserved. Shared node/file schema fragments keep the client-visible 12-tool

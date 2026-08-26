@@ -289,6 +289,7 @@
     "skills/figma-bridge-component-library/agents/openai.yaml",
     "skills/figma-bridge-design-to-code/SKILL.md",
     "skills/figma-bridge-design-to-code/agents/openai.yaml",
+    "skills/figma-bridge-design-to-code/references/web-css-html.md",
     "src/audit-trail.js",
     "src/capability-catalog.js",
     "src/config.js",

@@ -73,6 +73,14 @@ test("Codex plugin bundles the MCP server and focused bidirectional skills", () 
   }
   assert.match(skills["figma-bridge-design-to-code"], /Do not install Playwright/);
   assert.match(skills["figma-bridge-design-to-code"], /Parallelize only independent sections/);
+  assert.match(skills["figma-bridge-design-to-code"], /references\/web-css-html\.md/);
+  const webReference = readFileSync(join(
+    ROOT, "skills", "figma-bridge-design-to-code", "references", "web-css-html.md",
+  ), "utf8");
+  assert.match(webReference, /single Figma viewport proves one rendered state/i);
+  assert.match(webReference, /Layout\s+Guide is alignment evidence, not proof.*CSS Grid/is);
+  assert.match(webReference, /Preserve\s+`margin:auto`/i);
+  assert.match(webReference, /Do not replace established framework state/i);
   assert.match(skills["figma-bridge-code-to-figma"], /Bridge DOM-capture workflow/);
   assert.match(skills["figma-bridge-code-to-figma"], /Componentize repeated source structures/);
   assert.match(skills["figma-bridge-component-library"], /INSTANCE_SWAP/);
