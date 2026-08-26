@@ -861,4 +861,67 @@ describe('semantic browser capture contract', () => {
     );
     assert.equal(renderPlan.root.source.props.justify, 'center');
   });
+
+  it('keeps an intrinsic single-line label HUG inside a HUG Grid track', () => {
+    const capture = {
+      version: 2,
+      root: node({
+        tag: 'div', classes: 'row', rect: { x: 0, y: 0, w: 200, h: 63 },
+        style: {
+          display: 'grid', gridTemplateColumns: '149px 51px',
+          gridTemplateRows: '63px', alignItems: 'center',
+        },
+        authoredStyle: { gridTemplateColumns: '1fr max-content' },
+        children: [node({
+          tag: 'span', classes: 'active', rect: { x: 149, y: 21, w: 51, h: 21 },
+          style: {
+            display: 'flex', flexDirection: 'column',
+            paddingTop: '5px', paddingRight: '12px', paddingBottom: '5px', paddingLeft: '12px',
+            gridColumnStart: '2', gridColumnEnd: '3',
+          },
+          authoredStyle: { width: 'auto', height: 'auto' },
+          texts: [{
+            text: 'Active', rect: { x: 161, y: 26, w: 27, h: 10 },
+            style: baseStyle({ fontSize: '9px', fontWeight: '700' }),
+          }],
+          contentOrder: [{ kind: 'text', index: 0 }],
+        })],
+      }),
+    };
+
+    const { renderPlan } = domCaptureToRenderPlan(capture);
+    const label = renderPlan.root.children[0];
+
+    assert.equal(label.source.props.w, 'hug');
+    assert.equal(label.source.props.h, 'hug');
+    assert.equal(label.children[0].source.props.w, 'hug');
+  });
+
+  it('treats bordered content-box width as FILL instead of shrinking a Grid', () => {
+    const capture = {
+      version: 2,
+      root: node({
+        tag: 'article', classes: 'timeline', rect: { x: 0, y: 0, w: 547, h: 165 },
+        style: {
+          display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+          paddingTop: '16px', paddingRight: '16px', paddingBottom: '16px', paddingLeft: '16px',
+          borderTop: '1px solid rgb(65, 66, 73)', borderRight: '1px solid rgb(65, 66, 73)',
+          borderBottom: '1px solid rgb(65, 66, 73)', borderLeft: '1px solid rgb(65, 66, 73)',
+        },
+        children: [node({
+          tag: 'div', classes: 'timeline-track', rect: { x: 17, y: 68, w: 513, h: 80 },
+          style: {
+            display: 'grid', gridTemplateColumns: '102.6px 102.6px 102.6px 102.6px 102.6px',
+            gridTemplateRows: '80px',
+          },
+          authoredStyle: { gridTemplateColumns: 'repeat(5, 1fr)' },
+        })],
+      }),
+    };
+
+    const { renderPlan } = domCaptureToRenderPlan(capture);
+    const track = renderPlan.root.children[0];
+
+    assert.equal(track.source.props.w, 'fill');
+  });
 });

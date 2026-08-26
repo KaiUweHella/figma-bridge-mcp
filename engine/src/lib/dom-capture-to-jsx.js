@@ -137,7 +137,7 @@ function renderTreeToJsx(node) {
   if (!tag) throw new Error(`Unsupported DOM render element type: ${node.type}`);
   const attributes = propsString(node.props);
   const opening = `<${tag}${attributes ? ` ${attributes}` : ''}`;
-  if (node.type === 'text') return `${opening}>${node.content}</Text>`;
+  if (node.type === 'text') return `${opening}>${esc(node.content)}</Text>`;
   if (node.type === 'frame') return `${opening}>${node.children.map(renderTreeToJsx).join('')}</Frame>`;
   return `${opening} />`;
 }
@@ -361,7 +361,10 @@ function textLayer(text, ownerRect, index, { owner = null, positioned = true, gr
     gridHAlign: gridAlign ? 'center' : undefined,
     gridVAlign: gridAlign ? 'center' : undefined,
   };
-  return renderElement('text', props, [], esc(transformedText));
+  // Keep the executable render tree as literal DOM text. Only the legacy JSX
+  // projection escapes markup characters; the direct Render Plan bypasses an
+  // HTML parser and must not turn a literal `&` into visible `&amp;` copy.
+  return renderElement('text', props, [], transformedText);
 }
 
 function textGridCell(text, node, layout, slotIndex = 0) {
@@ -472,9 +475,13 @@ function fillsParentCrossAxis(node, parentSemantic, axis) {
   }
 
   const [pt = 0, pr = 0, pb = 0, pl = 0] = parentLayout.padding || [];
+  const bt = border(parentSemantic.source.style, 'Top')?.width || 0;
+  const br = border(parentSemantic.source.style, 'Right')?.width || 0;
+  const bb = border(parentSemantic.source.style, 'Bottom')?.width || 0;
+  const bl = border(parentSemantic.source.style, 'Left')?.width || 0;
   const available = axis === 'width'
-    ? parentSemantic.source.rect.w - pl - pr
-    : parentSemantic.source.rect.h - pt - pb;
+    ? parentSemantic.source.rect.w - pl - pr - bl - br
+    : parentSemantic.source.rect.h - pt - pb - bt - bb;
   const measured = axis === 'width' ? node.rect.w : node.rect.h;
   return Math.abs(measured - available) <= 1;
 }
@@ -485,8 +492,39 @@ function wrappingTextConsumesAvailableWidth(node, parentSemantic) {
   const multiline = node.texts.some((text) => text.rect?.h > px(text.style?.fontSize, 14) * 1.6);
   if (!multiline || !node.texts.some((text) => textCanWrap(text.style))) return false;
   const [, pr = 0, , pl = 0] = parentSemantic.layout.padding || [];
-  const available = parentSemantic.source.rect.w - pl - pr;
+  const br = border(parentSemantic.source.style, 'Right')?.width || 0;
+  const bl = border(parentSemantic.source.style, 'Left')?.width || 0;
+  const available = parentSemantic.source.rect.w - pl - pr - bl - br;
   return available > 0 && Math.abs(node.rect.w - available) <= 1;
+}
+
+function intrinsicSingleLineTextContainer(node, semantic) {
+  if (!node?.rect || !semantic || semantic.positioning?.kind !== 'flow'
+    || ['trivial-centered-grid', 'single-centered-text-control'].includes(semantic.layout?.source)
+    || !(node.texts || []).length || (node.children || []).some((child) => isRenderableDirectItem({ kind: 'element', value: child }))) {
+    return false;
+  }
+  const authoredWidth = String(node.authoredStyle?.width || '').trim().toLowerCase();
+  const authoredHeight = String(node.authoredStyle?.height || '').trim().toLowerCase();
+  if ((authoredWidth && authoredWidth !== 'auto') || semantic.sizing?.grow > 0) return false;
+  if (node.texts.some((text) => text.rect?.h > px(text.style?.fontSize, 14) * 1.6)) return false;
+
+  const left = Math.min(...node.texts.map((text) => text.rect.x));
+  const right = Math.max(...node.texts.map((text) => text.rect.x + text.rect.w));
+  const top = Math.min(...node.texts.map((text) => text.rect.y));
+  const bottom = Math.max(...node.texts.map((text) => text.rect.y + text.rect.h));
+  const [pt = 0, pr = 0, pb = 0, pl = 0] = semantic.layout?.padding || [];
+  const bt = border(node.style, 'Top')?.width || 0;
+  const br = border(node.style, 'Right')?.width || 0;
+  const bb = border(node.style, 'Bottom')?.width || 0;
+  const bl = border(node.style, 'Left')?.width || 0;
+  const intrinsicWidth = right - left + pl + pr + bl + br;
+  const intrinsicHeight = bottom - top + pt + pb + bt + bb;
+  return {
+    width: Math.abs(node.rect.w - intrinsicWidth) <= 2,
+    height: (!authoredHeight || authoredHeight === 'auto')
+      && Math.abs(node.rect.h - intrinsicHeight) <= 2,
+  };
 }
 
 function orderedDirectContent(node, semantic) {
@@ -725,6 +763,17 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
     if (props.w !== 'fill' && intrinsicAxisCanHug(node, semantic, parentSemantic, 'width')) props.w = 'hug';
     if (props.h !== 'fill' && intrinsicAxisCanHug(node, semantic, parentSemantic, 'height')) props.h = 'hug';
   }
+  const intrinsicText = intrinsicSingleLineTextContainer(node, semantic);
+  const gridColumnTracks = parentSemantic?.layout?.kind === 'grid'
+    ? parentSemantic.layout.columns.slice(
+      Math.max(0, (semantic?.gridCell?.column || 1) - 1),
+      Math.max(1, (semantic?.gridCell?.column || 1) - 1 + (semantic?.gridCell?.columnSpan || 1)),
+    )
+    : [];
+  const intrinsicWidthAllowed = parentSemantic?.layout?.kind !== 'grid'
+    || (gridColumnTracks.length > 0 && gridColumnTracks.every((track) => track.kind === 'hug'));
+  if (intrinsicText?.width && intrinsicWidthAllowed) props.w = 'hug';
+  if (intrinsicText?.height && intrinsicWidthAllowed) props.h = 'hug';
   if (semantic?.sizing?.minWidth > 0) props.minW = round(semantic.sizing.minWidth);
   if (semantic?.sizing?.minHeight > 0) props.minH = round(semantic.sizing.minHeight);
   if (semantic?.sizing?.maxWidth > 0) props.maxW = round(semantic.sizing.maxWidth);

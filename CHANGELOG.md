@@ -12,7 +12,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   verified rasters are embedded as bytes, and cross-origin, active, mismatched
   or escaping assets fail before Figma mutation without widening Plugin network
   access. Authored `<br>` line breaks and available-width wrapping copy also
-  retain their native Figma text-flow intent.
+  retain their native Figma text-flow intent. Direct DOM text stays literal,
+  intrinsic labels remain HUG, and border-box content width no longer shrinks
+  native Auto Layout/Grid children.
 - Added independent Figma compatibility gates for official Style union drift
   and live Publishable metadata drift. TypeChecker-derived discriminants must
   exactly match the Bridge contract; the content-free live probe recognizes

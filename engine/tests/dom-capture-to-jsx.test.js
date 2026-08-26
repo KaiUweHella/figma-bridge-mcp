@@ -118,6 +118,19 @@ describe('DOM capture to Figma JSX', () => {
     assert.equal((markup.match(/\sxmlns=/g) || []).length, 1);
   });
 
+  it('keeps literal DOM text in the direct plan and escapes it only in legacy JSX', () => {
+    const textCapture = structuredClone(capture);
+    const nav = textCapture.root.children[0];
+    nav.texts[0].text = 'Capacity & risk <ready>';
+
+    const { renderPlan } = domCaptureToRenderPlan(textCapture);
+    const directText = renderPlan.root.children[0].children.find((child) => child.source.type === 'text');
+    const { jsx } = domCaptureToJsx(textCapture);
+
+    assert.equal(directText.source.props.content, 'CAPACITY & RISK <READY>');
+    assert.match(jsx, />CAPACITY &amp; RISK &lt;READY&gt;<\/Text>/);
+  });
+
   it('uses HUG for intrinsic single-line flow text and preserves semantic named text-style intent', () => {
     const eyebrowCapture = {
       version: 2,
