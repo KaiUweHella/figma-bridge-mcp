@@ -58,6 +58,10 @@ Success requires fresh targeted reads proving Collection identity, default
 mode, membership, Variable identity, type, requested description, scopes, code
 syntax and type-aware value equivalence. Any factory, metadata setter, value
 setter or postcondition failure removes the complete command-created journal in
-reverse and freshly checks absence. The result distinguishes rolled back,
-partial residue and unavailable verification; no per-token error is swallowed
-and no partial state is printed as a successful import.
+reverse and freshly checks bounded owning-Collection membership. Membership is
+the authoritative Variable-removal postcondition because a direct id read may
+temporarily return a tombstoned object after `remove()`; an id still present in
+membership remains residue, while missing or malformed membership makes
+verification unavailable. The result distinguishes rolled back, partial
+residue and unavailable verification; no per-token error is swallowed and no
+partial state is printed as a successful import.

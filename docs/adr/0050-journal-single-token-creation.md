@@ -28,5 +28,11 @@ non-opaque alpha changes and actual channel drift.
 Failure cleans the Variable and optional Collection in reverse, refuses to
 remove an auto-created Collection that gained a foreign member, and reports
 verified rollback, partial residue or unavailable verification without retry.
+Fresh owning-Collection membership is the Variable-removal postcondition;
+Figma may briefly return the removed object from a direct id read even after
+that id has left the executable Collection topology. When Token Add created the
+Collection too, its absence is proven through the fresh bounded local Collection
+catalog because a removed Collection can likewise remain directly readable by
+id for a short period.
 Commander no longer generates Plugin JavaScript, so token names cannot become
 executable source.

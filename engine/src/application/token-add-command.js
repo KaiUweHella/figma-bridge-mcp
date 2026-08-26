@@ -197,15 +197,20 @@ export function tokenAddCommandCode(request) {
       }
       let checks;
       try {
-        let cleanupCollection;
-        let collectionMembershipAvailable = false;
-        try {
-          cleanupCollection = await figma.variables.getVariableCollectionByIdAsync(collection.id);
-          collectionMembershipAvailable = cleanupCollection === null
-            || (Array.isArray(cleanupCollection.variableIds)
-              && cleanupCollection.variableIds.length <= ${MAX_CANDIDATES}
-              && cleanupCollection.variableIds.every((id) => validText(id, false)));
-        } catch {}
+        const cleanupCollections = await figma.variables.getLocalVariableCollectionsAsync();
+        if (!Array.isArray(cleanupCollections) || cleanupCollections.length > ${MAX_CANDIDATES}
+          || cleanupCollections.some((candidate) => !candidate || !validText(candidate.id, false))
+          || new Set(cleanupCollections.map((candidate) => candidate.id)).size
+            !== cleanupCollections.length) {
+          throw new Error('Collection cleanup catalog unavailable.');
+        }
+        const cleanupCollection = cleanupCollections.find((candidate) =>
+          candidate.id === collection.id) || null;
+        const collectionMembershipAvailable = cleanupCollection === null
+          || (Array.isArray(cleanupCollection.variableIds)
+            && cleanupCollection.variableIds.length <= ${MAX_CANDIDATES}
+            && cleanupCollection.variableIds.every((id) => validText(id, false))
+            && new Set(cleanupCollection.variableIds).size === cleanupCollection.variableIds.length);
         checks = [];
         for (const item of attempted) {
           if (item.kind === 'collection') {
@@ -213,15 +218,8 @@ export function tokenAddCommandCode(request) {
             checks.push(cleanupCollection);
             continue;
           }
-          try {
-            checks.push(await figma.variables.getVariableByIdAsync(item.id));
-          } catch {
-            if (!collectionMembershipAvailable || (cleanupCollection
-              && cleanupCollection.variableIds.includes(item.id))) {
-              throw new Error('Variable cleanup unavailable.');
-            }
-            checks.push(null);
-          }
+          if (!collectionMembershipAvailable) throw new Error('Variable cleanup unavailable.');
+          checks.push(cleanupCollection?.variableIds.includes(item.id) ? item : null);
         }
       } catch {}
       if (!Array.isArray(checks) || checks.length !== attempted.length) {

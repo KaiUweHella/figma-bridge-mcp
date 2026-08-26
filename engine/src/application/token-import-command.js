@@ -294,28 +294,10 @@ export function tokenImportCommandCode(prepared) {
         if (!membershipAvailable) throw new Error('Token Import cleanup membership was unavailable.');
         const cleanupMembership = new Set(cleanupCollection?.variableIds || []);
         checks = new Array(attempted.length);
-        const variableChecks = [];
         for (let index = 0; index < attempted.length; index++) {
           const entry = attempted[index];
           if (entry.kind === 'collection') checks[index] = cleanupCollection;
-          else if (cleanupCollection === null) checks[index] = null;
-          else variableChecks.push({ entry, index });
-        }
-        for (let start = 0; start < variableChecks.length; start += 64) {
-          const batch = await Promise.all(variableChecks.slice(start, start + 64)
-            .map(async ({ entry, index }) => {
-              try {
-                return { entry, index, current: await figma.variables.getVariableByIdAsync(entry.id), failed: false };
-              } catch { return { entry, index, current: null, failed: true }; }
-            }));
-          for (const result of batch) {
-            if (result.current == null && cleanupMembership.has(result.entry.id)) {
-              throw new Error(result.failed
-                ? 'Token Import Variable cleanup could not be verified.'
-                : 'Token Import cleanup returned conflicting Variable membership.');
-            }
-            checks[result.index] = result.current == null ? null : result.current;
-          }
+          else checks[index] = cleanupMembership.has(entry.id) ? entry : null;
         }
       } catch { checks = null; }
       const verifiable = Array.isArray(checks) && checks.length === attempted.length;

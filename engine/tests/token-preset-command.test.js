@@ -21,12 +21,16 @@ function fixture({
   removeVariableFailsAt = null,
   ignoreScopeAssignments = false,
   staleExistingAtVerification = false,
+  retainRemovedReadback = false,
+  staleMembershipOnRemove = false,
+  foreignOnCleanup = false,
 } = {}) {
   const collections = [];
   const variables = [];
   let collectionSequence = 0;
   let variableSequence = 0;
   let setCalls = 0;
+  let foreignAdded = false;
   const variableReads = new Map();
   const makeCollection = (name) => {
     const collection = {
@@ -63,6 +67,9 @@ function fixture({
       remove() {
         if (this.id === removeVariableFailsAt) throw new Error('remove failed');
         this.removed = true;
+        if (!staleMembershipOnRemove) {
+          collection.variableIds = collection.variableIds.filter((id) => id !== this.id);
+        }
       },
     };
     let scopes = ['ALL_SCOPES'];
@@ -82,10 +89,18 @@ function fixture({
     variables: {
       getLocalVariableCollectionsAsync: async () => collections.filter((item) => !item.removed),
       getLocalVariablesAsync: async () => variables.filter((item) => !item.removed),
-      getVariableCollectionByIdAsync: async (id) =>
-        collections.find((item) => item.id === id && !item.removed) || null,
+      getVariableCollectionByIdAsync: async (id) => {
+        const collection = collections.find((item) => item.id === id && !item.removed) || null;
+        if (foreignOnCleanup && collection && !foreignAdded && variables.length) {
+          foreignAdded = true;
+          const foreign = makeVariable('foreign/member', collection, 'STRING', 'owned elsewhere');
+          foreign.scopes = ['ALL_SCOPES'];
+        }
+        return collection;
+      },
       getVariableByIdAsync: async (id) => {
-        const variable = variables.find((item) => item.id === id && !item.removed) || null;
+        const variable = variables.find((item) => item.id === id
+          && (!item.removed || retainRemovedReadback)) || null;
         const reads = (variableReads.get(id) || 0) + 1;
         variableReads.set(id, reads);
         if (staleExistingAtVerification && reads === 2 && variable?.name === 'radius/none') {
@@ -200,6 +215,16 @@ test('Token Preset rolls back a new Collection and reports existing-Collection r
     (error) => error.mutationOutcome === 'rolled-back' && error.mutationReport.residueCount === 0);
   assert.ok(ignoredScope.collections.every((item) => item.removed));
 
+  const tombstoned = fixture({
+    existingCollection: true, setValueFailsAt: 2, retainRemovedReadback: true,
+  });
+  const tombstonedPayload = await runCode(request, tombstoned.figma);
+  await assert.rejects(() => executeTokenPreset(request, {
+    evaluate: async () => tombstonedPayload,
+  }), (error) => error.mutationOutcome === 'rolled-back'
+    && error.mutationReport.residueCount === 0);
+  assert.deepEqual(tombstoned.target.variableIds, []);
+
   const stale = fixture({ existingCollection: true, staleExistingAtVerification: true });
   const staleVariable = stale.figma.variables.createVariable('radius/none', stale.target, 'FLOAT');
   staleVariable.setValueForMode('ModeId:light', 0);
@@ -216,6 +241,25 @@ test('Token Preset rolls back a new Collection and reports existing-Collection r
   await assert.rejects(() => executeTokenPreset(request, { evaluate: async () => residuePayload }),
     (error) => error.mutationOutcome === 'partial-residue'
       && error.mutationReport.residueCount === 1);
+
+  const staleMembership = fixture({
+    existingCollection: true, setValueFailsAt: 2, staleMembershipOnRemove: true,
+  });
+  const staleMembershipPayload = await runCode(request, staleMembership.figma);
+  await assert.rejects(() => executeTokenPreset(request, {
+    evaluate: async () => staleMembershipPayload,
+  }), (error) => error.mutationOutcome === 'partial-residue'
+    && error.mutationReport.residueCount === 2);
+
+  const foreign = fixture({ setValueFailsAt: 2, foreignOnCleanup: true });
+  const foreignPayload = await runCode(request, foreign.figma);
+  await assert.rejects(() => executeTokenPreset(request, {
+    evaluate: async () => foreignPayload,
+  }), (error) => error.mutationOutcome === 'partial-residue'
+    && error.mutationReport.residue.some((item) => item.kind === 'collection'));
+  assert.equal(foreign.collections[0].removed, false);
+  assert.equal(foreign.variables.some((item) => item.name === 'foreign/member'
+    && !item.removed), true);
 });
 
 test('Token Preset rejects forged results and accepts only authentic Plans', async () => {

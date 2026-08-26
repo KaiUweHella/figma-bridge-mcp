@@ -25,6 +25,8 @@ function fixture({
   foreignOnCleanup = false,
   normalizeOpaqueColor = false,
   removedLookupThrows = false,
+  retainRemovedReadback = false,
+  staleMembershipOnRemove = false,
 } = {}) {
   const collections = [];
   const variables = [];
@@ -69,7 +71,7 @@ function fixture({
       remove() {
         if (removeVariableFails) throw new Error('variable remove failed');
         this.removed = true;
-        if (removedLookupThrows) {
+        if (!staleMembershipOnRemove) {
           collection.variableIds = collection.variableIds.filter((id) => id !== this.id);
         }
       },
@@ -99,7 +101,8 @@ function fixture({
         if (removedLookupThrows && variables.some((item) => item.id === id && item.removed)) {
           throw new Error('removed Variable lookup rejected');
         }
-        const variable = variables.find((item) => item.id === id && !item.removed) || null;
+        const variable = variables.find((item) => item.id === id
+          && (!item.removed || retainRemovedReadback)) || null;
         if (staleCreated && variable && variable.valuesByMode['ModeId:light'] !== undefined) {
           variable.removed = true;
           return null;
@@ -193,7 +196,8 @@ test('Token Add scopes duplicates to the exact target Collection and keeps expli
 test('Token Add rolls back ignored setters and reports exact partial residue', async () => {
   for (const target of [fixture({ setValueFails: true }), fixture({ ignoreValue: true }),
     fixture({ ignoreScope: true }), fixture({ staleCreated: true }),
-    fixture({ setValueFails: true, removedLookupThrows: true })]) {
+    fixture({ setValueFails: true, removedLookupThrows: true }),
+    fixture({ setValueFails: true, retainRemovedReadback: true })]) {
     const request = { name: 'radius/md', value: '6' };
     const payload = await runCode(request, target.figma);
     await assert.rejects(() => executeTokenAdd(request, { evaluate: async () => payload }),
@@ -210,6 +214,14 @@ test('Token Add rolls back ignored setters and reports exact partial residue', a
     (error) => error.mutationOutcome === 'partial-residue'
       && error.mutationReport.residueCount === 1);
   assert.equal(residue.target.removed, false);
+
+  const staleMembership = fixture({ existingCollection: true, setValueFails: true,
+    staleMembershipOnRemove: true });
+  const staleMembershipPayload = await runCode(request, staleMembership.figma);
+  await assert.rejects(() => executeTokenAdd(request, {
+    evaluate: async () => staleMembershipPayload,
+  }), (error) => error.mutationOutcome === 'partial-residue'
+    && error.mutationReport.residueCount === 1);
 
   const foreign = fixture({ setValueFails: true, foreignOnCleanup: true });
   const foreignPayload = await runCode(request, foreign.figma);

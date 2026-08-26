@@ -21,7 +21,7 @@ import { toSingleCollectionTokenItems } from '../src/design-md.js';
 
 function fixture({ existing = [], failOn = null, duplicateCollection = false,
   throwOnMissing = false, undefinedOnMissing = false, staleMembershipOnRemove = false,
-  longVariableIds = false, trackGetterConcurrency = false } = {}) {
+  retainRemovedReadback = false, longVariableIds = false, trackGetterConcurrency = false } = {}) {
   let next = 1;
   const collections = new Map();
   const variables = new Map();
@@ -56,7 +56,7 @@ function fixture({ existing = [], failOn = null, duplicateCollection = false,
       },
       setVariableCodeSyntax(platform, value) { this.codeSyntax[platform] = value; },
       remove() {
-        variables.delete(id);
+        if (!retainRemovedReadback) variables.delete(id);
         if (!staleMembershipOnRemove) {
           collection.variableIds = collection.variableIds.filter((candidate) => candidate !== id);
         }
@@ -408,6 +408,20 @@ test('cleanup treats undefined removed identities as absent', async () => {
   });
 });
 
+test('cleanup trusts fresh membership when removed ids still return tombstoned Variables', async () => {
+  const live = fixture({
+    existing: [{ name: 'kept', type: 'FLOAT', value: 1, id: 'kept' }],
+    failOn: 'b', retainRemovedReadback: true,
+  });
+  await assert.rejects(() => executeTokenImport(prepared({ kept: 1, a: 1, b: 2 }),
+    { evaluate: evaluate(live.figma) }), (error) => {
+    assert.equal(error.mutationOutcome, 'rolled-back');
+    assert.equal(error.mutationReport.residueCount, 0);
+    return true;
+  });
+  assert.deepEqual(live.target.variableIds, ['kept']);
+});
+
 test('cleanup refuses a rolled-back claim when fresh Collection membership is stale', async () => {
   const live = fixture({
     existing: [{ name: 'kept', type: 'FLOAT', value: 1, id: 'kept' }],
@@ -415,7 +429,8 @@ test('cleanup refuses a rolled-back claim when fresh Collection membership is st
   });
   await assert.rejects(() => executeTokenImport(prepared({ kept: 1, a: 1, b: 2 }),
     { evaluate: evaluate(live.figma) }), (error) => {
-    assert.equal(error.mutationOutcome, 'verification-unavailable');
+    assert.equal(error.mutationOutcome, 'partial-residue');
+    assert.equal(error.mutationReport.residueCount, 2);
     return true;
   });
 });
@@ -506,7 +521,7 @@ test('near-bound native ids still preserve a typed rollback outcome', async () =
   });
 });
 
-test('rollback verification batches native reads instead of serializing 10k round trips', async () => {
+test('rollback verification uses Collection membership instead of per-Variable reads', async () => {
   const live = fixture({
     existing: [{ name: 'kept', type: 'FLOAT', value: 1, id: 'kept' }],
     failOn: 'created/129', trackGetterConcurrency: true,
@@ -515,8 +530,8 @@ test('rollback verification batches native reads instead of serializing 10k roun
   for (let index = 0; index < 130; index++) source[`created/${index}`] = index;
   await assert.rejects(() => executeTokenImport(prepared(source),
     { evaluate: evaluate(live.figma) }), (error) => error.mutationOutcome === 'rolled-back');
-  assert.ok(live.maxGetterConcurrency() > 1);
-  assert.ok(live.maxGetterConcurrency() <= 64);
+  assert.equal(live.maxGetterConcurrency(), 1);
+  assert.equal([...live.getterReads.values()].reduce((sum, count) => sum + count, 0), 1);
 });
 
 test('prepared source must match the authentic Command Plan', async () => {

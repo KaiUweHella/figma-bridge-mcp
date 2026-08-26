@@ -226,14 +226,39 @@ export function tokenPresetCommandCode(request) {
     } catch (error) {
       if (!journal.length) throw error;
       const attempted = journal.map(({ kind, id, name }) => ({ kind, id, name }));
+      const journalVariableIds = new Set(journal.filter((entry) => entry.kind === 'variable')
+        .map((entry) => entry.id));
       for (let index = journal.length - 1; index >= 0; index--) {
-        try { journal[index].resource.remove(); } catch {}
+        const entry = journal[index];
+        try {
+          if (entry.kind === 'collection') {
+            const current = await figma.variables.getVariableCollectionByIdAsync(entry.id);
+            if (current && (!Array.isArray(current.variableIds)
+              || current.variableIds.some((id) => !journalVariableIds.has(id)))) continue;
+          }
+          entry.resource.remove();
+        } catch {}
       }
       let checks;
       try {
-        checks = await Promise.all(attempted.map((item) => item.kind === 'collection'
-          ? figma.variables.getVariableCollectionByIdAsync(item.id)
-          : figma.variables.getVariableByIdAsync(item.id)));
+        const cleanupCollections = await figma.variables.getLocalVariableCollectionsAsync();
+        if (!Array.isArray(cleanupCollections) || cleanupCollections.length > ${MAX_CANDIDATES}
+          || cleanupCollections.some((candidate) => !candidate || !validText(candidate.id, false))
+          || new Set(cleanupCollections.map((candidate) => candidate.id)).size
+            !== cleanupCollections.length) {
+          throw new Error('Token Preset cleanup Collection catalog was unavailable.');
+        }
+        const cleanupCollection = cleanupCollections.find((candidate) =>
+          candidate.id === collection.id) || null;
+        const membershipAvailable = cleanupCollection === null
+          || (Array.isArray(cleanupCollection.variableIds)
+            && cleanupCollection.variableIds.length <= ${MAX_CANDIDATES}
+            && cleanupCollection.variableIds.every((id) => validText(id, false))
+            && new Set(cleanupCollection.variableIds).size === cleanupCollection.variableIds.length);
+        if (!membershipAvailable) throw new Error('Token Preset cleanup membership was unavailable.');
+        const cleanupMembership = new Set(cleanupCollection?.variableIds || []);
+        checks = attempted.map((item) => item.kind === 'collection'
+          ? cleanupCollection : (cleanupMembership.has(item.id) ? item : null));
       } catch {}
       if (!Array.isArray(checks) || checks.length !== attempted.length) {
         return bounded({ schemaVersion: 1, status: 'failed', outcome: 'verification-unavailable',

@@ -30,9 +30,14 @@ unchanged and appear as explicit conflicts rather than being overwritten or
 hidden.
 
 Fresh targeted reads verify the Collection, default mode, every existing and
-created identity, exact value and scope before success. A later failure removes created
-Variables and any command-created Collection in reverse order, then proves
-exact absence or reports bounded typed residue. Successful stdout retains the
+created identity, exact value and scope before success. A later failure removes
+created Variables and any command-created Collection in reverse order. It
+refuses to remove a command-created Collection that has gained a non-journaled
+member, then uses fresh bounded Collection membership as the authoritative
+Variable-removal proof and the fresh local Collection catalog as the
+Collection-removal proof. This avoids false residue from Figma's short-lived
+tombstoned direct id readback while keeping ids still present in authoritative
+topology explicit residue. Successful stdout retains the
 established `Created N spacing variables` or `Created N radius variables`
 contract; preserved conflicts are additionally exposed on stderr and in the
 structured result.
