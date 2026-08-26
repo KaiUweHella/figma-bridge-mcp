@@ -2399,9 +2399,12 @@ test('normalizeOutputArgs: verify-build paths resolve against the client workspa
   // projectDir positional + every path flag, separated and = forms.
   assert.deepEqual(
     normalizeOutputArgs(['verify-build', '.', '--compare', 'shot.png', '--design=fig.png',
-      '--diff-out', 'diff.png', '--node', '12:34', '--max-diff', '5'], base),
+      '--diff-out', 'diff.png', '--fidelity-ledger', 'facts.json',
+      '--browser-capture=capture.json', '--node', '12:34', '--max-diff', '5'], base),
     ['verify-build', base, '--compare', inWorkspace('shot.png'),
       `--design=${inWorkspace('fig.png')}`, '--diff-out', inWorkspace('diff.png'),
+      '--fidelity-ledger', inWorkspace('facts.json'),
+      `--browser-capture=${inWorkspace('capture.json')}`,
       '--node', '12:34', '--max-diff', '5'],
   );
   // --node/--max-diff values are NOT paths and must never be absolutized —

@@ -637,12 +637,18 @@ export function walkerCode(pageId, {
         ? node.getPluginData('figmaBridge.semanticIndex') : '';
       const renderPlanVersion = typeof node.getPluginData === 'function'
         ? node.getPluginData('figmaBridge.renderPlanVersion') : '';
+      const renderAdapter = typeof node.getPluginData === 'function'
+        ? node.getPluginData('figmaBridge.renderAdapter') : '';
+      const renderProvenance = pluginJson(node, 'figmaBridge.renderProvenance');
       const fallbackAnnotations = pluginJson(node, 'figmaBridge.fallbackAnnotations');
       const variableFontAxes = pluginJson(node, 'figmaBridge.variableFontAxes');
       const out = {};
       if (semanticPath) out.semanticPath = semanticPath;
       if (/^\d+$/.test(semanticIndex)) out.semanticIndex = Number(semanticIndex);
       if (/^\d+$/.test(renderPlanVersion)) out.renderPlanVersion = Number(renderPlanVersion);
+      if (/^[a-z][a-z0-9-]{0,63}$/.test(renderAdapter)) out.renderAdapter = renderAdapter;
+      if (renderProvenance && typeof renderProvenance === 'object'
+        && !Array.isArray(renderProvenance)) out.renderProvenance = renderProvenance;
       if (fallbackAnnotations && fallbackAnnotations.schemaVersion === 1
         && Array.isArray(fallbackAnnotations.annotations)) {
         out.fallbackAnnotations = fallbackAnnotations.annotations;

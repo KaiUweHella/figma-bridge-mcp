@@ -18,6 +18,7 @@ const style = (overrides = {}) => ({
 });
 
 const capture = {
+  viewport: { width: 400, height: 300 },
   root: {
     tag: 'main', classes: 'screen', rect: { x: 0, y: 0, w: 400, h: 300 },
     style: style({ backgroundColor: 'rgb(245, 245, 241)' }), texts: [], before: null, after: null,
@@ -56,7 +57,7 @@ const capture = {
 describe('DOM capture to Figma JSX', () => {
   it('compiles the direct DOM plan without serializing or reparsing JSX', async () => {
     const legacy = domCaptureToJsx(capture);
-    const direct = domCaptureToRenderPlan(capture);
+    const direct = domCaptureToRenderPlan(capture, { captureHash: 'a'.repeat(64) });
     const legacyClient = new FigmaClient();
     legacyClient.setIcons(legacy.icons);
     const legacyCode = await legacyClient.parseJSX(legacy.jsx);
@@ -67,7 +68,11 @@ describe('DOM capture to Figma JSX', () => {
     const directCode = await directClient.compileRenderPlan(direct.renderPlan);
 
     assert.equal(direct.renderPlan.adapter, 'dom-capture');
-    assert.deepEqual(direct.renderPlan.provenance, { captureVersion: 1 });
+    assert.deepEqual(direct.renderPlan.provenance, {
+      captureVersion: 1,
+      captureHash: 'a'.repeat(64),
+      viewport: { width: 400, height: 300 },
+    });
     assert.equal(directCode, legacyCode);
   });
 

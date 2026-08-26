@@ -166,6 +166,10 @@ export function formatRoundTripPlan(entity, plan, { baseline = null } = {}) {
   if (baseline?.visual && Number.isFinite(Number(baseline.visual.diffPct))) {
     lines.push(`visual proof: ${baseline.visual.diffPct}% diff (maximum ${baseline.visual.maxDiff}%)`);
   }
+  if (baseline?.render?.adapter) {
+    const viewport = baseline.render.provenance?.viewport;
+    lines.push(`render provenance: ${baseline.render.adapter}${viewport ? ` at ${viewport.width}×${viewport.height}` : ''}`);
+  }
   if (plan.figmaDelta) {
     lines.push('', 'Changed semantic Figma subtrees:');
     if (!plan.figmaDelta.paths.length) lines.push('  - none resolved (root changed outside marked semantic subtrees)');

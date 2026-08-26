@@ -899,6 +899,31 @@ export function inspectStructuredRenderPlan(plan) {
   if (!isRecord(plan) || plan.kind !== 'figma-bridge/semantic-render-plan' || plan.version !== 1) {
     return { supported: false, problems: ['unsupported Semantic Render Plan contract'] };
   }
+  if (typeof plan.adapter !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(plan.adapter)) {
+    problems.push('render adapter must be a bounded lowercase identifier');
+  }
+  if (plan.provenance !== undefined) {
+    let serialized = '';
+    try { serialized = JSON.stringify(plan.provenance); } catch (e) {}
+    if (!isRecord(plan.provenance) || !serialized || serialized.length > 1024) {
+      problems.push('render provenance must be a bounded object');
+    }
+  }
+  if (plan.adapter === 'dom-capture' && isRecord(plan.provenance)) {
+    if (!Number.isInteger(plan.provenance.captureVersion) || plan.provenance.captureVersion < 1) {
+      problems.push('DOM-capture provenance requires a positive captureVersion');
+    }
+    if (plan.provenance.captureHash !== undefined
+      && !/^[a-f0-9]{64}$/.test(String(plan.provenance.captureHash))) {
+      problems.push('DOM-capture provenance captureHash must be SHA-256');
+    }
+    if (plan.provenance.viewport !== undefined
+      && (!isRecord(plan.provenance.viewport)
+        || !Number.isFinite(plan.provenance.viewport.width) || plan.provenance.viewport.width <= 0
+        || !Number.isFinite(plan.provenance.viewport.height) || plan.provenance.viewport.height <= 0)) {
+      problems.push('DOM-capture provenance viewport must contain positive width and height');
+    }
+  }
   const visit = (node, path = 'root') => {
     if (!isRecord(node) || !isRecord(node.source) || !isRecord(node.source.props)) {
       problems.push(`${path}: missing executable source properties`);
@@ -2151,7 +2176,13 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
     const semanticIndex = createdRecords.length;
     created.setPluginData('figmaBridge.semanticPath', String(semanticNode.path || ''));
     created.setPluginData('figmaBridge.semanticIndex', String(semanticIndex));
-    if (root) created.setPluginData('figmaBridge.renderPlanVersion', String(plan.version));
+    if (root) {
+      created.setPluginData('figmaBridge.renderPlanVersion', String(plan.version));
+      created.setPluginData('figmaBridge.renderAdapter', String(plan.adapter));
+      if (plan.provenance !== undefined) {
+        created.setPluginData('figmaBridge.renderProvenance', JSON.stringify(plan.provenance));
+      }
+    }
     applyFallbackAnnotations(created, semanticNode);
     createdRecords.push({ semanticNode, created, parent });
     for (const child of semanticNode.children || []) await create(child, created, false);

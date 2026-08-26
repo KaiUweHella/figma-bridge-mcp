@@ -93,7 +93,8 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   ]),
   'verify-build': optionSchema([
     valueOption('--assets'), valueOption('--compare'), valueOption('--design'),
-    valueOption('--node'), valueOption('--diff-out'), valueOption('--max-diff'), flagOption('--json'),
+    valueOption('--node'), valueOption('--diff-out'), valueOption('--max-diff'),
+    valueOption('--fidelity-ledger'), valueOption('--browser-capture'), flagOption('--json'),
   ]),
   import: optionSchema([
     valueOption('-c', '--collection'), flagOption('--print-context'),

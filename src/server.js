@@ -745,10 +745,10 @@ export function designToCodePrompt(args = {}) {
           `existing stack; use exported source assets instead of UI/icon-library ` +
           `approximations. Prefer exact Design Entity and Storybook links over name-only ` +
           `matches. Read global structure, tokens and assets once, scope style ` +
-          `reads per section, keep a fact ledger for artwork, paints, effects, strokes, ` +
+          `reads per section, keep a machine-checked fact ledger for artwork, paints, effects, strokes, ` +
           `fonts and responsive sizing, ask before changing design semantics, and ` +
           `parallelize only substantial sections with disjoint ` +
-          `files. Run the project checks and verify-build pixel comparison before ` +
+          `files. Run project checks plus verify-build fact-ledger and pixel gates before ` +
           `declaring parity. Do not install Playwright solely for capture without approval.`,
       },
     }],
@@ -911,6 +911,9 @@ specification — copy it, never interpret it. Follow these steps in order:
    against the rendered build. Do not silently normalize or improve the design:
    ask the user before changing design semantics, such as converting plain
    status text into a pill, tag or other component.
+   Persist this as the bounded browser fidelity ledger documented by
+   docs/browser-fidelity-ledger.md. Pair every source node id with a stable
+   data-figma-entity target or an unambiguous capture path.
 6. Interactive states: the spec ends with "Component sets used on this
    screen". Add the listed SET node ids to the same nodeIds[] batch when
    possible; one bounded set read captures every variant and its exact styles.
@@ -933,6 +936,11 @@ specification — copy it, never interpret it. Follow these steps in order:
      "--design","/abs/figma.png" to reuse the step-1 PNG offline), reports
      the worst differing regions in node pixels and writes a diff PNG —
      Read it. "--max-diff","<pct>" turns it into a hard gate;
+   - run the SOURCE-FACT pass with
+     ["verify-build","/abs/project","--fidelity-ledger","/abs/facts.json",
+      "--browser-capture","/abs/capture.json"]. Every fact must be matched or
+     carry an explicit approved-deviation reason. The browser capture verifies
+     computed font roles and loaded faces, not merely stylesheet names;
    - do not install Playwright or another browser dependency solely for this
      capture. Use it when already available; otherwise ask the user before
      adding or downloading a standalone browser tool;

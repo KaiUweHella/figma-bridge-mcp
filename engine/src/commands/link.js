@@ -169,13 +169,15 @@ link
   .description('Record the reviewed code/Figma baseline; screens require a passing visual comparison')
   .option('--compare <file>', 'Browser screenshot used as visual proof (required for screens)')
   .option('--max-diff <percent>', 'Maximum allowed differing pixels (default 5)', '5')
+  .option('--require-render-adapter <adapter>', 'Require persisted render provenance (currently dom-capture)')
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (entityId, options) => {
     await checkConnection();
     try {
       const result = await executeDesignLink({
         action: 'accept', entityId, comparePath: options.compare ? resolve(options.compare) : undefined,
-        maxDiff: options.maxDiff, manifestPath: manifest(options),
+        maxDiff: options.maxDiff, requiredRenderAdapter: options.requireRenderAdapter,
+        manifestPath: manifest(options),
       }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
       console.log(chalk.green('✓'), `Accepted current code and Figma state for ${result.entity.id}`);
       console.log(formatRoundTripPlan(result.entity, result.plan, { baseline: result.baseline }));

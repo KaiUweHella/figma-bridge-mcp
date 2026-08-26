@@ -1028,7 +1028,9 @@ function optionalOutputFlag(args, baseDir, options) {
 }
 
 function normalizeVerifyBuild(args, baseDir, notePath) {
-  const pathFlags = new Set(['--assets', '--compare', '--design', '--diff-out']);
+  const pathFlags = new Set([
+    '--assets', '--compare', '--design', '--diff-out', '--fidelity-ledger', '--browser-capture',
+  ]);
   const skipValue = new Set(['--node', '--max-diff']);
   let positionalDone = false;
   let literal = false;

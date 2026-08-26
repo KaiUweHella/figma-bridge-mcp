@@ -140,9 +140,11 @@ test('figma_run argv adapter stays thin over the Design Link Command Application
   ]), { action: 'status', entityId: 'ui.button', manifestPath: '/work/figma-bridge.json' });
   assert.deepEqual(designLinkRequestFromArgv([
     'link', 'accept', 'screen.settings', '--compare', '/tmp/build.jpg', '--max-diff', '5',
+    '--require-render-adapter', 'dom-capture',
     '--manifest', '/work/figma-bridge.json',
   ]), {
     action: 'accept', entityId: 'screen.settings', comparePath: '/tmp/build.jpg', maxDiff: '5',
+    requiredRenderAdapter: 'dom-capture',
     manifestPath: '/work/figma-bridge.json',
   });
   assert.deepEqual(designLinkRequestFromArgv([
@@ -315,4 +317,59 @@ test('status, accept and context share one report-only Round-trip Planner', asyn
     action: 'accept', entityId: 'screen.settings', manifestPath,
   }, { evaluate: async (code) => code.includes('const root =') ? rawSnapshot : { ...figmaResult, pluginData: '' } }),
   /Figma anchor.*missing/);
+});
+
+test('existing UI acceptance fails closed without matching DOM-capture provenance', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'design-link-render-provenance-'));
+  const manifestPath = join(dir, 'figma-bridge.json');
+  writeFileSync(join(dir, 'Settings.tsx'), 'export const SettingsScreen = () => null;');
+  const rawSnapshot = {
+    rootId: '9:9', rootName: 'Settings', rootType: 'FRAME', fileKey: 'FILE', fileName: 'App', page: 'Screens',
+    nodes: [{ id: '9:9', name: 'Settings', type: 'FRAME', path: 'Settings', parentId: null,
+      index: 0, x: 0, y: 0, w: 100, h: 100, props: {} }],
+  };
+  let renderAdapter = '';
+  const evaluate = async (code) => {
+    if (code.includes('setPluginData')) return figmaResult;
+    if (code.includes('const root =')) return rawSnapshot;
+    return {
+      ...figmaResult,
+      pluginData: JSON.stringify({ version: 1, id: 'screen.settings', kind: 'screen' }),
+      renderAdapter,
+      renderProvenance: renderAdapter === 'dom-capture'
+        ? { captureVersion: 2, captureHash: 'a'.repeat(64), viewport: { width: 100, height: 100 } }
+        : null,
+    };
+  };
+  await executeDesignLink({
+    action: 'set', nodeId: '9:9', entityId: 'screen.settings', kind: 'screen',
+    source: 'Settings.tsx', manifestPath,
+  }, { evaluate });
+  const request = {
+    action: 'accept', entityId: 'screen.settings', comparePath: '/tmp/build.png',
+    maxDiff: 5, requiredRenderAdapter: 'dom-capture', manifestPath,
+  };
+  await assert.rejects(
+    () => executeDesignLink(request, { evaluate, verifyVisual: async () => ({
+      diffPct: 0, maxDiff: 5, comparedAt: '2026-08-26T00:00:00.000Z',
+      buildHash: 'b'.repeat(64), figmaPngHash: 'c'.repeat(64),
+    }) }),
+    /requires render adapter dom-capture.*missing/i,
+  );
+
+  renderAdapter = 'jsx';
+  await assert.rejects(
+    () => executeDesignLink(request, { evaluate, verifyVisual: async () => ({}) }),
+    /requires render adapter dom-capture.*found jsx/i,
+  );
+
+  renderAdapter = 'dom-capture';
+  const accepted = await executeDesignLink(request, { evaluate, verifyVisual: async () => ({
+    diffPct: 0, maxDiff: 5, comparedAt: '2026-08-26T00:00:00.000Z',
+    buildHash: 'b'.repeat(64), figmaPngHash: 'c'.repeat(64),
+  }) });
+  assert.deepEqual(accepted.baseline.render, {
+    adapter: 'dom-capture',
+    provenance: { captureVersion: 2, captureHash: 'a'.repeat(64), viewport: { width: 100, height: 100 } },
+  });
 });

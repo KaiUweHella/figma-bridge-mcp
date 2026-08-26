@@ -39,6 +39,7 @@ const node = ({ tag = 'div', classes = '', rect, style, authoredStyle = {}, text
 
 const semanticCapture = {
   version: 2,
+  viewport: { width: 1440, height: 1000 },
   root: node({
     tag: 'main', classes: 'screen', rect: { x: 0, y: 0, w: 1440, h: 1000 },
     style: {
@@ -86,6 +87,10 @@ describe('semantic browser capture contract', () => {
     assert.match(script, /gridTemplateColumns/);
     assert.match(script, /authoredStyle/);
     assert.match(script, /customProperties/);
+    assert.match(script, /document\.fonts\.check/);
+    assert.match(script, /requestedFamily = family\.split/);
+    assert.match(script, /size \+ ' ' \+ requestedFamily/);
+    assert.match(script, /fontEvidence/);
     assert.match(script, /iconRole/);
     assert.match(script, /contentOrder/);
     assert.match(script, /element\.outerHTML/);
@@ -426,6 +431,42 @@ describe('semantic browser capture contract', () => {
     assert.match(jsx, /name="metric-icon\.lime"[^>]+flex="col"[^>]+justify="center"[^>]+items="center"/);
     assert.match(jsx, /<Icon name="dom-svg-1" preserveColors="true" w="18" h="18"/);
     assert.doesNotMatch(jsx, /<Icon name="dom-svg-1"[^>]+position="absolute"/);
+  });
+
+  it('preserves source truth for text arrows and source SVG arrows', () => {
+    const capture = {
+      version: 2,
+      root: node({
+        classes: 'actions', rect: { x: 0, y: 0, w: 220, h: 40 },
+        style: { display: 'flex', flexDirection: 'row', gap: '12px' },
+        children: [
+          node({
+            tag: 'button', classes: 'text-action', rect: { x: 0, y: 0, w: 100, h: 40 },
+            texts: [{
+              text: 'Resolve →', rect: { x: 10, y: 10, w: 80, h: 20 }, style: baseStyle(),
+            }],
+          }),
+          node({
+            tag: 'button', classes: 'vector-action', rect: { x: 112, y: 0, w: 40, h: 40 },
+            children: [node({
+              tag: 'svg', classes: 'arrow-icon', rect: { x: 124, y: 12, w: 16, h: 16 },
+              svg: '<svg viewBox="0 0 16 16"><path d="M3 8h9m-4-4 4 4-4 4"/></svg>',
+            })],
+          }),
+        ],
+      }),
+    };
+
+    const { jsx } = domCaptureToJsx(capture);
+    const { renderPlan } = domCaptureToRenderPlan(capture);
+    const textAction = renderPlan.root.children.find((child) => child.source.props.name === 'text-action');
+    const vectorAction = renderPlan.root.children.find((child) => child.source.props.name === 'vector-action');
+    assert.match(jsx, /name="text-action"[\s\S]*>Resolve →<\/Text>/);
+    assert.match(jsx, /name="vector-action"[\s\S]*<Icon name="dom-svg-1"/);
+    assert.equal(textAction.children.some((child) => child.source.type === 'text'), true);
+    assert.equal(textAction.children.some((child) => child.source.type === 'icon'), false);
+    assert.equal(vectorAction.children.some((child) => child.source.type === 'icon'), true);
+    assert.equal(vectorAction.children.some((child) => child.source.type === 'text'), false);
   });
 
   it('inherits Grid item alignment and lets align-self and justify-self override it', async () => {

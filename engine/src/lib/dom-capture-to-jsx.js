@@ -796,7 +796,17 @@ export function domCaptureToRenderPlan(capture, options = {}) {
     diagnostics: projection.semanticModel?.diagnostics || executableModel.diagnostics,
   }, {
     adapter: 'dom-capture',
-    provenance: { captureVersion: Number(capture.version || 1) },
+    provenance: {
+      captureVersion: Number(capture.version || 1),
+      ...(options.captureHash ? { captureHash: String(options.captureHash) } : {}),
+      ...(Number.isFinite(capture.viewport?.width) && capture.viewport.width > 0
+        && Number.isFinite(capture.viewport?.height) && capture.viewport.height > 0 ? {
+          viewport: {
+            width: round(capture.viewport.width),
+            height: round(capture.viewport.height),
+          },
+        } : {}),
+    },
     variableCollection: options.variableCollection || null,
     componentLinks: options.componentLinks || null,
   });

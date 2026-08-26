@@ -163,6 +163,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Existing-UI acceptance can now require persisted DOM-capture provenance,
+  including the capture SHA-256 and viewport, so a hand-authored JSX render
+  cannot silently replace a browser-derived baseline. `verify-build` also
+  supports a bounded browser fidelity ledger that gates rare source facts and
+  computed typography roles as matched, explicitly approved, or missing.
 - Browser DOM capture now preserves cross-axis CSS auto margins with editable
   fill-sized Auto Layout wrappers, so `margin-inline:auto` and block-axis
   equivalents retain start/center/end relationships instead of frozen geometry.

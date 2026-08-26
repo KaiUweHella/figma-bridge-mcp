@@ -59,7 +59,8 @@ for sections whose facts are still missing; put all known same-scope section
 reads into one `nodeIds[]` batch. If Figma changes during the task, invalidate the
 affected evidence and recapture it.
 
-Before implementation, keep a compact fact ledger per section. Account for
+Before implementation, write a bounded browser fidelity ledger per section.
+Follow `docs/browser-fidelity-ledger.md` and account for
 every exported/decorative layer, paint or gradient, blend mode, effect,
 per-side stroke, typography role, and fill/hug/responsive relationship from
 the scoped evidence. A fact may be implemented, intentionally code-only, or an
@@ -129,6 +130,9 @@ workers duplicate project context even when their Figma reads are disjoint.
    before adding or downloading a standalone browser tool.
 5. Run `verify-build --compare`, inspect the generated diff image and worst
    regions, and iterate until the agreed pixel threshold passes.
-6. Report the final diff, asset coverage, checks run, and any explicit deviation.
+6. Run `verify-build` with both `--fidelity-ledger` and `--browser-capture`.
+   Treat every `missing` fact as a blocker; only a reviewed reason may produce
+   `approved-deviation`.
+7. Report the final diff, asset coverage, fact-ledger result, checks run, and any explicit deviation.
    Do not declare parity without the visual comparison or with an unaccounted
    fact-ledger entry.

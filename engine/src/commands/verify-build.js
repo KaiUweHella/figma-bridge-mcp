@@ -13,6 +13,7 @@
 // offline) or is fetched live from Figma (--node, or the manifest's root).
 // Informational by default; --max-diff <pct> opts into gating the exit code.
 import chalk from 'chalk';
+import { createHash } from 'node:crypto';
 import { readdirSync } from 'fs';
 import { join, resolve, relative, basename, extname, dirname } from 'path';
 import { PNG } from 'pngjs';
@@ -20,7 +21,9 @@ import { program, checkConnection, daemonExec } from '../lib/cli-core.js';
 import { verifyBuild, describeMissing } from '../lib/verify-build.js';
 import { diffImages, describeRegions } from '../lib/image-diff.js';
 import { loadImage } from '../gradient-extractor.js';
-import { workspaceIO } from '../lib/workspace-io.js';
+import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
+import { verifyBrowserFidelityLedger } from '../lib/browser-fidelity-ledger.js';
+import { BROWSER_DOM_CAPTURE_LIMITS } from '../lib/browser-dom-capture.js';
 
 // Directories that are never part of the source build.
 const SKIP_DIRS = new Set([
@@ -178,6 +181,8 @@ program
   .option('--node <nodeId>', 'Figma node to fetch the reference from (default: the sole export root in assets.json)')
   .option('--diff-out <path>', 'where to write the diff PNG (default: next to the build screenshot, <name>-diff.png)')
   .option('--max-diff <pct>', 'fail (exit 1) when the visual diff exceeds this percentage — off by default')
+  .option('--fidelity-ledger <path>', 'bounded source-fact ledger for mechanical Figma-to-browser acceptance')
+  .option('--browser-capture <path>', 'browser DOM capture paired with --fidelity-ledger')
   .option('--json', 'Machine-readable JSON output')
   .action(async (projectDir, options) => {
     const root = resolve(projectDir);
@@ -206,6 +211,32 @@ program
     }
 
     const result = verifyBuild(manifests.map((m) => m.data), files, readManifestAssetFiles(manifests));
+
+    // ---- scoped source-fact pass (optional) ----
+    let fidelity = null;
+    if (Boolean(options.fidelityLedger) !== Boolean(options.browserCapture)) {
+      console.error(chalk.red('✗ verify-build: --fidelity-ledger and --browser-capture must be passed together.'));
+      process.exit(1);
+    }
+    if (options.fidelityLedger) {
+      try {
+        const ledger = workspaceIO().readJson(resolve(options.fidelityLedger), { role: 'verify-build-fidelity-ledger' });
+        const capturePath = resolve(options.browserCapture);
+        const captureBytes = workspaceIO().read(capturePath, {
+          role: 'verify-build-browser-capture', maxBytes: BROWSER_DOM_CAPTURE_LIMITS.jsonBytes,
+        });
+        const capture = parseBoundedJson(captureBytes.toString('utf8'), {
+          role: 'verify-build-browser-capture',
+          limits: { ...workspaceIO().limits, ...BROWSER_DOM_CAPTURE_LIMITS },
+        });
+        fidelity = verifyBrowserFidelityLedger(ledger, capture, {
+          captureHash: createHash('sha256').update(captureBytes).digest('hex'),
+        });
+      } catch (error) {
+        console.error(chalk.red(`✗ verify-build: fidelity ledger failed: ${error.message}`));
+        process.exit(1);
+      }
+    }
 
     // ---- visual pass (optional) ----
     let visual = null;
@@ -267,7 +298,8 @@ program
     const maxDiff = options.maxDiff !== undefined ? parseFloat(options.maxDiff) : null;
     const visualFail = visual && maxDiff !== null && Number.isFinite(maxDiff) && visual.diffPct > maxDiff;
     const integrityFail = result.integrity.mismatched.length || result.integrity.missingFiles.length;
-    const exitCode = result.missing.length || integrityFail || visualFail ? 1 : 0;
+    const fidelityFail = fidelity && !fidelity.passed;
+    const exitCode = result.missing.length || integrityFail || visualFail || fidelityFail ? 1 : 0;
 
     if (options.json) {
       console.log(JSON.stringify({
@@ -285,6 +317,7 @@ program
         },
         borderImage: result.borderImage.map((b) => ({ file: relative(root, b.path), line: b.line })),
         ...(visual ? { visual } : {}),
+        ...(fidelity ? { fidelity } : {}),
       }, null, 2));
       process.exit(exitCode);
     }
@@ -318,6 +351,19 @@ program
     if (result.borderImage.length) {
       console.log(chalk.yellow(`⚠ border-image found (ignores border-radius — gradient strokes on rounded boxes lose their corners; use the wrapper/padding or mask pattern instead):`));
       for (const b of result.borderImage) console.log(`  - ${relative(root, b.path)}:${b.line}`);
+    }
+
+    if (fidelity) {
+      console.log('');
+      console.log(`source-fact ledger: ${fidelity.summary.matched}/${fidelity.summary.total} matched, `
+        + `${fidelity.summary.approvedDeviations} approved deviation(s), ${fidelity.summary.missing} missing`);
+      for (const fact of fidelity.facts.filter((item) => item.status !== 'matched')) {
+        const marker = fact.status === 'approved-deviation' ? '⚠' : '✗';
+        const line = `${marker} ${fact.id} [${fact.sourceNodeId}] → ${fact.property}: expected ${JSON.stringify(fact.expected)}`
+          + `${Object.hasOwn(fact, 'actual') ? `, actual ${JSON.stringify(fact.actual)}` : ''}`;
+        console.log(fact.status === 'approved-deviation' ? chalk.yellow(line) : chalk.red(line));
+      }
+      if (fidelity.passed) console.log(chalk.green('✓ every required source fact is accounted for.'));
     }
 
     if (visual) {

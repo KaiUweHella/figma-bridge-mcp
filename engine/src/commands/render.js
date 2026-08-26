@@ -1,12 +1,13 @@
 // Commands: render (extracted from index.js)
 import chalk from 'chalk';
+import { createHash } from 'node:crypto';
 import { Option } from 'commander';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
 import { readdirSync } from 'fs';
 import { FigmaClient } from '../lib/jsx-render.js';
 import { domCaptureToRenderPlan } from '../lib/dom-capture-to-jsx.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
-import { browserDomCaptureScript } from '../lib/browser-dom-capture.js';
+import { BROWSER_DOM_CAPTURE_LIMITS, browserDomCaptureScript } from '../lib/browser-dom-capture.js';
 import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-structural-gate.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
@@ -613,9 +614,16 @@ program
     }
     if (options.domCapture) {
       let capture;
+      let captureHash;
       try {
-        const text = workspaceIO().readText(options.domCapture, { role: 'dom-capture' });
-        capture = parseBoundedJson(text, { role: 'dom-capture', limits: workspaceIO().limits });
+        const text = workspaceIO().readText(options.domCapture, {
+          role: 'dom-capture', maxBytes: BROWSER_DOM_CAPTURE_LIMITS.jsonBytes,
+        });
+        captureHash = createHash('sha256').update(text, 'utf8').digest('hex');
+        capture = parseBoundedJson(text, {
+          role: 'dom-capture',
+          limits: { ...workspaceIO().limits, ...BROWSER_DOM_CAPTURE_LIMITS },
+        });
       } catch (error) {
         console.error(chalk.red('✗'), `Could not read DOM capture ${options.domCapture}: ${error.message}`);
         process.exitCode = 1;
@@ -626,6 +634,7 @@ program
           projectIcons,
           componentLinks,
           variableCollection: options.collection || null,
+          captureHash,
         });
         adaptedRenderPlan = converted.renderPlan;
         captureIcons = converted.icons;

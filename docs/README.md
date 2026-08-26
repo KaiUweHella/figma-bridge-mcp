@@ -8,6 +8,8 @@ contributors, and security reviewers:
   supported public Figma Plugin API surface and its boundaries.
 - [`css-figma-semantic-matrix.md`](css-figma-semantic-matrix.md) documents
   Code-to-Figma conversion fidelity.
+- [`browser-fidelity-ledger.md`](browser-fidelity-ledger.md) documents the
+  bounded per-source-fact Figma-to-browser acceptance gate.
 - [`fidelity-corpus.md`](fidelity-corpus.md) defines the versioned bidirectional
   corpus, scoring outcomes and release thresholds.
 - [`slides-roadmap.md`](slides-roadmap.md) separates supported Slides work from

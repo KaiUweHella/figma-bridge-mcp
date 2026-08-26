@@ -31,6 +31,12 @@ describe('structured Semantic Render Plan executor', () => {
       '<Frame name="Card" flex="col" w="240" h="120" gap="8" p="12" bg="#ffffff">' +
       '<Text name="Title" size="16" weight="600" color="#111111">Hello</Text></Frame>',
     );
+    plan.adapter = 'dom-capture';
+    plan.provenance = {
+      captureVersion: 2,
+      captureHash: 'a'.repeat(64),
+      viewport: { width: 240, height: 120 },
+    };
     const figma = fakeFigma();
 
     assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
@@ -57,7 +63,28 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(frame.getPluginData('figmaBridge.semanticPath'), plan.root.path);
     assert.equal(frame.getPluginData('figmaBridge.semanticIndex'), '0');
     assert.equal(frame.getPluginData('figmaBridge.renderPlanVersion'), '1');
+    assert.equal(frame.getPluginData('figmaBridge.renderAdapter'), 'dom-capture');
+    assert.deepEqual(JSON.parse(frame.getPluginData('figmaBridge.renderProvenance')), plan.provenance);
     assert.equal(text.getPluginData('figmaBridge.semanticPath'), plan.root.children[0].path);
+  });
+
+  it('rejects malformed DOM provenance before canvas mutation', async () => {
+    const plan = new FigmaClient().planJSX('<Frame name="Malformed provenance" />');
+    plan.adapter = 'dom-capture';
+    plan.provenance = {
+      captureVersion: 0,
+      captureHash: 'not-a-hash',
+      viewport: { width: 0, height: 120 },
+    };
+    const figma = fakeFigma();
+
+    const support = inspectStructuredRenderPlan(plan);
+    assert.equal(support.supported, false);
+    assert.match(support.problems.join('\n'), /captureVersion/);
+    assert.match(support.problems.join('\n'), /SHA-256/);
+    assert.match(support.problems.join('\n'), /viewport/);
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /captureVersion/);
+    assert.equal(figma.created.length, 0);
   });
 
   it('writes nested Rich Text ranges after preloading every requested font', async () => {

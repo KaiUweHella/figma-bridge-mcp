@@ -27,6 +27,14 @@ export const CAPTURE_STYLE_PROPERTIES = Object.freeze([
   'fontVariationSettings', 'letterSpacing', 'textAlign', 'textTransform',
 ]);
 
+// A real composed screen carries the complete computed-style vocabulary for
+// every node. The generic workspace JSON limit is intentionally smaller than
+// that legitimate shape, so DOM captures get their own still-hard ceiling.
+export const BROWSER_DOM_CAPTURE_LIMITS = Object.freeze({
+  jsonBytes: 32 * 1024 * 1024,
+  collectionEntries: 500_000,
+});
+
 export const SVG_PRESENTATION_PROPERTIES = Object.freeze([
   'color', 'fill', 'fillOpacity', 'stopColor', 'stopOpacity',
   'stroke', 'strokeOpacity', 'strokeWidth', 'strokeLinecap', 'strokeLinejoin', 'strokeDasharray',
@@ -128,6 +136,19 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
       }
       return out;
     };
+    const fontEvidence = (element, style) => {
+      const family = style.fontFamily || '';
+      const requestedFamily = family.split(',')[0].trim() || family;
+      const fontStyle = style.fontStyle || 'normal';
+      const weight = style.fontWeight || '400';
+      const size = style.fontSize || '16px';
+      let loaded = null;
+      try {
+        const sample = element.textContent.trim().slice(0, 64) || 'BESbswy';
+        loaded = document.fonts.check(fontStyle + ' ' + weight + ' ' + size + ' ' + requestedFamily, sample);
+      } catch (error) { loaded = null; }
+      return { family, requestedFamily, style: fontStyle, weight, size, loaded };
+    };
     const textRuns = (element, style) => Array.from(element.childNodes)
       .filter((child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim())
       .map((child) => {
@@ -207,6 +228,7 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
         classes: typeof element.className === 'string' ? element.className : '',
         aria: element.getAttribute('aria-label') || '',
         rect: rect(box), style: pick(style), authoredStyle: authored(element),
+        fontEvidence: fontEvidence(element, style),
         customProperties: customProperties(style), iconRole: iconRole(element),
         sourceIdentity: {
           entity: element.getAttribute('data-figma-entity') || null,

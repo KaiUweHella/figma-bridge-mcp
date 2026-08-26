@@ -8,6 +8,32 @@ export const SEMANTIC_RENDER_PLAN_KIND = 'figma-bridge/semantic-render-plan';
 export const SEMANTIC_RENDER_PLAN_VERSION = 1;
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const ADAPTER = /^[a-z][a-z0-9-]{0,63}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
+
+function validatePlanProvenance(plan) {
+  if (plan.provenance === undefined) return;
+  if (!isRecord(plan.provenance)) {
+    throw new Error('Semantic Render Plan provenance must be an object');
+  }
+  const serialized = JSON.stringify(plan.provenance);
+  if (!serialized || serialized.length > 1024) {
+    throw new Error('Semantic Render Plan provenance must fit within 1,024 code units');
+  }
+  if (plan.adapter !== 'dom-capture') return;
+  const provenance = plan.provenance;
+  if (!Number.isInteger(provenance.captureVersion) || provenance.captureVersion < 1) {
+    throw new Error('DOM-capture provenance requires a positive captureVersion');
+  }
+  if (provenance.captureHash !== undefined && !SHA256.test(provenance.captureHash)) {
+    throw new Error('DOM-capture provenance captureHash must be SHA-256');
+  }
+  if (provenance.viewport !== undefined && (!isRecord(provenance.viewport)
+    || !Number.isFinite(provenance.viewport.width) || provenance.viewport.width <= 0
+    || !Number.isFinite(provenance.viewport.height) || provenance.viewport.height <= 0)) {
+    throw new Error('DOM-capture provenance viewport must contain positive width and height');
+  }
+}
 
 export function createSemanticRenderPlan(semanticModel, {
   adapter = 'unknown',
@@ -42,9 +68,10 @@ export function assertSemanticRenderPlan(plan, { executable = false } = {}) {
   if (plan.version !== SEMANTIC_RENDER_PLAN_VERSION) {
     throw new Error(`Unsupported Semantic Render Plan version: ${plan.version ?? 'missing'}`);
   }
-  if (typeof plan.adapter !== 'string' || !plan.adapter) {
-    throw new Error('Semantic Render Plan adapter must be a non-empty string');
+  if (typeof plan.adapter !== 'string' || !ADAPTER.test(plan.adapter)) {
+    throw new Error('Semantic Render Plan adapter must be a bounded lowercase identifier');
   }
+  validatePlanProvenance(plan);
   if (plan.variableCollection !== undefined
     && (typeof plan.variableCollection !== 'string' || !plan.variableCollection.trim())) {
     throw new Error('Semantic Render Plan variableCollection must be a non-empty string');

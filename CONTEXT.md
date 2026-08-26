@@ -578,7 +578,7 @@ The versioned repository record that resolves a **Design Entity** to its code, S
 _Avoid_: memory file, component map
 
 **Accepted Design Baseline**:
-The reviewed pair of code and Figma fingerprints for one **Design Entity**. It records the last state a human accepted as corresponding without storing source content or claiming that code and Figma are structurally comparable.
+The reviewed pair of code and Figma fingerprints for one **Design Entity**. It records the last state a human accepted as corresponding without storing source content or claiming that code and Figma are structurally comparable. Existing rendered UI may additionally require bounded **Render Provenance** before that baseline can be accepted.
 _Avoid_: last sync, golden version
 
 **Round-trip Plan**:
@@ -600,6 +600,14 @@ _Avoid_: URL allowlist, fetch helper, SSRF filter
 **Semantic Render Plan**:
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
 _Avoid_: JSX tree, generated code, render payload
+
+**Render Provenance**:
+The bounded source evidence persisted on a created Semantic Render root. It names the validated input adapter and, for Browser DOM Capture, the capture schema version, SHA-256 digest and viewport. Design Link inspection and acceptance may require this evidence for an existing rendered UI; a JSX render remains valid for new views or explicitly reviewed semantic boundaries.
+_Avoid_: renderer label, console note, visual proof, universal DOM requirement
+
+**Browser Fidelity Ledger**:
+The bounded, reviewed mapping from important Figma source-node facts to deterministic Browser DOM Capture targets. Each fact resolves mechanically to matched, approved-deviation or missing, including computed typography-role and loaded-font evidence. Missing or ambiguous facts fail build acceptance; the ledger supplements rather than replaces visual comparison.
+_Avoid_: CSS checklist, screenshot diff, unbounded selector scan, model judgment
 
 **Compound Semantic Render Request**:
 The closed request for a bounded ordered set of **Semantic Render Plans** plus their shared placement and explicit follow-up stages. Wrapper auto-split, explicit batch, CLI and MCP adapt into the same request before readiness. Rendering, placement, component conversion, resize probing and verification retain one target, deadline, confirmation, Audit lifecycle and truthful partial Outcome; a post-dispatch failure never selects another executor.

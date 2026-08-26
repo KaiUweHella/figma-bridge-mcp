@@ -1253,8 +1253,11 @@ test('catalog prepares every known project-relative path policy', () => {
     ['link', 'accept', 'screen.home', '--compare', inWorkspace('shots', 'home.jpg'), '--manifest', inWorkspace('figma-bridge.json')],
   );
   assert.deepEqual(
-    argv(['verify-build', '.', '--compare', 'shot.png']),
-    ['verify-build', base, '--compare', inWorkspace('shot.png')],
+    argv(['verify-build', '.', '--compare', 'shot.png', '--fidelity-ledger', 'facts.json',
+      '--browser-capture=captures/screen.json']),
+    ['verify-build', base, '--compare', inWorkspace('shot.png'),
+      '--fidelity-ledger', inWorkspace('facts.json'),
+      `--browser-capture=${inWorkspace('captures', 'screen.json')}`],
   );
   assert.deepEqual(
     argv(['verify', '1:2', '--save', 'shot.png']),

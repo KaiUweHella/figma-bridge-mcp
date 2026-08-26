@@ -164,11 +164,17 @@ export function inspectDesignEntityCode(nodeId = null) {
     } catch (e) {}
     let pluginData = '';
     try { pluginData = n.getPluginData(${JSON.stringify(DESIGN_ENTITY_PLUGIN_DATA_KEY)}) || ''; } catch (e) {}
+    let renderAdapter = '', renderProvenance = null;
+    try { renderAdapter = n.getPluginData('figmaBridge.renderAdapter') || ''; } catch (e) {}
+    try {
+      const raw = n.getPluginData('figmaBridge.renderProvenance') || '';
+      if (raw) renderProvenance = JSON.parse(raw);
+    } catch (e) { renderProvenance = null; }
     return {
       id: n.id, name: n.name, type: n.type,
       fileKey: (typeof figma.fileKey === 'string' && figma.fileKey) || null,
       fileName: figma.root.name,
-      componentKey, variantKey, pluginData,
+      componentKey, variantKey, pluginData, renderAdapter, renderProvenance,
     };
   })()`;
 }
@@ -230,7 +236,7 @@ async function liveEntity(request, loaded, evaluate) {
   if (request.entityId) {
     const entity = explicitEntity(loaded, request.entityId);
     const nodeId = request.nodeId || entity.figma?.nodeId;
-    if (!nodeId) return { entity, nodeId };
+    if (!nodeId) return { entity, nodeId, figma: null };
     const figma = await evaluate(inspectDesignEntityCode(nodeId));
     const plugin = parseDesignEntityPluginData(figma.pluginData);
     if (!entity.legacy && plugin?.id !== entity.id) {
@@ -238,7 +244,7 @@ async function liveEntity(request, loaded, evaluate) {
         `Figma anchor for ${entity.id} is ${plugin?.id ? `linked to ${plugin.id}` : 'missing'}. Run link set again before planning or accepting.`,
       );
     }
-    return { entity, nodeId: figma.id };
+    return { entity, nodeId: figma.id, figma };
   }
   const figma = await evaluate(inspectDesignEntityCode(request.nodeId));
   const plugin = parseDesignEntityPluginData(figma.pluginData);
@@ -252,7 +258,44 @@ async function liveEntity(request, loaded, evaluate) {
   if (!entity.legacy && plugin?.id !== entity.id) {
     throw new Error(`Figma anchor for ${entity.id} is missing or mismatched. Run link set again.`);
   }
-  return { entity, nodeId: figma.id };
+  return { entity, nodeId: figma.id, figma };
+}
+
+function renderEvidence(figma) {
+  const adapter = typeof figma?.renderAdapter === 'string'
+    && /^[a-z][a-z0-9-]{0,63}$/.test(figma.renderAdapter)
+    ? figma.renderAdapter : null;
+  if (!adapter) return null;
+  const provenance = figma.renderProvenance && typeof figma.renderProvenance === 'object'
+    && !Array.isArray(figma.renderProvenance) ? figma.renderProvenance : null;
+  return { adapter, ...(provenance ? { provenance } : {}) };
+}
+
+function acceptedRenderEvidence(request, figma) {
+  const evidence = renderEvidence(figma);
+  if (!request.requiredRenderAdapter) return evidence;
+  if (!evidence) {
+    throw new Error(
+      `Existing-UI acceptance requires render adapter ${request.requiredRenderAdapter}, but persisted render provenance is missing. Re-render from the browser DOM capture before accepting.`,
+    );
+  }
+  if (evidence.adapter !== request.requiredRenderAdapter) {
+    throw new Error(
+      `Existing-UI acceptance requires render adapter ${request.requiredRenderAdapter}, but found ${evidence.adapter}. Re-render from the browser DOM capture before accepting.`,
+    );
+  }
+  if (evidence.adapter === 'dom-capture') {
+    const provenance = evidence.provenance;
+    if (!provenance || !Number.isInteger(provenance.captureVersion)
+      || !/^[a-f0-9]{64}$/.test(String(provenance.captureHash || ''))
+      || !Number.isFinite(provenance.viewport?.width) || provenance.viewport.width <= 0
+      || !Number.isFinite(provenance.viewport?.height) || provenance.viewport.height <= 0) {
+      throw new Error(
+        'Existing-UI acceptance found dom-capture without complete capture hash and viewport provenance. Re-render with the current Bridge before accepting.',
+      );
+    }
+  }
+  return evidence;
 }
 
 async function captureRoundTripState(entity, nodeId, projectRoot, adapters) {
@@ -470,6 +513,9 @@ export async function executeDesignLink(request, adapters = {}) {
 
   if (['status', 'accept', 'context'].includes(request.action)) {
     const resolved = await liveEntity(request, loaded, adapters.evaluate);
+    const render = request.action === 'accept'
+      ? acceptedRenderEvidence(request, resolved.figma)
+      : null;
     const state = await captureRoundTripState(resolved.entity, resolved.nodeId, projectRoot, adapters);
     const plan = planRoundTrip({
       ...state,
@@ -495,6 +541,7 @@ export async function executeDesignLink(request, adapters = {}) {
     const baseline = {
       ...acceptedRoundTripBaseline(state.code, state.figma),
       ...(visual ? { visual } : {}),
+      ...(render ? { render } : {}),
     };
     const registry = upsertDesignEntity(loaded.writableRegistry, {
       id: resolved.entity.id,

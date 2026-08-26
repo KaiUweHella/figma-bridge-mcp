@@ -194,6 +194,7 @@
     "engine/src/lib/asset-policy.js",
     "engine/src/lib/bridge-execution-timing.js",
     "engine/src/lib/browser-dom-capture.js",
+    "engine/src/lib/browser-fidelity-ledger.js",
     "engine/src/lib/builtin-icons.js",
     "engine/src/lib/cli-core.js",
     "engine/src/lib/code-spec.js",

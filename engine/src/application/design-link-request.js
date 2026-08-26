@@ -47,6 +47,7 @@ const ACTIONS = Object.freeze({
       '--manifest': 'manifestPath',
       '--compare': 'comparePath',
       '--max-diff': 'maxDiff',
+      '--require-render-adapter': 'requiredRenderAdapter',
     }),
   }),
   context: Object.freeze({
@@ -112,6 +113,9 @@ export function parseDesignLinkRequest(args, { requireManifest = true } = {}) {
     if (positionals[index] !== undefined) request[property] = positionals[index];
   });
   for (const property of Object.values(contract.options)) request[property] = values[property];
+  if (request.requiredRenderAdapter !== undefined && request.requiredRenderAdapter !== 'dom-capture') {
+    throw commandError(action, '--require-render-adapter currently supports dom-capture');
+  }
   return request;
 }
 

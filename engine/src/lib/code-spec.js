@@ -366,6 +366,7 @@ export function factSegs(node) {
   if (node.positionSource === 'geometry') parts.push('position:geometry-fallback');
   if (node.bridge?.semanticPath) parts.push(`semantic-path:${node.bridge.semanticPath}`);
   if (node.bridge?.renderPlanVersion != null) parts.push(`render-plan:v${node.bridge.renderPlanVersion}`);
+  if (node.bridge?.renderAdapter) parts.push(`render-adapter:${node.bridge.renderAdapter}`);
   if (node.bridge?.fallbackAnnotations?.length) {
     const policies = [...new Set(node.bridge.fallbackAnnotations
       .map((annotation) => annotation?.policy || annotation?.strategy || annotation?.kind)

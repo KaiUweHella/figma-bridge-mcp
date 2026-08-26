@@ -116,6 +116,22 @@ function normalizeBaseline(value) {
       writable: true,
     });
   }
+  let render;
+  if (raw.render !== undefined) {
+    const adapter = raw.render?.adapter;
+    if (typeof adapter !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(adapter)) {
+      throw new Error('Invalid Design Entity baseline: render adapter is invalid.');
+    }
+    const provenance = object(raw.render?.provenance);
+    const serialized = JSON.stringify(provenance);
+    if (serialized.length > 1024) {
+      throw new Error('Invalid Design Entity baseline: render provenance is too large.');
+    }
+    render = {
+      adapter,
+      ...(Object.keys(provenance).length ? { provenance } : {}),
+    };
+  }
   return {
     version: 1,
     acceptedAt: raw.acceptedAt,
@@ -124,6 +140,7 @@ function normalizeBaseline(value) {
       hash: figmaHash,
       ...(Object.keys(semanticPaths).length ? { semanticPaths } : {}),
     },
+    ...(render ? { render } : {}),
     ...(raw.visual && Number.isFinite(Number(raw.visual.diffPct)) ? {
       visual: {
         diffPct: Number(raw.visual.diffPct),
