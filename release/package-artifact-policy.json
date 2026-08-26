@@ -276,6 +276,7 @@
     "package.json",
     "plugin.json",
     "plugin/code.js",
+    "plugin/compatibility-history.json",
     "plugin/manifest.dev.json",
     "plugin/manifest.json",
     "plugin/ui.html",

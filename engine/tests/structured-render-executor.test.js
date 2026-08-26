@@ -567,6 +567,35 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual([one.x, one.y, two.x, two.y], [0, 100, 144, 100]);
   });
 
+  it('applies explicit single-root placement in the creation journal', async () => {
+    const plan = new FigmaClient().planJSX('<Frame name="Placed" w="120" h="80"/>');
+    const figma = fakeFigma();
+    const result = await executeStructuredRenderPlan(figma, plan, {
+      smart: false, x: -25, y: 20,
+    });
+    const frame = figma.created.find((node) => node.name === 'Placed');
+    assert.equal(result.executor, 'structured-v1');
+    assert.equal(result.mutationOutcome, 'completed');
+    assert.deepEqual([frame.x, frame.y], [-25, 20]);
+  });
+
+  it('pins no-smart single-root placement to x=0 and rejects unbounded options before mutation', async () => {
+    const plan = new FigmaClient().planJSX('<Frame name="Placed" x="55" y="12"/>');
+    const pinned = fakeFigma();
+    await executeStructuredRenderPlan(pinned, plan, { smart: false });
+    const frame = pinned.created.find((node) => node.name === 'Placed');
+    assert.deepEqual([frame.x, frame.y], [0, 12]);
+
+    for (const options of [{ future: true }, { smart: 'no' }, { x: Infinity }, { y: NaN }]) {
+      const figma = fakeFigma();
+      await assert.rejects(
+        () => executeStructuredRenderPlan(figma, plan, options),
+        /preflight failed/i,
+      );
+      assert.equal(figma.currentPage.children.length, 0);
+    }
+  });
+
   it('preserves explicit compound placement and disables smart positioning without losing zero gap', async () => {
     const client = new FigmaClient();
     const plans = [

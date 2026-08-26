@@ -57,6 +57,7 @@
     "check:audit:development": "npm audit --include=dev --audit-level=high",
     "check:package-artifact": "node scripts/verify-package-artifact.js",
     "check:plugin": "node scripts/sync-plugin-artifact.js --check",
+    "check:plugin-compatibility": "node scripts/check-plugin-compatibility.js --check",
     "check:release": "node scripts/sync-release-version.js --check",
     "check:workflow-evals": "node scripts/validate-workflow-evals.js",
     "check:fidelity-corpus": "node scripts/validate-fidelity-corpus.js",
@@ -75,7 +76,8 @@
     "build:package-artifact": "node scripts/verify-package-artifact.js",
     "sync:release-version": "node scripts/sync-release-version.js",
     "sync:plugin": "node scripts/sync-plugin-artifact.js",
-    "test": "npm run check:contracts && npm run check:release && npm run check:plugin && npm run check:workflow-evals && npm run check:fidelity-corpus && npm run check:fidelity-comparisons && npm run check:runtime-budgets && node --test",
+    "sync:plugin-compatibility": "node scripts/check-plugin-compatibility.js --record",
+    "test": "npm run check:contracts && npm run check:release && npm run check:plugin && npm run check:plugin-compatibility && npm run check:workflow-evals && npm run check:fidelity-corpus && npm run check:fidelity-comparisons && npm run check:runtime-budgets && node --test",
     "prepublishOnly": "npm run check:public-safety && npm test && npm run check:package-artifact",
     "prepare": "husky"
   },

@@ -70,10 +70,15 @@ test('daemon client sends Semantic Render Plans as structured authenticated payl
     fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return response(200, { result: { id: '1:2' } }); },
   });
   const plan = { kind: 'figma-bridge/semantic-render-plan', version: 1, adapter: 'jsx', root: {}, diagnostics: {} };
-  assert.deepEqual(await client.renderPlan(plan, FIGMA), { id: '1:2' });
+  assert.deepEqual(await client.renderPlan(plan, {
+    ...FIGMA, renderOptions: { smart: false, x: -10, y: 20 },
+  }), { id: '1:2' });
   assert.ok(body.deadlineAt > Date.now());
   delete body.deadlineAt;
-  assert.deepEqual(body, { action: 'render-plan', plan, expectedEditor: 'figma', timeoutMs: 90000 });
+  assert.deepEqual(body, {
+    action: 'render-plan', plan, options: { smart: false, x: -10, y: 20 },
+    expectedEditor: 'figma', timeoutMs: 90000,
+  });
 });
 
 test('daemon client sends native Semantic Render Plan batches without JavaScript code', async () => {

@@ -297,8 +297,12 @@ export function createDaemonClient({
     },
     typedRead,
     typedReadWithFallback,
-    renderPlan(plan, options) {
-      return execute('render-plan', { plan }, options);
+    renderPlan(plan, options = {}) {
+      const { renderOptions, ...requestOptions } = options;
+      return execute('render-plan', {
+        plan,
+        ...(renderOptions === undefined ? {} : { options: renderOptions }),
+      }, requestOptions);
     },
     renderPlanBatch(plans, batchOptions = {}, options) {
       return execute('render-plan-batch', { plans, options: batchOptions }, options);

@@ -874,7 +874,7 @@ function handleExec(req, res) {
           } else if (action === 'typed-read') {
             data = { operation: payload.operation, request: payload.request, ...common };
           } else if (action === 'render-plan') {
-            data = { plan, ...common };
+            data = { plan, options: options || {}, ...common };
           } else if (action === 'render-plan-batch') {
             data = { plans, options: options || {}, ...common };
           } else {

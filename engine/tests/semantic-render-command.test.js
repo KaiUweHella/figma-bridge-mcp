@@ -128,6 +128,7 @@ test('Semantic Render request Interface closes argv before policy and preserves 
   assert.deepEqual(request, {
     jsx: SIMPLE_JSX,
     keepWrapper: true,
+    placement: { smart: true, x: null, y: null },
     collection: 'Brand',
     preset: 'desktop',
     manifest: null,
@@ -147,6 +148,13 @@ test('Semantic Render request Interface closes argv before policy and preserves 
   assert.deepEqual(semanticRenderArgvRoute(['render', '--', SIMPLE_JSX]), {
     kind: 'simple', reason: null,
   });
+  const positioned = semanticRenderRequestFromArgv([
+    'render', SIMPLE_JSX, '-x-120.5', '-y240', '--no-smart-position',
+  ]);
+  assert.deepEqual(positioned.placement, { smart: false, x: -120.5, y: 240 });
+  assert.deepEqual(semanticRenderArgvFromRequest(positioned), [
+    'render', SIMPLE_JSX, '-x-120.5', '-y240', '--no-smart-position',
+  ]);
 
   for (const malformed of [
     ['render'],
@@ -181,8 +189,8 @@ test('simple, compound and named compatibility Render modes remain explicitly re
       kind: 'compatibility', reason: 'image-resolution', write: true, target: 'figma',
     })),
     { argv: ['render', '<Frame><Image src={"https://example.test/a.png"}/></Frame>'], kind: 'compatibility', reason: 'image-resolution', write: true, target: 'figma' },
-    { argv: ['render', SIMPLE_JSX, '-x', '20'], kind: 'compatibility', reason: 'post-positioning', write: true, target: 'figma' },
-    { argv: ['render', SIMPLE_JSX, '--no-smart-position'], kind: 'compatibility', reason: 'post-positioning', write: true, target: 'figma' },
+    { argv: ['render', SIMPLE_JSX, '-x', '20'], kind: 'simple', reason: null, write: true, target: 'figma' },
+    { argv: ['render', SIMPLE_JSX, '--no-smart-position'], kind: 'simple', reason: null, write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--as-component'], kind: 'compatibility', reason: 'component-conversion', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--verify'], kind: 'compound', reason: 'single-root-stages', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--icons', 'icons'], kind: 'compatibility', reason: 'project-icons', write: true, target: 'figma' },
@@ -682,9 +690,10 @@ test('the native Semantic Render executor is dispatched exactly once without gen
   let evalCalls = 0;
   const result = await executeSemanticRenderPlan(plan, {
     workspaceIO: io,
-    renderPlan: async (structuredPlan) => {
+    renderPlan: async (structuredPlan, placement) => {
       nativeCalls += 1;
       assert.equal(structuredPlan.kind, 'figma-bridge/semantic-render-plan');
+      assert.deepEqual(placement, { smart: true, x: null, y: null });
       return nativeResult();
     },
   });
@@ -697,6 +706,28 @@ test('the native Semantic Render executor is dispatched exactly once without gen
   assert.equal(result.roots[0].handle, '1:2');
   assert.deepEqual(result.executor, { kind: 'structured', version: 1 });
   assert.equal(semanticRenderOutcomeCode(result), 0);
+});
+
+test('explicit single-root placement stays on the native Command Application', async (t) => {
+  const { plan, io } = renderPlan(t, [
+    'render', SIMPLE_JSX, '-x-45.5', '-y120', '--no-smart-position',
+  ]);
+  assert.equal(semanticRenderPlanRoute(plan), 'command-application');
+  let nativeCalls = 0;
+  let evalCalls = 0;
+  const result = await executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async (structuredPlan, placement) => {
+      nativeCalls += 1;
+      assert.equal(structuredPlan.kind, 'figma-bridge/semantic-render-plan');
+      assert.deepEqual(placement, { smart: false, x: -45.5, y: 120 });
+      return nativeResult();
+    },
+    evaluate: async () => { evalCalls += 1; return {}; },
+  });
+  assert.equal(nativeCalls, 1);
+  assert.equal(evalCalls, 0);
+  assert.deepEqual(result.executor, { kind: 'structured', version: 1 });
 });
 
 test('typed Semantic Render never redispatches as eval, including before native dispatch', async (t) => {
@@ -722,7 +753,9 @@ test('typed Semantic Render never redispatches as eval, including before native 
 });
 
 test('locally unsupported native plans choose one generated execution before dispatch', async (t) => {
-  const { plan, io } = renderPlan(t, ['render', '<Frame filter="brightness(1.2)" />']);
+  const { plan, io } = renderPlan(t, [
+    'render', '<Frame filter="brightness(1.2)" />', '-x-45', '-y120', '--no-smart-position',
+  ]);
   const prepared = prepareSemanticRenderPlan(plan, { workspaceIO: io });
   assert.equal(prepared.support.supported, false);
   assert.match(prepared.support.problems.join('\n'), /brightness/);
@@ -732,7 +765,12 @@ test('locally unsupported native plans choose one generated execution before dis
   const result = await executeSemanticRenderPlan(plan, {
     workspaceIO: io,
     renderPlan: async () => { nativeCalls += 1; return nativeResult(); },
-    evaluate: async () => { evalCalls += 1; return { id: '3:4', name: 'Fallback' }; },
+    evaluate: async (code) => {
+      evalCalls += 1;
+      assert.match(code, /const smartX = -45;/);
+      assert.match(code, /frame\.y = 120;/);
+      return { id: '3:4', name: 'Fallback' };
+    },
   });
   assert.equal(nativeCalls, 0);
   assert.equal(evalCalls, 1);

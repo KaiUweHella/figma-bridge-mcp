@@ -311,7 +311,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.12';
+    const PLUGIN_VERSION = '3.3.13';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'dispatch-receipt-v1',
       'eval-v1',
@@ -1242,7 +1242,7 @@
         if (paused) { rejectPaused(msg); return; }
         const name = msg.plan && msg.plan.root && msg.plan.root.name ? msg.plan.root.name : 'Frame';
         addLog({ id: msg.id, t0: Date.now(), label: 'render plan · ' + name, kind: 'write' });
-        parent.postMessage({ pluginMessage: { type: 'render-plan', id: msg.id, plan: msg.plan, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt, dispatchReceipt: msg.dispatchReceipt } }, '*');
+        parent.postMessage({ pluginMessage: { type: 'render-plan', id: msg.id, plan: msg.plan, options: msg.options || {}, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt, dispatchReceipt: msg.dispatchReceipt } }, '*');
       }
       if (msg.action === 'render-plan-batch') {
         if (paused) { rejectPaused(msg); return; }

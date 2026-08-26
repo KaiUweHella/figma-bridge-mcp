@@ -348,6 +348,21 @@ function stageFailure(kind, message = `${kind} failed`) {
   });
 }
 
+function compatibilityPlanWithPlacement(plan, placement) {
+  const x = placement?.x === null || placement?.x === undefined
+    ? (placement?.smart === false ? 0 : null)
+    : placement.x;
+  const y = placement?.y === null || placement?.y === undefined ? null : placement.y;
+  if (x === null && y === null) return plan;
+  const positioned = JSON.parse(JSON.stringify(plan));
+  positioned.root.source.props = {
+    ...positioned.root.source.props,
+    ...(x === null ? {} : { x }),
+    ...(y === null ? {} : { y }),
+  };
+  return positioned;
+}
+
 function validateComponentResult(value, expectedHandles) {
   let bytes;
   try { bytes = Buffer.byteLength(JSON.stringify(value), 'utf8'); }
@@ -665,7 +680,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   };
   if (prepared.support.supported) {
     try {
-      raw = await adapters.renderPlan(prepared.renderPlan);
+      raw = await adapters.renderPlan(prepared.renderPlan, prepared.request.placement);
       executor = 'structured-v1';
     } catch (error) {
       throw attachFailureOutcome(error, 'structured-v1');
@@ -677,7 +692,9 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   if (compatibilityReason) {
     executor = 'generated-eval-compatibility';
     try {
-      const code = await prepared.client.compileRenderPlan(prepared.renderPlan);
+      const code = await prepared.client.compileRenderPlan(
+        compatibilityPlanWithPlacement(prepared.renderPlan, prepared.request.placement),
+      );
       raw = await adapters.evaluate(code);
     } catch (error) {
       throw attachFailureOutcome(error, executor);

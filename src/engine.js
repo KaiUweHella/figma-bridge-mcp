@@ -594,13 +594,14 @@ export async function typedReadFigma(operation, request, fallbackCode, {
 /** Execute a validated Semantic Render Plan through the authenticated native
  * Plugin action. Adapter selection and result validation stay in the owning
  * Semantic Render Command Application. */
-export async function renderFigmaPlan(plan, {
+export async function renderFigmaPlan(plan, renderOptions = {}, {
   target,
   fileKey,
   expectedEditor,
   timeoutMs = LONG_EXEC_TIMEOUT_MS,
 } = {}) {
   return daemonClient().renderPlan(plan, {
+    renderOptions,
     fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
     expectedEditor,
     timeoutMs,

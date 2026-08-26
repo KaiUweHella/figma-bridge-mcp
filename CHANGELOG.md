@@ -7,6 +7,13 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Added an append-only Plugin compatibility fingerprint covering the shipped
+  Plugin, UI, protocol and generated runtimes. CI and prepublish now reject
+  behavior changes unless the daemon build and UI handshake versions advance
+  together; server-only changes remain outside that reload boundary.
+- Explicit single-root `x`, `y` and disabled smart positioning now stay on the
+  typed `render-plan` path and are applied inside the creation journal instead
+  of spawning a Commander compatibility process plus follow-up eval.
 - Browser DOM rendering now resolves same-origin project assets host-side under
   explicit WorkspaceIO authority. Bounded SVGs remain editable vectors,
   verified rasters are embedded as bytes, and cross-origin, active, mismatched

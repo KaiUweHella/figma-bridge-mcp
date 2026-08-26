@@ -33,9 +33,9 @@ const OPTION_SPECS = new Map([
   ['--gap', { key: 'gap', value: 'required' }],
   ['-d', { key: 'direction', value: 'required' }],
   ['--direction', { key: 'direction', value: 'required' }],
-  ['-x', { key: 'x', value: 'required', compatibility: 'post-positioning' }],
-  ['-y', { key: 'y', value: 'required', compatibility: 'post-positioning' }],
-  ['--no-smart-position', { key: 'noSmartPosition', value: 'none', compatibility: 'post-positioning' }],
+  ['-x', { key: 'x', value: 'required' }],
+  ['-y', { key: 'y', value: 'required' }],
+  ['--no-smart-position', { key: 'noSmartPosition', value: 'none' }],
   ['--as-component', { key: 'asComponent', value: 'none', compatibility: 'component-conversion' }],
   ['--keep-wrapper', { key: 'keepWrapper', value: 'none' }],
   ['-c', { key: 'collection', value: 'required' }],
@@ -378,6 +378,11 @@ function inspectRenderArgv(args) {
     request: Object.freeze({
       jsx,
       keepWrapper: values.keepWrapper === true,
+      placement: Object.freeze({
+        smart: values.noSmartPosition !== true,
+        x: values.x === undefined ? null : finiteOption(values.x, '-x'),
+        y: values.y === undefined ? null : finiteOption(values.y, '-y'),
+      }),
       collection: values.collection || null,
       preset: values.preset || null,
       manifest: values.manifest || null,
@@ -564,6 +569,13 @@ export function semanticRenderArgvFromRequest(request) {
   if (typeof request.jsx !== 'string') throw requestError('JSX must be a string');
   const options = [];
   if (request.keepWrapper === true) options.push('--keep-wrapper');
+  if (request.placement?.x !== null && request.placement?.x !== undefined) {
+    options.push(`-x${finiteOption(request.placement.x, '-x')}`);
+  }
+  if (request.placement?.y !== null && request.placement?.y !== undefined) {
+    options.push(`-y${finiteOption(request.placement.y, '-y')}`);
+  }
+  if (request.placement?.smart === false) options.push('--no-smart-position');
   // Inline option values preserve the full accepted value range, including a
   // legitimate leading dash, when typed requests round-trip through argv.
   if (request.collection != null) options.push(`--collection=${String(request.collection)}`);

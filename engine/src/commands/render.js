@@ -334,8 +334,9 @@ async function runSimpleSemanticRender(argv) {
       const remainingMs = () => Math.max(1, deadline - Date.now());
       await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
       domainResult = await executePreparedSemanticRender(prepared, {
-        renderPlan: (renderPlan) => daemonExec('render-plan', {
+        renderPlan: (renderPlan, options) => daemonExec('render-plan', {
           plan: renderPlan,
+          options,
           ...(fileKey ? { fileKey } : {}),
         }, remainingMs()),
         evaluate: (code) => daemonExec('eval', {

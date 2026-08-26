@@ -129,7 +129,7 @@ test('Semantic Render Plans cross UI and main plugin threads without becoming co
   assert.match(UI, /msg\.action === 'render-plan'/);
   assert.match(UI, /type: 'render-plan', id: msg\.id, plan: msg\.plan/);
   assert.match(PLUGIN_CODE, /msg\.type === 'render-plan'/);
-  assert.match(PLUGIN_CODE, /executeStructuredRenderPlan\(figma, plan\)/);
+  assert.match(PLUGIN_CODE, /executeStructuredRenderPlan\(figma, plan, msg\.options \|\| \{\}\)/);
   assert.doesNotMatch(UI, /type: 'render-plan'[^\n]+code:/);
 });
 
@@ -142,7 +142,7 @@ test('execution deadlines cross the UI boundary for every write protocol', () =>
   );
   assert.match(
     UI,
-    /type: 'render-plan', id: msg\.id, plan: msg\.plan, timeoutMs: msg\.timeoutMs, deadlineAt: msg\.deadlineAt/,
+    /type: 'render-plan', id: msg\.id, plan: msg\.plan, options: msg\.options \|\| \{\}, timeoutMs: msg\.timeoutMs, deadlineAt: msg\.deadlineAt/,
   );
   assert.match(
     UI,
@@ -154,7 +154,7 @@ test('execution deadlines cross the UI boundary for every write protocol', () =>
   );
   assert.match(
     PLUGIN_CODE,
-    /msg\.type === 'render-plan'[\s\S]*?remainingExecutionBudget\(timeoutMs, queuedAt, deadlineAt\)[\s\S]*?executeStructuredRenderPlan\(figma, plan\)/,
+    /msg\.type === 'render-plan'[\s\S]*?remainingExecutionBudget\(timeoutMs, queuedAt, deadlineAt\)[\s\S]*?executeStructuredRenderPlan\(figma, plan, msg\.options \|\| \{\}\)/,
   );
   assert.match(
     PLUGIN_CODE,

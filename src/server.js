@@ -1469,7 +1469,7 @@ async function runSemanticRenderApplication(plan, label, prepared) {
       timeoutMs: remainingMs(),
     });
     const adapters = {
-      renderPlan: (renderPlan) => renderFigmaPlan(renderPlan, {
+      renderPlan: (renderPlan, options) => renderFigmaPlan(renderPlan, options, {
         fileKey,
         expectedEditor,
         timeoutMs: remainingMs(),

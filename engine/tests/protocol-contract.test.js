@@ -32,7 +32,10 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.equal(validateExecPayload({ action: 'typed-read', operation: 'style-consumers-v1', request: {
     style: 'Surface', type: 'PAINT', limit: 100, after: null,
   }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
-  assert.equal(validateExecPayload({ action: 'render-plan', plan, expectedEditor: 'figma', timeoutMs: 1000, fileKey: 'FILE' }), null);
+  assert.equal(validateExecPayload({
+    action: 'render-plan', plan, options: { smart: false, x: -10, y: 20 },
+    expectedEditor: 'figma', timeoutMs: 1000, fileKey: 'FILE',
+  }), null);
   assert.equal(validateExecPayload({
     action: 'render-plan-batch', plans: [plan, plan],
     options: { gap: 24, vertical: true, smart: false, x: 10, y: 20 },
@@ -45,6 +48,9 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   }, code: 'figma.createFrame()' }), /must not contain JavaScript/);
   assert.match(validateExecPayload({ action: 'eval', code: '' }), /non-empty/);
   assert.match(validateExecPayload({ action: 'render-plan', plan: { version: 999 } }), /invalid/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan, options: { future: true } }), /unknown/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan, options: { smart: 'no' } }), /boolean/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan, options: { x: Infinity } }), /finite/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { future: true } }), /unknown/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { x: Infinity } }), /finite/);

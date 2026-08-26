@@ -155,7 +155,21 @@ export function validateExecPayload(value) {
   if (value.action === 'render-plan') {
     try { assertSemanticRenderPlan(value.plan, { executable: true }); }
     catch (error) { return `render plan is invalid: ${error.message}`; }
-    const sizeError = serializedLimitError('render plan', value.plan, MAX_PROTOCOL_VALUE_BYTES, '5 MB protocol');
+    if (value.options != null && !isRecord(value.options)) return 'render plan options must be an object';
+    if (value.options && Object.keys(value.options).some((key) => !['smart', 'x', 'y'].includes(key))) {
+      return 'render plan options contain an unknown field';
+    }
+    if (value.options?.smart != null && typeof value.options.smart !== 'boolean') return 'render plan smart must be boolean';
+    for (const key of ['x', 'y']) {
+      if (value.options?.[key] != null
+        && (!Number.isFinite(value.options[key]) || Math.abs(value.options[key]) > 1_000_000)) {
+        return `render plan ${key} must be finite and between -1000000 and 1000000`;
+      }
+    }
+    const sizeError = serializedLimitError(
+      'render plan', { plan: value.plan, options: value.options || {} },
+      MAX_PROTOCOL_VALUE_BYTES, '5 MB protocol',
+    );
     if (sizeError) return sizeError;
   }
   if (value.action === 'render-plan-batch') {

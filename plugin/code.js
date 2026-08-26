@@ -2861,17 +2861,57 @@ async function materializeStructuredResources(figmaApi, plans, componentContexts
   return prepared;
 }
 
-async function executeStructuredRenderPlan(figmaApi, plan) {
+async function executeStructuredRenderPlan(figmaApi, plan, options = {}) {
   const journal = createStructuredMutationJournal(figmaApi);
+  if (!options || typeof options !== 'object' || Array.isArray(options)
+    || Object.keys(options).some((key) => !['smart', 'x', 'y'].includes(key))) {
+    throw structuredExecutionError(
+      new Error('Structured render placement options are invalid'),
+      await journal.rollback(),
+      'Structured render preflight failed',
+    );
+  }
+  const placementOptions = /** @type {{smart?: unknown, x?: unknown, y?: unknown}} */ (options);
+  if (placementOptions.smart !== undefined && typeof placementOptions.smart !== 'boolean') {
+    throw structuredExecutionError(
+      new Error('Structured render smart placement must be boolean'),
+      await journal.rollback(),
+      'Structured render preflight failed',
+    );
+  }
+  const explicitX = placementOptions.x === null || placementOptions.x === undefined
+    ? (placementOptions.smart === false ? 0 : null)
+    : Number(placementOptions.x);
+  const explicitY = placementOptions.y === null || placementOptions.y === undefined
+    ? null
+    : Number(placementOptions.y);
+  if ((explicitX !== null && (!Number.isFinite(explicitX) || Math.abs(explicitX) > 1_000_000))
+    || (explicitY !== null && (!Number.isFinite(explicitY) || Math.abs(explicitY) > 1_000_000))) {
+    throw structuredExecutionError(
+      new Error('Structured render position must be finite and between -1000000 and 1000000'),
+      await journal.rollback(),
+      'Structured render preflight failed',
+    );
+  }
+  const positionedPlan = (explicitX === null && explicitY === null)
+    ? plan
+    : JSON.parse(JSON.stringify(plan));
+  if (positionedPlan !== plan) {
+    positionedPlan.root.source.props = {
+      ...positionedPlan.root.source.props,
+      ...(explicitX === null ? {} : { x: explicitX }),
+      ...(explicitY === null ? {} : { y: explicitY }),
+    };
+  }
   let componentContexts;
   try {
-    componentContexts = await preflightStructuredPlans(figmaApi, [plan]);
+    componentContexts = await preflightStructuredPlans(figmaApi, [positionedPlan]);
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured render preflight failed');
   }
   try {
-    const [prepared] = await materializeStructuredResources(figmaApi, [plan], componentContexts, journal);
-    const result = await executePreparedStructuredRenderPlan(figmaApi, plan, prepared, journal);
+    const [prepared] = await materializeStructuredResources(figmaApi, [positionedPlan], componentContexts, journal);
+    const result = await executePreparedStructuredRenderPlan(figmaApi, positionedPlan, prepared, journal);
     const mutationReport = journal.completed();
     return { ...result, mutationOutcome: mutationReport.outcome, mutationReport };
   } catch (error) {
@@ -3223,7 +3263,7 @@ figma.ui.onmessage = async (msg) => {
           postLaneSettled(msg, 'not-dispatched', 'deadline-elapsed');
           return;
         }
-        const result = await executeStructuredRenderPlan(figma, plan);
+        const result = await executeStructuredRenderPlan(figma, plan, msg.options || {});
         postDispatchResult(msg, 'completed', null, {
           result,
           metadata: timedMetadata(),
