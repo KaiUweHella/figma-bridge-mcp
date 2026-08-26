@@ -5,6 +5,26 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.6.1] — 2026-08-27
+
+### Fixed
+
+- Release artifacts now derive their canonical executable modes from the
+  reviewed package policy instead of the host checkout. Tar paths, types,
+  checksums and raw permissions are verified before normalization; unexpected
+  executable or writable bits still fail closed, while the MCP server and
+  Engine entry points install as `0755` on Windows, macOS and Linux.
+- The package builder now normalizes the host-specific gzip header, records
+  integrity for the exact normalized tarball it copies to the release output,
+  and proves equivalent Windows/POSIX inputs produce byte-identical candidates.
+- Cross-platform release tests now own their Daemon state, preserve LF source
+  bytes, use native path semantics, invoke npm shell-free on Windows and avoid
+  interpreting synthesized Windows permission bits as POSIX security evidence.
+- Snapshot replacement checks now bind size and modification/change times in
+  addition to filesystem identity, closing in-place replacement races on
+  filesystems that reuse an inode. Token Sync failures set a nonzero process
+  result without terminating an active transport before it can drain.
+
 ## [0.6.0] — 2026-08-26
 
 ### Added
