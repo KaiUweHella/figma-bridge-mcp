@@ -1669,7 +1669,7 @@ test('figma_render exposes complete typed simple and compound requests', async (
   for (const field of [
     'jsx', 'roots', 'keepWrapper', 'gap', 'direction', 'x', 'y', 'smartPosition',
     'asComponent', 'verify', 'resizeProbe', 'collection', 'preset', 'manifest', 'icons',
-    'approvedFallbacks', 'allowedFreePaths', 'confirm', 'label', 'fileKey',
+    'approvedFallbacks', 'allowedFreePaths', 'confirm', 'preview', 'label', 'fileKey',
   ]) assert.ok(schema[field], `figma_render schema misses ${field}`);
 
   const preview = await handleTool('figma_render', {
@@ -1735,6 +1735,59 @@ test('figma_render exposes complete typed simple and compound requests', async (
     assert.equal(generic.isError, undefined, `generic ${jsx}`);
     assert.match(generic.content[0].text, /Write-confirm mode is on/);
   }
+});
+
+test('explicit Command Preview is payload-free and wins over confirm:true', async () => {
+  const {
+    TOOLS,
+    commandPreviewReason,
+    commandPlanPreviewFacts,
+    handleTool,
+    planFigmaRunCommand,
+    writeExecutionPolicyFacts,
+    writeExecutionPolicyStatusLines,
+  } = await import('../src/server.js');
+  for (const toolName of ['figma_run', 'figma_render']) {
+    const schema = TOOLS.find((tool) => tool.name === toolName).inputSchema.properties;
+    assert.ok(schema.preview, `${toolName} must expose guaranteed preview`);
+    assert.match(schema.confirm.description, /omission is not a preview/i);
+    assert.match(schema.preview.description, /non-mutating Command Plan/i);
+  }
+
+  assert.deepEqual(writeExecutionPolicyFacts(), {
+    version: 1,
+    confirmation: 'required',
+    guaranteedPreview: true,
+    previewTools: ['figma_run', 'figma_render'],
+  });
+  assert.deepEqual(writeExecutionPolicyStatusLines(), [
+    'write confirmation: required',
+    'guaranteed preview: figma_run/figma_render preview:true (never dispatches or mutates)',
+  ]);
+  const facts = commandPlanPreviewFacts(planFigmaRunCommand([
+    'var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '-v', '12', 'private-variable-name',
+  ]));
+  assert.equal(facts.guaranteedNonMutating, true);
+  assert.equal(facts.dispatched, false);
+  assert.equal(facts.capability, 'var.create');
+  assert.equal(facts.effects.figma, 'write');
+  assert.equal(facts.confirmationPolicy, 'required');
+  assert.equal(JSON.stringify(facts).includes('private-variable-name'), false);
+  const plan = planFigmaRunCommand(['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'name']);
+  assert.equal(commandPreviewReason({}, plan), 'write-confirm-policy');
+  assert.equal(commandPreviewReason({ confirm: true }, plan), null);
+  assert.equal(commandPreviewReason({ preview: true, confirm: true }, plan), 'explicit-preview');
+
+  const preview = await handleTool('figma_render', {
+    jsx: '<Frame name="private-preview-payload"><Text>do not echo me</Text></Frame>',
+    preview: true,
+    confirm: true,
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Guaranteed non-mutating Command Preview/);
+  assert.match(preview.content[0].text, /capability: render/);
+  assert.match(preview.content[0].text, /dispatched: no/);
+  assert.doesNotMatch(preview.content[0].text, /private-preview-payload|do not echo me/);
 });
 
 test('malformed Render argv and JSX fail before confirmation or Plugin readiness', async () => {

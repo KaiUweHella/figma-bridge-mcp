@@ -383,7 +383,7 @@ export const TOOLS = [
   {
     name: "figma_connect",
     description:
-      "Connect Figma Bridge in Safe Mode; recover its plugin, create its key, or return import steps.",
+      "Connect Safe Mode; recover the plugin, create its key, or show setup.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -392,7 +392,7 @@ export const TOOLS = [
   {
     name: "figma_status",
     description:
-      "Status for this Figma Bridge only. Real round-trip by default; REST validation opt-in.",
+      "This Figma Bridge only: round-trip status, write policy, optional REST check.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -409,7 +409,7 @@ export const TOOLS = [
   {
     name: "figma_pairing",
     description:
-      "Show the Figma plugin access key. Pass rotate:true to generate a fresh key and restart the daemon with it.",
+      "Show the plugin key; rotate:true replaces it and restarts the daemon.",
     annotations: toolAnnotations({
       readOnlyHint: false,
       destructiveHint: true,
@@ -430,7 +430,7 @@ export const TOOLS = [
   {
     name: "figma_run",
     description:
-      'Run an approved engine command. See figma_reference {name:"capabilities"}; use --help for syntax.',
+      'Run an approved command. See figma_reference {name:"capabilities"} or --help.',
     annotations: toolAnnotations({
       readOnlyHint: false,
       destructiveHint: true,
@@ -445,7 +445,11 @@ export const TOOLS = [
         },
         confirm: {
           type: "boolean",
-          description: "Required in write-confirm mode.",
+          description: "Required by policy; omission is not a preview.",
+        },
+        preview: {
+          type: "boolean",
+          description: "Return a payload-free, non-mutating Command Plan.",
         },
         label: {
           type: "string",
@@ -465,7 +469,7 @@ export const TOOLS = [
   },
   {
     name: "figma_render",
-    description: "Render one JSX value or a mutually exclusive roots[] batch into the open Figma design.",
+    description: "Render one JSX value or roots[] batch into Figma.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -505,7 +509,11 @@ export const TOOLS = [
         },
         confirm: {
           type: "boolean",
-          description: "Required in write-confirm mode.",
+          description: "Required by policy; omission is not a preview.",
+        },
+        preview: {
+          type: "boolean",
+          description: "Return a payload-free, non-mutating Command Plan.",
         },
         label: {
           type: "string",
@@ -534,7 +542,7 @@ export const TOOLS = [
   {
     name: "figma_history",
     description:
-      "Private local command history, git/Figma version merge, and snapshot diff; new records omit raw or sensitive payloads.",
+      "Private command history, git/Figma versions and snapshot diff; payloads omitted.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -592,7 +600,7 @@ export const TOOLS = [
   {
     name: "figma_comments",
     description:
-      "Read or post Figma comments through optional REST. list returns ids, authors, node anchors and resolved state. post needs message plus optional nodeId/replyTo; it always previews and requires confirm:true because comments are public. Without a REST token, returns setup guidance.",
+      "REST comments: list feedback; post/reply always previews and needs confirm:true. Missing token returns setup.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -602,12 +610,12 @@ export const TOOLS = [
         action: { type: "string", enum: ["list", "post"], description: "list (default) or post." },
         fileKey: {
           type: "string",
-          description: "Bare file key or full Figma URL. Default: the file open in Figma Desktop.",
+          description: "File key/URL; defaults to the open file.",
         },
         message: { type: "string", description: "post: the comment text." },
         nodeId: {
           type: "string",
-          description: "post: anchor the comment to this node (\"1:2\", URL form, or full URL).",
+          description: "post: node anchor (id or URL).",
         },
         x: { type: "number", description: "post: canvas x (with y, when no nodeId) or node offset x." },
         y: { type: "number", description: "post: canvas y / node offset y." },
@@ -623,7 +631,7 @@ export const TOOLS = [
   {
     name: "figma_inspect",
     description:
-      "Inspect one node's geometry, paint, effects, component context and text style as YAML.",
+      "Inspect node geometry, paint, effects, component and text facts as YAML.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -640,7 +648,7 @@ export const TOOLS = [
   {
     name: "figma_reference",
     description:
-      "Offline Plugin API reference. Special topics: capabilities, fidelity, variable-scopes, workflow, workflow:design-to-code, workflow:code-to-figma.",
+      "Offline API reference plus capabilities, fidelity, variable scopes and workflows.",
     annotations: toolAnnotations({
       readOnlyHint: true,
       openWorldHint: false,
@@ -648,7 +656,7 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "API name, capabilities, fidelity or workflow topic; omit to list API names." },
+        name: { type: "string", description: "API name or special topic; omit to list names." },
       },
       additionalProperties: false,
     },
@@ -656,7 +664,7 @@ export const TOOLS = [
   {
     name: "figma_screenshot",
     description:
-      "MANDATORY first step: save/read the node PNG, then compare the finished build to it.",
+      "MANDATORY: save/read the node PNG before comparing the build.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -669,7 +677,7 @@ export const TOOLS = [
         },
         scale: {
           type: "number",
-          description: "Requested scale (default 0.5; 2000px cap). Returns exact PNG pixelWidth/pixelHeight, logical nodeWidth/nodeHeight, and requested/applied scales.",
+          description: "Scale (default 0.5; 2000px cap); returns exact pixel/logical sizes.",
         },
         fileKey: TARGET_FIGMA_FILE_PROPERTY,
       },
@@ -679,7 +687,7 @@ export const TOOLS = [
   {
     name: "figma_spec",
     description:
-      "Exact per-layer design facts. Copy; never invent. Use nodeIds[] for up to 8 same-scope reads behind one approval.",
+      "Exact layer facts; never invent. nodeIds[] batches 8 reads behind one approval.",
     annotations: toolAnnotations({
       readOnlyHint: true,
     }),
@@ -1371,13 +1379,85 @@ function resultFromCli({ stdout, stderr, audit }) {
   return textResult(out || err, { audit });
 }
 
-function previewResult(args) {
-  return textResult(
-    "Write-confirm mode is on. Planned command:\n" +
-      "  figma_run " +
-      JSON.stringify(args) +
-      "\n\nRe-run with confirm:true to execute.",
-  );
+export function writeExecutionPolicyFacts() {
+  return Object.freeze({
+    version: 1,
+    confirmation: WRITE_CONFIRM ? "required" : "disabled",
+    guaranteedPreview: true,
+    previewTools: Object.freeze(["figma_run", "figma_render"]),
+  });
+}
+
+export function writeExecutionPolicyStatusLines(policy = writeExecutionPolicyFacts()) {
+  return Object.freeze([
+    `write confirmation: ${policy.confirmation}`,
+    "guaranteed preview: figma_run/figma_render preview:true (never dispatches or mutates)",
+  ]);
+}
+
+export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
+  if (!plan || plan.allowed !== true || typeof plan.id !== "string") {
+    throw new Error("A valid allowed Command Plan is required for preview.");
+  }
+  const effects = plan.effects || {};
+  const execution = plan.execution || {};
+  const target = plan.target || {};
+  return Object.freeze({
+    version: 1,
+    guaranteedNonMutating: true,
+    dispatched: false,
+    reason,
+    capability: plan.id,
+    effects: Object.freeze({
+      figma: effects.figma || "none",
+      workspace: effects.workspace || "none",
+      network: effects.network || "none",
+      shared: effects.shared || "none",
+    }),
+    target: Object.freeze({
+      kind: target.kind || "none",
+      source: target.source || "not-applicable",
+    }),
+    execution: Object.freeze({
+      mode: execution.mode || "foreground",
+      timeout: execution.timeout || "default",
+      retry: execution.retry || "never",
+      pluginDispatch: execution.pluginDispatch || "none",
+    }),
+    confirmationPolicy: writeExecutionPolicyFacts().confirmation,
+  });
+}
+
+export function commandPreviewReason(input, plan, { writeConfirm = WRITE_CONFIRM } = {}) {
+  if (input?.preview === true) return "explicit-preview";
+  if (writeConfirm && plan?.confirmation === "configured" && input?.confirm !== true) {
+    return "write-confirm-policy";
+  }
+  return null;
+}
+
+function previewResult(plan, { reason = "explicit-preview" } = {}) {
+  const facts = commandPlanPreviewFacts(plan, reason);
+  const heading = reason === "write-confirm-policy"
+    ? "Write-confirm mode is on. Guaranteed non-mutating Command Preview:"
+    : "Guaranteed non-mutating Command Preview:";
+  const effectText = Object.entries(facts.effects)
+    .map(([name, value]) => `${name}=${value}`)
+    .join(", ");
+  const next = reason === "write-confirm-policy"
+    ? "Re-run with confirm:true to execute. Use preview:true whenever non-mutation is required."
+    : "No Command Application dispatch was started. Remove preview:true to use the effective confirmation policy.";
+  return textResult([
+    heading,
+    `  capability: ${facts.capability}`,
+    `  effects: ${effectText}`,
+    `  target: ${facts.target.kind} (${facts.target.source})`,
+    `  execution: ${facts.execution.mode}, timeout=${facts.execution.timeout}, retry=${facts.execution.retry}, plugin=${facts.execution.pluginDispatch}`,
+    `  effective confirmation policy: ${facts.confirmationPolicy}`,
+    "  dispatched: no",
+    "",
+    next,
+  ].join("\n"));
 }
 
 // ============ export-assets job handling ============
@@ -1734,6 +1814,7 @@ export async function handleTool(name, rawArgs) {
         `access key: ${key ? "configured" : "NOT set — run figma_connect to generate one"}`,
         `server version: ${SERVER_VERSION}`,
       ];
+      lines.push(...writeExecutionPolicyStatusLines());
       if (h.raw) {
         lines.push(
           `plugin authenticated: ${raw.pluginAuthenticated === true ? "yes" : "no"}`,
@@ -1874,6 +1955,9 @@ export async function handleTool(name, rawArgs) {
       if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== "string")) {
         return errorResult("args must be a non-empty array of strings.");
       }
+      if (input.preview !== undefined && typeof input.preview !== "boolean") {
+        return errorResult("preview must be a boolean.");
+      }
       const plan = planFigmaRunCommand(args, {
         fileKey: input.fileKey,
         workspaceIO: WORKSPACE_IO,
@@ -1901,8 +1985,9 @@ export async function handleTool(name, rawArgs) {
           return errorResult(error?.message || String(error));
         }
       }
-      if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
-        return previewResult(args);
+      const previewReason = commandPreviewReason(input, plan);
+      if (previewReason) {
+        return previewResult(plan, { reason: previewReason });
       }
       if (plan.execution.mode === "tracked-job") {
         return await runAssetExport(plan, input.label, { force: input.force === true });
@@ -2851,6 +2936,9 @@ export async function handleTool(name, rawArgs) {
     }
 
     case "figma_render": {
+      if (input.preview !== undefined && typeof input.preview !== "boolean") {
+        return errorResult("preview must be a boolean.");
+      }
       let args;
       try {
         args = semanticRenderToolArgv(input);
@@ -2875,8 +2963,9 @@ export async function handleTool(name, rawArgs) {
           return errorResult(error?.message || String(error));
         }
       }
-      if (WRITE_CONFIRM && plan.confirmation === "configured" && input.confirm !== true) {
-        return previewResult(args);
+      const previewReason = commandPreviewReason(input, plan);
+      if (previewReason) {
+        return previewResult(plan, { reason: previewReason });
       }
       if (semanticRenderApplication) {
         return await runSemanticRenderApplication(plan, input.label, prepared);

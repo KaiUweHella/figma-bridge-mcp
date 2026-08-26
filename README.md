@@ -416,6 +416,16 @@ Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
 subcommand level: reads like `node tree` or `component list` pass freely,
 mutations like `node delete`, `combos`, or `tokens spacing` require confirm.
+`figma_status` reports whether that policy is currently `required` or
+`disabled`.
+
+Omitting `confirm` or passing `confirm:false` is not a portable dry run: when
+the policy is disabled, a valid write executes immediately. Use
+`preview:true` with `figma_run` or `figma_render` whenever the request must be
+guaranteed non-mutating. The Bridge validates the request and returns a
+payload-free Command Plan without dispatching it; `preview:true` also wins when
+`confirm:true` is present. The engine CLI remains direct execution and uses
+only each command's explicitly documented `--dry-run` option.
 
 Workspace file access is zero-configuration for the project from which the MCP
 server is launched. For a multi-project workflow, configure additional roots
