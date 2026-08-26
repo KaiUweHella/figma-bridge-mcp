@@ -40,10 +40,14 @@ of a long-lived MCP process is not mislabeled as a fresh compatibility child.
 `npm run check:runtime-budgets` starts three real offline MCP processes and
 gates stable Tool Discovery with both a warm/startup ratio and deliberately
 generous absolute ceilings: 5 seconds startup p95, 1 second warm `tools/list`
-p95, 512 KiB response and 512 MiB RSS when RSS sampling is available. Shared
-runner scheduling, antivirus, Figma document size and desktop load make live
-Figma timings acceptance evidence and regression baselines rather than hard
-compatibility limits for every user machine.
+p95, 16 KiB response and 512 MiB RSS when RSS sampling is available. The Tool
+Discovery response must also retain at least 4 KiB (25%) unused beneath that
+hard response cap. Its conservative JSON estimate uses three UTF-8 bytes per
+token and separately retains at least 1,024 estimated tokens beneath a 5,120
+token cap, so new capabilities cannot silently consume all future MCP metadata
+headroom. Shared runner scheduling, antivirus, Figma document size and desktop
+load make live Figma timings acceptance evidence and regression baselines
+rather than hard compatibility limits for every user machine.
 
 The corpus does not infer a traversal budget for Figma's non-interruptible
 `getStyleConsumersAsync()` API.

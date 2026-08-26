@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Tool Discovery now has an explicit 16 KiB metadata ceiling with 4 KiB kept
+  in reserve, plus a conservative estimated-token ceiling with 1,024 tokens
+  reserved. Shared node/file schema fragments keep the client-visible 12-tool
+  surface byte-stable while future metadata growth fails the offline gate
+  before consuming its expansion headroom.
 - Added a published, machine-verifiable upstream provenance manifest for the
   original figma-cli v2.1.0 engine lineage. Offline release tests pin the exact
   tag object and commit, validate every retained modified-derived source hash,

@@ -44,6 +44,22 @@ test('runtime budget policy combines generous absolutes with a warm/startup rati
     maxEnvelopeBytes: 512 * 1024,
     maxPeakRssBytes: 512 * 1024 * 1024,
   }), /3× startup/);
+  assert.throws(() => assertMcpRuntimeBudgets({
+    ...accepted,
+    maxEnvelopeBytes: 13_000,
+  }), /envelope reserve \(3384 bytes\).*at least 4096 bytes/);
+  assert.throws(() => assertMcpRuntimeBudgets({
+    ...accepted,
+    maxEnvelopeBytes: 13_000,
+  }, {
+    processStartupP95Ms: 5_000,
+    warmToolsListP95Ms: 1_000,
+    maxEnvelopeBytes: 16 * 1024,
+    minEnvelopeReserveBytes: 0,
+    maxEstimatedEnvelopeTokens: 5 * 1024,
+    minEstimatedEnvelopeTokenReserve: 1024,
+    maxPeakRssBytes: 512 * 1024 * 1024,
+  }), /estimated-token reserve \(786\).*at least 1024 tokens/);
 });
 
 test('real STDIO measurement agrees on exact MCP envelope bytes without Figma', async () => {

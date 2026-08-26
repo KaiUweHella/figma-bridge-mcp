@@ -332,6 +332,16 @@ function toolAnnotations({
   return { readOnlyHint, destructiveHint, openWorldHint };
 }
 
+const TARGET_FIGMA_FILE_PROPERTY = Object.freeze({
+  type: "string",
+  description: "Target connected file: bare key or Figma URL.",
+});
+
+const REQUIRED_FIGMA_NODE_PROPERTY = Object.freeze({
+  type: "string",
+  description: "Figma node id (\"1:2\"), URL form (\"1-2\"), or a full Figma URL.",
+});
+
 const SPEC_REQUEST_PROPERTIES = {
   nodeId: {
     type: "string",
@@ -620,8 +630,8 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        nodeId: { type: "string", description: "Figma node id (\"1:2\"), URL form (\"1-2\"), or a full Figma URL." },
-        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
+        nodeId: REQUIRED_FIGMA_NODE_PROPERTY,
+        fileKey: TARGET_FIGMA_FILE_PROPERTY,
       },
       required: ["nodeId"],
       additionalProperties: false,
@@ -654,14 +664,14 @@ export const TOOLS = [
       type: "object",
       properties: {
         nodeId: {
-          type: "string",
-          description: "Figma node id (\"1:2\"), URL form (\"1-2\"), or a full Figma URL. Omit to use the current selection.",
+          ...REQUIRED_FIGMA_NODE_PROPERTY,
+          description: `${REQUIRED_FIGMA_NODE_PROPERTY.description} Omit to use the current selection.`,
         },
         scale: {
           type: "number",
           description: "Requested scale (default 0.5; 2000px cap). Returns exact PNG pixelWidth/pixelHeight, logical nodeWidth/nodeHeight, and requested/applied scales.",
         },
-        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
+        fileKey: TARGET_FIGMA_FILE_PROPERTY,
       },
       additionalProperties: false,
     },
@@ -685,7 +695,7 @@ export const TOOLS = [
           description:
             "Node ids for one bounded batch; phase/depth/format options apply to every id.",
         },
-        fileKey: { type: "string", description: "Target connected file: bare key or Figma URL." },
+        fileKey: TARGET_FIGMA_FILE_PROPERTY,
       },
       anyOf: [
         { required: ["nodeId"] },
