@@ -58,4 +58,4 @@ jobs:
       # after the first manual package publication.
       # Publish the byte-identical tarball that passed the installed-package
       # smoke; do not let npm repack the checkout after verification.
-      - run: npm publish release-artifact/package.tgz --ignore-scripts
+      - run: npm publish ./release-artifact/package.tgz --ignore-scripts

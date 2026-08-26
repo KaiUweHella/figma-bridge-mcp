@@ -47,7 +47,11 @@ test("publish workflow releases the verified tarball and retains all evidence", 
   );
   assert.match(
     PUBLISH_WORKFLOW,
-    /npm publish release-artifact\/package\.tgz --ignore-scripts/
+    /npm publish \.\/release-artifact\/package\.tgz --ignore-scripts/
+  );
+  assert.doesNotMatch(
+    PUBLISH_WORKFLOW,
+    /npm publish release-artifact\/package\.tgz/
   );
   assert.match(PUBLISH_WORKFLOW, /path: release-artifact\//);
   assert.doesNotMatch(PUBLISH_WORKFLOW, /^\s*- run: npm publish\s*$/m);

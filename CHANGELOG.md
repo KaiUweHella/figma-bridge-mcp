@@ -5,6 +5,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Fixed
+
+- Release publication now passes the verified tarball as an explicit local
+  file spec (`./release-artifact/package.tgz`), preventing npm from
+  interpreting the workspace-relative path as a GitHub dependency.
+
 ## [0.6.1] — 2026-08-27
 
 ### Fixed

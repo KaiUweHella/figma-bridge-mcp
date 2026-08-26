@@ -119,7 +119,7 @@ npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scrip
 node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js
 npm audit --prefix package-smoke --omit=dev
 node scripts/write-installed-dependency-evidence.js package-smoke release-artifact/dependencies.json
-npm publish release-artifact/package.tgz --ignore-scripts --access public
+npm publish ./release-artifact/package.tgz --ignore-scripts --access public
 ```
 
 `publishConfig.access` makes the unscoped package public. The explicit
