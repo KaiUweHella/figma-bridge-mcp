@@ -208,6 +208,13 @@ function validateNode(node, location, executable, depth, state) {
       if (node.asset.base64.length > 28 * 1024 * 1024) {
         throw new Error(`Semantic Render Plan ${location}.asset.base64 exceeds 20 MB decoded`);
       }
+      const hasWidth = node.asset.width !== undefined;
+      const hasHeight = node.asset.height !== undefined;
+      if (hasWidth !== hasHeight
+        || (hasWidth && (!Number.isInteger(node.asset.width) || node.asset.width < 1 || node.asset.width > 100_000
+          || !Number.isInteger(node.asset.height) || node.asset.height < 1 || node.asset.height > 100_000))) {
+        throw new Error(`Semantic Render Plan ${location}.asset dimensions must be paired positive bounded integers`);
+      }
     } else if (typeof node.asset.src !== 'string' || !/^https?:\/\//i.test(node.asset.src)) {
       throw new Error(`Semantic Render Plan ${location}.asset.src must be an HTTP(S) URL`);
     }

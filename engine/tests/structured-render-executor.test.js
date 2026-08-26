@@ -364,6 +364,30 @@ describe('structured Semantic Render Plan executor', () => {
     assert.ok(grid.children.every((node) => node.layoutSizingHorizontal === 'FILL'));
   });
 
+  it('restores explicit Grid dimensions after Figma initializes native Grid mode', async () => {
+    const plan = new FigmaClient().planJSX(
+      '<Frame name="Grid Parent" flex="col" w="700" h="500">'
+      + '<Frame name="Measured Grid" flex="grid" w="640" h="420" gridColumns="flex,flex" gridRows="fixed:198,fixed:198" rowGap="24" />'
+      + '</Frame>',
+    );
+    const figma = fakeFigma({
+      setFrameLayoutMode(value, node) {
+        if (value === 'GRID') node.resize(200, 200);
+      },
+      appendChildHook(parent, child) {
+        if (parent.layoutMode !== 'NONE' && child.layoutMode === 'GRID') child.resize(200, 200);
+      },
+    });
+
+    await executeStructuredRenderPlan(figma, plan);
+    const grid = figma.created.find((node) => node.name === 'Measured Grid');
+
+    assert.equal(grid.layoutMode, 'GRID');
+    assert.deepEqual([grid.width, grid.height], [640, 420]);
+    assert.equal(grid.gridRowCount, 2);
+    assert.equal(grid.gridColumnCount, 2);
+  });
+
   it('rejects malformed Grid tracks before creating the root frame', async () => {
     const plan = new FigmaClient().planJSX(
       '<Frame name="Grid" flex="grid" gridColumns="flex" gridRows="flex"><Text>A</Text></Frame>',
@@ -525,6 +549,26 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(image.cornerSmoothing, 0.5);
     assert.deepEqual(image.fills, [{ type: 'IMAGE', imageHash: 'image:1', scaleMode: 'FIT' }]);
     assert.deepEqual([...figma.imageResources[0].bytes], [104, 101, 108, 108, 111]);
+  });
+
+  it('keeps an off-center CSS crop as a clipped native wrapper and aspect-correct Image paint', async () => {
+    const client = new FigmaClient();
+    client.setImageData({ hero: 'aGVsbG8=' });
+    const plan = client.planJSX(
+      '<Frame name="Off-center crop" flex="none" w="200" h="200" clip="true">'
+      + '<Image name="Off-center crop.object-fit-paint" src="imgref:hero" imageScale="fill" position="absolute" x="-200" y="0" w="400" h="200" />'
+      + '</Frame>',
+    );
+    const figma = fakeFigma();
+
+    await executeStructuredRenderPlan(figma, plan);
+    const wrapper = figma.created.find((node) => node.name === 'Off-center crop');
+    const image = figma.created.find((node) => node.name === 'Off-center crop.object-fit-paint');
+
+    assert.equal(wrapper.clipsContent, true);
+    assert.deepEqual([wrapper.width, wrapper.height], [200, 200]);
+    assert.deepEqual([image.x, image.y, image.width, image.height], [-200, 0, 400, 200]);
+    assert.deepEqual(image.fills, [{ type: 'IMAGE', imageHash: 'image:1', scaleMode: 'FILL' }]);
   });
 
   it('loads remote raster assets before creating their native Image paints', async () => {
@@ -1411,7 +1455,7 @@ function fakeVariable(name, resolvedType, value, scopes = ['ALL_SCOPES'], collec
   };
 }
 
-function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, setTextStyleIdAsync = null, mutationCheckpoint = null, removeHook = null } = {}) {
+function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, setFrameLayoutMode = null, appendChildHook = null, setTextStyleIdAsync = null, mutationCheckpoint = null, removeHook = null } = {}) {
   let id = 0;
   let imageId = 0;
   const created = [];
@@ -1430,6 +1474,7 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
       if (priorIndex >= 0) priorOwner.children.splice(priorIndex, 1);
       this.children.push(child);
       child.parent = this;
+      if (appendChildHook) appendChildHook(this, child);
     },
     remove() {
       if (removeHook) removeHook({ kind: 'scene-node', handle: this.id });
@@ -1482,6 +1527,14 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
   };
   const frame = () => {
     const node = enforceLayoutSizingParent(base('FRAME'));
+    if (setFrameLayoutMode) {
+      let layoutMode = node.layoutMode;
+      Object.defineProperty(node, 'layoutMode', {
+        get: () => layoutMode,
+        set(value) { layoutMode = value; setFrameLayoutMode(value, node); },
+        configurable: true,
+      });
+    }
     if (setFrameEffects) {
       let effects = node.effects;
       Object.defineProperty(node, 'effects', {

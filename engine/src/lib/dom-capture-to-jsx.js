@@ -159,6 +159,125 @@ function renderTreeToParsedTree(root) {
   };
 }
 
+const IMAGE_PROP_KEYS = Object.freeze([
+  'name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
+  'rounded', 'radius', 'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR',
+  'cornerSmoothing', 'opacity', 'visible', 'rotate', 'position', 'x', 'y',
+  'grow',
+  'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign',
+  'gridVAlign', 'filter', 'blendMode', 'mask', 'maskType',
+]);
+
+function imageProps(layoutProps) {
+  return Object.fromEntries(IMAGE_PROP_KEYS
+    .filter((key) => layoutProps[key] !== undefined)
+    .map((key) => [key, layoutProps[key]]));
+}
+
+function positionToken(token, axis) {
+  const source = String(token || '').trim().toLowerCase();
+  const fractions = axis === 'x'
+    ? { left: 0, center: 0.5, right: 1 }
+    : { top: 0, center: 0.5, bottom: 1 };
+  if (Object.hasOwn(fractions, source)) return { kind: 'fraction', value: fractions[source] };
+  if (/^-?\d*\.?\d+%$/.test(source)) return { kind: 'fraction', value: Number(source.slice(0, -1)) / 100 };
+  if (/^-?\d*\.?\d+px$/.test(source)) return { kind: 'length', value: Number(source.slice(0, -2)) };
+  return null;
+}
+
+function parseObjectPosition(value) {
+  const tokens = String(value || '50% 50%').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 1) {
+    const vertical = positionToken(tokens[0], 'y');
+    const horizontal = positionToken(tokens[0], 'x');
+    if (['top', 'bottom'].includes(tokens[0].toLowerCase()) && vertical) {
+      return { x: { kind: 'fraction', value: 0.5 }, y: vertical, exact: true };
+    }
+    if (horizontal) return { x: horizontal, y: { kind: 'fraction', value: 0.5 }, exact: true };
+  }
+  if (tokens.length === 2) {
+    let x = positionToken(tokens[0], 'x');
+    let y = positionToken(tokens[1], 'y');
+    if (!x || !y) {
+      x = positionToken(tokens[1], 'x');
+      y = positionToken(tokens[0], 'y');
+    }
+    if (x && y) return { x, y, exact: true };
+  }
+  return {
+    x: { kind: 'fraction', value: 0.5 },
+    y: { kind: 'fraction', value: 0.5 },
+    exact: false,
+  };
+}
+
+function positionedOffset(position, freeSpace) {
+  return position.kind === 'length' ? position.value : freeSpace * position.value;
+}
+
+function centeredPosition(position) {
+  return position.kind === 'fraction' && Math.abs(position.value - 0.5) < 1e-9;
+}
+
+/** Map CSS replaced-image geometry to native Figma image behavior. Direct
+ * FIT/CROP is used only when its fixed center alignment is exact; otherwise a
+ * clipped native wrapper retains the authored position without an opaque crop
+ * matrix convention. */
+export function cssImageLayout({
+  boxWidth,
+  boxHeight,
+  intrinsicWidth,
+  intrinsicHeight,
+  objectFit = 'fill',
+  objectPosition = '50% 50%',
+}) {
+  const boxW = finite(boxWidth);
+  const boxH = finite(boxHeight);
+  const sourceW = finite(intrinsicWidth);
+  const sourceH = finite(intrinsicHeight);
+  const fit = String(objectFit || 'fill').trim().toLowerCase();
+  if (!(boxW > 0 && boxH > 0 && sourceW > 0 && sourceH > 0)) {
+    throw new Error('DOM image needs positive box and intrinsic dimensions');
+  }
+  if (!['contain', 'cover', 'fill', 'none', 'scale-down'].includes(fit)) {
+    throw new Error(`DOM image object-fit ${fit} is unsupported`);
+  }
+  if (fit === 'fill') return Object.freeze({ kind: 'native', imageScale: 'fill' });
+
+  const position = parseObjectPosition(objectPosition);
+  const containScale = Math.min(boxW / sourceW, boxH / sourceH);
+  const scale = fit === 'cover' ? Math.max(boxW / sourceW, boxH / sourceH)
+    : fit === 'none' ? 1
+      : fit === 'scale-down' ? Math.min(1, containScale)
+        : containScale;
+  const width = sourceW * scale;
+  const height = sourceH * scale;
+  const centered = centeredPosition(position.x) && centeredPosition(position.y);
+  if (position.exact && centered && fit === 'contain') {
+    return Object.freeze({ kind: 'native', imageScale: 'fit' });
+  }
+  if (position.exact && centered && fit === 'cover') {
+    return Object.freeze({ kind: 'native', imageScale: 'crop' });
+  }
+  if (position.exact && centered && fit === 'scale-down' && containScale < 1) {
+    return Object.freeze({ kind: 'native', imageScale: 'fit' });
+  }
+  const fallbackAnnotations = position.exact ? [] : [{
+    policy: 'dom.image-object-position',
+    labelMarkdown: `CSS object-position could not be represented exactly; centered fallback retained for review: ${String(objectPosition).replace(/[\u0000-\u001f]/g, ' ').slice(0, 160)}`,
+    properties: ['fills', 'width', 'height'],
+  }];
+  return Object.freeze({
+    kind: 'wrapper',
+    imageScale: 'fill',
+    width: round(width),
+    height: round(height),
+    x: round(positionedOffset(position.x, boxW - width)),
+    y: round(positionedOffset(position.y, boxH - height)),
+    fallbackAnnotations: Object.freeze(fallbackAnnotations),
+  });
+}
+
 function domImage(node, state, layoutProps = {}) {
   const asset = node.asset;
   if (!asset || asset.kind === 'image') {
@@ -169,29 +288,41 @@ function domImage(node, state, layoutProps = {}) {
   }
   const key = `dom-image-${Object.keys(state.images).length + 1}`;
   state.images[key] = asset.base64;
+  state.imageAssets[key] = asset;
   const objectFit = String(node.style?.objectFit || '').toLowerCase();
-  const imageScale = objectFit === 'contain' ? 'fit'
-    : objectFit === 'cover' ? 'fill'
-      : undefined;
-  if (objectFit && !['contain', 'cover', 'fill', 'none', 'scale-down'].includes(objectFit)) {
-    throw new Error(`DOM image object-fit ${objectFit} is unsupported`);
+  const layout = cssImageLayout({
+    boxWidth: node.rect.w,
+    boxHeight: node.rect.h,
+    intrinsicWidth: asset.width,
+    intrinsicHeight: asset.height,
+    objectFit: objectFit || 'fill',
+    objectPosition: node.style?.objectPosition || '50% 50%',
+  });
+  const directProps = imageProps(layoutProps);
+  if (layout.kind === 'native') {
+    return renderElement('image', {
+      ...directProps,
+      src: `imgref:${key}`,
+      imageScale: layout.imageScale,
+    });
   }
-  return renderElement('image', {
-    name: layoutProps.name,
+  const wrapperProps = {
+    ...layoutProps,
+    flex: 'none',
+    clip: 'true',
+  };
+  const paint = renderElement('image', {
+    name: `${layoutProps.name || 'Image'}.object-fit-paint`,
     src: `imgref:${key}`,
-    imageScale,
-    position: layoutProps.position,
-    x: layoutProps.x,
-    y: layoutProps.y,
-    w: layoutProps.w || round(node.rect.w),
-    h: layoutProps.h || round(node.rect.h),
-    grow: layoutProps.grow,
-    gridRow: layoutProps.gridRow,
-    gridColumn: layoutProps.gridColumn,
-    gridRowSpan: layoutProps.gridRowSpan,
-    gridColumnSpan: layoutProps.gridColumnSpan,
-    gridHAlign: layoutProps.gridHAlign,
-    gridVAlign: layoutProps.gridVAlign,
+    imageScale: layout.imageScale,
+    position: 'absolute',
+    x: layout.x,
+    y: layout.y,
+    w: layout.width,
+    h: layout.height,
+  });
+  return renderElement('frame', wrapperProps, [paint], '', {
+    ...(layout.fallbackAnnotations.length ? { fallbackAnnotations: layout.fallbackAnnotations } : {}),
   });
 }
 
@@ -681,7 +812,8 @@ function textSizingForContainer(text, node, semantic, containerProps = {}) {
 
 function intrinsicAxisCanHug(node, semantic, parentSemantic, axis) {
   if (!semantic || semantic.positioning?.kind !== 'flow' || !parentSemantic
-    || semantic.component || semantic.layout?.kind === 'leaf' || parentSemantic.layout?.kind === 'grid') return false;
+    || semantic.component || ['leaf', 'grid'].includes(semantic.layout?.kind)
+    || parentSemantic.layout?.kind === 'grid') return false;
   const authored = String(node.authoredStyle?.[axis] || '').trim().toLowerCase();
   if (authored && authored !== 'auto') return false;
   const parentLayout = parentSemantic.layout;
@@ -944,12 +1076,13 @@ function projectDomCapture(capture, { projectIcons = {}, componentLinks = {} } =
   const semantic = capture.version >= 2
     ? domCaptureToSemanticModel(capture, { resolveProjectIcon, resolveComponent })
     : null;
-  const state = { icons: {}, images: {}, iconIndex: 0, borderIndex: 0, elementCount: 0, textCount: 0, pseudoCount: 0 };
+  const state = { icons: {}, images: {}, imageAssets: {}, iconIndex: 0, borderIndex: 0, elementCount: 0, textCount: 0, pseudoCount: 0 };
   const tree = renderNode(capture.root, capture.root.rect, state, { root: true, semantic: semantic?.root || null });
   return {
     tree,
     icons: state.icons,
     images: state.images,
+    imageAssets: state.imageAssets,
     semanticModel: semantic,
     diagnostics: {
       elements: state.elementCount,
@@ -994,7 +1127,14 @@ export function domCaptureToRenderPlan(capture, options = {}) {
       if (!src.startsWith('imgref:')) return null;
       const key = src.slice(7);
       const base64 = projection.images[key];
-      return base64 ? { kind: 'embedded-raster', name: props?.name || key || 'Image', base64 } : null;
+      const asset = projection.imageAssets[key];
+      return base64 ? {
+        kind: 'embedded-raster',
+        name: props?.name || asset?.name || key || 'Image',
+        base64,
+        ...(asset?.width ? { width: asset.width } : {}),
+        ...(asset?.height ? { height: asset.height } : {}),
+      } : null;
     },
   });
   const renderPlan = createSemanticRenderPlan({

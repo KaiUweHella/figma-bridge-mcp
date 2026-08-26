@@ -43,6 +43,7 @@ import {
   decodeVerificationPngBase64,
   VERIFICATION_ARTIFACT_ROLE,
 } from '../application/verification-artifact.js';
+import { verificationPngExportCode } from '../application/verification-settle.js';
 import {
   formatSemanticResizeProbe,
   parseResizeProbeDelta,
@@ -496,7 +497,7 @@ async function verifyRendered(nodeId, plan) {
       let finalScale = 1;
       const maxNodeDim = Math.max(nodeWidth, nodeHeight);
       if (maxNodeDim * finalScale > 2000) finalScale = 2000 / maxNodeDim;
-      const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: finalScale } });
+      ${verificationPngExportCode('node', 'finalScale')}
       return { name: node.name, id: node.id, nodeWidth, nodeHeight,
         requestedScale: 0.5, appliedScale: finalScale, base64: figma.base64Encode(bytes) };
     })()`);

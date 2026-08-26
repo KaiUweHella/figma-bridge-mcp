@@ -884,7 +884,7 @@ export function inspectStructuredRenderPlan(plan) {
     'name', 'src', 'imageScale', 'w', 'h', 'width', 'height', 'minW', 'maxW',
     'minH', 'maxH', 'rounded', 'radius', 'roundedTL', 'roundedTR', 'roundedBL',
     'roundedBR', 'cornerSmoothing', 'opacity', 'visible', 'rotate', 'position',
-    'x', 'y', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan',
+    'x', 'y', 'grow', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan',
     'gridHAlign', 'gridVAlign', 'filter', 'blendMode', 'mask', 'maskType',
   ]);
   const instanceProps = new Set([
@@ -2171,6 +2171,19 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
     bindScalar(semanticNode, 'width', created, 'width');
     bindScalar(semanticNode, 'height', created, 'height');
     if (parent) parent.appendChild(created);
+    if (semanticNode.source.type === 'frame' && props.flex === 'grid') {
+      // Figma can initialize a native Grid with default dimensions both when
+      // layoutMode changes and when the Grid enters an Auto Layout parent.
+      // Restore only explicit numeric axes after the final append; FILL/HUG
+      // remains owned by applyPlacement below.
+      const requestedWidth = value(props, 'w', 'width');
+      const requestedHeight = value(props, 'h', 'height');
+      const explicitWidth = typeof requestedWidth === 'string' && ['fill', 'hug'].includes(requestedWidth)
+        ? created.width : resolvedNumber(semanticNode, 'width', requestedWidth, created.width);
+      const explicitHeight = typeof requestedHeight === 'string' && ['fill', 'hug'].includes(requestedHeight)
+        ? created.height : resolvedNumber(semanticNode, 'height', requestedHeight, created.height);
+      created.resize(explicitWidth, explicitHeight);
+    }
     applyPlacement(created, semanticNode, props, parent);
     if (root) { created.x = props.x == null ? initialX : structuredNumber(props.x); created.y = structuredNumber(props.y); }
     const semanticIndex = createdRecords.length;

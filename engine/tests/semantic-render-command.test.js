@@ -526,6 +526,12 @@ test('compound follow-up stages preserve position, final handles and verificatio
     },
   });
   assert.equal(evaluations.length, 5, 'one conversion + two probes + two screenshots');
+  for (const code of evaluations.filter((entry) => entry.includes('exportAsync'))) {
+    assert.match(code, /figmaBridgeStableLayoutSamples >= 2/);
+    assert.match(code, /setTimeout\(resolve, 20\)/);
+    assert.match(code, /figmaBridgeExportAttempt < 5/);
+    assert.match(code, /figmaBridgeCandidatePng\.length > figmaBridgeBestPngBytes/);
+  }
   assert.deepEqual(outcome.roots.map((root) => root.handle), ['30:40', '31:41']);
   assert.deepEqual(written, ['/tmp/verify-30-40.png', '/tmp/verify-31-41.png']);
   assert.equal(outcome.stages.find((stage) => stage.kind === 'component-conversion').status, 'completed');

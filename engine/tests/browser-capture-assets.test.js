@@ -34,7 +34,11 @@ describe('browser capture asset boundary', () => {
   it('embeds verified raster bytes and deduplicates repeated files', () => {
     const root = mkdtempSync(join(tmpdir(), 'figma-bridge-dom-assets-'));
     mkdirSync(join(root, 'assets'), { recursive: true });
-    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    const png = Buffer.alloc(24);
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+    png.write('IHDR', 12, 'ascii');
+    png.writeUInt32BE(640, 16);
+    png.writeUInt32BE(360, 20);
     writeFileSync(join(root, 'assets/pixel.png'), png);
     const capture = captureFor('/assets/pixel.png');
     capture.root.children.push({ tag: 'img', asset: { kind: 'image', src: '/assets/pixel.png' }, children: [] });
@@ -43,6 +47,10 @@ describe('browser capture asset boundary', () => {
 
     assert.equal(capture.root.children[0].asset.kind, 'embedded-raster');
     assert.equal(capture.root.children[0].asset.base64, png.toString('base64'));
+    assert.deepEqual(
+      { width: capture.root.children[0].asset.width, height: capture.root.children[0].asset.height },
+      { width: 640, height: 360 },
+    );
     assert.equal(capture.root.children[0].asset, capture.root.children[1].asset);
     assert.equal(result.diagnostics.references, 2);
     assert.equal(result.diagnostics.uniqueAssets, 1);

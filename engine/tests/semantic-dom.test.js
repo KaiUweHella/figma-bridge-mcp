@@ -7,7 +7,7 @@ import {
   setSvgOpeningAttribute,
 } from '../src/lib/browser-dom-capture.js';
 import { domCaptureToSemanticModel, resolveGlyphIcon } from '../src/lib/semantic-dom-model.js';
-import { domCaptureToJsx, domCaptureToRenderPlan } from '../src/lib/dom-capture-to-jsx.js';
+import { cssImageLayout, domCaptureToJsx, domCaptureToRenderPlan } from '../src/lib/dom-capture-to-jsx.js';
 import { FigmaClient } from '../src/lib/jsx-render.js';
 
 const baseStyle = (overrides = {}) => ({
@@ -118,6 +118,8 @@ describe('semantic browser capture contract', () => {
         kind: 'embedded-raster',
         name: 'automation-chart.png',
         base64: Buffer.from('bounded-image-bytes').toString('base64'),
+        width: 640,
+        height: 360,
       },
     }));
 
@@ -131,7 +133,50 @@ describe('semantic browser capture contract', () => {
     assert.equal(image.source.props.imageScale, 'fit');
     assert.equal(image.asset.kind, 'embedded-raster');
     assert.equal(image.asset.base64, Buffer.from('bounded-image-bytes').toString('base64'));
+    assert.deepEqual(
+      { width: image.asset.width, height: image.asset.height },
+      { width: 640, height: 360 },
+    );
     assert.equal(Object.keys(images).length, 1);
+  });
+
+  it('maps every CSS object-fit value and off-center placement without distortion', () => {
+    const base = { boxWidth: 240, boxHeight: 120, intrinsicWidth: 640, intrinsicHeight: 360 };
+    assert.deepEqual(cssImageLayout({ ...base, objectFit: 'fill' }), {
+      kind: 'native', imageScale: 'fill',
+    });
+    assert.deepEqual(cssImageLayout({ ...base, objectFit: 'contain' }), {
+      kind: 'native', imageScale: 'fit',
+    });
+    assert.deepEqual(cssImageLayout({ ...base, objectFit: 'cover' }), {
+      kind: 'native', imageScale: 'crop',
+    });
+    assert.deepEqual(cssImageLayout({ ...base, objectFit: 'none', objectPosition: '25% 75%' }), {
+      kind: 'wrapper', imageScale: 'fill', width: 640, height: 360,
+      x: -100, y: -180, fallbackAnnotations: [],
+    });
+    assert.deepEqual(cssImageLayout({
+      boxWidth: 240, boxHeight: 120, intrinsicWidth: 100, intrinsicHeight: 50,
+      objectFit: 'scale-down', objectPosition: 'center',
+    }), {
+      kind: 'wrapper', imageScale: 'fill', width: 100, height: 50,
+      x: 70, y: 35, fallbackAnnotations: [],
+    });
+    assert.deepEqual(cssImageLayout({ ...base, objectFit: 'scale-down' }), {
+      kind: 'native', imageScale: 'fit',
+    });
+    assert.deepEqual(cssImageLayout({
+      boxWidth: 200, boxHeight: 200, intrinsicWidth: 400, intrinsicHeight: 200,
+      objectFit: 'cover', objectPosition: 'right bottom',
+    }), {
+      kind: 'wrapper', imageScale: 'fill', width: 400, height: 200,
+      x: -200, y: 0, fallbackAnnotations: [],
+    });
+    const fallback = cssImageLayout({
+      ...base, objectFit: 'contain', objectPosition: 'calc(50% + 4px) 50%',
+    });
+    assert.equal(fallback.kind, 'wrapper');
+    assert.equal(fallback.fallbackAnnotations[0].policy, 'dom.image-object-position');
   });
 
   it('fails closed when a browser image URL was not resolved host-side', () => {
@@ -901,7 +946,7 @@ describe('semantic browser capture contract', () => {
     assert.equal(label.children[0].source.props.w, 'hug');
   });
 
-  it('treats bordered content-box width as FILL instead of shrinking a Grid', () => {
+  it('keeps a measured Grid height fixed while its bordered content-box width fills', () => {
     const capture = {
       version: 2,
       root: node({
@@ -927,5 +972,6 @@ describe('semantic browser capture contract', () => {
     const track = renderPlan.root.children[0];
 
     assert.equal(track.source.props.w, 'fill');
+    assert.equal(track.source.props.h, 80);
   });
 });

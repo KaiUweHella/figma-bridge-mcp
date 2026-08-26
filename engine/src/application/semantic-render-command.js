@@ -36,6 +36,7 @@ import {
 import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
 import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
 import { decodeVerificationPngBase64 } from './verification-artifact.js';
+import { verificationPngExportCode } from './verification-settle.js';
 
 export { semanticRenderArgvFromRequest } from './semantic-render-request.js';
 export { semanticRenderOutcomeCode } from '../lib/semantic-render-outcome.js';
@@ -333,7 +334,7 @@ function verificationCode(handle) {
     const maxDimension = Math.max(node.width || 100, node.height || 100);
     const requestedScale = 1;
     const appliedScale = maxDimension > 2000 ? 2000 / maxDimension : requestedScale;
-    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: appliedScale } });
+    ${verificationPngExportCode('node', 'appliedScale')}
     return { version: 1, failed: false, id: node.id,
       nodeWidth: node.width || 100, nodeHeight: node.height || 100,
       requestedScale, appliedScale,

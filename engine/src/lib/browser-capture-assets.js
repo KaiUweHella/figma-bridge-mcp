@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { extname, join } from 'node:path';
 import { createWorkspaceIO } from './workspace-io.js';
 import { IMAGE_HARD_LIMIT } from './image-file.js';
+import { rasterDimensions } from './raster-dimensions.js';
 
 export const BROWSER_CAPTURE_ASSET_LIMITS = Object.freeze({
   references: 20_000,
@@ -130,7 +131,12 @@ export function resolveBrowserCaptureAssets(capture, {
           }
           resolved = {
             kind: 'raster',
-            asset: { kind: 'embedded-raster', name: file.split('/').at(-1), base64: bytes.toString('base64') },
+            asset: {
+              kind: 'embedded-raster',
+              name: file.split('/').at(-1),
+              base64: bytes.toString('base64'),
+              ...rasterDimensions(bytes, kind),
+            },
             digest,
           };
           rasterAssets++;
