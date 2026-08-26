@@ -64,7 +64,11 @@ contract. Preserve all three instead of drawing a flattened approximation.
    icons with emoji, Unicode glyphs, rotated primitives, or guessed artwork.
 6. Componentize repeated source structures on the first pass: create one local
    component and place instances instead of emitting a flat repeated tree.
-7. Map only representable interactions to native prototype reactions with
+7. Preserve text sizing intent. Use HUG for intrinsic content that cannot
+   overrun its surrounding container; use FILL when copy must follow and wrap
+   with a narrower container. Center or end-align FILL copy with the native
+   Text alignment property, not a frozen text width or position.
+8. Map only representable interactions to native prototype reactions with
    `prototype add` or lossless `prototype set`, then verify them with
    `prototype inspect`. Keep routing, application state, async work and other
    runtime-owned behavior in code and record the boundary instead of inventing

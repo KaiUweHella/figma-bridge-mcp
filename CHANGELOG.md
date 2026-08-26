@@ -163,6 +163,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Browser DOM capture now distinguishes intrinsic text containers from
+  responsive available-width copy. Intrinsic auto-sized flow containers use
+  native HUG, wrapping/stretch text uses FILL, and centered FILL text retains
+  native Text alignment. CSS `align-items:stretch` is projected through child
+  FILL sizing instead of an invalid Figma container enum.
 - Existing-UI acceptance can now require persisted DOM-capture provenance,
   including the capture SHA-256 and viewport, so a hand-authored JSX render
   cannot silently replace a browser-derived baseline. `verify-build` also

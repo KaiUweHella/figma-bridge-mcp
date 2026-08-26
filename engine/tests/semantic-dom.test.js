@@ -80,6 +80,7 @@ describe('semantic browser capture contract', () => {
     for (const property of [
       'flexDirection', 'justifyContent', 'alignItems', 'gap', 'paddingTop',
       'gridTemplateColumns', 'gridRowStart', 'justifyItems', 'placeItems', 'alignSelf', 'justifySelf', 'flexGrow', 'order', 'zIndex',
+      'whiteSpace', 'overflowWrap', 'wordBreak', 'hyphens',
     ]) assert.ok(CAPTURE_STYLE_PROPERTIES.includes(property), property);
 
     const script = browserDomCaptureScript('.screen');

@@ -1092,7 +1092,10 @@ tokens first, then components, then screens:
    (Image/Rect/Ellipse) take w="fill" too. Add minW/maxW/minH/maxH where a
    fluid element has real limits (cards in a grid: w="fill" minW="140"
    maxW="240"). A fixed-size element inside a fluid parent is usually a
-   bug — the PlantCard photo overhang came from exactly that.
+   bug — the PlantCard photo overhang came from exactly that. For Text, use
+   HUG only for intrinsic copy that cannot overrun its container; use FILL
+   when copy must follow and wrap with a narrower container. Preserve centered
+   or end-aligned FILL copy through native Text alignment, never frozen x/width.
 9. Fix-ups without re-rendering: ["node","move","<id>","<x>","<y>"]
    (--page reparents across pages), ["node","resize","<id>","<w|keep|fill|hug>","<h|keep|fill|hug>"],
    ["node","rename"], ["node","set-text"], ["node","set-fill","<id>","#hex|var:name"],

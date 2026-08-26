@@ -14,6 +14,7 @@ const style = (overrides = {}) => ({
   color: 'rgb(25, 26, 31)', fontFamily: '"DM Sans", sans-serif',
   fontSize: '13px', fontWeight: '600', fontStyle: 'normal',
   lineHeight: 'normal', letterSpacing: 'normal', textAlign: 'start',
+  whiteSpace: 'normal', overflowWrap: 'normal', wordBreak: 'normal', hyphens: 'manual',
   ...overrides,
 });
 
@@ -225,7 +226,33 @@ describe('DOM capture to Figma JSX', () => {
     const { jsx } = domCaptureToJsx(hiddenCapture);
     assert.doesNotMatch(jsx, /css-flow-gap[^>]+h="(?:2[0-9]{3}|[3-9][0-9]{3,})/);
     assert.doesNotMatch(jsx, /name="i"/);
-    assert.match(jsx, /name="b"/);
+    assert.match(jsx, /name="b"[^>]+w="hug"[^>]+h="hug"/);
+    assert.match(jsx, /name="b"[^>]*>[^]*<Text[^>]+w="hug"[^>]*>94%<\/Text>/);
+
+    hiddenCapture.root.children[1].authoredStyle = { width: '46px', height: '27px' };
+    const { jsx: explicitlyFixed } = domCaptureToJsx(hiddenCapture);
+    assert.match(explicitlyFixed, /name="b"[^>]+w="46"[^>]+h="27"/);
+  });
+
+  it('uses fill-width text plus the native text alignment when copy must resize with its container', () => {
+    const responsiveCopy = {
+      version: 2,
+      root: {
+        tag: 'section', classes: 'copy-card', rect: { x: 0, y: 0, w: 240, h: 80 },
+        style: style({ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }),
+        authoredStyle: { display: 'flex', flexDirection: 'column', width: '100%' },
+        texts: [{
+          text: 'This copy stays centered when the card becomes narrower.',
+          rect: { x: 20, y: 18, w: 200, h: 34 },
+          style: style({ fontSize: '14px', lineHeight: '17px', textAlign: 'center', whiteSpace: 'normal' }),
+        }],
+        contentOrder: [{ kind: 'text', index: 0 }], before: null, after: null, children: [],
+      },
+    };
+
+    const { jsx } = domCaptureToJsx(responsiveCopy);
+    assert.match(jsx, /<Text[^>]+w="fill"[^>]+align="center"[^>]*>This copy/);
+    assert.doesNotMatch(jsx, /items="stretch"/);
   });
 
   it('keeps a static pseudo-element in Flex flow and preserves its ring shadow', () => {

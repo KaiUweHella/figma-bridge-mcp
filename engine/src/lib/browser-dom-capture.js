@@ -25,6 +25,7 @@ export const CAPTURE_STYLE_PROPERTIES = Object.freeze([
   'boxShadow', 'backdropFilter', 'filter', 'mixBlendMode', 'transform',
   'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
   'fontVariationSettings', 'letterSpacing', 'textAlign', 'textTransform',
+  'whiteSpace', 'overflowWrap', 'wordBreak', 'hyphens',
 ]);
 
 // A real composed screen carries the complete computed-style vocabulary for
@@ -72,6 +73,7 @@ const AUTHORED_LAYOUT_PROPERTIES = Object.freeze([
   'gridTemplateRows', 'gridTemplateColumns', 'gridAutoRows', 'gridAutoColumns',
   'gridAutoFlow', 'gridRowStart', 'gridRowEnd', 'gridColumnStart', 'gridColumnEnd',
   'backgroundImage', 'maskImage', 'filter', 'fontVariationSettings', 'transform',
+  'whiteSpace', 'overflowWrap', 'wordBreak', 'hyphens',
 ]);
 
 /**

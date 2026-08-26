@@ -601,6 +601,10 @@ _Avoid_: URL allowlist, fetch helper, SSRF filter
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
 _Avoid_: JSX tree, generated code, render payload
 
+**Responsive Text Sizing Intent**:
+The Browser DOM Capture decision that separates intrinsic HUG sizing from available-width FILL sizing before a Semantic Render Plan is accepted. It derives from authored fixed/auto/percentage size, parent-axis stretch or growth, computed wrapping facts and source text alignment. FILL text expresses centering or end alignment on the native Text node; container alignment never substitutes for text alignment.
+_Avoid_: measured text width, overflow patch, always-HUG text, always-FILL text
+
 **Render Provenance**:
 The bounded source evidence persisted on a created Semantic Render root. It names the validated input adapter and, for Browser DOM Capture, the capture schema version, SHA-256 digest and viewport. Design Link inspection and acceptance may require this evidence for an existing rendered UI; a JSX render remains valid for new views or explicitly reviewed semantic boundaries.
 _Avoid_: renderer label, console note, visual proof, universal DOM requirement

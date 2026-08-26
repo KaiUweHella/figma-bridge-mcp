@@ -191,7 +191,10 @@ function visualProps(style, rect, { root = false, semantic = null } = {}) {
       if (layout.columnGap > 0) props.columnGap = round(layout.columnGap);
     }
     if (layout.justify && layout.justify !== 'start') props.justify = layout.justify;
-    if (layout.items && layout.items !== 'start') props.items = layout.items;
+    // Figma Auto Layout has no container-side STRETCH enum. CSS stretch is
+    // represented by FILL sizing on each flow child (including direct Text),
+    // so emitting items="stretch" would make the Plugin reject the render.
+    if (layout.items && !['start', 'stretch'].includes(layout.items)) props.items = layout.items;
     const [pt = 0, pr = 0, pb = 0, pl = 0] = layout.padding || [];
     if (pt) props.pt = round(pt);
     if (pr) props.pr = round(pr);
@@ -538,12 +541,54 @@ function measuredFlowSpacer(size, direction, index) {
   });
 }
 
-function textSizingForContainer(text, node, semantic) {
-  if (!['trivial-centered-grid', 'single-centered-text-control'].includes(semantic?.layout?.source)) return null;
-  const [, pr = 0, , pl = 0] = semantic.layout.padding || [];
+function normalizedTextAlignment(value) {
+  return ({ start: 'left', end: 'right', justify: 'justified' })[
+    String(value || '').trim().toLowerCase()
+  ] || String(value || '').trim().toLowerCase();
+}
+
+function textCanWrap(style) {
+  const whiteSpace = String(style?.whiteSpace || 'normal').trim().toLowerCase();
+  return !['nowrap', 'pre'].includes(whiteSpace);
+}
+
+function textSizingForContainer(text, node, semantic, containerProps = {}) {
+  const layout = semantic?.layout || {};
+  if (!semantic || layout.kind === 'leaf') return null;
+  const [, pr = 0, , pl = 0] = layout.padding || [];
   const availableWidth = Math.max(1, node.rect.w - pl - pr);
   const fillsTrack = text.rect.w >= availableWidth - 1;
-  return fillsTrack ? { width: 'fill', align: 'center' } : { width: 'hug' };
+  const alignment = normalizedTextAlignment(text.style?.textAlign || node.style?.textAlign);
+  const centeredControl = ['trivial-centered-grid', 'single-centered-text-control'].includes(layout.source);
+  if (containerProps.w === 'hug') return { width: 'hug', align: alignment };
+  const boundedContainer = containerProps.w === 'fill' || Number.isFinite(Number(containerProps.w));
+  const responsiveContainer = containerProps.w === 'fill';
+  const multiline = text.rect.h > px(text.style?.fontSize, 14) * 1.6;
+  const needsContainerWidth = fillsTrack || multiline
+    || (boundedContainer && ['center', 'right', 'justified'].includes(alignment))
+    || (responsiveContainer && textCanWrap(text.style));
+  return needsContainerWidth
+    ? { width: 'fill', align: centeredControl ? 'center' : alignment }
+    : { width: 'hug', align: alignment };
+}
+
+function intrinsicAxisCanHug(node, semantic, parentSemantic, axis) {
+  if (!semantic || semantic.positioning?.kind !== 'flow' || !parentSemantic
+    || semantic.component || semantic.layout?.kind === 'leaf' || parentSemantic.layout?.kind === 'grid') return false;
+  const authored = String(node.authoredStyle?.[axis] || '').trim().toLowerCase();
+  if (authored && authored !== 'auto') return false;
+  const parentLayout = parentSemantic.layout;
+  const direction = parentLayout.direction || 'column';
+  const isMainAxis = (axis === 'width' && direction === 'row')
+    || (axis === 'height' && direction === 'column');
+  if (isMainAxis && semantic.sizing?.grow > 0) return false;
+  if (parentLayout.kind === 'flex' && !isMainAxis) {
+    const self = String(node.style?.alignSelf || '').trim().toLowerCase();
+    const inherited = String(parentSemantic.source.style?.alignItems || '').trim().toLowerCase();
+    const alignment = self && self !== 'auto' ? self : inherited;
+    if (['', 'normal', 'stretch'].includes(alignment)) return false;
+  }
+  return true;
 }
 
 function renderNode(node, parentRect, state, { root = false, suffix = '', forceLocal = null, semantic = null, parentSemantic = null, slotIndex = null } = {}) {
@@ -607,7 +652,13 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
   if (semantic?.positioning?.kind === 'flow' && parentSemantic) {
     if (fillsParentCrossAxis(node, parentSemantic, 'width')) props.w = 'fill';
     if (fillsParentCrossAxis(node, parentSemantic, 'height')) props.h = 'fill';
+    if (props.w !== 'fill' && intrinsicAxisCanHug(node, semantic, parentSemantic, 'width')) props.w = 'hug';
+    if (props.h !== 'fill' && intrinsicAxisCanHug(node, semantic, parentSemantic, 'height')) props.h = 'hug';
   }
+  if (semantic?.sizing?.minWidth > 0) props.minW = round(semantic.sizing.minWidth);
+  if (semantic?.sizing?.minHeight > 0) props.minH = round(semantic.sizing.minHeight);
+  if (semantic?.sizing?.maxWidth > 0) props.maxW = round(semantic.sizing.maxWidth);
+  if (semantic?.sizing?.maxHeight > 0) props.maxH = round(semantic.sizing.maxHeight);
   if (semantic?.component && !root) {
     const link = semantic.component;
     const instanceProps = {
@@ -687,7 +738,7 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
           owner: node,
           positioned: !semantic || semantic.layout.kind === 'leaf',
           gridCell: semantic ? textGridCell(item.value, node, semantic.layout, directIndex) : null,
-          sizing: textSizingForContainer(item.value, node, semantic),
+          sizing: textSizingForContainer(item.value, node, semantic, props),
           gridAlign: semantic?.layout?.source === 'space-around.equal-slots',
         }));
         state.textCount++;

@@ -892,9 +892,13 @@ painted CSS side as the shared native stroke, retains all four side weights,
 and marks `strokes` plus `strokeWeight`. Native renders report how many
 fallback annotations were added, deduplicated or unsupported.
 
-Intrinsic single-line DOM text maps to Figma HUG sizing. Positioned and
-multiline text keeps measured box geometry; the bridge does not add arbitrary
-percentage width headroom to prevent wrapping.
+Intrinsic auto-sized DOM containers and their single-line text map to Figma
+HUG sizing when the parent does not stretch them. Explicit fixed dimensions
+stay fixed. Text that participates in an authored stretch/available-width or
+wrapping relationship maps to FILL instead; centered or end-aligned FILL text
+keeps that intent through the native Text alignment property. Positioned text
+keeps measured box geometry. The bridge does not add arbitrary percentage
+width headroom to prevent wrapping.
 
 Variable-font axes are captured, but the structural gate asks whether the
 required font should be installed or an available named face should be used
