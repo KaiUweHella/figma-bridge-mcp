@@ -55,7 +55,7 @@ function gridLayoutSetCode({ nodeId, rows, columns, rowGap, columnGap, rowSizes,
   if (parsedRowSizes && parsedRows !== undefined && parsedRowSizes.length !== parsedRows) throw new Error('--row-sizes length must equal --rows');
   if (parsedColumnSizes && parsedColumns !== undefined && parsedColumnSizes.length !== parsedColumns) throw new Error('--column-sizes length must equal --columns');
   return gridNodeCode(nodeId, `const before = node.layoutMode === 'GRID' ? __gridFacts(node) : { layoutMode: node.layoutMode };
-node.layoutMode = 'GRID';
+if (node.layoutMode !== 'GRID') node.layoutMode = 'GRID';
 ${parsedRows === undefined ? '' : `node.gridRowCount = ${parsedRows};`}
 ${parsedColumns === undefined ? '' : `node.gridColumnCount = ${parsedColumns};`}
 ${parsedRowGap === undefined ? '' : `node.gridRowGap = ${parsedRowGap};`}
@@ -65,13 +65,30 @@ ${parsedColumnSizes === undefined ? '' : `if (node.gridColumnSizes.length !== ${
 return { before, after: __gridFacts(node) };`);
 }
 
-function gridLayoutPlaceCode({ gridId, childId, row, column }) {
+function gridLayoutPlaceCode({ gridId, childId, row, column, rowSpan, columnSpan, horizontalAlign, verticalAlign }) {
   const parsedRow = Number(row), parsedColumn = Number(column);
   if (!Number.isInteger(parsedRow) || parsedRow < 0 || !Number.isInteger(parsedColumn) || parsedColumn < 0) throw new Error('Row and column must be zero-based integers');
+  const parsedRowSpan = rowSpan === undefined ? undefined : parsePositiveInteger(rowSpan, '--row-span');
+  const parsedColumnSpan = columnSpan === undefined ? undefined : parsePositiveInteger(columnSpan, '--column-span');
+  const parseAlign = (value, label) => {
+    if (value === undefined) return undefined;
+    const normalized = String(value).toUpperCase();
+    if (!['AUTO', 'MIN', 'CENTER', 'MAX'].includes(normalized)) throw new Error(`${label} must be auto, min, center, or max`);
+    return normalized;
+  };
+  const parsedHorizontalAlign = parseAlign(horizontalAlign, '--horizontal-align');
+  const parsedVerticalAlign = parseAlign(verticalAlign, '--vertical-align');
   return gridNodeCode(gridId, `if (node.layoutMode !== 'GRID' || typeof node.appendChildAt !== 'function') throw new Error('Node is not an Auto Layout Grid container');
 const child = await figma.getNodeByIdAsync(${JSON.stringify(childId)}); if (!child || !('x' in child)) throw new Error('Scene child not found: ${String(childId)}');
 node.appendChildAt(child, ${parsedRow}, ${parsedColumn});
-return { grid: __gridFacts(node), child: { id: child.id, name: child.name, row: child.gridRowAnchorIndex, column: child.gridColumnAnchorIndex } };`);
+${parsedRowSpan === undefined ? '' : `child.gridRowSpan = ${parsedRowSpan};`}
+${parsedColumnSpan === undefined ? '' : `child.gridColumnSpan = ${parsedColumnSpan};`}
+${parsedHorizontalAlign === undefined ? '' : `child.gridChildHorizontalAlign = ${JSON.stringify(parsedHorizontalAlign)};`}
+${parsedVerticalAlign === undefined ? '' : `child.gridChildVerticalAlign = ${JSON.stringify(parsedVerticalAlign)};`}
+return { grid: __gridFacts(node), child: { id: child.id, name: child.name,
+  row: child.gridRowAnchorIndex, column: child.gridColumnAnchorIndex,
+  rowSpan: child.gridRowSpan || 1, columnSpan: child.gridColumnSpan || 1,
+  horizontalAlign: child.gridChildHorizontalAlign || 'AUTO', verticalAlign: child.gridChildVerticalAlign || 'AUTO' } };`);
 }
 
 function gridLayoutAutoFlowCode({ nodeId, autoTracks, positioning }) {

@@ -1293,11 +1293,49 @@ export class FigmaClient {
           c.vars.push(v);
           return v;
         };
+        const __createSpaceVar = (requestedKey, fallback, kind) => {
+          const value = Number(fallback);
+          if (!requestedKey || !Number.isFinite(value) || value <= 0) return null;
+          const collections = globalThis.__varCollections || [];
+          const colon = requestedKey.indexOf(':');
+          const requestedCollection = colon > 0 ? requestedKey.slice(0, colon) : null;
+          const variableName = colon > 0 ? requestedKey.slice(colon + 1) : requestedKey;
+          let collection = requestedCollection
+            ? collections.find(c => c.name.toLowerCase() === requestedCollection.toLowerCase())
+            : null;
+          if (!collection && globalThis.__varsCacheFilter) {
+            const filter = String(globalThis.__varsCacheFilter).toLowerCase();
+            collection = collections.find(c => c.name.toLowerCase() === filter || c.name.toLowerCase().includes(filter));
+          }
+          if (!collection) collection = collections.find(c => c.name === 'Tokens') || null;
+          if (!collection) {
+            collection = figma.variables.createVariableCollection('Tokens');
+            collections.push(collection);
+          }
+          let variable;
+          try { variable = figma.variables.createVariable(variableName, collection, 'FLOAT'); }
+          catch (e) { return null; }
+          __scopeSpaceVar(variable, kind, true);
+          for (const mode of collection.modes) {
+            try { variable.setValueForMode(mode.modeId, value); } catch (e) {}
+          }
+          globalThis.__spaceCache.vars.push(variable);
+          vars[variableName] = variable;
+          vars[requestedKey] = variable;
+          varsByCollection[collection.name.toLowerCase() + ':' + variableName] = variable;
+          globalThis.__createdVars.add(collection.name + '/' + variableName);
+          return variable;
+        };
         const __space = (node, fields, value, kind) => {
           let variable = null;
           if (typeof value === 'string' && value.startsWith('var:')) {
-            const key = value.slice(4);
+            const source = value.slice(4);
+            const separator = source.indexOf('|');
+            const key = separator < 0 ? source : source.slice(0, separator);
+            const fallback = separator < 0 ? null : source.slice(separator + 1);
             variable = typeof lookupVar === 'function' ? lookupVar(key) : null;
+            if (variable && variable.resolvedType !== 'FLOAT') variable = null;
+            if (!variable && fallback) variable = __createSpaceVar(key, fallback, kind);
             if (!variable) {
               globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
               globalThis.__unresolvedVars.add(key);

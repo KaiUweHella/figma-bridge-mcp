@@ -85,8 +85,8 @@ export function variableSetValueCommandCode(request) {
         r: parseInt(hex.slice(0, 2), 16) / 255,
         g: parseInt(hex.slice(2, 4), 16) / 255,
         b: parseInt(hex.slice(4, 6), 16) / 255,
+        a: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1,
       };
-      if (hex.length === 8) nextValue.a = parseInt(hex.slice(6, 8), 16) / 255;
     } else {
       try { nextValue = JSON.parse(literal); }
       catch {
@@ -211,8 +211,8 @@ function literalValueForType(literal, type) {
       r: parseInt(hex.slice(0, 2), 16) / 255,
       g: parseInt(hex.slice(2, 4), 16) / 255,
       b: parseInt(hex.slice(4, 6), 16) / 255,
+      a: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1,
     };
-    if (hex.length === 8) color.a = parseInt(hex.slice(6, 8), 16) / 255;
     return color;
   }
   let easing;
@@ -222,6 +222,16 @@ function literalValueForType(literal, type) {
     easing.type = String(easing.type || '').toUpperCase().replace(/[ -]+/g, '_');
   }
   return easing;
+}
+
+function literalResultMatches(value, literal, type) {
+  const expected = literalValueForType(literal, type);
+  if (type !== 'COLOR') return isDeepStrictEqual(value, expected);
+  if (!exactKeys(value, ['r', 'g', 'b', 'a'])
+    || !exactKeys(expected, ['r', 'g', 'b', 'a'])) return false;
+  return ['r', 'g', 'b', 'a'].every((channel) =>
+    typeof value[channel] === 'number' && Number.isFinite(value[channel])
+      && Math.abs(value[channel] - expected[channel]) <= 1e-6);
 }
 
 function validAliasTarget(value, input, resolvedType, resultValue) {
@@ -281,8 +291,7 @@ function validSuccess(value, input) {
       || value.mode.name.toLowerCase().includes(input.mode.toLowerCase()))
     && (input.alias === null
       ? value.aliasTarget === null
-        && isDeepStrictEqual(value.value,
-          literalValueForType(input.value, value.variable.resolvedType))
+        && literalResultMatches(value.value, input.value, value.variable.resolvedType)
       : validAliasTarget(value.aliasTarget, input, value.variable.resolvedType, value.value))
     && Array.isArray(value.residue) && value.residue.length === 0;
 }

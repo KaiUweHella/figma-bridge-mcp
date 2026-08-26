@@ -19,6 +19,7 @@ function fixture({
   publishFails = false,
   restoreFails = false,
   type = 'FLOAT',
+  normalizeColorAlpha = false,
   } = {}) {
   const mode = { modeId: 'ModeId:default', name: 'Mode 1' };
   const collection = {
@@ -34,7 +35,13 @@ function fixture({
     setValueForMode(modeId, value) {
       setterCalls++;
       if (restoreFails && setterCalls > 1) throw new Error('restore failed');
-      this.valuesByMode[modeId] = value;
+      this.valuesByMode[modeId] = normalizeColorAlpha && type === 'COLOR'
+        && value && typeof value === 'object'
+        ? {
+            r: Math.fround(value.r), g: Math.fround(value.g), b: Math.fround(value.b),
+            a: Math.fround(value.a ?? 1),
+          }
+        : value;
     },
     async getPublishStatusAsync() {
       publishCalls++;
@@ -109,6 +116,23 @@ test('Variable Set Value preserves literal, named easing and alias utility with 
   }, alias.figma);
   assert.deepEqual(JSON.parse(aliasPayload).value, {
     type: 'VARIABLE_ALIAS', id: 'VariableID:2',
+  });
+});
+
+test('Variable Set Value accepts Figma normalization of an opaque six-digit color', async () => {
+  const color = fixture({
+    type: 'COLOR',
+    initial: { r: 0, g: 0, b: 0, a: 1 },
+    normalizeColorAlpha: true,
+  });
+  const request = {
+    variable: 'space/md', collection: 'Tokens', mode: 'Mode 1', value: '#BFFF47',
+  };
+  const serialized = await runCode(request, color.figma);
+  const result = await executeVariableSetValue(request, { evaluate: async () => serialized });
+
+  assert.deepEqual(result.result.value, {
+    r: Math.fround(191 / 255), g: 1, b: Math.fround(71 / 255), a: 1,
   });
 });
 

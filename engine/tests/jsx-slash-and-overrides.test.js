@@ -240,6 +240,17 @@ describe('spacing + radius tokens (reuse-or-create)', () => {
     assertValidJs(code);
   });
 
+  it('compatibility spacing helper splits and creates numeric Variable fallbacks', async () => {
+    const client = new FigmaClient();
+    const code = await client.parseJSX(
+      '<Frame name="P" flex="col" gap="var:spacing/md|12" rounded="var:radius/card|16" />',
+    );
+
+    assert.ok(code.includes("const separator = source.indexOf('|')"));
+    assert.ok(code.includes('const key = separator < 0 ? source : source.slice(0, separator)'));
+    assert.ok(code.includes('variable = __createSpaceVar(key, fallback, kind)'));
+  });
+
   it('rounded binds all four corner fields with kind "radius"', async () => {
     const client = makeClient();
     const code = await client.parseJSX(

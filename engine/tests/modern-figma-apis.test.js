@@ -43,6 +43,53 @@ test('auto-layout grid APIs configure tracks, place children, auto-flow, and reo
   assert.equal((await execute(gridLayoutReorderCode({ nodeId: grid.id, axis: 'rows', from: '0', insertionIndex: 2 }), figma)).moves[0].from, 0);
 });
 
+test('occupied native grids grow without resetting layout mode', async () => {
+  const { grid, child, figma } = gridFixture();
+  let mode = 'GRID';
+  Object.defineProperty(grid, 'layoutMode', {
+    configurable: true,
+    get: () => mode,
+    set: (next) => {
+      if (mode === 'GRID' && next === 'GRID') throw new Error('Cannot delete occupied row/column');
+      mode = next;
+    },
+  });
+  grid.gridRowCount = 1;
+  grid.gridColumnCount = 1;
+  grid.appendChildAt(child, 0, 0);
+
+  const result = await execute(gridLayoutSetCode({ nodeId: grid.id, rows: 2 }), figma);
+
+  assert.equal(result.after.layoutMode, 'GRID');
+  assert.equal(grid.gridRowCount, 2);
+  assert.equal(child.gridRowAnchorIndex, 0);
+});
+
+test('typed grid placement preserves explicit spans and alignment', async () => {
+  const { grid, child, figma } = gridFixture();
+  grid.layoutMode = 'GRID';
+  grid.gridRowCount = 3;
+  grid.gridColumnCount = 4;
+
+  const result = await execute(gridLayoutPlaceCode({
+    gridId: grid.id,
+    childId: child.id,
+    row: 1,
+    column: 1,
+    rowSpan: 2,
+    columnSpan: 3,
+    horizontalAlign: 'center',
+    verticalAlign: 'max',
+  }), figma);
+
+  assert.equal(result.child.rowSpan, 2);
+  assert.equal(result.child.columnSpan, 3);
+  assert.equal(result.child.horizontalAlign, 'CENTER');
+  assert.equal(result.child.verticalAlign, 'MAX');
+  assert.equal(child.gridRowSpan, 2);
+  assert.equal(child.gridColumnSpan, 3);
+});
+
 test('slot APIs validate settings, configure the generated SLOT property, validate, and reset', async () => {
   assert.deepEqual(parseSlotSettings('{"minChildren":1,"maxChildren":2}'), { minChildren: 1, maxChildren: 2 });
   assert.throws(() => parseSlotSettings({ minChildren: 3, maxChildren: 2 }), /minChildren/);
