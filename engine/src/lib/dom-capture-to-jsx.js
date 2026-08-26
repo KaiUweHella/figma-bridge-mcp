@@ -133,7 +133,7 @@ function executableProps(props) {
 
 function renderTreeToJsx(node) {
   if (!node) return '';
-  const tag = { frame: 'Frame', text: 'Text', icon: 'Icon', instance: 'Instance' }[node.type];
+  const tag = { frame: 'Frame', text: 'Text', icon: 'Icon', image: 'Image', instance: 'Instance' }[node.type];
   if (!tag) throw new Error(`Unsupported DOM render element type: ${node.type}`);
   const attributes = propsString(node.props);
   const opening = `<${tag}${attributes ? ` ${attributes}` : ''}`;
@@ -157,6 +157,42 @@ function renderTreeToParsedTree(root) {
     },
     children: root.children.map(child), content: '',
   };
+}
+
+function domImage(node, state, layoutProps = {}) {
+  const asset = node.asset;
+  if (!asset || asset.kind === 'image') {
+    throw new Error(`DOM image asset was not resolved host-side: ${String(asset?.src || 'missing source')}`);
+  }
+  if (asset.kind !== 'embedded-raster') {
+    throw new Error(`DOM image asset kind ${String(asset.kind || 'missing')} is unsupported`);
+  }
+  const key = `dom-image-${Object.keys(state.images).length + 1}`;
+  state.images[key] = asset.base64;
+  const objectFit = String(node.style?.objectFit || '').toLowerCase();
+  const imageScale = objectFit === 'contain' ? 'fit'
+    : objectFit === 'cover' ? 'fill'
+      : undefined;
+  if (objectFit && !['contain', 'cover', 'fill', 'none', 'scale-down'].includes(objectFit)) {
+    throw new Error(`DOM image object-fit ${objectFit} is unsupported`);
+  }
+  return renderElement('image', {
+    name: layoutProps.name,
+    src: `imgref:${key}`,
+    imageScale,
+    position: layoutProps.position,
+    x: layoutProps.x,
+    y: layoutProps.y,
+    w: layoutProps.w || round(node.rect.w),
+    h: layoutProps.h || round(node.rect.h),
+    grow: layoutProps.grow,
+    gridRow: layoutProps.gridRow,
+    gridColumn: layoutProps.gridColumn,
+    gridRowSpan: layoutProps.gridRowSpan,
+    gridColumnSpan: layoutProps.gridColumnSpan,
+    gridHAlign: layoutProps.gridHAlign,
+    gridVAlign: layoutProps.gridVAlign,
+  });
 }
 
 function visualProps(style, rect, { root = false, semantic = null } = {}) {
@@ -355,9 +391,11 @@ function pseudoRect(pseudo, ownerRect) {
 function svgIcon(node, parentRect, state, layoutProps = {}) {
   const iconName = `dom-svg-${++state.iconIndex}`;
   const color = cssColor(node.style?.color) || '#000000';
-  state.icons[iconName] = String(node.svg)
-    .replace(/currentColor/g, color)
-    .replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+  let markup = String(node.svg).replace(/currentColor/g, color);
+  if (!/^\s*<svg\b[^>]*\sxmlns\s*=/i.test(markup)) {
+    markup = markup.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  state.icons[iconName] = markup;
   return renderElement('icon', {
     name: iconName,
     preserveColors: 'true',
@@ -441,14 +479,42 @@ function fillsParentCrossAxis(node, parentSemantic, axis) {
   return Math.abs(measured - available) <= 1;
 }
 
+function wrappingTextConsumesAvailableWidth(node, parentSemantic) {
+  if (!node?.rect || parentSemantic?.layout?.kind !== 'flex'
+    || parentSemantic.layout.direction !== 'column' || !(node.texts || []).length) return false;
+  const multiline = node.texts.some((text) => text.rect?.h > px(text.style?.fontSize, 14) * 1.6);
+  if (!multiline || !node.texts.some((text) => textCanWrap(text.style))) return false;
+  const [, pr = 0, , pl = 0] = parentSemantic.layout.padding || [];
+  const available = parentSemantic.source.rect.w - pl - pr;
+  return available > 0 && Math.abs(node.rect.w - available) <= 1;
+}
+
 function orderedDirectContent(node, semantic) {
   const texts = node.texts || [];
   const children = node.children || [];
   const explicit = node.contentOrder || [];
   if (explicit.length) {
-    return coalesceAdjacentText(explicit.map((item) => item.kind === 'text'
-      ? { kind: 'text', index: item.index, value: texts[item.index] }
-      : { kind: 'element', index: item.index, value: children[item.index] })
+    return coalesceAdjacentText(explicit.map((item) => {
+      if (item.kind === 'text') return { kind: 'text', index: item.index, value: texts[item.index] };
+      const child = children[item.index];
+      // Capture v2 originally represented BR as a zero-sized element. Treat
+      // it as authored text intent at the adapter boundary so old captures do
+      // not concatenate lines after the visual BR node is filtered out.
+      if (String(child?.tag || '').toLowerCase() === 'br') {
+        return {
+          kind: 'text', index: `br-${item.index}`,
+          value: {
+            text: '\n',
+            rect: {
+              x: node.rect.x, y: node.rect.y, w: 1,
+              h: Math.max(1, px(node.style?.lineHeight, px(node.style?.fontSize, 14))),
+            },
+            style: node.style || {},
+          },
+        };
+      }
+      return { kind: 'element', index: item.index, value: child };
+    })
       .filter(isRenderableDirectItem));
   }
   const combined = [
@@ -652,6 +718,10 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
   if (semantic?.positioning?.kind === 'flow' && parentSemantic) {
     if (fillsParentCrossAxis(node, parentSemantic, 'width')) props.w = 'fill';
     if (fillsParentCrossAxis(node, parentSemantic, 'height')) props.h = 'fill';
+    // A flex-start item may still be clamped to all available width because
+    // its copy wraps. Preserve that responsive relationship as FILL instead
+    // of converting the measured browser rectangle into HUG/max-content.
+    if (props.w !== 'fill' && wrappingTextConsumesAvailableWidth(node, parentSemantic)) props.w = 'fill';
     if (props.w !== 'fill' && intrinsicAxisCanHug(node, semantic, parentSemantic, 'width')) props.w = 'hug';
     if (props.h !== 'fill' && intrinsicAxisCanHug(node, semantic, parentSemantic, 'height')) props.h = 'hug';
   }
@@ -684,6 +754,7 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
     return renderElement('instance', instanceProps);
   }
   if (node.svg) return svgIcon(node, parentRect, state, props);
+  if (node.tag === 'img' || node.asset) return domImage(node, state, props);
   const layers = [];
   const before = renderPseudo(node.before, node.rect, state, semantic);
   if (before) { layers.push(before); state.pseudoCount++; }
@@ -797,11 +868,12 @@ function projectDomCapture(capture, { projectIcons = {}, componentLinks = {} } =
   const semantic = capture.version >= 2
     ? domCaptureToSemanticModel(capture, { resolveProjectIcon, resolveComponent })
     : null;
-  const state = { icons: {}, iconIndex: 0, borderIndex: 0, elementCount: 0, textCount: 0, pseudoCount: 0 };
+  const state = { icons: {}, images: {}, iconIndex: 0, borderIndex: 0, elementCount: 0, textCount: 0, pseudoCount: 0 };
   const tree = renderNode(capture.root, capture.root.rect, state, { root: true, semantic: semantic?.root || null });
   return {
     tree,
     icons: state.icons,
+    images: state.images,
     semanticModel: semantic,
     diagnostics: {
       elements: state.elementCount,
@@ -840,6 +912,13 @@ export function domCaptureToRenderPlan(capture, options = {}) {
         name: String(name || 'Icon'),
         svg,
       };
+    },
+    resolveImageAsset: (props) => {
+      const src = String(props?.src || '');
+      if (!src.startsWith('imgref:')) return null;
+      const key = src.slice(7);
+      const base64 = projection.images[key];
+      return base64 ? { kind: 'embedded-raster', name: props?.name || key || 'Image', base64 } : null;
     },
   });
   const renderPlan = createSemanticRenderPlan({

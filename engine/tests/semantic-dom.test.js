@@ -81,6 +81,7 @@ describe('semantic browser capture contract', () => {
       'flexDirection', 'justifyContent', 'alignItems', 'gap', 'paddingTop',
       'gridTemplateColumns', 'gridRowStart', 'justifyItems', 'placeItems', 'alignSelf', 'justifySelf', 'flexGrow', 'order', 'zIndex',
       'whiteSpace', 'overflowWrap', 'wordBreak', 'hyphens',
+      'objectFit', 'objectPosition',
     ]) assert.ok(CAPTURE_STYLE_PROPERTIES.includes(property), property);
 
     const script = browserDomCaptureScript('.screen');
@@ -98,12 +99,52 @@ describe('semantic browser capture contract', () => {
     assert.match(script, /getComputedStyle\(source\)/);
     assert.match(script, /svgMarkup\(element\)/);
     assert.match(script, /figma-filter-/);
+    assert.match(script, /documentOrigin: location\.origin/);
+    assert.match(script, /toLowerCase\(\) === 'br'/);
     for (const property of [
       'fill', 'fillOpacity', 'stopColor', 'stopOpacity',
       'stroke', 'strokeWidth', 'strokeDasharray', 'filter', 'opacity',
     ]) {
       assert.ok(SVG_PRESENTATION_PROPERTIES.includes(property), property);
     }
+  });
+
+  it('materializes a host-resolved DOM image as an executable image asset', () => {
+    const capture = structuredClone(semanticCapture);
+    capture.root.children[1].children.unshift(node({
+      tag: 'img', classes: 'automation-chart', rect: { x: 260, y: 60, w: 240, h: 120 },
+      style: { objectFit: 'contain', objectPosition: '50% 50%' },
+      asset: {
+        kind: 'embedded-raster',
+        name: 'automation-chart.png',
+        base64: Buffer.from('bounded-image-bytes').toString('base64'),
+      },
+    }));
+
+    const { renderPlan, images } = domCaptureToRenderPlan(capture);
+    const findImage = (entry) => entry.source.type === 'image'
+      ? entry
+      : entry.children.map(findImage).find(Boolean);
+    const image = findImage(renderPlan.root);
+
+    assert.equal(image.source.type, 'image');
+    assert.equal(image.source.props.imageScale, 'fit');
+    assert.equal(image.asset.kind, 'embedded-raster');
+    assert.equal(image.asset.base64, Buffer.from('bounded-image-bytes').toString('base64'));
+    assert.equal(Object.keys(images).length, 1);
+  });
+
+  it('fails closed when a browser image URL was not resolved host-side', () => {
+    const capture = structuredClone(semanticCapture);
+    capture.root.children[1].children.unshift(node({
+      tag: 'img', classes: 'remote-chart', rect: { x: 260, y: 60, w: 240, h: 120 },
+      asset: { kind: 'image', src: 'https://example.com/chart.png?secret=do-not-retain' },
+    }));
+
+    assert.throws(
+      () => domCaptureToRenderPlan(capture),
+      /DOM image asset was not resolved host-side/,
+    );
   });
 
   it('updates exact SVG presentation attributes without colliding with prefixed names', () => {
@@ -702,6 +743,58 @@ describe('semantic browser capture contract', () => {
 
     assert.equal(labelPlan.children.length, 1);
     assert.equal(labelPlan.children[0].source.props.content, '82%');
+  });
+
+  it('preserves authored BR elements as native text line breaks', () => {
+    const capture = structuredClone(semanticCapture);
+    const label = capture.root.children[0].children[0];
+    label.rect = { x: 18, y: 26, w: 255, h: 120 };
+    label.texts = [
+      { text: 'Every handoff,', rect: { x: 18, y: 26, w: 250, h: 42 }, style: baseStyle({ fontSize: '38px', lineHeight: '40px' }) },
+      { text: 'one connected', rect: { x: 18, y: 66, w: 255, h: 42 }, style: baseStyle({ fontSize: '38px', lineHeight: '40px' }) },
+      { text: 'system.', rect: { x: 18, y: 106, w: 135, h: 42 }, style: baseStyle({ fontSize: '38px', lineHeight: '40px' }) },
+    ];
+    label.children = [
+      node({ tag: 'br', rect: { x: 18, y: 66, w: 0, h: 0 } }),
+      node({ tag: 'br', rect: { x: 18, y: 106, w: 0, h: 0 } }),
+    ];
+    label.contentOrder = [
+      { kind: 'text', index: 0 }, { kind: 'element', index: 0 },
+      { kind: 'text', index: 1 }, { kind: 'element', index: 1 },
+      { kind: 'text', index: 2 },
+    ];
+
+    const { renderPlan } = domCaptureToRenderPlan(capture);
+    const text = renderPlan.root.children[0].children[0].children[0];
+
+    assert.equal(text.source.props.content, 'Every handoff,\none connected\nsystem.');
+  });
+
+  it('uses fill for wrapping flex copy that consumes the complete available width', () => {
+    const capture = {
+      version: 2,
+      root: node({
+        classes: 'map-copy', rect: { x: 0, y: 0, w: 405, h: 390 },
+        style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', paddingLeft: '40px', paddingRight: '40px' },
+        authoredStyle: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', paddingLeft: '40px', paddingRight: '40px' },
+        children: [node({
+          tag: 'p', rect: { x: 40, y: 160, w: 325, h: 36 },
+          style: { display: 'block', fontSize: '12px', lineHeight: '18px', whiteSpace: 'normal' },
+          texts: [{
+            text: 'Components, rights and release checks share a traceable path from design decision to delivery.',
+            rect: { x: 40, y: 162, w: 307, h: 32 },
+            style: baseStyle({ fontSize: '12px', lineHeight: '18px', whiteSpace: 'normal' }),
+          }],
+          contentOrder: [{ kind: 'text', index: 0 }],
+        })],
+      }),
+    };
+
+    const { renderPlan } = domCaptureToRenderPlan(capture);
+    const paragraph = renderPlan.root.children.find((child) => child.source.props.name === 'p');
+
+    assert.equal(paragraph.source.props.w, 'fill');
+    assert.equal(paragraph.children.find((child) => child.source.type === 'text').source.props.w, 'fill');
   });
 
   it('maps a main-axis CSS auto margin to a growing native Auto Layout spacer', () => {

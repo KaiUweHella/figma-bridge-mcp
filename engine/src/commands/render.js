@@ -8,6 +8,7 @@ import { FigmaClient } from '../lib/jsx-render.js';
 import { domCaptureToRenderPlan } from '../lib/dom-capture-to-jsx.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import { BROWSER_DOM_CAPTURE_LIMITS, browserDomCaptureScript } from '../lib/browser-dom-capture.js';
+import { resolveBrowserCaptureAssets } from '../lib/browser-capture-assets.js';
 import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-structural-gate.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
@@ -600,10 +601,12 @@ program
     let jsx;
     let adaptedRenderPlan = null;
     let captureIcons = null;
+    let captureImages = {};
     const projectIcons = options.icons ? loadIconDir(options.icons) : {};
     let componentLinks = {};
+    let manifestPath;
     try {
-      const manifestPath = resolve(options.manifest);
+      manifestPath = resolve(options.manifest);
       componentLinks = componentLinksFromRegistry(
         readDesignLinkRegistry(dirname(manifestPath), { manifestPath }).registry,
       );
@@ -630,6 +633,9 @@ program
         return;
       }
       try {
+        const assetResolution = resolveBrowserCaptureAssets(capture, {
+          projectRoot: dirname(manifestPath),
+        });
         const converted = domCaptureToRenderPlan(capture, {
           projectIcons,
           componentLinks,
@@ -638,8 +644,13 @@ program
         });
         adaptedRenderPlan = converted.renderPlan;
         captureIcons = converted.icons;
+        captureImages = converted.images || {};
         const d = converted.diagnostics;
         console.log(chalk.gray(`↳ DOM capture: ${d.width}×${d.height}, ${d.elements} elements, ${d.texts} text runs, ${d.pseudos} pseudos, ${d.svgs} SVGs`));
+        if (assetResolution.diagnostics.references) {
+          const a = assetResolution.diagnostics;
+          console.log(chalk.gray(`↳ DOM assets: ${a.references} references, ${a.uniqueAssets} project files (${a.svgAssets} SVG, ${a.rasterAssets} raster), ${a.totalBytes} bytes; Plugin network unchanged`));
+        }
         if (d.semantic) {
           const layouts = d.semantic.layouts;
           console.log(chalk.gray(`↳ semantic layout: ${layouts.grid} Grid, ${layouts.flex} Flex, ${layouts.flow} flow, ${d.semantic.absoluteNodes} true absolute`));
@@ -678,6 +689,7 @@ program
     const imageCtx = newImageContext();
     if (jsx) jsx = resolveLocalImages(jsx, imageCtx);
     const images = imageCtx.images;
+    Object.assign(images, captureImages);
     const customIcons = {
       ...projectIcons,
       ...(captureIcons || {}),

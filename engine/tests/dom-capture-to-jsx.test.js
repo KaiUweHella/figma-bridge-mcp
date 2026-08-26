@@ -107,6 +107,17 @@ describe('DOM capture to Figma JSX', () => {
     assert.doesNotMatch(jsx, /<Icon name="dom-svg-1"[^>]+position="absolute"/);
   });
 
+  it('does not duplicate an existing SVG namespace on host-resolved assets', () => {
+    const namespacedCapture = structuredClone(capture);
+    const svg = namespacedCapture.root.children.find((child) => child.svg);
+    svg.svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80"><path d="M0 0L1 1"/></svg>';
+
+    const { icons } = domCaptureToJsx(namespacedCapture);
+    const markup = icons[Object.keys(icons)[0]];
+
+    assert.equal((markup.match(/\sxmlns=/g) || []).length, 1);
+  });
+
   it('uses HUG for intrinsic single-line flow text and preserves semantic named text-style intent', () => {
     const eyebrowCapture = {
       version: 2,

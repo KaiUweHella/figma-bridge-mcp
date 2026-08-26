@@ -23,6 +23,7 @@ export const CAPTURE_STYLE_PROPERTIES = Object.freeze([
   'borderTopLeftRadius', 'borderTopRightRadius',
   'borderBottomRightRadius', 'borderBottomLeftRadius',
   'boxShadow', 'backdropFilter', 'filter', 'mixBlendMode', 'transform',
+  'objectFit', 'objectPosition',
   'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
   'fontVariationSettings', 'letterSpacing', 'textAlign', 'textTransform',
   'whiteSpace', 'overflowWrap', 'wordBreak', 'hyphens',
@@ -151,9 +152,16 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
       } catch (error) { loaded = null; }
       return { family, requestedFamily, style: fontStyle, weight, size, loaded };
     };
+    const isLineBreak = (child) => child.nodeType === Node.ELEMENT_NODE
+      && String(child.tagName || '').toLowerCase() === 'br';
     const textRuns = (element, style) => Array.from(element.childNodes)
-      .filter((child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim())
+      .filter((child) => (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) || isLineBreak(child))
       .map((child) => {
+        if (isLineBreak(child)) {
+          const box = element.getBoundingClientRect();
+          const lineHeight = Math.max(1, Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) || 1);
+          return { text: '\\n', rect: { x: box.x, y: box.y, w: 1, h: lineHeight }, style: pick(style) };
+        }
         const range = document.createRange();
         range.selectNodeContents(child);
         return { text: child.textContent.trim(), rect: rect(range.getBoundingClientRect()), style: pick(style) };
@@ -166,7 +174,9 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
         if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
           order.push({ kind: 'text', index: textIndex++ });
         } else if (child.nodeType === Node.ELEMENT_NODE) {
-          order.push({ kind: 'element', index: elementIndex++ });
+          if (isLineBreak(child)) order.push({ kind: 'text', index: textIndex++ });
+          else order.push({ kind: 'element', index: elementIndex });
+          elementIndex++;
         }
       }
       return order;
@@ -250,7 +260,7 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
         children: isSvg || depth >= MAX_DEPTH ? [] : Array.from(element.children).map((child) => visit(child, depth + 1)),
       };
     };
-    const capture = { version: 2, capturedAt: new Date().toISOString(), viewport: { width: innerWidth, height: innerHeight }, root: visit(root) };
+    const capture = { version: 2, capturedAt: new Date().toISOString(), documentOrigin: location.origin, viewport: { width: innerWidth, height: innerHeight }, root: visit(root) };
     return ${serialized ? 'JSON.stringify(capture)' : 'capture'};
   })()`;
 }

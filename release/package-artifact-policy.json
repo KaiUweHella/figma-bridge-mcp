@@ -193,6 +193,7 @@
     "engine/src/lib/asset-names.js",
     "engine/src/lib/asset-policy.js",
     "engine/src/lib/bridge-execution-timing.js",
+    "engine/src/lib/browser-capture-assets.js",
     "engine/src/lib/browser-dom-capture.js",
     "engine/src/lib/browser-fidelity-ledger.js",
     "engine/src/lib/builtin-icons.js",
