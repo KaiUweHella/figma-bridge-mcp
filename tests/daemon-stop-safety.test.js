@@ -122,7 +122,7 @@ test(
     const state = mkdtempSync(join(tmpdir(), "figma-bridge-stop-stale-pid-"));
     const unrelated = spawn(
       process.execPath,
-      ["-e", "console.log('ready'); setInterval(() => {}, 1000)"],
+      ["-e", "process.stdout.write('ready\\n'); setInterval(() => {}, 1000)"],
       {
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -160,6 +160,8 @@ test(
   },
   async () => {
     const state = mkdtempSync(join(tmpdir(), "figma-bridge-stop-owned-pid-"));
+    const colorizedEnv = { ...process.env, FORCE_COLOR: "1" };
+    delete colorizedEnv.NO_COLOR;
     const listener = spawn(
       process.execPath,
       [
@@ -174,11 +176,13 @@ test(
     process.on('SIGTERM', () => {});
     // A startup diagnostic must not be mistaken for the listener's ready signal.
     console.log('listener startup diagnostic');
-    server.listen(0, '127.0.0.1', () => console.log(server.address().port));
+    server.listen(0, '127.0.0.1', () => {
+      process.stdout.write(String(server.address().port) + '\\n');
+    });
     setInterval(() => {}, 1000);
   `,
       ],
-      { stdio: ["ignore", "pipe", "pipe"] }
+      { stdio: ["ignore", "pipe", "pipe"], env: colorizedEnv }
     );
     let client = null;
     try {
@@ -195,7 +199,9 @@ test(
           "-e",
           `
       const net = require('net');
-      const socket = net.connect(${port}, '127.0.0.1', () => console.log('connected'));
+      const socket = net.connect(${port}, '127.0.0.1', () => {
+        process.stdout.write('connected\\n');
+      });
       socket.on('error', () => {});
       setInterval(() => {}, 1000);
     `,
