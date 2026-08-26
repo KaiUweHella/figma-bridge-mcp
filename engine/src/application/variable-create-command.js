@@ -29,14 +29,12 @@ export function variableCreateCode(request) {
     const hasInitialValue = ${input.value !== undefined};
     const initialValue = ${input.value === undefined ? 'null' : JSON.stringify(input.value)};
     const allowDuplicate = ${input.allowDuplicate};
-    const [collections, variables] = await Promise.all([
-      figma.variables.getLocalVariableCollectionsAsync(),
-      figma.variables.getLocalVariablesAsync(),
-    ]);
-    if (!Array.isArray(collections) || collections.length > ${MAX_VARIABLE_CREATE_CANDIDATES}
-      || !Array.isArray(variables) || variables.length > ${MAX_VARIABLE_CREATE_CANDIDATES}) {
+    const collections = await figma.variables.getLocalVariableCollectionsAsync();
+    if (!Array.isArray(collections) || collections.length > ${MAX_VARIABLE_CREATE_CANDIDATES}) {
       throw new Error('Variable Create candidate limit exceeded.');
     }
+    const validText = (value, empty = true) => typeof value === 'string'
+      && value.length <= ${MAX_VARIABLE_CREATE_STRING_CODE_UNITS} && (empty || value.length > 0);
     const byId = collections.filter((collection) => collection.id === collectionQuery);
     const byName = collections.filter((collection) => collection.name === collectionQuery);
     const matches = byId.length ? byId : byName;
@@ -52,26 +50,69 @@ export function variableCreateCode(request) {
       || collection.defaultModeId.length > ${MAX_VARIABLE_CREATE_STRING_CODE_UNITS}
       || !Array.isArray(collection.modes) || collection.modes.length < 1
       || collection.modes.length > ${MAX_VARIABLE_CREATE_MODES}
-      || !collection.modes.some((mode) => mode && mode.modeId === collection.defaultModeId)) {
+      || !collection.modes.some((mode) => mode && mode.modeId === collection.defaultModeId)
+      || !Array.isArray(collection.variableIds)
+      || collection.variableIds.length > ${MAX_VARIABLE_CREATE_CANDIDATES}
+      || collection.variableIds.some((id) => !validText(id, false))
+      || new Set(collection.variableIds).size !== collection.variableIds.length) {
       throw new Error('Variable Collection returned invalid bounded identity.');
     }
-    const duplicates = variables.filter((variable) =>
-      variable.variableCollectionId === collection.id && variable.name === name);
+    const collectionVariables = [];
+    for (let start = 0; start < collection.variableIds.length; start += 64) {
+      collectionVariables.push(...await Promise.all(collection.variableIds.slice(start, start + 64)
+        .map((id) => figma.variables.getVariableByIdAsync(id))));
+    }
+    if (collectionVariables.some((variable, index) => !variable
+      || variable.id !== collection.variableIds[index] || !validText(variable.name)
+      || variable.remote || variable.variableCollectionId !== collection.id)) {
+      throw new Error('Variable Create could not load exact Collection Variable membership.');
+    }
+    const duplicates = collectionVariables.filter((variable) => variable.name === name);
     if (duplicates.length && !allowDuplicate) {
       throw new Error('A Variable with this exact name already exists in the Collection. Use its id or pass --allow-duplicate intentionally.');
     }
     const variable = figma.variables.createVariable(name, collection, type);
-    const identity = () => ({
-      id: variable.id,
-      key: variable.key || null,
-      name: variable.name,
-      resolvedType: variable.resolvedType,
-      remote: !!variable.remote,
-      variableCollectionId: variable.variableCollectionId,
+    const identity = (candidate = variable) => ({
+      id: candidate.id,
+      key: candidate.key || null,
+      name: candidate.name,
+      resolvedType: candidate.resolvedType,
+      remote: !!candidate.remote,
+      variableCollectionId: candidate.variableCollectionId,
     });
+    const createdId = variable.id;
+    const expectedScopes = Array.isArray(variable.scopes) ? [...variable.scopes] : null;
+    const expectedHiddenFromPublishing = variable.hiddenFromPublishing;
+    const equivalent = (actual, expected) => {
+      if (typeof actual === 'number' && typeof expected === 'number') {
+        return Number.isFinite(actual) && Number.isFinite(expected)
+          && (Object.is(actual, expected) || Math.fround(actual) === Math.fround(expected));
+      }
+      if (actual === null || expected === null || typeof actual !== 'object'
+        || typeof expected !== 'object') return Object.is(actual, expected);
+      if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+      const actualKeys = Object.keys(actual).sort();
+      const expectedKeys = Object.keys(expected).sort();
+      return actualKeys.length === expectedKeys.length
+        && actualKeys.every((key, index) => key === expectedKeys[index]
+          && equivalent(actual[key], expected[key]));
+    };
     try {
       if (hasInitialValue) variable.setValueForMode(collection.defaultModeId, initialValue);
-      const created = identity();
+      const [verifiedCollection, verifiedVariable] = await Promise.all([
+        figma.variables.getVariableCollectionByIdAsync(collection.id),
+        figma.variables.getVariableByIdAsync(createdId),
+      ]);
+      if (!verifiedCollection || verifiedCollection.id !== collection.id
+        || verifiedCollection.defaultModeId !== collection.defaultModeId
+        || !Array.isArray(verifiedCollection.variableIds)
+        || verifiedCollection.variableIds.length > ${MAX_VARIABLE_CREATE_CANDIDATES}
+        || verifiedCollection.variableIds.some((id) => !validText(id, false))
+        || new Set(verifiedCollection.variableIds).size !== verifiedCollection.variableIds.length
+        || !verifiedCollection.variableIds.includes(createdId)) {
+        throw new Error('Variable Create could not verify Collection membership.');
+      }
+      const created = identity(verifiedVariable || {});
       if (typeof created.id !== 'string' || created.id.length < 1
         || created.id.length > ${MAX_VARIABLE_CREATE_STRING_CODE_UNITS}
         || !(created.key === null || (typeof created.key === 'string'
@@ -79,6 +120,23 @@ export function variableCreateCode(request) {
         || created.name !== name || created.resolvedType !== type || created.remote !== false
         || created.variableCollectionId !== collection.id) {
         throw new Error('Variable Create encountered invalid created identity.');
+      }
+      if (!expectedScopes || expectedScopes.length > ${MAX_VARIABLE_CREATE_MODES}
+        || expectedScopes.some((scope) => !validText(scope, false))
+        || !Array.isArray(verifiedVariable.scopes)
+        || verifiedVariable.scopes.length !== expectedScopes.length
+        || verifiedVariable.scopes.some((scope, index) => scope !== expectedScopes[index])
+        || typeof expectedHiddenFromPublishing !== 'boolean'
+        || verifiedVariable.hiddenFromPublishing !== expectedHiddenFromPublishing
+        || !verifiedVariable.valuesByMode || typeof verifiedVariable.valuesByMode !== 'object'
+        || Array.isArray(verifiedVariable.valuesByMode)) {
+        throw new Error('Variable Create encountered invalid created metadata.');
+      }
+      const stored = Object.prototype.hasOwnProperty.call(
+        verifiedVariable.valuesByMode, collection.defaultModeId);
+      if (hasInitialValue !== stored || (hasInitialValue
+        && !equivalent(verifiedVariable.valuesByMode[collection.defaultModeId], initialValue))) {
+        throw new Error('Variable Create could not verify the initial value.');
       }
       const payload = {
         schemaVersion: 1, status: 'created', variable: created,
@@ -92,7 +150,15 @@ export function variableCreateCode(request) {
       return serialized;
     } catch {
       let cleanup = 'removed';
-      try { variable.remove(); } catch { cleanup = 'partial-residue'; }
+      try {
+        variable.remove();
+        const cleanupCollection = await figma.variables.getVariableCollectionByIdAsync(collection.id);
+        if (!cleanupCollection || !Array.isArray(cleanupCollection.variableIds)
+          || cleanupCollection.variableIds.length > ${MAX_VARIABLE_CREATE_CANDIDATES}
+          || cleanupCollection.variableIds.some((id) => !validText(id, false))
+          || new Set(cleanupCollection.variableIds).size !== cleanupCollection.variableIds.length
+          || cleanupCollection.variableIds.includes(createdId)) cleanup = 'partial-residue';
+      } catch { cleanup = 'partial-residue'; }
       const payload = {
         schemaVersion: 1, status: 'mutation-failed', cleanup,
         residue: cleanup === 'removed' ? [] : [identity()],

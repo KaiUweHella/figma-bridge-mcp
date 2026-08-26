@@ -13,38 +13,47 @@ import {
   variableCreateArgvFromRequest,
 } from '../src/application/variable-create-request.js';
 
-function fixture({ existing = [], setFails = false, invalidIdentity = false, removeFails = false } = {}) {
+function fixture({
+  existing = [], setFails = false, setIgnored = false, freshIdentityMismatch = false,
+  removeFails = false, retainRemovedReadback = false, normalizeValue = (value) => value,
+} = {}) {
   const collection = {
     id: 'VariableCollectionId:1', key: 'collection-key', name: 'Tokens', remote: false,
     defaultModeId: 'ModeId:default', modes: [{ modeId: 'ModeId:default', name: 'Default' }],
+    variableIds: existing.map((variable) => variable.id),
   };
   const created = [];
+  const byId = new Map(existing.map((variable) => [variable.id, variable]));
   const figma = {
     variables: {
       getLocalVariableCollectionsAsync: async () => [collection],
-      getLocalVariablesAsync: async () => existing,
+      getLocalVariablesAsync: async () => { throw new Error('global Variable scan is forbidden'); },
+      getVariableCollectionByIdAsync: async (id) => id === collection.id ? collection : null,
+      getVariableByIdAsync: async (id) => {
+        const variable = byId.get(id) || null;
+        if (!variable || !freshIdentityMismatch || !created.includes(variable)) return variable;
+        return { ...variable, name: `${variable.name}-stale` };
+      },
       createVariable(name, target, type) {
-        let idReads = 0;
+        const id = `VariableID:new:${created.length}`;
         const variable = {
-          key: '', name, resolvedType: type, remote: false,
+          id, key: '', name, resolvedType: type, remote: false,
           variableCollectionId: target.id, valuesByMode: {}, removed: false,
+          scopes: ['ALL_SCOPES'], hiddenFromPublishing: false,
           setValueForMode(modeId, value) {
             if (setFails) throw new Error('set failed');
-            this.valuesByMode[modeId] = value;
+            if (!setIgnored) this.valuesByMode[modeId] = normalizeValue(value);
           },
           remove() {
             if (removeFails) throw new Error('remove failed');
             this.removed = true;
+            if (!retainRemovedReadback) byId.delete(id);
+            target.variableIds = target.variableIds.filter((candidate) => candidate !== id);
           },
         };
-        Object.defineProperty(variable, 'id', {
-          enumerable: true,
-          get() {
-            idReads++;
-            return invalidIdentity && idReads === 1 ? '' : `VariableID:new:${created.length}`;
-          },
-        });
         created.push(variable);
+        byId.set(id, variable);
+        target.variableIds.push(id);
         return variable;
       },
     },
@@ -82,7 +91,10 @@ test('Variable Create request closes options and canonicalizes every typed value
 });
 
 test('Variable Create resolves one exact Collection and preserves intentional duplicate utility', async () => {
-  const existing = [{ name: 'space/md', variableCollectionId: 'VariableCollectionId:1' }];
+  const existing = [{
+    id: 'VariableID:existing', name: 'space/md', remote: false,
+    variableCollectionId: 'VariableCollectionId:1',
+  }];
   const blocked = fixture({ existing });
   await assert.rejects(
     () => runCode({ name: 'space/md', collection: 'Tokens', type: 'FLOAT' }, blocked.figma),
@@ -105,6 +117,38 @@ test('Variable Create resolves one exact Collection and preserves intentional du
   assert.equal(allowed.created[0].valuesByMode['ModeId:default'], 12);
 });
 
+test('Variable Create uses exact Collection membership and fresh normalized value readback', async () => {
+  const target = fixture({
+    existing: [{
+      id: 'VariableID:other', name: 'space/other', remote: false,
+      variableCollectionId: 'VariableCollectionId:1',
+    }],
+    normalizeValue: (value) => typeof value === 'number' ? Math.fround(value) : value,
+  });
+  const serialized = await runCode({
+    name: 'opacity/subtle', collection: 'Tokens', type: 'FLOAT', value: 0.1,
+  }, target.figma);
+  const payload = JSON.parse(serialized);
+  assert.equal(payload.status, 'created');
+  assert.equal(payload.duplicateCountBefore, 0);
+  assert.equal(target.created[0].valuesByMode['ModeId:default'], Math.fround(0.1));
+});
+
+test('Variable Create rolls back an ignored setter or incompatible fresh identity', async () => {
+  for (const target of [
+    fixture({ setIgnored: true, retainRemovedReadback: true }),
+    fixture({ freshIdentityMismatch: true }),
+  ]) {
+    const serialized = await runCode({
+      name: 'space/lg', collection: 'Tokens', type: 'FLOAT', value: 16,
+    }, target.figma);
+    const payload = JSON.parse(serialized);
+    assert.equal(payload.status, 'mutation-failed');
+    assert.equal(payload.cleanup, 'removed');
+    assert.equal(target.created[0].removed, true);
+  }
+});
+
 test('Variable Create journals before initialization and reports cleanup or bounded residue', async () => {
   const cleaned = fixture({ setFails: true });
   const cleanedPayload = await runCode({
@@ -119,7 +163,7 @@ test('Variable Create journals before initialization and reports cleanup or boun
   );
   assert.equal(cleaned.created[0].removed, true);
 
-  const residue = fixture({ invalidIdentity: true, removeFails: true });
+  const residue = fixture({ freshIdentityMismatch: true, removeFails: true });
   const residuePayload = await runCode({
     name: 'space/xl', collection: 'Tokens', type: 'FLOAT',
   }, residue.figma);
