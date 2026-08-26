@@ -636,13 +636,16 @@ function autoCrossMarginWrapper(node, parentSemantic, rendered) {
   }, [rendered]);
 }
 
-function measuredFlowSpacer(size, direction, index) {
+function measuredFlowWrapper(size, direction, index, child) {
   if (!(size > 0.5)) return null;
   return renderElement('frame', {
-    name: `css-flow-gap.${index}`, flex: 'col',
-    w: direction === 'column' ? 'fill' : round(size),
-    h: direction === 'column' ? round(size) : 'fill',
-  });
+    name: `css-flow-offset.${index}`,
+    flex: direction === 'column' ? 'col' : 'row',
+    w: direction === 'column' ? 'fill' : 'hug',
+    h: direction === 'column' ? 'hug' : 'fill',
+    pt: direction === 'column' ? round(size) : undefined,
+    pl: direction === 'row' ? round(size) : undefined,
+  }, [child]);
 }
 
 function normalizedTextAlignment(value) {
@@ -836,7 +839,11 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
     const flowAxis = flowDirection === 'column' ? 'y' : 'x';
     const flowExtent = flowDirection === 'column' ? 'h' : 'w';
     const [paddingTop = 0, , , paddingLeft = 0] = semantic?.layout?.padding || [];
-    let previousFlowEnd = (flowDirection === 'column' ? node.rect.y + paddingTop : node.rect.x + paddingLeft);
+    const borderTop = border(node.style, 'Top')?.width || 0;
+    const borderLeft = border(node.style, 'Left')?.width || 0;
+    let previousFlowEnd = (flowDirection === 'column'
+      ? node.rect.y + paddingTop + borderTop
+      : node.rect.x + paddingLeft + borderLeft);
     let hasPreviousFlowItem = false;
     for (let directIndex = 0; directIndex < directContent.length; directIndex++) {
       const item = directContent[directIndex];
@@ -845,22 +852,22 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
       const leadingAutoSide = flowDirection === 'column' ? 'Top' : 'Left';
       const hasLeadingAutoMargin = item.kind === 'element'
         && String(item.value.authoredStyle?.[`margin${leadingAutoSide}`] || '').trim().toLowerCase() === 'auto';
+      let measuredGap = 0;
       if (preserveMeasuredFlowGaps
         && participatesInFlow
         && !hasLeadingAutoMargin
         && !(nativeLeadingMainAxis && !hasPreviousFlowItem)) {
-        const gap = finite(item.value.rect?.[flowAxis]) - previousFlowEnd;
-        const spacer = measuredFlowSpacer(gap, flowDirection, directIndex);
-        if (spacer) layers.push(spacer);
+        measuredGap = finite(item.value.rect?.[flowAxis]) - previousFlowEnd;
       }
+      let renderedItem = null;
       if (item.kind === 'text') {
-        layers.push(textLayer(item.value, node.rect, item.index, {
+        renderedItem = textLayer(item.value, node.rect, item.index, {
           owner: node,
           positioned: !semantic || semantic.layout.kind === 'leaf',
           gridCell: semantic ? textGridCell(item.value, node, semantic.layout, directIndex) : null,
           sizing: textSizingForContainer(item.value, node, semantic, props),
           gridAlign: semantic?.layout?.source === 'space-around.equal-slots',
-        }));
+        });
         state.textCount++;
       } else {
         const beforeSpacer = autoMarginSpacer(item.value, semantic, semantic?.layout?.direction === 'column' ? 'Top' : 'Left');
@@ -870,7 +877,27 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
           parentSemantic: semantic,
           slotIndex: directIndex,
         });
-        if (rendered) layers.push(autoCrossMarginWrapper(item.value, semantic, rendered));
+        if (rendered) renderedItem = autoCrossMarginWrapper(item.value, semantic, rendered);
+      }
+      if (renderedItem) {
+        if (measuredGap > 0.5 && !hasPreviousFlowItem) {
+          // A leading browser offset belongs to the container's content box:
+          // typical sources are inline line-box leading or collapsed block
+          // flow. Keep it editable as native padding instead of adding an
+          // empty Figma child.
+          if (flowDirection === 'column') props.pt = round((props.pt || 0) + measuredGap);
+          else props.pl = round((props.pl || 0) + measuredGap);
+          layers.push(renderedItem);
+        } else if (measuredGap > 0.5) {
+          // Non-uniform CSS flow spacing has no per-child Figma Auto Layout
+          // property. A content-bearing padded wrapper preserves it without
+          // materializing a misleading empty Frame.
+          layers.push(measuredFlowWrapper(measuredGap, flowDirection, directIndex, renderedItem));
+        } else {
+          layers.push(renderedItem);
+        }
+      }
+      if (item.kind === 'element') {
         const afterSpacer = autoMarginSpacer(item.value, semantic, semantic?.layout?.direction === 'column' ? 'Bottom' : 'Right');
         if (afterSpacer) layers.push(afterSpacer);
       }

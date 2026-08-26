@@ -258,6 +258,80 @@ describe('DOM capture to Figma JSX', () => {
     assert.match(explicitlyFixed, /name="b"[^>]+w="46"[^>]+h="27"/);
   });
 
+  it('does not turn a painted parent border into an empty flow spacer', () => {
+    const borderedFlow = {
+      version: 2,
+      root: {
+        tag: 'article', classes: 'rights-card', rect: { x: 0, y: 0, w: 100, h: 80 },
+        style: style({
+          borderTop: '1px solid rgb(224, 224, 218)',
+          borderRight: '1px solid rgb(224, 224, 218)',
+          borderBottom: '1px solid rgb(224, 224, 218)',
+          borderLeft: '1px solid rgb(224, 224, 218)',
+        }),
+        authoredStyle: {}, texts: [], contentOrder: [{ kind: 'element', index: 0 }],
+        before: null, after: null,
+        children: [{
+          tag: 'div', classes: 'rights-cover', rect: { x: 1, y: 1, w: 98, h: 40 },
+          style: style({ backgroundColor: 'rgb(31, 42, 33)' }), authoredStyle: { height: '40px' },
+          texts: [], contentOrder: [], before: null, after: null, children: [],
+        }],
+      },
+    };
+
+    const { jsx } = domCaptureToJsx(borderedFlow);
+    assert.doesNotMatch(jsx, /css-flow-gap|css-flow-offset/);
+    assert.match(jsx, /name="rights-cover"/);
+  });
+
+  it('uses native leading padding for a centered browser line box', () => {
+    const lineBox = {
+      version: 2,
+      root: {
+        tag: 'span', classes: 'arrow', rect: { x: 0, y: 0, w: 9, h: 14 },
+        style: style({ fontSize: '9px' }), authoredStyle: {},
+        texts: [{
+          text: '↗', rect: { x: 0, y: 2, w: 9, h: 10 },
+          style: style({ fontSize: '9px' }),
+        }],
+        contentOrder: [{ kind: 'text', index: 0 }], before: null, after: null, children: [],
+      },
+    };
+
+    const { jsx } = domCaptureToJsx(lineBox);
+    assert.doesNotMatch(jsx, /css-flow-gap|css-flow-offset/);
+    assert.match(jsx, /name="arrow"[^>]+pt="2"/);
+    assert.match(jsx, /<Text[^>]+w="hug"[^>]*>↗<\/Text>/);
+  });
+
+  it('keeps a non-uniform measured flow offset on a content-bearing wrapper', () => {
+    const offsetFlow = {
+      version: 2,
+      root: {
+        tag: 'section', classes: 'stack', rect: { x: 0, y: 0, w: 100, h: 80 },
+        style: style(), authoredStyle: {}, texts: [],
+        contentOrder: [{ kind: 'element', index: 0 }, { kind: 'element', index: 1 }],
+        before: null, after: null,
+        children: [
+          {
+            tag: 'div', classes: 'first', rect: { x: 0, y: 0, w: 100, h: 20 },
+            style: style({ backgroundColor: 'rgb(255, 0, 0)' }), authoredStyle: {},
+            texts: [], contentOrder: [], before: null, after: null, children: [],
+          },
+          {
+            tag: 'div', classes: 'second', rect: { x: 0, y: 30, w: 100, h: 20 },
+            style: style({ backgroundColor: 'rgb(0, 0, 255)' }), authoredStyle: { marginTop: '10px' },
+            texts: [], contentOrder: [], before: null, after: null, children: [],
+          },
+        ],
+      },
+    };
+
+    const { jsx } = domCaptureToJsx(offsetFlow);
+    assert.doesNotMatch(jsx, /css-flow-gap/);
+    assert.match(jsx, /name="css-flow-offset\.1"[^>]+pt="10"[^>]*>[^]*name="second"/);
+  });
+
   it('uses fill-width text plus the native text alignment when copy must resize with its container', () => {
     const responsiveCopy = {
       version: 2,

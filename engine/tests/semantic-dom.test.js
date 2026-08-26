@@ -817,7 +817,7 @@ describe('semantic browser capture contract', () => {
     assert.equal(renderPlan.root.children[0].children[2].source.props.name, 'trial');
   });
 
-  it('preserves measured block-flow margins as fixed native Auto Layout spacers', () => {
+  it('preserves measured block-flow margins on content-bearing Auto Layout wrappers', () => {
     const capture = structuredClone(semanticCapture);
     const label = capture.root.children[0].children[0];
     label.rect = { x: 18, y: 26, w: 100, h: 80 };
@@ -830,12 +830,14 @@ describe('semantic browser capture contract', () => {
 
     const { renderPlan } = domCaptureToRenderPlan(capture);
     const flow = renderPlan.root.children[0].children[0];
-    const spacer = flow.children[1];
+    const offset = flow.children[1];
 
-    assert.equal(spacer.source.props.name, 'css-flow-gap.1');
-    assert.equal(spacer.source.props.w, 'fill');
-    assert.equal(spacer.source.props.h, 14);
-    assert.equal(spacer.layout.kind, 'flex');
+    assert.equal(offset.source.props.name, 'css-flow-offset.1');
+    assert.equal(offset.source.props.w, 'fill');
+    assert.equal(offset.source.props.h, 'hug');
+    assert.equal(offset.source.props.pt, 14);
+    assert.equal(offset.layout.kind, 'flex');
+    assert.equal(offset.children[0].source.props.name, 'second');
   });
 
   it('does not duplicate the leading free space of a centered Flex column', () => {
@@ -857,8 +859,10 @@ describe('semantic browser capture contract', () => {
     const { renderPlan } = domCaptureToRenderPlan(capture);
     assert.deepEqual(
       renderPlan.root.children.map((child) => child.source.props.name),
-      ['first', 'css-flow-gap.1', 'second'],
+      ['first', 'css-flow-offset.1'],
     );
+    assert.equal(renderPlan.root.children[1].source.props.pt, 10);
+    assert.equal(renderPlan.root.children[1].children[0].source.props.name, 'second');
     assert.equal(renderPlan.root.source.props.justify, 'center');
   });
 
