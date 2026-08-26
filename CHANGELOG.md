@@ -5,6 +5,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.6.0] — 2026-08-26
+
 ### Added
 
 - The bundled Figma-to-code skill now loads focused Modern CSS & HTML guidance
