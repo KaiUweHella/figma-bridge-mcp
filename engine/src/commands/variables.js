@@ -1,11 +1,14 @@
 // Commands: variables (extracted from index.js)
 import chalk from 'chalk';
 import { join } from 'path';
-import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import {
+  explainFigmaCommandRejection,
+  planFigmaCommand,
+} from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
   executeVariableDiscoveryPlan,
-  variableDiscoveryPlanningArgvFromRequest,
+  variableDiscoveryRequestFromArgv,
 } from '../application/variable-discovery-command.js';
 import {
   executeVariableFactsPlan,
@@ -68,18 +71,20 @@ import {
 // ============ VARIABLES ============
 
 const variables = program
-  .command('variables')
-  .alias('var')
+  .command('var')
+  .alias('variables')
   .description('Manage design tokens/variables');
 
-async function runVariableDiscovery(action, pattern, options) {
+async function runVariableDiscovery(argv) {
   try {
-    const plan = planFigmaCommand(variableDiscoveryPlanningArgvFromRequest({
-      action,
-      pattern,
-      limit: options.limit || null,
-      json: options.json === true,
-    }), {
+    variableDiscoveryRequestFromArgv(argv);
+  } catch {
+    handleEvalError(new Error(explainFigmaCommandRejection(argv)));
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const plan = planFigmaCommand(argv, {
       adapter: 'cli',
       fileKey: program.opts().figmaFile || null,
     });
@@ -101,12 +106,12 @@ async function runVariableDiscovery(action, pattern, options) {
 }
 
 variables
-  .command('list')
+  .command('list [args...]')
+  .usage('[--limit <count>] [--json]')
   .description('List all variables')
-  .option('-l, --limit <count>', 'Maximum variables returned')
-  .option('--json', 'Return bounded identity facts as JSON')
-  .allowExcessArguments(false)
-  .action(async (options) => runVariableDiscovery('list', null, options));
+  .allowUnknownOption(true)
+  .addHelpText('after', '\nAdditional accepted syntax:\n  -l, --limit <count>  Maximum variables returned (1-1000)\n  --json               Return bounded identity facts as JSON')
+  .action(async (args) => runVariableDiscovery(['var', 'list', ...args]));
 
 variables
   .command('create <name>')
@@ -143,12 +148,12 @@ variables
   });
 
 variables
-  .command('find <pattern>')
+  .command('find [args...]')
+  .usage('<pattern> [--limit <count>] [--json]')
   .description('Find variables by name pattern')
-  .option('-l, --limit <count>', 'Maximum variables returned')
-  .option('--json', 'Return bounded identity facts as JSON')
-  .allowExcessArguments(false)
-  .action(async (pattern, options) => runVariableDiscovery('find', pattern, options));
+  .allowUnknownOption(true)
+  .addHelpText('after', '\nAdditional accepted syntax:\n  -l, --limit <count>  Maximum variables returned (1-1000)\n  --json               Return bounded identity facts as JSON')
+  .action(async (args) => runVariableDiscovery(['var', 'find', ...args]));
 
 variables.command('show <variable>')
   .option('-c, --collection <collection>')

@@ -261,8 +261,10 @@ const COMMAND_GRAMMAR = Object.freeze({
     // Commander path in the drift contract, but make it unreachable through
     // the MCP grammar until SEC-15 supplies a safe replacement.
     'delete-all': blockedAction(),
+  }, { aliases: ['variables'] }),
+  col: group(actionGroup('list create show update mode-add mode-rename mode-remove publish-status delete extend').children, {
+    aliases: ['collections'],
   }),
-  col: actionGroup('list create show update mode-add mode-rename mode-remove publish-status delete extend'),
   style: actionGroup('list show create update apply consumers publish-status delete bind-font unbind-font'),
   library: actionGroup('collections variables import-variable import-style import-component import-component-set'),
   prototype: actionGroup('inspect add set clear'),
@@ -314,6 +316,21 @@ function childNamed(node, token) {
   return null;
 }
 
+function rootNamed(token) {
+  if (Object.hasOwn(COMMAND_GRAMMAR, token)) {
+    return { name: token, node: COMMAND_GRAMMAR[token] };
+  }
+  for (const [name, node] of Object.entries(COMMAND_GRAMMAR)) {
+    if (node.aliases.includes(token)) return { name, node };
+  }
+  return null;
+}
+
+/** Resolve one public root spelling without inspecting payload fields. */
+export function canonicalFigmaCommandRoot(token) {
+  return typeof token === 'string' ? rootNamed(token)?.name || null : null;
+}
+
 function resolved(actionId, { help = false, args = [] } = {}) {
   if (!help && !acceptsPolicyOptions(actionId, args)) return REJECTED_OPTION;
   return Object.freeze({
@@ -337,10 +354,10 @@ const REJECTED_OPTION = Object.freeze({ ...REJECTED, reason: 'unknown-option' })
 /** Resolve argv to one stable safe action id, or reject an unknown command path. */
 export function resolveFigmaCommandAction(args) {
   if (!Array.isArray(args) || typeof args[0] !== 'string') return REJECTED;
-  const rootName = args[0];
-  let node = COMMAND_GRAMMAR[rootName];
-  if (!node || !node.exposed) return REJECTED;
-  const path = [rootName];
+  const root = rootNamed(args[0]);
+  if (!root || !root.node.exposed) return REJECTED;
+  let node = root.node;
+  const path = [root.name];
   let index = 1;
 
   while (node.children) {

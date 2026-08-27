@@ -2101,6 +2101,23 @@ test('figma_run preserves precise Node Move request errors before confirmation o
   assert.doesNotMatch(malformed.content[0].text, /Plugin not connected|figma_connect/);
 });
 
+test('figma_run distinguishes command groups, actions, options and malformed values', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const cases = [
+    [['future-group', 'private-payload'], /Unknown command group/],
+    [['var', 'future-action', 'private-payload'], /Unknown action for var/],
+    [['var', 'list', '--future', 'private-payload'], /Unsupported option --future for var list/],
+    [['var', 'list', '--limit', '0'], /Malformed value for var list/],
+    [['var', 'list', '--collection', 'private-payload'], /does not support --collection/],
+  ];
+  for (const [args, pattern] of cases) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, pattern, args.join(' '));
+    assert.doesNotMatch(result.content[0].text, /private-payload/, args.join(' '));
+  }
+});
+
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {
   // Safe to import since server.js only boots when run as the entry point.
   const { unknownParamError } = await import('../src/server.js');

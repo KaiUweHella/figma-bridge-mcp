@@ -47,6 +47,14 @@ test('nested actions and documented aliases resolve to canonical safe action ids
   }
 });
 
+test('the variables root alias resolves to the canonical var grammar', () => {
+  const canonical = resolveFigmaCommandAction(['var', 'list']);
+  const alias = resolveFigmaCommandAction(['variables', 'list']);
+  assert.deepEqual(alias, canonical);
+  const variableRoot = listFigmaCommandGrammar().find((root) => root.name === 'var');
+  assert.deepEqual(variableRoot.aliases, ['variables']);
+});
+
 test('inherited create escape hatches stay explicit and unavailable', () => {
   const create = listFigmaCommandGrammar().find((node) => node.name === 'create');
   for (const name of ['image', 'component', 'group']) {

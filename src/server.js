@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
+  explainFigmaCommandRejection,
   legacyCommandRiskGateReason,
   listFigmaCapabilities,
   planFigmaCommand,
@@ -2017,7 +2018,7 @@ export async function handleTool(name, rawArgs) {
         const riskGate = legacyCommandRiskGateReason(args);
         return errorResult(
           riskGate
-            || 'Unknown or unsupported Figma Command. Run figma_run with args ["--help"] to list the supported grammar.',
+            || explainFigmaCommandRejection(args),
         );
       }
       if (input.force === true && plan.execution.mode !== "tracked-job") {

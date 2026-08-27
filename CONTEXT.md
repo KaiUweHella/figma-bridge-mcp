@@ -21,6 +21,14 @@ _Avoid_: allowlist entry, command metadata
 The closed recursive set of exposed Figma Command action paths and documented aliases. It resolves argv to a stable payload-free action id and syntactic option facts from before the first `--` terminator before capability policy, confirmation, audit or Adapter dispatch. Migrated Command Applications own a closed request Interface; policy-relevant Legacy Commands instead have a small compatibility option schema that rejects unknown, duplicate, valueless or conflicting policy options while preserving Commander short and inline value forms. Unknown nested actions are not commands and later tokens are payload.
 _Avoid_: Commander fallback, subcommand allowlist
 
+**Command Rejection Facts**:
+The bounded, payload-free explanation of why a proposed Figma Command did not
+enter the Command Grammar. It distinguishes an unknown root, unknown action,
+unsupported option and malformed value, and supplies one canonical accepted
+form or discovery sequence without changing fail-closed capability policy.
+Commander and MCP project the same facts before Plugin readiness.
+_Avoid_: generic unknown-command error, parser dump, payload echo
+
 **Command Plan**:
 The immutable decision produced for one **Figma Command** after path normalization and **Figma Target Context** resolution. It carries the exact argv, effects, confirmation, retry, timeout, output, audit and tracked-job decisions consumed unchanged by the Command Application and its process or in-process Adapter.
 _Avoid_: prepared arguments, execution options, mutable command context

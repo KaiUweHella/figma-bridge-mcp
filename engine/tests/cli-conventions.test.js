@@ -627,29 +627,55 @@ test('var list and find delegate one Plan-bound bounded Variable Discovery Appli
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
   const helperStart = adapter.indexOf('async function runVariableDiscovery');
-  const listStart = adapter.indexOf(".command('list')");
+  const listStart = adapter.indexOf(".command('list [args...]')");
   const listEnd = adapter.indexOf(".command('create <name>')", listStart);
-  const findStart = adapter.indexOf(".command('find <pattern>')");
+  const findStart = adapter.indexOf(".command('find [args...]')");
   const findEnd = adapter.indexOf("variables.command('show <variable>')", findStart);
   const action = adapter.slice(helperStart, listStart)
     + adapter.slice(listStart, listEnd) + adapter.slice(findStart, findEnd);
 
-  assert.match(action, /variableDiscoveryPlanningArgvFromRequest/);
+  assert.match(action, /variableDiscoveryRequestFromArgv\(argv\)/);
+  assert.match(action, /planFigmaCommand\(argv/);
   assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(action, /executeVariableDiscoveryPlan\(plan/);
   assert.match(action, /daemonExec\('eval'/);
   assert.match(action, /process\.exitCode = 1/);
-  assert.equal((action.match(/\.allowExcessArguments\(false\)/g) || []).length, 2);
+  assert.equal((action.match(/\.allowUnknownOption\(true\)/g) || []).length, 2);
   assert.doesNotMatch(action, /checkConnection\(|listVariables\(|findVariables\(|fastEval\(/,
     'Commander must not retain Variable Discovery readiness, matching, or formatting logic');
+});
+
+test('var discovery CLI distinguishes unsupported options and malformed values without payload echo', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  const cases = [
+    {
+      args: ['variables', 'list', '--collection', 'private-payload'],
+      pattern: /var list does not support --collection.*\["col","list"\]/,
+    },
+    {
+      args: ['var', 'list', '--future', 'private-payload'],
+      pattern: /Unsupported option --future for var list/,
+    },
+    {
+      args: ['var', 'list', '--limit', '0'],
+      pattern: /Malformed value for var list: limit must be an integer between 1 and 1000/,
+    },
+  ];
+  for (const { args, pattern } of cases) {
+    const result = spawnSync(process.execPath, [entry, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 1, args.join(' '));
+    assert.match(result.stderr, pattern, args.join(' '));
+    assert.doesNotMatch(result.stderr, /private-payload/, args.join(' '));
+    assert.doesNotMatch(result.stderr, /Plugin not connected|figma_connect/, args.join(' '));
+  }
 });
 
 test('var create delegates one Plan-bound journaled non-retrying Application', () => {
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
   const start = adapter.indexOf("variables\n  .command('create <name>')");
-  const end = adapter.indexOf("variables\n  .command('find <pattern>')", start);
+  const end = adapter.indexOf("variables\n  .command('find [args...]')", start);
   const action = adapter.slice(start, end);
   assert.match(action, /variableCreatePlanningArgvFromRequest/);
   assert.match(action, /\.allowExcessArguments\(false\)/);

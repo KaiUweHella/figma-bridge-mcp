@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import {
+  explainFigmaCommandRejection,
   listFigmaCapabilities,
   planFigmaCommand,
 } from '../src/capability-catalog.js';
@@ -23,6 +24,52 @@ test('catalog denies and gates unknown commands with safe defaults', () => {
   assert.equal(names.includes('render'), true);
   assert.equal(planFigmaCommand(['--help']).allowed, true);
   assert.equal(planFigmaCommand(['--help']).target.kind, 'none');
+});
+
+test('Variable command aliases canonicalize and rejection facts stay precise and bounded', () => {
+  const canonical = planFigmaCommand(['var', 'list'], { adapter: 'mcp' });
+  const alias = planFigmaCommand(['variables', 'list'], { adapter: 'mcp' });
+  assert.equal(canonical.allowed, true);
+  assert.equal(alias.allowed, true);
+  assert.deepEqual(alias.argv, canonical.argv);
+  assert.equal(alias.id, 'var.list');
+  const collectionAlias = planFigmaCommand(['collections', 'list'], { adapter: 'mcp' });
+  assert.equal(collectionAlias.allowed, true);
+  assert.equal(collectionAlias.id, 'col.list');
+  assert.deepEqual(collectionAlias.argv, ['col', 'list', '--limit', '500']);
+
+  const help = listFigmaCapabilities({ formatted: true });
+  assert.match(help, /^var — Manage local variables \(alias: variables\)$/m);
+  assert.match(help, /^col — Manage variable collections \(alias: collections\)$/m);
+
+  const cases = [
+    {
+      args: ['future-group', 'private-payload'],
+      pattern: /Unknown command group.*Accepted form: \["--help"\]/,
+    },
+    {
+      args: ['var', 'future-action', 'private-payload'],
+      pattern: /Unknown action for var.*Accepted actions:/,
+    },
+    {
+      args: ['var', 'list', '--future', 'private-payload'],
+      pattern: /Unsupported option --future for var list.*Accepted form:/,
+    },
+    {
+      args: ['var', 'list', '--limit', '0'],
+      pattern: /Malformed value for var list: limit must be an integer between 1 and 1000/,
+    },
+    {
+      args: ['var', 'list', '--collection', 'private-payload'],
+      pattern: /does not support --collection.*\["col","list"\].*filter returned Variable rows by collection identity/i,
+    },
+  ];
+  for (const { args, pattern } of cases) {
+    const message = explainFigmaCommandRejection(args);
+    assert.match(message, pattern, args.join(' '));
+    assert.ok(message.length <= 700, args.join(' '));
+    assert.doesNotMatch(message, /private-payload/, args.join(' '));
+  }
 });
 
 test('catalog owns the full read/write matrix including special flag semantics', () => {

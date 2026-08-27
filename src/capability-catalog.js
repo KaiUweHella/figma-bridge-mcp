@@ -333,7 +333,11 @@ import {
   FIGMA_URL_TARGET_ROOTS,
   projectFigmaUrlFileKey,
 } from './figma-target-projection.js';
-import { resolveFigmaCommandAction } from './figma-command-grammar.js';
+import {
+  canonicalFigmaCommandRoot,
+  listFigmaCommandGrammar,
+  resolveFigmaCommandAction,
+} from './figma-command-grammar.js';
 
 const readGroup = (summary, readSubcommands, extra = {}) => ({
   summary, mutation: 'group', readSubcommands: new Set(readSubcommands), ...extra,
@@ -725,12 +729,17 @@ function commandCapability(args) {
   if (!Array.isArray(args) || args.length === 0 || typeof args[0] !== 'string') {
     return UNKNOWN;
   }
-  const name = args[0];
-  if (HELP_TOKENS.has(name)) return Object.freeze({ ...TOP_LEVEL_HELP, name });
+  const requestedName = args[0];
+  if (HELP_TOKENS.has(requestedName)) {
+    return Object.freeze({ ...TOP_LEVEL_HELP, name: requestedName });
+  }
+  const name = canonicalFigmaCommandRoot(requestedName);
+  if (!name) return Object.freeze({ ...UNKNOWN, name: requestedName });
   const entry = COMMANDS[name];
   if (!entry) return Object.freeze({ ...UNKNOWN, name });
-  if (legacyCommandRiskGateReason(args)) return Object.freeze({ ...UNKNOWN, name });
   const action = resolveFigmaCommandAction(args);
+  args = requestedName === name ? args : [name, ...args.slice(1)];
+  if (legacyCommandRiskGateReason(args)) return Object.freeze({ ...UNKNOWN, name });
   if (!action.accepted) {
     return action.reason === 'unknown-option'
       ? Object.freeze({ ...UNKNOWN, name, mutatesDesign: false, target: 'none' })
@@ -1004,10 +1013,120 @@ function acceptedExitCodes(args) {
 }
 
 function commandHelpIndex() {
+  const aliases = new Map(listFigmaCommandGrammar()
+    .map((root) => [root.name, root.aliases]));
   return [...allowedCommandNames()]
     .sort((a, b) => a.localeCompare(b))
-    .map((name) => `${name} — ${COMMANDS[name].summary}`)
+    .map((name) => {
+      const names = aliases.get(name) || [];
+      const alias = names.length ? ` (alias: ${names.join(', ')})` : '';
+      return `${name} — ${COMMANDS[name].summary}${alias}`;
+    })
     .join('\n');
+}
+
+const MAX_COMMAND_REJECTION_CODE_UNITS = 700;
+
+function boundedCommandRejection(message) {
+  return String(message).slice(0, MAX_COMMAND_REJECTION_CODE_UNITS);
+}
+
+function acceptedActionHint(rootName) {
+  const root = listFigmaCommandGrammar().find((candidate) => candidate.name === rootName);
+  const actions = (root?.children || []).filter((action) => action.exposed)
+    .map((action) => action.name).sort((left, right) => left.localeCompare(right));
+  const shown = actions.slice(0, 16);
+  return shown.length
+    ? `${shown.join(', ')}${actions.length > shown.length ? ', …' : ''}`
+    : 'Run ["--help"]';
+}
+
+function optionNameFromArgv(args) {
+  for (let index = 1; index < args.length; index++) {
+    const token = args[index];
+    if (token === '--') break;
+    if (token === '--figma-file') { index++; continue; }
+    if (typeof token !== 'string' || token === '-' || !token.startsWith('-')) continue;
+    const candidate = token.split('=', 1)[0];
+    const match = candidate.match(/^--?[a-zA-Z][a-zA-Z0-9-]{0,63}/);
+    return match ? match[0] : null;
+  }
+  return null;
+}
+
+function acceptedForm(actionId) {
+  if (actionId === 'var.list') {
+    return '["var","list","--limit","<1-1000>","--json"]';
+  }
+  if (actionId === 'var.find') {
+    return '["var","find","<pattern>","--limit","<1-1000>","--json"]';
+  }
+  const [root, action] = actionId.split('.');
+  return action ? `["${root}","${action}","--help"]` : `["${root}","--help"]`;
+}
+
+/**
+ * Project a denied argv into bounded, payload-free guidance for human and MCP
+ * Adapters. This does not change the fail-closed Command Plan.
+ */
+export function explainFigmaCommandRejection(rawArgs) {
+  const args = Array.isArray(rawArgs) ? rawArgs : [];
+  const rootName = canonicalFigmaCommandRoot(args[0]);
+  const prefix = 'Unknown or unsupported Figma Command — ';
+  if (!rootName) {
+    return `${prefix}Unknown command group. Accepted form: ["--help"].`;
+  }
+
+  const normalized = args[0] === rootName ? [...args] : [rootName, ...args.slice(1)];
+  const action = resolveFigmaCommandAction(normalized);
+  if (!action.accepted) {
+    if (action.reason === 'unknown-option') {
+      const option = optionNameFromArgv(normalized);
+      return boundedCommandRejection(
+        `${prefix}Unsupported option${option ? ` ${option}` : ''} for ${rootName}. `
+        + `Accepted actions: ${acceptedActionHint(rootName)}.`,
+      );
+    }
+    return boundedCommandRejection(
+      `${prefix}Unknown action for ${rootName}. Accepted actions: ${acceptedActionHint(rootName)}.`,
+    );
+  }
+
+  const actionId = action.actionId.replace(/\.help$/, '');
+  if (actionId === 'var.list' || actionId === 'var.find') {
+    const label = actionId.replace('.', ' ');
+    const option = optionNameFromArgv(normalized);
+    if (option === '--collection' || option === '-c') {
+      return boundedCommandRejection(
+        `${prefix}${label} does not support --collection. Discover collections with `
+        + '["col","list"], inspect one with ["col","show","<collection>"], then filter '
+        + `returned Variable rows by collection identity. Accepted form: ${acceptedForm(actionId)}.`,
+      );
+    }
+    try {
+      parseVariableDiscoveryRequest(normalized);
+    } catch (error) {
+      const raw = error?.message || String(error);
+      const detail = raw
+        .replace(/^Invalid var (?:list|find) command: /, '')
+        .replace(/\.$/, '');
+      if (/^unknown option /.test(detail)) {
+        const safeOption = option || detail.slice('unknown option '.length).match(/^--?[a-zA-Z][a-zA-Z0-9-]{0,63}/)?.[0];
+        return boundedCommandRejection(
+          `${prefix}Unsupported option${safeOption ? ` ${safeOption}` : ''} for ${label}. `
+          + `Accepted form: ${acceptedForm(actionId)}.`,
+        );
+      }
+      return boundedCommandRejection(
+        `${prefix}Malformed value for ${label}: ${detail}. Accepted form: ${acceptedForm(actionId)}.`,
+      );
+    }
+  }
+
+  return boundedCommandRejection(
+    `${prefix}Malformed request for ${actionId.replaceAll('.', ' ')}. `
+    + `Accepted form: ${acceptedForm(actionId)}.`,
+  );
 }
 
 function absolute(baseDir, value) {
@@ -1173,8 +1292,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
 } = {}) {
   const args = [...rawArgs];
   const capability = commandCapability(args);
+  if (capability.available && Object.hasOwn(COMMANDS, capability.name)
+    && args[0] !== capability.name) {
+    args[0] = capability.name;
+  }
   let figmaUrlFileKey = projectUrlTarget && capability.available && !capability.help
-    ? projectFigmaUrlFileKey(rawArgs, capability.actionId)
+    ? projectFigmaUrlFileKey(args, capability.actionId)
     : null;
   let outputPath = null;
   let outputRole = null;

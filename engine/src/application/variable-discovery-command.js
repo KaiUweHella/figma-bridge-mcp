@@ -24,6 +24,10 @@ function normalizedRequest(request) {
   return parseVariableDiscoveryRequest(variableDiscoveryArgvFromRequest(request));
 }
 
+export function variableDiscoveryRequestFromArgv(args) {
+  return parseVariableDiscoveryRequest(args);
+}
+
 function wildcardMatches(value, pattern) {
   if (pattern === null) return true;
   const source = value.toLowerCase();

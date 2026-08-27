@@ -93,8 +93,8 @@ import { workspaceIO } from '../lib/workspace-io.js';
 // ============ COLLECTIONS ============
 
 const collections = program
-  .command('collections')
-  .alias('col')
+  .command('col')
+  .alias('collections')
   .description('Manage variable collections');
 
 collections

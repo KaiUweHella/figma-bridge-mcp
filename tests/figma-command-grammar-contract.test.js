@@ -44,6 +44,8 @@ test('the recursive Capability grammar matches every exposed Commander command a
   for (const grammarRoot of listFigmaCommandGrammar()) {
     const command = actualChild(program, grammarRoot.name);
     assert.ok(command, `${grammarRoot.name} must resolve to a real command or documented alias`);
+    assert.deepEqual([...grammarRoot.aliases].sort(), command.aliases().sort(),
+      `${grammarRoot.name} root alias grammar drifted from Commander`);
     assertNodeMatches(grammarRoot, command, grammarRoot.name);
   }
 });
