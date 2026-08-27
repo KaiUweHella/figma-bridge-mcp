@@ -32,6 +32,9 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.equal(validateExecPayload({ action: 'typed-read', operation: 'style-consumers-v1', request: {
     style: 'Surface', type: 'PAINT', limit: 100, after: null,
   }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
+  assert.equal(validateExecPayload({ action: 'typed-read', operation: 'token-overlap-v1', request: {
+    queries: ['Alpha', 'Beta'], limit: 200,
+  }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
   assert.equal(validateExecPayload({
     action: 'render-plan', plan, options: { smart: false, x: -10, y: 20 },
     expectedEditor: 'figma', timeoutMs: 1000, fileKey: 'FILE',

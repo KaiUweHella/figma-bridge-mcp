@@ -5,6 +5,7 @@ import {
   executeTypedReadOperation,
   NODE_BINDINGS_TYPED_READ,
   STYLE_CONSUMERS_TYPED_READ,
+  TOKEN_OVERLAP_TYPED_READ,
   typedReadRequestValidationError,
 } from '../src/lib/typed-read-operations.js';
 
@@ -96,4 +97,37 @@ test('typed Node Binding Facts accepts only one closed optional Node identity', 
   const result = JSON.parse(serialized);
   assert.equal(result.nodes[0].bindings[0].variable.name, 'space/md');
   assert.equal(result.nodes[0].bindings[0].variable.collection.name, 'Tokens');
+});
+
+test('typed Token Overlap accepts only bounded Collection queries and returns exact facts', async () => {
+  const request = { queries: ['Alpha', 'Beta'], limit: 20 };
+  assert.equal(typedReadRequestValidationError(TOKEN_OVERLAP_TYPED_READ, request), null);
+  assert.match(
+    typedReadRequestValidationError(TOKEN_OVERLAP_TYPED_READ, { ...request, code: 'write()' }),
+    /unknown or missing field/,
+  );
+  assert.match(
+    typedReadRequestValidationError(TOKEN_OVERLAP_TYPED_READ, { queries: ['Alpha'], limit: 20 }),
+    /2-32/,
+  );
+  assert.match(
+    typedReadRequestValidationError(TOKEN_OVERLAP_TYPED_READ, { queries: ['Alpha', 'alpha'], limit: 20 }),
+    /unique/,
+  );
+
+  const collections = [
+    { id: 'VariableCollectionId:1', name: 'Alpha', remote: false, variableIds: ['VariableID:1'] },
+    { id: 'VariableCollectionId:2', name: 'Beta', remote: false, variableIds: ['VariableID:2'] },
+  ];
+  const variables = [
+    { id: 'VariableID:1', name: 'common', remote: false, variableCollectionId: collections[0].id },
+    { id: 'VariableID:2', name: 'common', remote: false, variableCollectionId: collections[1].id },
+  ];
+  const serialized = await executeTypedReadOperation({ variables: {
+    getLocalVariableCollectionsAsync: async () => collections,
+    getVariableByIdAsync: async (id) => variables.find((variable) => variable.id === id) || null,
+  } }, TOKEN_OVERLAP_TYPED_READ, request);
+  const result = JSON.parse(serialized);
+  assert.deepEqual(result.commonCore.items, ['common']);
+  assert.equal(result.complete, true);
 });

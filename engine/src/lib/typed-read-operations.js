@@ -7,10 +7,12 @@ export const TYPED_READ_CAPABILITY = 'typed-read-v1';
 export const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
 export const STYLE_CONSUMERS_TYPED_READ = 'style-consumers-v1';
 export const NODE_BINDINGS_TYPED_READ = 'node-bindings-v1';
+export const TOKEN_OVERLAP_TYPED_READ = 'token-overlap-v1';
 export const TYPED_READ_OPERATIONS = Object.freeze([
   BRIDGE_HEALTH_TYPED_READ,
   STYLE_CONSUMERS_TYPED_READ,
   NODE_BINDINGS_TYPED_READ,
+  TOKEN_OVERLAP_TYPED_READ,
 ]);
 
 function typedReadRecord(value) {
@@ -55,6 +57,28 @@ export function typedReadRequestValidationError(operation, request) {
       || request.nodeId.length < 1 || request.nodeId.length > 512
       || !/^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/.test(request.nodeId))) {
       return 'Node Binding Facts typed-read nodeId is invalid';
+    }
+    return null;
+  }
+  if (operation === TOKEN_OVERLAP_TYPED_READ) {
+    if (!typedReadExactKeys(request, ['queries', 'limit'])) {
+      return 'Token Overlap typed-read request has an unknown or missing field';
+    }
+    if (!Array.isArray(request.queries) || request.queries.length < 2
+      || request.queries.length > 32) {
+      return 'Token Overlap typed-read requires 2-32 Collection queries';
+    }
+    if (request.queries.some((query) => typeof query !== 'string' || !query.trim()
+      || query.length > 512
+      || /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/u.test(query))) {
+      return 'Token Overlap typed-read Collection query is invalid';
+    }
+    const folded = request.queries.map((query) => query.toLocaleLowerCase('en-US'));
+    if (new Set(folded).size !== folded.length) {
+      return 'Token Overlap typed-read Collection queries must be unique';
+    }
+    if (!Number.isInteger(request.limit) || request.limit < 1 || request.limit > 1000) {
+      return 'Token Overlap typed-read limit must be 1-1000';
     }
     return null;
   }
@@ -352,6 +376,121 @@ export async function executeNodeBindingsTypedRead(figmaApi, request) {
   return payload;
 }
 
+export async function executeTokenOverlapTypedRead(figmaApi, request) {
+  const requestError = typedReadRequestValidationError(TOKEN_OVERLAP_TYPED_READ, request);
+  if (requestError) throw new Error(requestError);
+  const maxCollectionCandidates = 10_000;
+  const maxTargetVariables = 100_000;
+  const maxString = 512;
+  const maxSerializedCodeUnits = 2_000_000;
+  const validText = (value, empty = true) => typeof value === 'string'
+    && value.length <= maxString && (empty || value.length > 0);
+  const collections = await figmaApi.variables.getLocalVariableCollectionsAsync();
+  if (!Array.isArray(collections) || collections.length > maxCollectionCandidates
+    || collections.some((collection) => !collection || !validText(collection.id, false)
+      || !validText(collection.name) || collection.remote
+      || !Array.isArray(collection.variableIds)
+      || collection.variableIds.length > maxTargetVariables
+      || collection.variableIds.some((id) => !validText(id, false))
+      || new Set(collection.variableIds).size !== collection.variableIds.length)
+    || new Set(collections.map((collection) => collection.id)).size !== collections.length) {
+    throw new Error('Token Overlap encountered invalid Collection metadata.');
+  }
+  const resolved = request.queries.map((query) => {
+    const folded = query.toLocaleLowerCase('en-US');
+    const byId = collections.filter((collection) => collection.id === query);
+    const exact = collections.filter((collection) =>
+      collection.name.toLocaleLowerCase('en-US') === folded);
+    const partial = collections.filter((collection) =>
+      collection.name.toLocaleLowerCase('en-US').includes(folded));
+    const matches = byId.length ? byId : exact.length ? exact : partial;
+    if (!matches.length) throw new Error('Token Overlap Collection not found.');
+    if (matches.length > 1) throw new Error('Token Overlap Collection query is ambiguous.');
+    return { query, collection: matches[0] };
+  });
+  if (new Set(resolved.map((item) => item.collection.id)).size !== resolved.length) {
+    throw new Error('Token Overlap queries resolve to the same Collection.');
+  }
+  const membershipTotal = resolved.reduce((total, item) =>
+    total + item.collection.variableIds.length, 0);
+  if (membershipTotal > maxTargetVariables) {
+    throw new Error('Token Overlap selected Variable membership limit exceeded.');
+  }
+  const memberships = resolved.flatMap((item, collectionIndex) =>
+    item.collection.variableIds.map((id) => ({ id, collectionIndex })));
+  if (new Set(memberships.map((item) => item.id)).size !== memberships.length) {
+    throw new Error('Token Overlap encountered cross-Collection Variable identity reuse.');
+  }
+  const variables = [];
+  for (let start = 0; start < memberships.length; start += 64) {
+    variables.push(...await Promise.all(memberships.slice(start, start + 64)
+      .map((item) => figmaApi.variables.getVariableByIdAsync(item.id))));
+  }
+  const counts = resolved.map(() => new Map());
+  for (let index = 0; index < memberships.length; index++) {
+    const membership = memberships[index];
+    const variable = variables[index];
+    const owner = resolved[membership.collectionIndex].collection;
+    if (!variable || variable.id !== membership.id || variable.remote
+      || variable.variableCollectionId !== owner.id || !validText(variable.name, false)) {
+      throw new Error('Token Overlap could not load exact Variable membership.');
+    }
+    const map = counts[membership.collectionIndex];
+    map.set(variable.name, (map.get(variable.name) || 0) + 1);
+  }
+  const compare = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+  const union = [...new Set(counts.flatMap((map) => [...map.keys()]))].sort(compare);
+  const common = union.filter((name) => counts.every((map) => map.get(name) === 1));
+  const list = (items) => {
+    const projected = items.slice(0, request.limit);
+    return {
+      total: items.length,
+      returned: projected.length,
+      omitted: items.length - projected.length,
+      complete: projected.length === items.length,
+      items: projected,
+    };
+  };
+  const perCollection = resolved.map((item, index) => {
+    const map = counts[index];
+    const names = [...map.keys()].sort(compare);
+    const only = names.filter((name) => counts.every((other, otherIndex) =>
+      otherIndex === index || !other.has(name)));
+    const missing = union.filter((name) => !map.has(name));
+    const ambiguous = names.filter((name) => map.get(name) > 1)
+      .map((name) => ({ name, count: map.get(name) }));
+    return {
+      collection: item.collection.name,
+      total: names.length,
+      variableCount: item.collection.variableIds.length,
+      duplicateNameCount: ambiguous.reduce((total, entry) => total + entry.count - 1, 0),
+      only_here: list(only),
+      missing_here: list(missing),
+      ambiguous_here: list(ambiguous),
+    };
+  });
+  const commonCore = list(common);
+  const complete = commonCore.complete && perCollection.every((row) =>
+    row.only_here.complete && row.missing_here.complete && row.ambiguous_here.complete);
+  const payload = {
+    schemaVersion: 1,
+    limit: request.limit,
+    complete,
+    resolved: resolved.map((item) => ({
+      query: item.query,
+      id: item.collection.id,
+      name: item.collection.name,
+    })),
+    collections: resolved.map((item) => item.collection.name),
+    commonCore,
+    perCollection,
+  };
+  if (JSON.stringify(payload).length > maxSerializedCodeUnits) {
+    throw new Error('Token Overlap result exceeded the serialized-size limit. Lower --limit.');
+  }
+  return payload;
+}
+
 export async function executeTypedReadOperation(figmaApi, operation, request) {
   const error = typedReadRequestValidationError(operation, request);
   if (error) throw new Error(error);
@@ -367,6 +506,9 @@ export async function executeTypedReadOperation(figmaApi, operation, request) {
   }
   if (operation === NODE_BINDINGS_TYPED_READ) {
     return JSON.stringify(await executeNodeBindingsTypedRead(figmaApi, request));
+  }
+  if (operation === TOKEN_OVERLAP_TYPED_READ) {
+    return JSON.stringify(await executeTokenOverlapTypedRead(figmaApi, request));
   }
   throw new Error('Typed-read operation is unsupported.');
 }

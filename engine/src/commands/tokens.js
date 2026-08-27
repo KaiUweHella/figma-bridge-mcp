@@ -70,6 +70,7 @@ import {
   program,
   checkConnection,
   daemonExec,
+  daemonTypedRead,
   fastEval,
   handleEvalError,
   hexToRgb,
@@ -762,6 +763,10 @@ tokens
         async ({ fileKey, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeTokenOverlapPlan(plan, {
+            typedRead: (operation, request, fallbackCode) => daemonTypedRead(
+              operation, request, fallbackCode,
+              fileKey ? { fileKey } : {}, Math.max(1, deadline - Date.now()),
+            ),
             evaluate: (code) => daemonExec('eval', {
               code,
               ...(fileKey ? { fileKey } : {}),

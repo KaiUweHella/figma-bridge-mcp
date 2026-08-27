@@ -25,3 +25,10 @@ independently limited and carry total/returned/omitted/complete facts. The host
 validates exact keys, order, identity uniqueness, count arithmetic, sorting,
 list disjointness and overall completeness before output. JSON retains the
 recognizable legacy comparison fields without exposing native ids.
+
+The immutable Command Plan dispatches the same Application through the closed
+`token-overlap-v1` Typed Read operation. Its Plugin request contains only the
+bounded Collection queries and list limit; JSON formatting remains a host
+concern. Commander and MCP use the read lane, while the prior bounded generated
+eval is available once only when an older Plugin proves non-dispatch through a
+structured capability or validation rejection.

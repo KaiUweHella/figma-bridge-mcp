@@ -12,6 +12,10 @@ import {
   parseTokenOverlapRequest,
   tokenOverlapArgvFromRequest,
 } from '../src/application/token-overlap-request.js';
+import {
+  executeTypedReadOperation,
+  TOKEN_OVERLAP_TYPED_READ,
+} from '../src/lib/typed-read-operations.js';
 
 function fixture() {
   const collections = [];
@@ -81,6 +85,16 @@ test('Token Overlap resolves exact and unique partial Collections with targeted 
 
   const request = { queries: [alpha.id, 'beta'], limit: 200, json: false };
   const serialized = await runCode(request, target.figma);
+  const typedSerialized = await executeTypedReadOperation(
+    target.figma,
+    TOKEN_OVERLAP_TYPED_READ,
+    { queries: request.queries, limit: request.limit },
+  );
+  assert.deepEqual(
+    JSON.parse(typedSerialized),
+    JSON.parse(serialized),
+    'closed typed-read and legacy fallback must project identical facts',
+  );
   const result = await executeTokenOverlap(request, { evaluate: async () => serialized });
   assert.deepEqual(result.result.collections, ['Alpha Theme', 'Beta Theme']);
   assert.deepEqual(result.result.commonCore.items, ['common']);
@@ -153,6 +167,7 @@ test('Token Overlap accepts only authentic safe-read Plans', async () => {
   assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
   assert.deepEqual(cli.argv, mcp.argv); assert.equal(cli.execution.retry, 'safe-read');
   assert.equal(cli.execution.timeout, 'long'); assert.equal(cli.confirmation, 'none');
+  assert.equal(cli.execution.pluginDispatch, 'typed-read');
   assert.equal(tokenOverlapPlanRoute(cli), 'command-application');
   const target = fixture();
   const alpha = target.addCollection('Alpha'); const beta = target.addCollection('Beta');
@@ -162,4 +177,24 @@ test('Token Overlap accepts only authentic safe-read Plans', async () => {
     .result.commonCore.items, ['common']);
   await assert.rejects(() => executeTokenOverlapPlan({ ...cli }, { evaluate: async () => serialized }),
     /requires a Command Plan created by the Capability Catalog/);
+});
+
+test('Token Overlap prefers the closed typed-read Adapter with bounded eval fallback', async () => {
+  const target = fixture();
+  const alpha = target.addCollection('Alpha'); const beta = target.addCollection('Beta');
+  target.addVariable(alpha, 'common'); target.addVariable(beta, 'common');
+  const request = { queries: ['Alpha', 'Beta'], limit: 20 };
+  const serialized = await runCode(request, target.figma);
+  const calls = [];
+  const result = await executeTokenOverlap(request, {
+    typedRead: async (operation, typedRequest, fallbackCode) => {
+      calls.push({ operation, typedRequest, fallbackCode });
+      return serialized;
+    },
+    evaluate: async () => { throw new Error('must not use eval when typed-read is available'); },
+  });
+  assert.deepEqual(result.result.commonCore.items, ['common']);
+  assert.equal(calls[0].operation, 'token-overlap-v1');
+  assert.deepEqual(calls[0].typedRequest, { queries: ['Alpha', 'Beta'], limit: 20 });
+  assert.match(calls[0].fallbackCode, /getLocalVariableCollectionsAsync/);
 });

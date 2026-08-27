@@ -710,6 +710,7 @@ test('figma_run routes Token Overlap through its shared bounded-read Application
   assert.match(slice, /compatibilityFallback:\s*false/);
   assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(slice, /executeTokenOverlapPlan\(plan/);
+  assert.match(slice, /typedReadFigma\(/);
   assert.doesNotMatch(slice, /runCliPlan\(/);
 });
 

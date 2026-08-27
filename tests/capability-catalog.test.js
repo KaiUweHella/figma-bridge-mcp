@@ -339,6 +339,7 @@ test('Token Overlap closes one long policy-identical bounded safe read', () => {
   assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
   assert.equal(cli.effects.figma, 'read'); assert.equal(cli.execution.retry, 'safe-read');
   assert.equal(cli.execution.timeout, 'long'); assert.equal(cli.confirmation, 'none');
+  assert.equal(cli.execution.pluginDispatch, 'typed-read');
   assert.equal(cli.audit.capability, 'tokens.overlap');
   for (const argv of [
     ['tokens', 'overlap', 'One'], ['tokens', 'overlap', 'One', 'one'],

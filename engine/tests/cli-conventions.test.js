@@ -1071,7 +1071,7 @@ test('tokens overlap delegates one Plan-bound bounded-read Application', () => {
   assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(action, /executeTokenOverlapPlan\(plan/);
-  assert.match(action, /daemonExec\('eval'/); assert.match(action, /process\.exitCode = 1/);
+  assert.match(action, /daemonTypedRead\(/); assert.match(action, /process\.exitCode = 1/);
   assert.doesNotMatch(action,
     /checkConnection\(|getLocalVariablesAsync|new Set\(|commonCore|missing_here|only_here/,
     'Commander must not retain Token Overlap readiness, resolution, set arithmetic, or formatting');

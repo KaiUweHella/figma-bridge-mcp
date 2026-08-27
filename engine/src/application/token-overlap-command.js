@@ -6,6 +6,7 @@ import {
   tokenOverlapArgvFromRequest,
   tokenOverlapPlanningArgvFromRequest,
 } from './token-overlap-request.js';
+import { TOKEN_OVERLAP_TYPED_READ } from '../lib/typed-read-operations.js';
 
 export { tokenOverlapArgvFromRequest, tokenOverlapPlanningArgvFromRequest } from './token-overlap-request.js';
 
@@ -212,11 +213,17 @@ function omissionLine(list) {
 }
 
 export async function executeTokenOverlap(request, adapters = {}) {
-  if (typeof adapters.evaluate !== 'function') {
-    throw new TypeError('executeTokenOverlap requires evaluate(code)');
+  if (typeof adapters.typedRead !== 'function' && typeof adapters.evaluate !== 'function') {
+    throw new TypeError('executeTokenOverlap requires typedRead(operation, request, fallbackCode) or evaluate(code)');
   }
   const input = normalizedRequest(request);
-  const serialized = await adapters.evaluate(tokenOverlapCommandCode(input));
+  const fallbackCode = tokenOverlapCommandCode(input);
+  const serialized = typeof adapters.typedRead === 'function'
+    ? await adapters.typedRead(TOKEN_OVERLAP_TYPED_READ, {
+      queries: input.queries,
+      limit: input.limit,
+    }, fallbackCode)
+    : await adapters.evaluate(fallbackCode);
   if (typeof serialized !== 'string'
     || serialized.length > MAX_TOKEN_OVERLAP_SERIALIZED_CODE_UNITS) {
     throw new Error('Token Overlap returned an invalid bounded result.');
@@ -267,6 +274,7 @@ export function tokenOverlapPlanRoute(plan) {
     throw new TypeError('Token Overlap routing requires a Command Plan created by the Capability Catalog.');
   }
   return plan.allowed && plan.id === APPLICATION_ID
+    && plan.execution.pluginDispatch === 'typed-read'
     ? 'command-application' : 'not-token-overlap';
 }
 
