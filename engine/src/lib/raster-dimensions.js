@@ -1,5 +1,17 @@
 const MAX_RASTER_DIMENSION = 100_000;
 
+export function rasterKind(bytes) {
+  if (!Buffer.isBuffer(bytes)) throw new TypeError('Raster kind requires a Buffer');
+  if (bytes.length >= 8
+    && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpeg';
+  if (bytes.length >= 6
+    && ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'))) return 'gif';
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF'
+    && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+  return null;
+}
+
 function checked(width, height, kind) {
   if (!Number.isInteger(width) || !Number.isInteger(height)
     || width < 1 || height < 1

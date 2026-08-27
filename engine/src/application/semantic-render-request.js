@@ -360,12 +360,24 @@ function inspectRenderArgv(args) {
       target: 'figma', values, jsx, request,
     });
   }
+  const assets = imageIntent(jsx);
+  if (assets.localPaths.length || assets.remoteCount) {
+    const request = compoundRequest({
+      source: 'single-root', roots: [jsx], sourceJsx: jsx, direction: 'row', values,
+    });
+    return Object.freeze({
+      kind: 'compound', reason: 'image-materialization', mutatesDesign: true,
+      target: 'figma', values, jsx, request,
+    });
+  }
+  if (assets.embeddedCount) {
+    return Object.freeze({
+      kind: 'compatibility', reason: 'image-resolution', mutatesDesign: true,
+      target: 'figma', values, jsx,
+    });
+  }
   if (compatibility.size) {
     return Object.freeze({ kind: 'compatibility', reason: [...compatibility][0], mutatesDesign: true, target: 'figma', values, jsx });
-  }
-  const assets = imageIntent(jsx);
-  if (assets.localPaths.length || assets.remoteCount || assets.embeddedCount) {
-    return Object.freeze({ kind: 'compatibility', reason: 'image-resolution', mutatesDesign: true, target: 'figma', values, jsx });
   }
 
   return Object.freeze({

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { extname, join } from 'node:path';
 import { createWorkspaceIO } from './workspace-io.js';
 import { IMAGE_HARD_LIMIT } from './image-file.js';
-import { rasterDimensions } from './raster-dimensions.js';
+import { rasterDimensions, rasterKind } from './raster-dimensions.js';
 
 export const BROWSER_CAPTURE_ASSET_LIMITS = Object.freeze({
   references: 20_000,
@@ -41,15 +41,6 @@ function assertSafeSvg(markup, label) {
     throw new Error(`DOM SVG asset contains an external reference: ${label}`);
   }
   return markup;
-}
-
-function rasterKind(bytes) {
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'png';
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpeg';
-  if (bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'))) return 'gif';
-  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF'
-    && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
-  return null;
 }
 
 /**

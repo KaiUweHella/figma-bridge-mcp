@@ -6,6 +6,7 @@
 
 import { basename, dirname, extname, isAbsolute, resolve } from 'node:path';
 import { readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { FigmaClient } from '../lib/jsx-render.js';
 import {
@@ -34,6 +35,8 @@ import {
   semanticRenderRequestFromArgv,
 } from './semantic-render-request.js';
 import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
+import { rasterDimensions, rasterKind } from '../lib/raster-dimensions.js';
+import { materializeRemoteRenderImage } from '../lib/remote-render-assets.js';
 import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
 import { decodeVerificationPngBase64 } from './verification-artifact.js';
 import { verificationPngExportCode } from './verification-settle.js';
@@ -195,6 +198,20 @@ export function prepareSemanticRenderPlan(plan, adapters = {}) {
   return prepared;
 }
 
+/** Validate every compound root without reading files, reaching the network,
+ * checking Plugin readiness, or creating a Figma mutation payload. */
+export function validateCompoundSemanticRenderPlan(plan) {
+  if (semanticRenderPlanRoute(plan) !== 'compound-command-application') {
+    throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the compound Semantic Render Command Application.`);
+  }
+  const request = semanticCompoundRenderRequestFromArgv([...plan.argv]);
+  const client = new FigmaClient();
+  for (const jsx of request.roots) {
+    client.analyzeJSX(devicePreset(jsx, request.preset).jsx);
+  }
+  return request;
+}
+
 function loadCompoundIcons(directory, io) {
   if (!directory) return Object.freeze({});
   const accepted = io.authorizePath(directory, {
@@ -212,52 +229,101 @@ function loadCompoundIcons(directory, io) {
   return Object.freeze(icons);
 }
 
-function resolveCompoundImages(roots, io) {
-  const images = {};
-  const paths = new Map();
+async function resolveCompoundImages(roots, io, materializeRemoteImage) {
+  const images = Object.create(null);
+  const references = new Map();
+  const content = new Set();
   const notes = [];
-  const rewritten = roots.map((jsx) => jsx.replace(
-    /\b(src|image)\s*=\s*(?:"([^"]+)"|{\s*"([^"]+)"\s*}|{\s*'([^']+)'\s*}|{\s*([^{}"']+?)\s*})/g,
-    (full, attribute, quoted, doubleExpression, singleExpression, bareExpression) => {
+  let localImageCount = 0;
+  let remoteImageCount = 0;
+  const assetKey = (reference, asset) => {
+    const priorReference = references.get(reference);
+    if (priorReference) return priorReference;
+    const key = `img${Object.keys(images).length}`;
+    content.add(asset.sha256);
+    images[key] = asset;
+    references.set(reference, key);
+    return key;
+  };
+  const resolveValue = async (value) => {
+    if (/^(?:imgref:|data:)/i.test(value)) return null;
+    if (/^https?:/i.test(value)) {
+      const reference = `remote:${value}`;
+      const existing = references.get(reference);
+      if (existing) return existing;
+      const key = assetKey(reference, await materializeRemoteImage(value));
+      remoteImageCount++;
+      return key;
+    }
+    if (!/\.(?:png|jpe?g|gif|webp)$/i.test(value)) return null;
+    const input = isAbsolute(value) ? value : resolve(io.roots[0], value);
+    const existing = references.get(`workspace:${input}`);
+    if (existing) return existing;
+    const accepted = io.authorizePath(input, { access: 'read', role: 'render-image', kind: 'file' });
+    const size = accepted.metadata.size;
+    if (size > IMAGE_HARD_LIMIT) {
+      throw preflightError(`Semantic Render image exceeds ${IMAGE_HARD_LIMIT} bytes.`);
+    }
+    const bytes = io.read(accepted.canonical, { role: 'render-image', maxBytes: IMAGE_HARD_LIMIT });
+    const kind = rasterKind(bytes);
+    const expected = extname(input).toLowerCase().replace(/^\.jpg$/, '.jpeg').slice(1);
+    if (!kind || kind !== expected) {
+      throw preflightError('Semantic Render image extension does not match its raster bytes.');
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const key = assetKey(`workspace:${input}`, Object.freeze({
+      kind: 'embedded-raster',
+      name: basename(input),
+      base64: bytes.toString('base64'),
+      ...rasterDimensions(bytes, kind),
+      sha256,
+      source: Object.freeze({ kind: 'workspace', label: basename(input) }),
+    }));
+    localImageCount++;
+    if (size > IMAGE_WARN_LIMIT) {
+      notes.push(Object.freeze({
+        tone: 'warning',
+        text: `Render image ${key} is ${(size / 1048576).toFixed(1)} MB; downscaling will make the Plugin Bridge faster.`,
+      }));
+    }
+    return key;
+  };
+  const pattern = /\b(src|image)\s*=\s*(?:"([^"]+)"|{\s*"([^"]+)"\s*}|{\s*'([^']+)'\s*}|{\s*([^{}"']+?)\s*})/g;
+  const rewritten = [];
+  for (const jsx of roots) {
+    const chunks = [];
+    let cursor = 0;
+    for (const match of jsx.matchAll(pattern)) {
+      const [full, attribute, quoted, doubleExpression, singleExpression, bareExpression] = match;
       const value = (quoted ?? doubleExpression ?? singleExpression ?? bareExpression).trim();
-      if (/^(?:https?:|imgref:|data:)/i.test(value) || !/\.(?:png|jpe?g|gif|webp)$/i.test(value)) return full;
-      const input = isAbsolute(value) ? value : resolve(io.roots[0], value);
-      let key = paths.get(input);
-      if (key === undefined) {
-        const accepted = io.authorizePath(input, { access: 'read', role: 'render-image', kind: 'file' });
-        const size = accepted.metadata.size;
-        if (size > IMAGE_HARD_LIMIT) {
-          throw preflightError(`Semantic Render image exceeds ${IMAGE_HARD_LIMIT} bytes.`);
-        }
-        key = `img${paths.size}`;
-        paths.set(input, key);
-        images[key] = io.read(accepted.canonical, {
-          role: 'render-image', maxBytes: IMAGE_HARD_LIMIT,
-        }).toString('base64');
-        if (size > IMAGE_WARN_LIMIT) {
-          notes.push(Object.freeze({
-            tone: 'warning',
-            text: `Render image ${key} is ${(size / 1048576).toFixed(1)} MB; downscaling will make the Plugin Bridge faster.`,
-          }));
-        }
-      }
-      return `${attribute}="imgref:${key}"`;
-    },
-  ));
+      const key = await resolveValue(value);
+      chunks.push(jsx.slice(cursor, match.index), key ? `${attribute}="imgref:${key}"` : full);
+      cursor = match.index + full.length;
+    }
+    chunks.push(jsx.slice(cursor));
+    rewritten.push(chunks.join(''));
+  }
   return Object.freeze({
     roots: Object.freeze(rewritten), images: Object.freeze(images),
-    imageCount: paths.size, notes: Object.freeze(notes),
+    localImageCount, remoteImageCount, uniqueContent: content.size,
+    notes: Object.freeze(notes),
   });
 }
 
-/** Prepare every compound root and all local resources before readiness. */
-export function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
+/** Prepare every compound root and all local/remote resources before readiness. */
+export async function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
   if (semanticRenderPlanRoute(plan) !== 'compound-command-application') {
     throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the compound Semantic Render Command Application.`);
   }
   if (!adapters.workspaceIO) throw new TypeError('Compound Semantic Render requires a WorkspaceIO adapter.');
   const request = semanticCompoundRenderRequestFromArgv([...plan.argv]);
-  const imagePreparation = resolveCompoundImages(request.roots, adapters.workspaceIO);
+  const materializeRemoteImage = adapters.materializeRemoteImage
+    || ((input) => materializeRemoteRenderImage(input, { remainingMs: adapters.remainingMs }));
+  const imagePreparation = await resolveCompoundImages(
+    request.roots,
+    adapters.workspaceIO,
+    materializeRemoteImage,
+  );
   const icons = loadCompoundIcons(request.icons, adapters.workspaceIO);
   const client = new FigmaClient();
   if (request.collection) client.setCollection(request.collection);
@@ -292,10 +358,11 @@ export function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
     structures: Object.freeze(evidence.map((item) => item.structure)),
     notes: Object.freeze(notes),
     preparedAssets: Object.freeze({
-      localImages: imagePreparation.imageCount,
+      localImages: imagePreparation.localImageCount,
       iconDirectory: request.icons ? 1 : 0,
-      remoteImages: request.assets.remoteCount,
+      remoteImages: imagePreparation.remoteImageCount,
       embeddedImages: request.assets.embeddedCount,
+      uniqueImageContent: imagePreparation.uniqueContent,
     }),
   });
   PREPARED_COMPOUND_RENDER_REQUESTS.add(prepared);
@@ -638,7 +705,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
 
 export async function executeCompoundSemanticRenderPlan(plan, adapters = {}) {
   return executePreparedCompoundSemanticRender(
-    prepareCompoundSemanticRenderPlan(plan, adapters), adapters,
+    await prepareCompoundSemanticRenderPlan(plan, adapters), adapters,
   );
 }
 

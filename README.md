@@ -443,6 +443,24 @@ Use `;` between roots on Windows. Relative extra roots resolve from the launch
 workspace. Paths outside the launch workspace and these explicit additions are
 rejected without printing the private absolute path.
 
+Remote raster images in `figma_render` JSX are opt-in. Configure exact origins
+on the MCP/CLI host process; public sources require HTTPS, while intentional
+private or loopback sources use the separate private-origin setting:
+
+```bash
+export FIGMA_BRIDGE_IMAGE_ORIGINS=https://images.example.com
+export FIGMA_BRIDGE_IMAGE_PRIVATE_ORIGINS=http://assets.internal:8080
+```
+
+Multiple origins are comma-separated. Wildcards, URL credentials and fragments
+are rejected. Signed query strings may be used to retrieve an image, but they
+are never retained in the Render Plan, result, Audit Trail or source
+provenance. The host reauthorizes redirects, validates every resolved address,
+pins the approved connection, rejects compressed or oversized responses,
+verifies MIME type against PNG/JPEG/GIF/WebP bytes and embeds the content by
+SHA-256 identity. The Figma Plugin receives only verified bytes and remains
+restricted to its existing localhost Bridge domains.
+
 Safe Mode exposes the core canvas edits as typed commands; raw `eval` remains
 blocked:
 
@@ -1620,6 +1638,12 @@ rather than a generic API failure.
   optional conversion/resize/verification stages are retained explicitly.
   Roots prepare before readiness, the visible render dispatches once, and
   bounded stage evidence preserves exact known partial handles on failure.
+- **Host-materialized remote images** — `figma_render` never gives the Plugin a
+  remote URL. Explicit exact-origin policy, DNS/address checks, connection
+  pinning, redirect reauthorization, identity encoding, byte/time limits and
+  raster validation complete on the host inside the Command deadline. Local
+  and remote rasters then enter the same embedded, content-hashed Plan shape;
+  repeated references are read once per Command.
 - **No shell** — the engine is spawned with `execFile` (`shell:false`).
 - **Two-layer daemon auth, no secret on the wire** — signed HTTP requests
   (per-request HMAC over method/path/body, keyed with the session token, nonce

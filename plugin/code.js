@@ -1395,9 +1395,7 @@ async function prepareStructuredImages(figmaApi, plan, journal = null) {
   const outcomes = [];
   for (const node of intents) {
     try {
-      const image = node.asset.kind === 'embedded-raster'
-        ? figmaApi.createImage(figmaApi.base64Decode(node.asset.base64))
-        : await figmaApi.createImageAsync(node.asset.src);
+      const image = figmaApi.createImage(figmaApi.base64Decode(node.asset.base64));
       if (!image?.hash) {
         journal?.record('image-resource', image, { handle: '(unavailable)', removable: false });
         throw new Error('Figma returned no image hash');
@@ -1584,7 +1582,7 @@ function inspectStructuredRenderPlan(plan) {
       if (type === 'ellipse' && (!structuredFillPaintSupported(props.bg ?? props.fill) || !structuredPaintSupported(props.stroke))) problems.push(`${path}: ellipse paint needs the compatibility executor`);
       if (type === 'icon' && !structuredColorSupported(props.color ?? props.c)) problems.push(`${path}: icon paint needs the compatibility executor`);
       if (type === 'image') {
-        if (!node.asset || !['embedded-raster', 'remote-raster'].includes(node.asset.kind)) problems.push(`${path}: image needs embedded bytes or an HTTP(S) source`);
+        if (!node.asset || node.asset.kind !== 'embedded-raster') problems.push(`${path}: image needs host-materialized embedded bytes`);
         if (props.imageScale != null && !['fill', 'fit', 'crop', 'tile'].includes(String(props.imageScale).toLowerCase())) problems.push(`${path}: imageScale is unsupported`);
       }
       if (type === 'instance') {

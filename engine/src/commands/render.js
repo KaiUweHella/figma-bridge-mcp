@@ -366,9 +366,9 @@ async function runCompoundSemanticRender(argv) {
   });
   if (!plan.allowed) throw new Error('Compound Semantic Render request was denied by the Capability Catalog.');
   if (semanticRenderPlanRoute(plan) !== 'compound-command-application') return null;
-  const prepared = prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io });
+  const request = semanticCompoundRenderRequestFromArgv([...plan.argv]);
   let domainResult = null;
-  const verificationWriter = prepared.request.stages.verification
+  const verificationWriter = request.stages.verification
     ? createVerificationArtifactWriter(
       plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE),
       { workspaceIO: io },
@@ -377,6 +377,10 @@ async function runCompoundSemanticRender(argv) {
   const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
     async ({ fileKey, deadline }) => {
       const remainingMs = () => Math.max(1, deadline - Date.now());
+      const prepared = await prepareCompoundSemanticRenderPlan(plan, {
+        workspaceIO: io,
+        remainingMs,
+      });
       await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
       const evaluate = (code) => daemonExec('eval', {
         code, ...(fileKey ? { fileKey } : {}),
@@ -410,7 +414,8 @@ function newImageContext() {
 
 // Replace local file paths in <Image src="\u2026"> / image="\u2026" with imgref:<key>
 // markers, collecting base64 data into ctx. Returns the rewritten JSX.
-// http(s) URLs pass through untouched (plugin-side createImageAsync).
+// http(s) URLs pass through only for legacy syntax classification; generated
+// compatibility has no Plugin-side network path and cannot materialize them.
 // One ctx may span a whole render-batch: keys keep counting, repeats dedupe.
 function resolveLocalImages(jsx, ctx) {
   return jsx.replace(/\b(src|image)="([^"]+)"/g, (full, attr, value) => {

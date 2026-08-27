@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   executeCompoundSemanticRenderPlan,
@@ -35,6 +36,10 @@ import {
 import { createWorkspaceIO } from '../src/lib/workspace-io.js';
 
 const SIMPLE_JSX = '<Frame name="Card" flex="col"><Text>Hello</Text></Frame>';
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 function workspace(t) {
   const root = mkdtempSync(join(tmpdir(), 'semantic-render-command-'));
@@ -182,13 +187,17 @@ test('simple, compound and named compatibility Render modes remain explicitly re
     },
     {
       argv: ['render', '<Frame><Image src="photo.png"/></Frame>'],
-      kind: 'compatibility', reason: 'image-resolution', write: true, target: 'figma',
+      kind: 'compound', reason: 'image-materialization', write: true, target: 'figma',
     },
-    ...['https://example.test/a.png', 'assets/a.png', 'imgref:asset-1', 'data:image/png;base64,AA=='].map((value) => ({
+    ...['https://example.test/a.png', 'assets/a.png'].map((value) => ({
+      argv: ['render', `<Frame><Image src={${value}}/></Frame>`],
+      kind: 'compound', reason: 'image-materialization', write: true, target: 'figma',
+    })),
+    ...['imgref:asset-1', 'data:image/png;base64,AA=='].map((value) => ({
       argv: ['render', `<Frame><Image src={${value}}/></Frame>`],
       kind: 'compatibility', reason: 'image-resolution', write: true, target: 'figma',
     })),
-    { argv: ['render', '<Frame><Image src={"https://example.test/a.png"}/></Frame>'], kind: 'compatibility', reason: 'image-resolution', write: true, target: 'figma' },
+    { argv: ['render', '<Frame><Image src={"https://example.test/a.png"}/></Frame>'], kind: 'compound', reason: 'image-materialization', write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '-x', '20'], kind: 'simple', reason: null, write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--no-smart-position'], kind: 'simple', reason: null, write: true, target: 'figma' },
     { argv: ['render', SIMPLE_JSX, '--as-component'], kind: 'compatibility', reason: 'component-conversion', write: true, target: 'figma' },
@@ -206,6 +215,9 @@ test('simple, compound and named compatibility Render modes remain explicitly re
   ];
 
   const { root } = workspace(t);
+  mkdirSync(join(root, 'assets'));
+  writeFileSync(join(root, 'photo.png'), PNG_1X1);
+  writeFileSync(join(root, 'assets', 'a.png'), PNG_1X1);
   for (const expected of cases) {
     assert.deepEqual(semanticRenderArgvRoute(expected.argv), {
       kind: expected.kind, reason: expected.reason,
@@ -312,14 +324,14 @@ test('auto-split and explicit batch close the same option semantics', () => {
   }
 });
 
-test('compound assets and verification are explicit Command Plan effects', (t) => {
+test('compound assets and verification are explicit Command Plan effects', async (t) => {
   const { root, io } = workspace(t);
   mkdirSync(join(root, 'assets'));
   mkdirSync(join(root, 'icons'));
-  writeFileSync(join(root, 'assets', 'photo.png'), Buffer.from([0, 1, 2, 3]));
+  writeFileSync(join(root, 'assets', 'photo.png'), PNG_1X1);
   writeFileSync(join(root, 'icons', 'check.svg'), '<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>');
   writeFileSync(join(root, 'icons', '__proto__.svg'), '<svg viewBox="0 0 1 1"><path d="M1 1"/></svg>');
-  const wrapper = '<Frame flex="row"><Frame name="Card 1"><Image src={assets/photo.png}/></Frame><Frame name="Card 2"><Image src="https://images.example/card.png"/></Frame></Frame>';
+  const wrapper = '<Frame flex="row"><Frame name="Card 1"><Image src={assets/photo.png}/></Frame><Frame name="Card 2"><Image src="https://images.example/card.png?signed-secret=redacted"/><Image src="https://images.example/card.png?signed-secret=redacted"/></Frame></Frame>';
   const argv = ['render', wrapper, '--icons=icons', '--verify'];
   const options = {
     workspaceDir: root,
@@ -349,12 +361,33 @@ test('compound assets and verification are explicit Command Plan effects', (t) =
     ...options, adapter: 'mcp', verificationArtifactNonce: 'ignored-because-directory-is-planned',
   });
   assert.deepEqual(replanned.outputs, mcp.outputs, 'process Adapters retain the exact planned artifacts');
-  const prepared = prepareCompoundSemanticRenderPlan(mcp, { workspaceIO: io });
+  let remoteMaterializations = 0;
+  const prepared = await prepareCompoundSemanticRenderPlan(mcp, {
+    workspaceIO: io,
+    materializeRemoteImage: async () => {
+      remoteMaterializations++;
+      return Object.freeze({
+        kind: 'embedded-raster', name: 'card.png', base64: PNG_1X1.toString('base64'),
+        width: 1, height: 1,
+        sha256: createHash('sha256').update(PNG_1X1).digest('hex'),
+        source: Object.freeze({ kind: 'remote-http', label: 'https://images.example/card.png' }),
+      });
+    },
+  });
   assert.equal(prepared.preparedAssets.localImages, 1);
   assert.equal(prepared.preparedAssets.remoteImages, 1);
+  assert.equal(prepared.preparedAssets.uniqueImageContent, 1);
+  assert.equal(remoteMaterializations, 1, 'an exact remote reference is read only once per command');
   assert.equal(prepared.preparedAssets.iconDirectory, 1);
   assert.match(prepared.jsxRoots[0], /src="imgref:img0"/);
+  assert.match(prepared.jsxRoots[1], /src="imgref:img1"/);
   assert.doesNotMatch(prepared.jsxRoots[0], /assets\/photo\.png/);
+  assert.deepEqual(prepared.renderPlans.map((item) => item.root.children[0].asset.source), [
+    { kind: 'workspace', label: 'photo.png' },
+    { kind: 'remote-http', label: 'https://images.example/card.png' },
+  ]);
+  assert.equal(new Set(prepared.renderPlans.map((item) => item.root.children[0].asset.sha256)).size, 1);
+  assert.doesNotMatch(JSON.stringify(prepared.renderPlans), /signed-secret|redacted/);
   assert.equal(Object.getPrototypeOf(prepared.client.customIcons), null);
   assert.equal(Object.hasOwn(prepared.client.customIcons, '__proto__'), true);
 });
@@ -382,6 +415,7 @@ test('DOM capture compatibility retains the exact Plan-owned verification artifa
 
 test('CLI and MCP use one authentic canonical Semantic Render Command Plan', (t) => {
   const { root, io } = workspace(t);
+  writeFileSync(join(root, 'photo.png'), PNG_1X1);
   const payloadUrl = 'https://www.figma.com/design/PAYLOADPLACEHOLDERKEY/FILE_NAME?node-id=9-9';
   const argv = [
     'render', '--allow-free-layout', 'root.free',
@@ -433,9 +467,9 @@ test('CLI and MCP use one authentic canonical Semantic Render Command Plan', (t)
   ], options);
   assert.equal(terminatedImage.allowed, true);
   assert.deepEqual(semanticRenderArgvRoute([...terminatedImage.argv]), {
-    kind: 'compatibility', reason: 'image-resolution',
+    kind: 'compound', reason: 'image-materialization',
   });
-  assert.ok(terminatedImage.argv.indexOf('--manifest') < terminatedImage.argv.indexOf('--'));
+  assert.ok(terminatedImage.argv.some((arg) => arg.startsWith('--manifest=')));
 });
 
 test('compound native rendering dispatches one journaled batch and returns one bounded Outcome', async (t) => {

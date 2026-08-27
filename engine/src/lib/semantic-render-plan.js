@@ -259,7 +259,7 @@ function validateNode(node, location, executable, depth, state) {
   if (node.fallbackAnnotations !== undefined) validateFallbackAnnotations(node.fallbackAnnotations, location);
   if (node.asset !== undefined) {
     if (!isRecord(node.asset)) throw new Error(`Semantic Render Plan ${location}.asset must be an object`);
-    if (!['project-icon', 'builtin-icon', 'captured-svg', 'embedded-raster', 'remote-raster'].includes(node.asset.kind)) {
+    if (!['project-icon', 'builtin-icon', 'captured-svg', 'embedded-raster'].includes(node.asset.kind)) {
       throw new Error(`Semantic Render Plan ${location}.asset kind "${node.asset.kind ?? 'missing'}" is unsupported`);
     }
     if (typeof node.asset.name !== 'string' || !node.asset.name) {
@@ -286,8 +286,23 @@ function validateNode(node, location, executable, depth, state) {
           || !Number.isInteger(node.asset.height) || node.asset.height < 1 || node.asset.height > 100_000))) {
         throw new Error(`Semantic Render Plan ${location}.asset dimensions must be paired positive bounded integers`);
       }
-    } else if (typeof node.asset.src !== 'string' || !/^https?:\/\//i.test(node.asset.src)) {
-      throw new Error(`Semantic Render Plan ${location}.asset.src must be an HTTP(S) URL`);
+      if (node.asset.sha256 !== undefined
+        && (typeof node.asset.sha256 !== 'string' || !SHA256.test(node.asset.sha256))) {
+        throw new Error(`Semantic Render Plan ${location}.asset.sha256 must be SHA-256`);
+      }
+      if (node.asset.source !== undefined) {
+        if (!isRecord(node.asset.source)
+          || !['workspace', 'remote-http'].includes(node.asset.source.kind)
+          || typeof node.asset.source.label !== 'string'
+          || !node.asset.source.label
+          || node.asset.source.label.length > 2048
+          || /[\u0000-\u001f\u007f]/.test(node.asset.source.label)) {
+          throw new Error(`Semantic Render Plan ${location}.asset.source is invalid`);
+        }
+        if (node.asset.source.kind === 'remote-http' && /[?#]/.test(node.asset.source.label)) {
+          throw new Error(`Semantic Render Plan ${location}.asset.source must not retain URL query or fragment data`);
+        }
+      }
     }
   }
   if (executable && node.source.kind !== 'jsx') {

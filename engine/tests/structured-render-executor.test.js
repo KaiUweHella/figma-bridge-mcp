@@ -595,17 +595,32 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual(image.fills, [{ type: 'IMAGE', imageHash: 'image:1', scaleMode: 'FILL' }]);
   });
 
-  it('loads remote raster assets before creating their native Image paints', async () => {
+  it('rejects raw remote raster URLs before native canvas mutation', async () => {
     const plan = new FigmaClient().planJSX(
       '<Frame name="Gallery"><Image name="Remote" src="https://example.com/hero.png" w="80" h="60" imageScale="crop" /></Frame>',
     );
     const figma = fakeFigma();
 
-    await executeStructuredRenderPlan(figma, plan);
-    const image = figma.created.find((node) => node.name === 'Remote');
+    assert.match(inspectStructuredRenderPlan(plan).problems.join('\n'), /host-materialized/);
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /host-materialized/);
+    assert.equal(figma.created.length, 0);
+  });
 
-    assert.equal(figma.imageResources[0].src, 'https://example.com/hero.png');
-    assert.deepEqual(image.fills, [{ type: 'IMAGE', imageHash: 'image:1', scaleMode: 'CROP' }]);
+  it('rejects signed remote URL data retained in embedded asset provenance', () => {
+    const client = new FigmaClient();
+    client.setImageData({
+      hero: {
+        kind: 'embedded-raster', name: 'hero.png', base64: 'aGVsbG8=',
+        width: 1, height: 1,
+        sha256: 'a'.repeat(64),
+        source: { kind: 'remote-http', label: 'https://images.example/hero.png?token=secret' },
+      },
+    });
+
+    assert.throws(
+      () => client.planJSX('<Frame><Image src="imgref:hero" /></Frame>'),
+      /must not retain URL query or fragment data/,
+    );
   });
 
   it('rejects raster preflight failures before creating canvas nodes', async () => {

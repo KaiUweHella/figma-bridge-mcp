@@ -282,11 +282,13 @@ import {
   semanticRenderArgvFromRequest,
   semanticRenderOutcomeCode,
   semanticRenderPlanRoute,
+  validateCompoundSemanticRenderPlan,
 } from "../engine/src/application/semantic-render-command.js";
 import {
   MAX_COMPOUND_RENDER_ROOTS,
   MAX_SEMANTIC_RENDER_LIST_ITEMS,
   SEMANTIC_RENDER_DEVICE_PRESETS,
+  semanticCompoundRenderRequestFromArgv,
   semanticRenderArgvRoute,
   semanticRenderRequestFromArgv,
 } from "../engine/src/application/semantic-render-request.js";
@@ -1564,7 +1566,10 @@ async function runAssetExport(plan, label, { force = false } = {}) {
 async function runSemanticRenderApplication(plan, label, prepared) {
   let outcome = null;
   const compound = semanticRenderPlanRoute(plan) === "compound-command-application";
-  const verificationWriter = compound && prepared.request.stages.verification
+  const request = compound
+    ? semanticCompoundRenderRequestFromArgv([...plan.argv])
+    : prepared.request;
+  const verificationWriter = compound && request.stages.verification
     ? createVerificationArtifactWriter(
       plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE),
       { workspaceIO: WORKSPACE_IO },
@@ -1575,6 +1580,12 @@ async function runSemanticRenderApplication(plan, label, prepared) {
     compatibilityFallback: false,
   }, async ({ fileKey, expectedEditor, deadline }) => {
     const remainingMs = () => Math.max(1, deadline - Date.now());
+    const effectivePrepared = compound
+      ? await prepareCompoundSemanticRenderPlan(plan, {
+        workspaceIO: WORKSPACE_IO,
+        remainingMs,
+      })
+      : prepared;
     await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
     const evaluate = (code) => evaluateFigma(code, {
       fileKey,
@@ -1597,8 +1608,8 @@ async function runSemanticRenderApplication(plan, label, prepared) {
       writeVerification: ({ index, bytes }) => verificationWriter.write(index, bytes),
     };
     outcome = compound
-      ? await executePreparedCompoundSemanticRender(prepared, adapters)
-      : await executePreparedSemanticRender(prepared, adapters);
+      ? await executePreparedCompoundSemanticRender(effectivePrepared, adapters)
+      : await executePreparedSemanticRender(effectivePrepared, adapters);
     return {
       stdout: formatSemanticRenderResult(outcome),
       stderr: "",
@@ -2001,9 +2012,11 @@ export async function handleTool(name, rawArgs) {
       let preparedSemanticRender = null;
       if (semanticRenderApplication) {
         try {
-          preparedSemanticRender = semanticRenderRoute === "compound-command-application"
-            ? prepareCompoundSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO })
-            : prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+          if (semanticRenderRoute === "compound-command-application") {
+            validateCompoundSemanticRenderPlan(plan);
+          } else {
+            preparedSemanticRender = prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+          }
         } catch (error) {
           return errorResult(error?.message || String(error));
         }
@@ -3013,9 +3026,11 @@ export async function handleTool(name, rawArgs) {
       let prepared = null;
       if (semanticRenderApplication) {
         try {
-          prepared = route === "compound-command-application"
-            ? prepareCompoundSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO })
-            : prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+          if (route === "compound-command-application") {
+            validateCompoundSemanticRenderPlan(plan);
+          } else {
+            prepared = prepareSemanticRenderPlan(plan, { workspaceIO: WORKSPACE_IO });
+          }
         } catch (error) {
           return errorResult(error?.message || String(error));
         }

@@ -117,12 +117,12 @@ describe('local image import (imgref markers)', () => {
     assertValidJs(code);
   });
 
-  it('http URLs still use createImageAsync (plugin-side fetch)', async () => {
+  it('http URLs never grant the generated Plugin compatibility path network access', async () => {
     const client = new FigmaClient();
     const code = await client.parseJSX(
       '<Frame name="P" flex="col"><Image src="https://example.com/x.png" w={200} h={150} /><Icon name="check" /></Frame>'
     );
-    assert.ok(code.includes('createImageAsync'), 'URL path preserved');
+    assert.ok(!code.includes('createImageAsync'), 'remote bytes must be materialized host-side');
     assertValidJs(code);
   });
 });

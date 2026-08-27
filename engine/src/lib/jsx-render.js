@@ -90,7 +90,7 @@ export class FigmaClient {
     this.collectionFilter = name || null;
   }
 
-  /** Provide base64 image data for imgref: markers (key -> base64 string). */
+  /** Provide embedded image data for imgref: markers (key -> base64 string or asset record). */
   setImageData(map) {
     this.imageData = resourceRecord(map);
   }
@@ -508,12 +508,17 @@ export class FigmaClient {
         const src = String(props?.src || '');
         if (src.startsWith('imgref:')) {
           const key = src.slice(7);
-          const base64 = this.imageData[key];
-          return base64 ? { kind: 'embedded-raster', name: props?.name || key || 'Image', base64 } : null;
+          const value = this.imageData[key];
+          if (typeof value === 'string') {
+            return value
+              ? { kind: 'embedded-raster', name: props?.name || key || 'Image', base64: value }
+              : null;
+          }
+          return value && typeof value === 'object'
+            ? { ...value, name: props?.name || value.name || key || 'Image' }
+            : null;
         }
-        return /^https?:\/\//i.test(src)
-          ? { kind: 'remote-raster', name: props?.name || 'Image', src }
-          : null;
+        return null;
       },
     });
   }
@@ -2558,8 +2563,7 @@ export class FigmaClient {
   }
 
   /**
-   * Generate code that creates an image fill from a URL.
-   * Uses figma.createImageAsync for remote URLs.
+   * Generate code that creates an image fill from host-materialized bytes.
    * Returns code that prepends an image paint to fills.
    * scaleMode: FILL (default), FIT, CROP, TILE
    */
@@ -2575,7 +2579,8 @@ export class FigmaClient {
     // placeholder and is reported via __unresolvedVars.
     if (url.startsWith('imgref:')) {
       const key = url.slice(7);
-      const b64 = this.imageData[key];
+      const value = this.imageData[key];
+      const b64 = typeof value === 'string' ? value : value?.base64;
       if (!b64) return '';
       return `
       try {
@@ -2586,10 +2591,8 @@ export class FigmaClient {
         globalThis.__unresolvedVars.add('image:' + ${JSON.stringify(key)} + ' (' + e.message + ')');
       }`;
     }
-    // Image REPLACES fills (not appends) — user expects bg-style behavior
-    return `
-      const __img${safeName} = await figma.createImageAsync(${JSON.stringify(url)});
-      ${elementVar}.fills = [{ type: 'IMAGE', imageHash: __img${safeName}.hash, scaleMode: '${finalMode}' }];`;
+    // Remote URLs must be materialized by the host before Plugin readiness.
+    return '';
   }
 
   /**

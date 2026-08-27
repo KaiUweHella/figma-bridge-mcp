@@ -1715,8 +1715,8 @@ test('figma_run and figma_render share simple and compound non-retrying Semantic
   assert.match(helper, /runInProcessCommandPlan\(plan/);
   assert.match(helper, /compatibilityFallback: false/);
   assert.match(helper, /await ensurePluginReadiness\(\{ deadline/);
-  assert.match(helper, /executePreparedSemanticRender\(prepared/);
-  assert.match(helper, /executePreparedCompoundSemanticRender\(prepared/);
+  assert.match(helper, /executePreparedSemanticRender\(effectivePrepared/);
+  assert.match(helper, /executePreparedCompoundSemanticRender\(effectivePrepared/);
   assert.match(helper, /renderFigmaPlan\(renderPlan/);
   assert.match(helper, /renderFigmaPlans\(renderPlans, options/);
   assert.match(helper, /formatSemanticRenderResult\(outcome\)/);
@@ -1728,7 +1728,8 @@ test('figma_run and figma_render share simple and compound non-retrying Semantic
   assert.doesNotMatch(helper, /runCliPlan\(|runCli\(/);
 
   assert.match(source, /semanticRenderRoute === "command-application"[\s\S]*?runSemanticRenderApplication\(plan, input\.label, preparedSemanticRender\)/);
-  assert.match(source, /semanticRenderRoute === "compound-command-application"[\s\S]*?prepareCompoundSemanticRenderPlan\(plan/);
+  assert.match(source, /semanticRenderRoute === "compound-command-application"[\s\S]*?validateCompoundSemanticRenderPlan\(plan/);
+  assert.match(helper, /prepareCompoundSemanticRenderPlan\(plan/);
   const dedicatedStart = source.indexOf('case "figma_render"');
   const dedicatedEnd = source.indexOf('case "figma_selection"', dedicatedStart);
   const dedicated = source.slice(dedicatedStart, dedicatedEnd);
@@ -1794,7 +1795,7 @@ test('figma_render exposes complete typed simple and compound requests', async (
 
   for (const jsx of [
     '<Frame flex="row"><Frame name="Card 1"><Text>One</Text></Frame><Frame name="Card 2"><Text>Two</Text></Frame></Frame>',
-    '<Frame><Image src="photo.png" /></Frame>',
+    '<Frame><Image src="https://unapproved.example/photo.png" /></Frame>',
   ]) {
     const compatibility = await handleTool('figma_render', { jsx });
     assert.equal(compatibility.isError, undefined, jsx);
@@ -1863,6 +1864,15 @@ test('explicit Command Preview is payload-free and wins over confirm:true', asyn
   assert.match(preview.content[0].text, /capability: render/);
   assert.match(preview.content[0].text, /dispatched: no/);
   assert.doesNotMatch(preview.content[0].text, /private-preview-payload|do not echo me/);
+
+  const remotePreview = await handleTool('figma_render', {
+    jsx: '<Frame><Image src="https://unapproved.example/private.png?signed-secret=never-fetch" /></Frame>',
+    preview: true,
+    confirm: true,
+  });
+  assert.equal(remotePreview.isError, undefined);
+  assert.match(remotePreview.content[0].text, /Guaranteed non-mutating Command Preview/);
+  assert.doesNotMatch(remotePreview.content[0].text, /unapproved\.example|signed-secret|never-fetch/);
 });
 
 test('malformed Render argv and JSX fail before confirmation or Plugin readiness', async () => {

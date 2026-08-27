@@ -618,6 +618,10 @@ _Avoid_: config loader, JavaScript sandbox
 The exact-origin capability that authorizes one Storybook index read before any host network access. It revalidates redirects and every resolved address, pins the connection to an accepted address, preserves the approved HTTP/TLS identity, and owns deadlines plus response limits. Conventional localhost origins work without configuration; other public or private origins require separate explicit policy.
 _Avoid_: URL allowlist, fetch helper, SSRF filter
 
+**Remote Render Asset Policy**:
+The explicit exact-origin capability that materializes a remote PNG, JPEG, GIF or WebP into verified bytes on the host inside one **Command Plan** deadline. It reauthorizes redirects, validates every resolved address, pins the approved HTTP/TLS identity, rejects compression and bounded-response violations, matches MIME to raster bytes and records only a redacted origin/path label plus SHA-256 content identity. Signed query strings may authorize the source request but never enter the **Semantic Render Plan**, Outcome, Audit or provenance. The Figma Plugin receives only the same embedded-raster shape used for workspace images and retains loopback-only network access.
+_Avoid_: Plugin image URL, createImageAsync URL, remote-raster plan, image proxy
+
 **Semantic Render Plan**:
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance. Supported semantic and numeric-string font weights are canonical numeric weights at this boundary, while FLOAT Variable references remain references and only their literal fallback is normalized.
 _Avoid_: JSX tree, generated code, render payload
