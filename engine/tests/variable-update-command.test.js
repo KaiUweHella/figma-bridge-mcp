@@ -75,9 +75,21 @@ test('Variable Update request closes metadata grammar and canonicalizes typed fi
     ['var', 'update', '-n', 'One', '-n', 'Two', 'space/md'],
     ['var', 'update', '--hidden', 'maybe', 'space/md'],
     ['var', 'update', '--scopes', 'FUTURE', 'space/md'],
+    ['var', 'update', '--scopes', 'ALL_SCOPES,GAP', 'space/md'],
     ['var', 'update', '--future', 'private-value', 'space/md'],
     ['var', 'update', '-d', 'Description', 'one', 'two'],
   ]) assert.equal(acceptsVariableUpdateArgv(args), false, args.join(' '));
+});
+
+test('Variable Update rejects type-incompatible scopes before the first metadata write', async () => {
+  const state = fixture();
+  state.variable.resolvedType = 'COLOR';
+  await assert.rejects(
+    () => runCode({ variable: 'space/md', scopes: ['GAP'] }, state.figma),
+    /Variable .* scopes.*incompatible with COLOR/,
+  );
+  assert.deepEqual(state.variable.scopes, ['ALL_SCOPES']);
+  assert.equal(state.descriptionWrites, 0);
 });
 
 test('Variable Update applies every metadata field and preserves exact legacy Facts output', async () => {

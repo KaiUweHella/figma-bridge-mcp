@@ -197,13 +197,15 @@ _Avoid_: variable dump, executable regex, name-only identity, variable edit
 
 **Variable Creation**:
 The bounded, non-retrying creation of one local Variable in one exact local
-Collection. It closes type and optional initial value before readiness,
+Collection. It closes type, optional initial value and optional final
+description, publishing visibility and compatible scope set before readiness,
 resolves Collection ambiguity explicitly, preflights exact-name duplicates,
 creates once, journals identity immediately and removes the new Variable if
-initialization or result projection fails. Intentional duplicates remain an
-explicit capability. Fresh verification treats Figma-owned mode defaults as
-authored runtime facts rather than as evidence of requested initial intent. A
-compact selected-mode result distinguishes `native-default`,
+initialization, metadata assignment or result projection fails. Omitted
+metadata retains Figma's native defaults. Intentional duplicates remain an
+explicit capability. Fresh verification includes final metadata and treats
+Figma-owned mode defaults as authored runtime facts rather than as evidence of
+requested initial intent. A compact selected-mode result distinguishes `native-default`,
 `requested-initial` and `absent`, and reports the total observed mode count.
 Explicit intent remains mandatory to verify. Figma may expand a named EASING
 preset with valid canonical function parameters; custom parameters remain
@@ -217,10 +219,13 @@ is typed before readiness, duplicate intent is explicit, every returned
 Variable is journaled before initialization, and a later failure removes the
 whole journal in reverse before verifying exact absence. It preserves all
 official Variable types and the established batch utility without allowing a
-partially initialized batch to look successful. Native values in unselected
-modes never invalidate an explicit selected-mode write. Each compact created
-result reports the selected mode value source and observed mode count without
-returning an unbounded value matrix; complete topology remains Variable Facts.
+partially initialized batch to look successful. Each item may carry final
+description, publishing visibility and compatible scopes; omitted fields
+retain that Variable's native defaults. Native values in unselected modes never
+invalidate an explicit selected-mode write, and explicit false, zero or empty
+string values remain writes. Each compact created result reports verified final
+metadata, selected mode value source and observed mode count without returning
+an unbounded value matrix; complete topology remains Variable Facts.
 _Avoid_: variable batch eval, partial preflight, first mode, partial success, retryable factory loop
 
 **Variable Visualization**:
@@ -393,9 +398,12 @@ _Avoid_: code-syntax eval, unknown platform, retryable setter, unverified metada
 **Variable Metadata Update**:
 The bounded, non-retrying update of one or more explicit metadata fields on one
 local Variable: name, description, publishing visibility and official scopes.
-It validates complete Variable Facts before mutation, snapshots every requested
-field, validates exact postconditions and restores fields independently so one
-failed restoration does not prevent the others.
+One canonical scope-set policy rejects duplicates, requires `ALL_SCOPES` to
+stand alone and validates each narrow scope against the Variable's resolved
+type before the first write. It validates complete Variable Facts before
+mutation, snapshots every requested field, validates exact postconditions and
+restores fields independently so one failed restoration does not prevent the
+others.
 _Avoid_: variable patch eval, implicit field, retryable assignment, all-or-nothing restore attempt
 
 **Variable Deletion**:

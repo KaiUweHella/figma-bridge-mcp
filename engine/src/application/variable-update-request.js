@@ -1,10 +1,15 @@
 // Closed request Interface for `var update`.
 
-import { VARIABLE_SCOPES } from '../lib/variable-management.js';
+import {
+  MAX_VARIABLE_DESCRIPTION_CODE_UNITS,
+  normalizeVariableDescription,
+  normalizeVariableHidden,
+  normalizeVariableScopes,
+} from '../lib/variable-management.js';
 
 export const MAX_VARIABLE_UPDATE_QUERY_CODE_UNITS = 512;
 export const MAX_VARIABLE_UPDATE_NAME_CODE_UNITS = 1024;
-export const MAX_VARIABLE_UPDATE_DESCRIPTION_CODE_UNITS = 65_536;
+export const MAX_VARIABLE_UPDATE_DESCRIPTION_CODE_UNITS = MAX_VARIABLE_DESCRIPTION_CODE_UNITS;
 const UNSAFE_QUERY_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 
 function requestError(message) {
@@ -35,28 +40,18 @@ function nameValue(value) {
 }
 
 function descriptionValue(value) {
-  if (typeof value !== 'string') throw requestError('description must be text');
-  if (value.length > MAX_VARIABLE_UPDATE_DESCRIPTION_CODE_UNITS) {
-    throw requestError(`description must be at most ${MAX_VARIABLE_UPDATE_DESCRIPTION_CODE_UNITS} code units`);
-  }
-  return value;
+  try { return normalizeVariableDescription(value); }
+  catch (error) { throw requestError(error.message); }
 }
 
 function hiddenValue(value) {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string' || !/^(true|false)$/i.test(value)) {
-    throw requestError('hidden must be true or false');
-  }
-  return value.toLowerCase() === 'true';
+  try { return normalizeVariableHidden(value); }
+  catch (error) { throw requestError(error.message); }
 }
 
 function scopesValue(value) {
-  const parts = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : null;
-  if (!parts) throw requestError('scopes must be a comma-separated list');
-  const scopes = parts.map((scope) => String(scope).trim().toUpperCase()).filter(Boolean);
-  const invalid = scopes.filter((scope) => !VARIABLE_SCOPES.includes(scope));
-  if (invalid.length) throw requestError(`unknown scopes: ${invalid.join(', ')}`);
-  return scopes;
+  try { return normalizeVariableScopes(value); }
+  catch (error) { throw requestError(error.message); }
 }
 
 export function parseVariableUpdateRequest(args) {

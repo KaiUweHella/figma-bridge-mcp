@@ -202,10 +202,12 @@ test('Variable Discovery closes policy-identical list and wildcard-find reads', 
 
 test('Variable Create closes one policy-identical non-retrying journaled write', () => {
   const cli = planFigmaCommand([
-    'var', 'create', '-cTokens', '-tfloat', '-v12', '--allow-duplicate', 'space/md',
+    'var', 'create', '-cTokens', '-tfloat', '-v12', '-dSpacing', '--hidden=true',
+    '--scopes=GAP', '--allow-duplicate', 'space/md',
   ], { adapter: 'cli' });
   const mcp = planFigmaCommand([
     'var', 'create', '--collection=Tokens', '--type=FLOAT', '--value=12',
+    '--description=Spacing', '--hidden', 'true', '--scopes', 'GAP',
     '--allow-duplicate', '--', 'space/md',
   ], { adapter: 'mcp' });
   assert.equal(cli.allowed, true);
@@ -221,12 +223,14 @@ test('Variable Create closes one policy-identical non-retrying journaled write',
     ['var', 'create', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FUTURE', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'One', 'Two'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '--scopes', 'ALL_SCOPES,GAP', 'Name'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'COLOR', '--scopes', 'GAP', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '--future', 'private-value'],
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
 test('Variable Batch Creation closes one policy-identical non-retrying journaled batch', () => {
-  const json = '[{"name":"color/accent","value":"#1234"},{"name":"enabled","type":"BOOLEAN","value":true}]';
+  const json = '[{"name":"color/accent","value":"#1234","description":"Accent","hidden":true,"scopes":["ALL_FILLS"]},{"name":"enabled","type":"BOOLEAN","value":true}]';
   const cli = planFigmaCommand([
     'var', 'create-batch', '-cTokens', '-mDark', json,
   ], { adapter: 'cli' });
@@ -246,6 +250,8 @@ test('Variable Batch Creation closes one policy-identical non-retrying journaled
     ['var', 'create-batch', '-c', 'Tokens', '[]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","future":true}]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x"},{"name":"x"}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"FLOAT","scopes":["ALL_SCOPES","GAP"]}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"COLOR","scopes":["GAP"]}]'],
     ['var', 'create-batch', '-c', 'Tokens', '--future', 'private-value'],
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });

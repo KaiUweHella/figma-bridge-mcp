@@ -119,6 +119,9 @@ variables
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
   .requiredOption('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN, EASING, TIMING')
   .option('-v, --value <value>', 'Initial value; EASING accepts a name or MotionEasing JSON, TIMING uses seconds')
+  .option('-d, --description <text>', 'Final description')
+  .option('--hidden <boolean>', 'Final publishing visibility')
+  .option('--scopes <scopes>', 'Final comma-separated compatible scopes')
   .option('--allow-duplicate', 'Intentionally allow an exact duplicate name in the Collection')
   .allowExcessArguments(false)
   .action(async (name, options) => {
@@ -128,6 +131,9 @@ variables
         collection: options.collection,
         type: options.type,
         value: options.value,
+        description: options.description,
+        hidden: options.hidden,
+        scopes: options.scopes,
         allowDuplicate: options.allowDuplicate === true,
       }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
       const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },

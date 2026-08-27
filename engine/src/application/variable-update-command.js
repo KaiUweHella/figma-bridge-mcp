@@ -9,6 +9,7 @@ import {
   variableFactsLegacyProjection,
 } from './variable-facts-command.js';
 import { variableMutationPluginRuntimeCode } from './variable-mutation-runtime.js';
+import { VARIABLE_SCOPES_BY_TYPE } from '../lib/variable-scope-policy.js';
 import {
   parseVariableUpdateRequest,
   variableUpdateArgvFromRequest,
@@ -60,6 +61,15 @@ export function variableUpdateCommandCode(request) {
     const collection = resolved.collection;
     if (variable.remote || collection.remote) {
       throw new Error('Remote Variables cannot update metadata.');
+    }
+    if (hasScopes) {
+      const scopeOptions = ${JSON.stringify(VARIABLE_SCOPES_BY_TYPE)};
+      const allowedScopes = scopeOptions[variable.resolvedType] || ['ALL_SCOPES'];
+      const incompatibleScopes = nextScopes.filter((scope) => !allowedScopes.includes(scope));
+      if (incompatibleScopes.length) {
+        throw new Error('Variable ' + variable.id + ' scopes '
+          + incompatibleScopes.join(', ') + ' are incompatible with ' + variable.resolvedType + '.');
+      }
     }
     const preflightFacts = await __bridgeVariableFacts(variable, collection);
     if (!__bridgeValidateVariableFacts(preflightFacts)) {

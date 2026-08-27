@@ -2,7 +2,11 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { isFigmaCommandPlan } from "../../../src/capability-catalog.js";
-import { VARIABLE_SCOPES } from "../lib/variable-management.js";
+import {
+  normalizeVariableScopes,
+  VARIABLE_SCOPES,
+} from "../lib/variable-management.js";
+import { VARIABLE_SCOPES_BY_TYPE } from "../lib/variable-scope-policy.js";
 import { MAX_VARIABLE_FACTS_STRING_CODE_UNITS } from "./variable-facts-command.js";
 import { variableMutationPluginRuntimeCode } from "./variable-mutation-runtime.js";
 import {
@@ -49,6 +53,7 @@ export function variableUpdateBatchCommandCode(request) {
   const input = normalizedRequest(request);
   return `(async () => {
     const inputs = ${JSON.stringify(input.items)};
+    const scopeOptions = ${JSON.stringify(VARIABLE_SCOPES_BY_TYPE)};
     ${variableMutationPluginRuntimeCode({ candidateLimit: MAX_VARIABLE_UPDATE_BATCH_CANDIDATES })}
     const fieldsFor = (item) => [
       ...(item.name === undefined ? [] : ['name']),
@@ -80,6 +85,15 @@ export function variableUpdateBatchCommandCode(request) {
         throw new Error('Variable Metadata Update Batch contains a duplicate target.');
       }
       resolvedIds.add(variable.id);
+      if (item.scopes !== undefined) {
+        const allowedScopes = scopeOptions[variable.resolvedType] || ['ALL_SCOPES'];
+        const incompatibleScopes = item.scopes.filter((scope) => !allowedScopes.includes(scope));
+        if (incompatibleScopes.length) {
+          throw new Error('Variable ' + variable.id + ' scopes '
+            + incompatibleScopes.join(', ') + ' are incompatible with '
+            + variable.resolvedType + '.');
+        }
+      }
       const preflightFacts = await __bridgeVariableFacts(variable, collection);
       if (!__bridgeValidateVariableFacts(preflightFacts)) {
         throw new Error('Variable Metadata Update Batch encountered incompatible preflight metadata.');
@@ -222,6 +236,9 @@ function validIdentityList(value, itemCount) {
 }
 
 function validCompactVariable(value) {
+  let normalizedScopes;
+  try { normalizedScopes = normalizeVariableScopes(value?.scopes, value?.resolvedType); }
+  catch { return false; }
   return (
     exactKeys(value, [
       "id",
@@ -239,6 +256,7 @@ function validCompactVariable(value) {
     typeof value.hiddenFromPublishing === "boolean" &&
     Array.isArray(value.scopes) &&
     value.scopes.every((scope) => SCOPE_SET.has(scope)) &&
+    isDeepStrictEqual(normalizedScopes, value.scopes) &&
     exactKeys(value.collection, ["id", "name"]) &&
     boundedString(value.collection.id, { empty: false }) &&
     boundedString(value.collection.name, { empty: false })

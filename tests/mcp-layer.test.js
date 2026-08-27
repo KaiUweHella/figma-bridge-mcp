@@ -445,7 +445,8 @@ test('figma_run routes Variable Create through its shared journaled Application'
 test('figma_run confirms Variable Create and rejects malformed input before readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   const preview = await handleTool('figma_run', {
-    args: ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '-v', '12', 'space/md'],
+    args: ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '-v', '12',
+      '--description', 'Spacing', '--hidden', 'false', '--scopes', 'GAP', 'space/md'],
   });
   assert.equal(preview.isError, undefined);
   assert.match(preview.content[0].text, /Write-confirm mode is on/);
@@ -453,6 +454,8 @@ test('figma_run confirms Variable Create and rejects malformed input before read
     ['var', 'create', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FUTURE', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'One', 'Two'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '--scopes', 'ALL_SCOPES,GAP', 'Name'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'COLOR', '--scopes', 'GAP', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '--future', 'private-value'],
   ]) {
     const result = await handleTool('figma_run', { args });
@@ -478,7 +481,8 @@ test('figma_run routes Variable Batch Creation through its shared journaled Appl
 test('figma_run confirms Variable Batch Creation and rejects malformed input before readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   const preview = await handleTool('figma_run', {
-    args: ['var', 'create-batch', '-c', 'Tokens', '[{"name":"space/md","type":"FLOAT","value":12}]'],
+    args: ['var', 'create-batch', '-c', 'Tokens',
+      '[{"name":"space/md","type":"FLOAT","value":12,"description":"Spacing","hidden":false,"scopes":["GAP"]}]'],
   });
   assert.equal(preview.isError, undefined);
   assert.match(preview.content[0].text, /Write-confirm mode is on/);
@@ -486,6 +490,8 @@ test('figma_run confirms Variable Batch Creation and rejects malformed input bef
     ['var', 'create-batch', '-c', 'Tokens', '[]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","future":true}]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x"},{"name":"x"}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"FLOAT","scopes":["ALL_SCOPES","GAP"]}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"COLOR","scopes":["GAP"]}]'],
     ['var', 'create-batch', '-c', 'Tokens', '--future', 'private-value'],
   ]) {
     const result = await handleTool('figma_run', { args });
@@ -831,6 +837,7 @@ test('figma_run confirms Variable Update and rejects malformed input before read
     ['var', 'update', '-c', 'Tokens', 'space/md'],
     ['var', 'update', '--hidden', 'maybe', 'space/md'],
     ['var', 'update', '--scopes', 'FUTURE', 'space/md'],
+    ['var', 'update', '--scopes', 'ALL_SCOPES,GAP', 'space/md'],
     ['var', 'update', '--future', 'private-value', 'space/md'],
   ]) {
     const result = await handleTool('figma_run', { args });
@@ -868,6 +875,7 @@ test('figma_run confirms one Variable Metadata Update Batch and rejects malforme
     ['var', 'update-batch', '[]'],
     ['var', 'update-batch', '[{"variable":"x"}]'],
     ['var', 'update-batch', '[{"variable":"x","future":true}]'],
+    ['var', 'update-batch', '[{"variable":"x","scopes":["ALL_SCOPES","GAP"]}]'],
     ['var', 'update-batch', '[{"variable":"x","description":"a"},{"variable":"x","description":"b"}]'],
     ['var', 'update-batch', '--future', 'private-value'],
   ]) {

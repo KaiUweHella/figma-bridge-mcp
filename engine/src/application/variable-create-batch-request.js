@@ -1,6 +1,9 @@
 // Closed request Interface for `var create-batch`.
 
 import {
+  normalizeVariableDescription,
+  normalizeVariableHidden,
+  normalizeVariableScopes,
   normalizeVariableValue,
   parseVariableType,
 } from '../lib/variable-management.js';
@@ -25,18 +28,15 @@ function boundedIdentity(value, label, maximum) {
   return value;
 }
 
-function exactKeys(value, keys) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    && Object.getPrototypeOf(value) === Object.prototype
-    && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
-}
-
 function normalizedItem(value, index) {
-  if (!exactKeys(value, value && Object.hasOwn(value, 'value')
-    ? ['name', 'type', 'value'] : ['name', 'type'])) {
-    if (!exactKeys(value, ['name']) && !exactKeys(value, ['name', 'value'])) {
-      throw requestError(`item ${index + 1} must contain only name, optional type, and optional value`);
-    }
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw requestError(`item ${index + 1} must be an object`);
+  }
+  const allowed = new Set(['name', 'type', 'value', 'description', 'hidden', 'scopes']);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length) {
+    throw requestError(`item ${index + 1} contains unknown fields: ${unknown.join(', ')}`);
   }
   const name = boundedIdentity(value.name, `item ${index + 1} name`,
     MAX_VARIABLE_CREATE_BATCH_NAME_CODE_UNITS);
@@ -52,10 +52,25 @@ function normalizedItem(value, index) {
       throw requestError(`item ${index + 1}: STRING value must be at most ${MAX_VARIABLE_CREATE_BATCH_STRING_VALUE_CODE_UNITS} code units`);
     }
   }
+  let description;
+  let hidden;
+  let scopes;
+  try {
+    if (Object.hasOwn(value, 'description')) {
+      description = normalizeVariableDescription(value.description);
+    }
+    if (Object.hasOwn(value, 'hidden')) hidden = normalizeVariableHidden(value.hidden);
+    if (Object.hasOwn(value, 'scopes')) {
+      scopes = normalizeVariableScopes(value.scopes, type);
+    }
+  } catch (error) { throw requestError(`item ${index + 1}: ${error.message}`); }
   return {
     name,
     type,
     ...(initialValue === undefined ? {} : { value: initialValue }),
+    ...(description === undefined ? {} : { description }),
+    ...(hidden === undefined ? {} : { hidden }),
+    ...(scopes === undefined ? {} : { scopes }),
   };
 }
 

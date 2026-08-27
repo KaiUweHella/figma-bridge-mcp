@@ -123,6 +123,7 @@ test("Variable Metadata Update Batch closes and canonicalizes a bounded typed it
     ["var", "update-batch", '[{"variable":"x","future":true}]'],
     ["var", "update-batch", '[{"variable":"x"}]'],
     ["var", "update-batch", '[{"variable":"x","hidden":"true"}]'],
+    ["var", "update-batch", '[{"variable":"x","scopes":["ALL_SCOPES","GAP"]}]'],
     [
       "var",
       "update-batch",
@@ -153,6 +154,16 @@ test("Variable Metadata Update Batch preflights every target before its first wr
     /preflight metadata/
   );
   assert.equal(invalid.writes.length, 0);
+
+  const incompatible = fixture();
+  incompatible.variables[3].resolvedType = "COLOR";
+  const incompatibleRequest = fourDescriptions();
+  incompatibleRequest.items[3] = { variable: "space/4", scopes: ["GAP"] };
+  await assert.rejects(
+    () => runCode(incompatibleRequest, incompatible.figma),
+    /Variable .* scopes.*incompatible with COLOR/
+  );
+  assert.equal(incompatible.writes.length, 0);
 
   const duplicate = fixture();
   await assert.rejects(

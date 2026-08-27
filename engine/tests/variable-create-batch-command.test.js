@@ -18,7 +18,7 @@ function fixture({
   collections = null, float32ColorReadback = false,
   verificationUnavailableAfterRemoval = false,
   nativeValuesByMode = {}, nativeValuesForType = null, easingPresetReadback = false,
-  easingPresetBounce = 0.25,
+  easingPresetBounce = 0.25, scopeSetIgnoredFor = null,
 } = {}) {
   const collection = {
     id: 'VariableCollectionId:1', key: 'collection-key', name: 'Tokens', remote: false,
@@ -43,6 +43,7 @@ function fixture({
         const variable = {
           id: `VariableID:new:${created.length}`, key: '', name, resolvedType: type,
           remote: false, variableCollectionId: target.id,
+          description: '', hiddenFromPublishing: false, scopes: ['ALL_SCOPES'],
           valuesByMode: structuredClone(initialNativeValues), removed: false,
           setValueForMode(modeId, value) {
             if (name === setFailsFor) throw new Error('set failed');
@@ -61,6 +62,11 @@ function fixture({
             this.removed = true;
           },
         };
+        if (name === scopeSetIgnoredFor) {
+          Object.defineProperty(variable, 'scopes', {
+            enumerable: true, get: () => ['ALL_SCOPES'], set: () => {},
+          });
+        }
         created.push(variable);
         return variable;
       },
@@ -78,7 +84,7 @@ test('Variable Batch Creation closes and canonicalizes a complete bounded batch'
     'variables', 'create-batch', '-cTokens', '-mDark', '--', JSON.stringify([
       { name: 'color/accent', value: '#1234' },
       { name: 'enabled', type: 'boolean', value: 'false' },
-      { name: 'duration', type: 'timing', value: 180 },
+      { name: 'duration', type: 'timing', value: 180, description: 'Seconds', hidden: true },
       { name: 'motion', type: 'easing', value: 'gentle' },
     ]),
   ]);
@@ -89,7 +95,7 @@ test('Variable Batch Creation closes and canonicalizes a complete bounded batch'
         r: 17 / 255, g: 34 / 255, b: 51 / 255, a: 68 / 255,
       } },
       { name: 'enabled', type: 'BOOLEAN', value: false },
-      { name: 'duration', type: 'TIMING', value: 180 },
+      { name: 'duration', type: 'TIMING', value: 180, description: 'Seconds', hidden: true },
       { name: 'motion', type: 'EASING', value: { type: 'GENTLE' } },
     ],
   });
@@ -98,9 +104,49 @@ test('Variable Batch Creation closes and canonicalizes a complete bounded batch'
     ['var', 'create-batch', '-c', 'Tokens', '[]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","future":true}]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x"},{"name":"x"}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"FLOAT","scopes":["ALL_SCOPES","GAP"]}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"COLOR","scopes":["GAP"]}]'],
     ['var', 'create-batch', '[{"name":"x"}]'],
     ['var', 'create-batch', '-c', 'Tokens', '--future', 'private-value'],
   ]) assert.equal(acceptsVariableCreateBatchArgv(args), false, args.join(' '));
+});
+
+test('Variable Batch Creation applies per-item final metadata and preserves empty mode writes', async () => {
+  const target = fixture();
+  const request = {
+    collection: 'Tokens', mode: 'Dark', items: [
+      {
+        name: 'space/final', type: 'FLOAT', value: 0,
+        description: 'Final spacing', hidden: true, scopes: ['GAP'],
+      },
+      { name: 'label/empty', type: 'STRING', value: '', scopes: ['TEXT_CONTENT'] },
+    ],
+  };
+  const serialized = await runCode(request, target.figma);
+  const result = await executeVariableCreateBatch(request, { evaluate: async () => serialized });
+  assert.deepEqual(result.result.created.map((item) => item.metadata), [
+    { description: 'Final spacing', hiddenFromPublishing: true, scopes: ['GAP'] },
+    { description: '', hiddenFromPublishing: false, scopes: ['TEXT_CONTENT'] },
+  ]);
+  assert.equal(target.created[0].valuesByMode['ModeId:dark'], 0);
+  assert.equal(target.created[1].valuesByMode['ModeId:dark'], '');
+});
+
+test('Variable Batch Creation removes its complete journal when final metadata is ignored', async () => {
+  const target = fixture({ scopeSetIgnoredFor: 'second' });
+  const request = {
+    collection: 'Tokens', items: [
+      { name: 'first', type: 'FLOAT', value: 1, scopes: ['GAP'] },
+      { name: 'second', type: 'FLOAT', value: 2, scopes: ['GAP'] },
+    ],
+  };
+  const serialized = await runCode(request, target.figma);
+  await assert.rejects(
+    () => executeVariableCreateBatch(request, { evaluate: async () => serialized }),
+    (error) => error.mutationOutcome === 'rolled-back'
+      && error.mutationReport.removed === 2,
+  );
+  assert.deepEqual(target.created.map((item) => item.removed), [true, true]);
 });
 
 test('Variable Batch Creation preflights Collection and exact-name ambiguity before factories', async () => {

@@ -2,7 +2,12 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { normalizeVariableValue } from '../lib/variable-management.js';
+import {
+  MAX_VARIABLE_DESCRIPTION_CODE_UNITS,
+  normalizeVariableScopes,
+  normalizeVariableValue,
+} from '../lib/variable-management.js';
+import { VARIABLE_SCOPES_BY_TYPE } from '../lib/variable-scope-policy.js';
 import {
   MAX_VARIABLE_CREATE_BATCH_ITEMS,
   parseVariableCreateBatchRequest,
@@ -34,6 +39,7 @@ export function variableCreateBatchCommandCode(request) {
     const modeQuery = ${JSON.stringify(input.mode)};
     const allowDuplicate = ${input.allowDuplicate};
     const variableTypes = new Set(['BOOLEAN', 'COLOR', 'EASING', 'FLOAT', 'STRING', 'TIMING']);
+    const scopeOptions = ${JSON.stringify(VARIABLE_SCOPES_BY_TYPE)};
     const [collections, variables] = await Promise.all([
       figma.variables.getLocalVariableCollectionsAsync(),
       figma.variables.getLocalVariablesAsync(),
@@ -145,9 +151,23 @@ export function variableCreateBatchCommandCode(request) {
       for (let index = 0; index < items.length; index++) {
         const item = items[index];
         const variable = figma.variables.createVariable(item.name, collection, item.type);
-        journal.push({ variable, index });
+        const nativeMetadata = {
+          description: variable.description,
+          hiddenFromPublishing: variable.hiddenFromPublishing,
+          scopes: Array.isArray(variable.scopes) ? [...variable.scopes] : null,
+        };
+        journal.push({ variable, index, nativeMetadata });
         if (Object.prototype.hasOwnProperty.call(item, 'value')) {
           variable.setValueForMode(mode.modeId, item.value);
+        }
+        if (Object.prototype.hasOwnProperty.call(item, 'description')) {
+          variable.description = item.description;
+        }
+        if (Object.prototype.hasOwnProperty.call(item, 'hidden')) {
+          variable.hiddenFromPublishing = item.hidden;
+        }
+        if (Object.prototype.hasOwnProperty.call(item, 'scopes')) {
+          variable.scopes = [...item.scopes];
         }
       }
       const after = await figma.variables.getLocalVariablesAsync();
@@ -170,6 +190,28 @@ export function variableCreateBatchCommandCode(request) {
           || !variable.valuesByMode || typeof variable.valuesByMode !== 'object') {
           throw new Error('Variable Batch Creation encountered incompatible created identity.');
         }
+        const expectedDescription = Object.prototype.hasOwnProperty.call(item, 'description')
+          ? item.description : entry.nativeMetadata.description;
+        const expectedHidden = Object.prototype.hasOwnProperty.call(item, 'hidden')
+          ? item.hidden : entry.nativeMetadata.hiddenFromPublishing;
+        const expectedScopes = Object.prototype.hasOwnProperty.call(item, 'scopes')
+          ? item.scopes : entry.nativeMetadata.scopes;
+        const allowedScopes = scopeOptions[item.type] || ['ALL_SCOPES'];
+        const validScopeSet = Array.isArray(variable.scopes)
+          && new Set(variable.scopes).size === variable.scopes.length
+          && (!variable.scopes.includes('ALL_SCOPES') || variable.scopes.length === 1)
+          && variable.scopes.every((scope) => allowedScopes.includes(scope));
+        if (typeof expectedDescription !== 'string'
+          || expectedDescription.length > ${MAX_VARIABLE_DESCRIPTION_CODE_UNITS}
+          || variable.description !== expectedDescription
+          || typeof expectedHidden !== 'boolean'
+          || variable.hiddenFromPublishing !== expectedHidden
+          || !Array.isArray(expectedScopes) || !validScopeSet
+          || !Array.isArray(variable.scopes)
+          || variable.scopes.length !== expectedScopes.length
+          || variable.scopes.some((scope, index) => scope !== expectedScopes[index])) {
+          throw new Error('Variable Batch Creation encountered incompatible created metadata.');
+        }
         const observedModeIds = Object.keys(variable.valuesByMode);
         if (observedModeIds.length > collection.modes.length
           || observedModeIds.some((modeId) => !collection.modes.some((item) => item.modeId === modeId))) {
@@ -183,6 +225,11 @@ export function variableCreateBatchCommandCode(request) {
         }
         created.push({
           ...compact(variable, entry.index),
+          metadata: {
+            description: variable.description,
+            hiddenFromPublishing: variable.hiddenFromPublishing,
+            scopes: [...variable.scopes],
+          },
           modeValue: {
             modeId: mode.modeId,
             source: hasValue ? 'requested-initial' : (stored ? 'native-default' : 'absent'),
@@ -299,7 +346,7 @@ function equivalent(actual, expected) {
 function validCreatedTarget(value, input) {
   if (!exactKeys(value, [
     'index', 'id', 'name', 'resolvedType', 'variableCollectionId',
-    'modeValue', 'observedModeCount',
+    'metadata', 'modeValue', 'observedModeCount',
   ])) return false;
   const target = {
     index: value.index, id: value.id, name: value.name,
@@ -312,6 +359,19 @@ function validCreatedTarget(value, input) {
     || typeof value.modeValue.stored !== 'boolean'
     || !boundedString(value.modeValue.modeId, { empty: false })) return false;
   const item = input.items[value.index];
+  let normalizedScopes;
+  try { normalizedScopes = normalizeVariableScopes(value.metadata?.scopes, item.type); }
+  catch { return false; }
+  if (!exactKeys(value.metadata, ['description', 'hiddenFromPublishing', 'scopes'])
+    || typeof value.metadata.description !== 'string'
+    || value.metadata.description.length > MAX_VARIABLE_DESCRIPTION_CODE_UNITS
+    || typeof value.metadata.hiddenFromPublishing !== 'boolean'
+    || !isDeepStrictEqual(normalizedScopes, value.metadata.scopes)
+    || (item.description !== undefined && value.metadata.description !== item.description)
+    || (item.hidden !== undefined && value.metadata.hiddenFromPublishing !== item.hidden)
+    || (item.scopes !== undefined && !isDeepStrictEqual(value.metadata.scopes, item.scopes))) {
+    return false;
+  }
   const hasValue = Object.prototype.hasOwnProperty.call(item, 'value');
   if (!value.modeValue.stored) {
     return !hasValue && value.modeValue.source === 'absent' && value.modeValue.value === null;

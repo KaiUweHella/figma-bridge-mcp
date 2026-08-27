@@ -1,3 +1,5 @@
+import { VARIABLE_SCOPES_BY_TYPE } from './variable-scope-policy.js';
+
 const VARIABLE_SCOPES = Object.freeze([
   'ALL_SCOPES', 'TEXT_CONTENT', 'CORNER_RADIUS', 'WIDTH_HEIGHT', 'GAP',
   'ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL', 'STROKE_COLOR',
@@ -7,6 +9,7 @@ const VARIABLE_SCOPES = Object.freeze([
 ]);
 
 const VARIABLE_TYPES = Object.freeze(['BOOLEAN', 'COLOR', 'EASING', 'FLOAT', 'STRING', 'TIMING']);
+const MAX_VARIABLE_DESCRIPTION_CODE_UNITS = 65_536;
 const EASING_TYPES = Object.freeze([
   'EASE_IN', 'EASE_OUT', 'EASE_IN_AND_OUT', 'LINEAR', 'EASE_IN_BACK',
   'EASE_OUT_BACK', 'EASE_IN_AND_OUT_BACK', 'CUSTOM_CUBIC_BEZIER', 'GENTLE',
@@ -17,6 +20,44 @@ function parseVariableType(value) {
   const type = String(value).trim().toUpperCase();
   if (!VARIABLE_TYPES.includes(type)) throw new Error(`Type must be one of: ${VARIABLE_TYPES.join(', ')}`);
   return type;
+}
+
+function normalizeVariableDescription(value) {
+  if (typeof value !== 'string') throw new Error('description must be text');
+  if (value.length > MAX_VARIABLE_DESCRIPTION_CODE_UNITS) {
+    throw new Error(`description must be at most ${MAX_VARIABLE_DESCRIPTION_CODE_UNITS} code units`);
+  }
+  return value;
+}
+
+function normalizeVariableHidden(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string' || !/^(true|false)$/i.test(value)) {
+    throw new Error('hidden must be true or false');
+  }
+  return value.toLowerCase() === 'true';
+}
+
+function normalizeVariableScopes(value, resolvedType = null) {
+  const parts = Array.isArray(value) ? value
+    : typeof value === 'string' ? value.split(',') : null;
+  if (!parts) throw new Error('scopes must be a comma-separated list or array');
+  const scopes = parts.map((scope) => String(scope).trim().toUpperCase()).filter(Boolean);
+  const invalid = scopes.filter((scope) => !VARIABLE_SCOPES.includes(scope));
+  if (invalid.length) throw new Error(`unknown scopes: ${invalid.join(', ')}`);
+  if (new Set(scopes).size !== scopes.length) throw new Error('scopes must not contain duplicates');
+  if (scopes.includes('ALL_SCOPES') && scopes.length !== 1) {
+    throw new Error('ALL_SCOPES must be the only scope');
+  }
+  if (resolvedType !== null) {
+    const type = parseVariableType(resolvedType);
+    const allowed = VARIABLE_SCOPES_BY_TYPE[type] || ['ALL_SCOPES'];
+    const incompatible = scopes.filter((scope) => !allowed.includes(scope));
+    if (incompatible.length) {
+      throw new Error(`${incompatible.join(', ')} scopes are incompatible with ${type}`);
+    }
+  }
+  return scopes;
 }
 
 function exactKeys(value, keys) {
@@ -177,7 +218,8 @@ const __variableFacts = async (v) => {
 }
 
 export {
-  EASING_TYPES, VARIABLE_SCOPES, VARIABLE_TYPES,
+  EASING_TYPES, MAX_VARIABLE_DESCRIPTION_CODE_UNITS, VARIABLE_SCOPES, VARIABLE_TYPES,
+  normalizeVariableDescription, normalizeVariableHidden, normalizeVariableScopes,
   normalizeVariableValue, parseBoolean,
   parseVariableLiteral, parseVariableType,
 };

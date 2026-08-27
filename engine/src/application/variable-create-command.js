@@ -2,7 +2,12 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { normalizeVariableValue } from '../lib/variable-management.js';
+import {
+  MAX_VARIABLE_DESCRIPTION_CODE_UNITS,
+  normalizeVariableScopes,
+  normalizeVariableValue,
+} from '../lib/variable-management.js';
+import { VARIABLE_SCOPES_BY_TYPE } from '../lib/variable-scope-policy.js';
 import {
   parseVariableCreateRequest,
   variableCreateArgvFromRequest,
@@ -13,7 +18,7 @@ export { variableCreateArgvFromRequest, variableCreatePlanningArgvFromRequest } 
 
 const VARIABLE_CREATE_APPLICATION_ID = 'var.create';
 export const MAX_VARIABLE_CREATE_CANDIDATES = 100_000;
-export const MAX_VARIABLE_CREATE_SERIALIZED_CODE_UNITS = 32_768;
+export const MAX_VARIABLE_CREATE_SERIALIZED_CODE_UNITS = 131_072;
 const MAX_VARIABLE_CREATE_STRING_CODE_UNITS = 1024;
 const MAX_VARIABLE_CREATE_MODES = 1_000;
 const VARIABLE_TYPES = new Set(['BOOLEAN', 'COLOR', 'EASING', 'FLOAT', 'STRING', 'TIMING']);
@@ -30,7 +35,14 @@ export function variableCreateCode(request) {
     const type = ${JSON.stringify(input.type)};
     const hasInitialValue = ${input.value !== undefined};
     const initialValue = ${input.value === undefined ? 'null' : JSON.stringify(input.value)};
+    const hasDescription = ${input.description !== undefined};
+    const nextDescription = ${JSON.stringify(input.description ?? null)};
+    const hasHidden = ${input.hidden !== undefined};
+    const nextHidden = ${JSON.stringify(input.hidden ?? null)};
+    const hasScopes = ${input.scopes !== undefined};
+    const nextScopes = ${JSON.stringify(input.scopes ?? null)};
     const allowDuplicate = ${input.allowDuplicate};
+    const scopeOptions = ${JSON.stringify(VARIABLE_SCOPES_BY_TYPE)};
     const collections = await figma.variables.getLocalVariableCollectionsAsync();
     if (!Array.isArray(collections) || collections.length > ${MAX_VARIABLE_CREATE_CANDIDATES}) {
       throw new Error('Variable Create candidate limit exceeded.');
@@ -83,8 +95,12 @@ export function variableCreateCode(request) {
       variableCollectionId: candidate.variableCollectionId,
     });
     const createdId = variable.id;
-    const expectedScopes = Array.isArray(variable.scopes) ? [...variable.scopes] : null;
-    const expectedHiddenFromPublishing = variable.hiddenFromPublishing;
+    const nativeDescription = variable.description;
+    const nativeScopes = Array.isArray(variable.scopes) ? [...variable.scopes] : null;
+    const nativeHiddenFromPublishing = variable.hiddenFromPublishing;
+    const expectedDescription = hasDescription ? nextDescription : nativeDescription;
+    const expectedScopes = hasScopes ? [...nextScopes] : nativeScopes;
+    const expectedHiddenFromPublishing = hasHidden ? nextHidden : nativeHiddenFromPublishing;
     const equivalent = (actual, expected) => {
       if (typeof actual === 'number' && typeof expected === 'number') {
         return Number.isFinite(actual) && Number.isFinite(expected)
@@ -118,6 +134,9 @@ export function variableCreateCode(request) {
     };
     try {
       if (hasInitialValue) variable.setValueForMode(collection.defaultModeId, initialValue);
+      if (hasDescription) variable.description = nextDescription;
+      if (hasHidden) variable.hiddenFromPublishing = nextHidden;
+      if (hasScopes) variable.scopes = [...nextScopes];
       const [verifiedCollection, verifiedVariable] = await Promise.all([
         figma.variables.getVariableCollectionByIdAsync(collection.id),
         figma.variables.getVariableByIdAsync(createdId),
@@ -132,6 +151,12 @@ export function variableCreateCode(request) {
         throw new Error('Variable Create could not verify Collection membership.');
       }
       const created = identity(verifiedVariable || {});
+      const allowedScopes = scopeOptions[type] || ['ALL_SCOPES'];
+      const validScopeSet = Array.isArray(verifiedVariable?.scopes)
+        && new Set(verifiedVariable.scopes).size === verifiedVariable.scopes.length
+        && (!verifiedVariable.scopes.includes('ALL_SCOPES')
+          || verifiedVariable.scopes.length === 1)
+        && verifiedVariable.scopes.every((scope) => allowedScopes.includes(scope));
       if (typeof created.id !== 'string' || created.id.length < 1
         || created.id.length > ${MAX_VARIABLE_CREATE_STRING_CODE_UNITS}
         || !(created.key === null || (typeof created.key === 'string'
@@ -140,7 +165,11 @@ export function variableCreateCode(request) {
         || created.variableCollectionId !== collection.id) {
         throw new Error('Variable Create encountered invalid created identity.');
       }
-      if (!expectedScopes || expectedScopes.length > ${MAX_VARIABLE_CREATE_MODES}
+      if (typeof expectedDescription !== 'string'
+        || expectedDescription.length > ${MAX_VARIABLE_DESCRIPTION_CODE_UNITS}
+        || verifiedVariable.description !== expectedDescription
+        || !expectedScopes || !validScopeSet
+        || expectedScopes.length > ${MAX_VARIABLE_CREATE_MODES}
         || expectedScopes.some((scope) => !validText(scope, false))
         || !Array.isArray(verifiedVariable.scopes)
         || verifiedVariable.scopes.length !== expectedScopes.length
@@ -171,6 +200,11 @@ export function variableCreateCode(request) {
       const payload = {
         schemaVersion: 1, status: 'created', variable: created,
         collection: { id: collection.id, name: collection.name, modeId: collection.defaultModeId },
+        metadata: {
+          description: verifiedVariable.description,
+          hiddenFromPublishing: verifiedVariable.hiddenFromPublishing,
+          scopes: [...verifiedVariable.scopes],
+        },
         initialValueSet: hasInitialValue, modeValue, observedModeCount: observedModeIds.length,
         duplicateCountBefore: duplicates.length, residue: [],
       };
@@ -273,9 +307,24 @@ function validModeValue(value, input, collection) {
   return value.source === 'requested-initial' && equivalent(value.value, input.value);
 }
 
+function validMetadata(value, input) {
+  let normalizedScopes;
+  try { normalizedScopes = normalizeVariableScopes(value?.scopes, input.type); }
+  catch { return false; }
+  return exactKeys(value, ['description', 'hiddenFromPublishing', 'scopes'])
+    && typeof value.description === 'string'
+    && value.description.length <= MAX_VARIABLE_DESCRIPTION_CODE_UNITS
+    && typeof value.hiddenFromPublishing === 'boolean'
+    && Array.isArray(value.scopes) && value.scopes.length <= MAX_VARIABLE_CREATE_MODES
+    && isDeepStrictEqual(normalizedScopes, value.scopes)
+    && (input.description === undefined || value.description === input.description)
+    && (input.hidden === undefined || value.hiddenFromPublishing === input.hidden)
+    && (input.scopes === undefined || isDeepStrictEqual(value.scopes, input.scopes));
+}
+
 function validSuccess(value, input) {
   return exactKeys(value, [
-    'schemaVersion', 'status', 'variable', 'collection', 'initialValueSet', 'modeValue',
+    'schemaVersion', 'status', 'variable', 'collection', 'metadata', 'initialValueSet', 'modeValue',
     'observedModeCount', 'duplicateCountBefore', 'residue',
   ]) && value.schemaVersion === 1 && value.status === 'created'
     && validIdentity(value.variable, input, { created: true })
@@ -284,6 +333,7 @@ function validSuccess(value, input) {
     && boundedString(value.collection.name)
     && boundedString(value.collection.modeId, { empty: false })
     && value.variable.variableCollectionId === value.collection.id
+    && validMetadata(value.metadata, input)
     && value.initialValueSet === (input.value !== undefined)
     && validModeValue(value.modeValue, input, value.collection)
     && Number.isSafeInteger(value.observedModeCount) && value.observedModeCount >= 0

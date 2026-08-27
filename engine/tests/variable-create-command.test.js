@@ -16,7 +16,7 @@ import {
 function fixture({
   existing = [], setFails = false, setIgnored = false, freshIdentityMismatch = false,
   removeFails = false, retainRemovedReadback = false, normalizeValue = (value) => value,
-  nativeValuesByMode = {}, collectionModes = null,
+  nativeValuesByMode = {}, collectionModes = null, scopeSetIgnored = false,
 } = {}) {
   const modes = collectionModes || [{ modeId: 'ModeId:default', name: 'Default' }];
   const collection = {
@@ -42,7 +42,7 @@ function fixture({
           id, key: '', name, resolvedType: type, remote: false,
           variableCollectionId: target.id,
           valuesByMode: structuredClone(nativeValuesByMode), removed: false,
-          scopes: ['ALL_SCOPES'], hiddenFromPublishing: false,
+          description: '', scopes: ['ALL_SCOPES'], hiddenFromPublishing: false,
           setValueForMode(modeId, value) {
             if (setFails) throw new Error('set failed');
             if (!setIgnored) this.valuesByMode[modeId] = normalizeValue(value);
@@ -54,6 +54,11 @@ function fixture({
             target.variableIds = target.variableIds.filter((candidate) => candidate !== id);
           },
         };
+        if (scopeSetIgnored) {
+          Object.defineProperty(variable, 'scopes', {
+            enumerable: true, get: () => ['ALL_SCOPES'], set: () => {},
+          });
+        }
         created.push(variable);
         byId.set(id, variable);
         target.variableIds.push(id);
@@ -78,10 +83,12 @@ test('Variable Create request closes options and canonicalizes every typed value
   assert.deepEqual(variableCreateArgvFromRequest({
     name: 'motion/standard', collection: 'Tokens', type: 'easing',
     value: { type: 'CUSTOM_SPRING', easingFunctionSpring: { bounce: 0.4 } },
+    description: 'Default motion', hidden: true, scopes: ['ALL_SCOPES'],
     allowDuplicate: true,
   }), [
     'var', 'create', '--collection', 'Tokens', '--type', 'EASING',
     '--value', '{"type":"CUSTOM_SPRING","easingFunctionSpring":{"bounce":0.4}}',
+    '--description', 'Default motion', '--hidden', 'true', '--scopes', 'ALL_SCOPES',
     '--allow-duplicate', '--', 'motion/standard',
   ]);
   for (const args of [
@@ -90,7 +97,49 @@ test('Variable Create request closes options and canonicalizes every typed value
     ['var', 'create', '-c', 'Tokens', '-c', 'Other', '-t', 'FLOAT', 'Name'],
     ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'One', 'Two'],
     ['var', 'create', '-c', 'Tokens', '-t', 'EASING', '-v', '{"type":"CUSTOM_SPRING","easingFunctionSpring":{"bounce":2}}', 'Name'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '--scopes', 'ALL_SCOPES,GAP', 'Name'],
+    ['var', 'create', '-c', 'Tokens', '-t', 'COLOR', '--scopes', 'GAP', 'Name'],
   ]) assert.equal(acceptsVariableCreateArgv(args), false, args.join(' '));
+});
+
+test('Variable Create applies and freshly verifies final metadata without changing omitted defaults', async () => {
+  const explicit = fixture();
+  const request = {
+    name: 'space/final', collection: 'Tokens', type: 'FLOAT', value: 12,
+    description: 'Final spacing', hidden: true, scopes: ['GAP'],
+  };
+  const serialized = await runCode(request, explicit.figma);
+  const result = await executeVariableCreate(request, { evaluate: async () => serialized });
+  assert.deepEqual(result.result.metadata, {
+    description: 'Final spacing', hiddenFromPublishing: true, scopes: ['GAP'],
+  });
+  assert.equal(explicit.created[0].description, 'Final spacing');
+  assert.equal(explicit.created[0].hiddenFromPublishing, true);
+  assert.deepEqual(explicit.created[0].scopes, ['GAP']);
+
+  const omitted = fixture();
+  const omittedRequest = { name: 'space/native', collection: 'Tokens', type: 'FLOAT' };
+  const omittedSerialized = await runCode(omittedRequest, omitted.figma);
+  const omittedResult = await executeVariableCreate(omittedRequest, {
+    evaluate: async () => omittedSerialized,
+  });
+  assert.deepEqual(omittedResult.result.metadata, {
+    description: '', hiddenFromPublishing: false, scopes: ['ALL_SCOPES'],
+  });
+});
+
+test('Variable Create removes its journaled Variable when final metadata is ignored', async () => {
+  const target = fixture({ scopeSetIgnored: true });
+  const request = {
+    name: 'space/rejected', collection: 'Tokens', type: 'FLOAT', scopes: ['GAP'],
+  };
+  const serialized = await runCode(request, target.figma);
+  await assert.rejects(
+    () => executeVariableCreate(request, { evaluate: async () => serialized }),
+    (error) => error.mutationOutcome === 'rolled-back'
+      && error.mutationReport.removed === 1,
+  );
+  assert.equal(target.created[0].removed, true);
 });
 
 test('Variable Create resolves one exact Collection and preserves intentional duplicate utility', async () => {
