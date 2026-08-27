@@ -592,7 +592,8 @@ export function jsxTreeToSemanticModel(rootProps, children, {
     const iconAsset = type === 'icon' && typeof resolveIconAsset === 'function'
       ? resolveIconAsset(props?.name)
       : null;
-    const imageAsset = type === 'image' && typeof resolveImageAsset === 'function'
+    const imageAsset = (type === 'image' || (type === 'frame' && props?.image != null))
+      && typeof resolveImageAsset === 'function'
       ? resolveImageAsset(props || {})
       : null;
     if (type === 'icon' && !iconAsset && !isIconResolved(props?.name)) {

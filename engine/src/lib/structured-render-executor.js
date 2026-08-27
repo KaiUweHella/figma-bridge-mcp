@@ -776,7 +776,7 @@ async function prepareStructuredImages(figmaApi, plan, journal = null) {
   const intents = [];
   const bindings = new WeakMap();
   const collect = (node) => {
-    if (node.source.type === 'image') intents.push(node);
+    if (node.asset?.kind === 'embedded-raster') intents.push(node);
     for (const child of node.children || []) collect(child);
   };
   collect(plan.root);
@@ -836,7 +836,8 @@ export function inspectStructuredRenderPlan(plan) {
   let fallbackAnnotationCount = 0;
   const frameProps = new Set([
     'name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'flex', 'gap', 'p', 'padding', 'px', 'py',
-    'pt', 'pr', 'pb', 'pl', 'items', 'align', 'justify', 'bg', 'fill', 'rounded',
+    'pt', 'pr', 'pb', 'pl', 'items', 'align', 'justify', 'bg', 'fill', 'image',
+    'imageScale', 'rounded',
     'radius', 'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing',
     'clip', 'overflow', 'position', 'x', 'y', 'grow', 'stretch', 'hug', 'opacity', 'visible', 'locked', 'rotate',
     'blendMode', 'mask', 'maskType', 'stroke', 'strokeWidth', 'strokeAlign',
@@ -965,6 +966,10 @@ export function inspectStructuredRenderPlan(plan) {
       }
       const props = node.source.props;
       if (type === 'frame' && (!structuredFillPaintSupported(props.bg ?? props.fill) || !structuredPaintSupported(props.stroke))) problems.push(`${path}: frame paint needs the compatibility executor`);
+      if (type === 'frame' && props.image != null) {
+        if (!node.asset || node.asset.kind !== 'embedded-raster') problems.push(`${path}: frame image needs host-materialized embedded bytes`);
+        if (props.imageScale != null && !['fill', 'fit', 'crop', 'tile'].includes(String(props.imageScale).toLowerCase())) problems.push(`${path}: imageScale is unsupported`);
+      }
       if (type === 'text' && !structuredPaintSupported(props.color)) problems.push(`${path}: text paint needs the compatibility executor`);
       if (type === 'rect' && !structuredFillPaintSupported(props.bg ?? props.fill)) problems.push(`${path}: rectangle paint needs the compatibility executor`);
       if (type === 'ellipse' && (!structuredFillPaintSupported(props.bg ?? props.fill) || !structuredPaintSupported(props.stroke))) problems.push(`${path}: ellipse paint needs the compatibility executor`);
@@ -2033,7 +2038,9 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
       const width = resolvedNumber(semanticNode, 'width', value(props, 'w', 'width'), 100);
       created.resize(width, resolvedNumber(semanticNode, 'height', value(props, 'h', 'height'), width));
       const background = props.bg ?? props.fill;
-      created.fills = background && background !== 'none' ? boundPaints(semanticNode, 'fill', background, '#808080', created) : [];
+      created.fills = background && background !== 'none'
+        ? boundPaints(semanticNode, 'fill', background, '#808080', created)
+        : [];
       if (props.stroke && props.stroke !== 'none') {
         created.strokes = [boundPaint(semanticNode, 'stroke', props.stroke, '#808080', created)];
         created.strokeWeight = structuredNumber(props.strokeWidth, 1);
@@ -2140,7 +2147,18 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
         created.counterAxisSizingMode = hugHeight || height == null || height === 'hug' ? 'AUTO' : 'FIXED';
       }
       const background = props.bg ?? props.fill;
-      created.fills = background && background !== 'none' ? boundPaints(semanticNode, 'fill', background, '#808080', created) : [];
+      if (semanticNode.asset?.kind === 'embedded-raster') {
+        const imageHash = imageContext.bindings.get(semanticNode);
+        if (!imageHash) throw new Error(`Structured image preflight lost ${created.name}`);
+        created.fills = [{
+          type: 'IMAGE', imageHash,
+          scaleMode: String(props.imageScale || 'FILL').toUpperCase(),
+        }];
+      } else {
+        created.fills = background && background !== 'none'
+          ? boundPaints(semanticNode, 'fill', background, '#808080', created)
+          : [];
+      }
       const radiusRaw = props.rounded ?? props.radius;
       created.cornerRadius = resolvedNumber(semanticNode, 'topLeftRadius', radiusRaw);
       const cornerValues = {

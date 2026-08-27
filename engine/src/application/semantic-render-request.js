@@ -79,6 +79,9 @@ const BATCH_OPTION_SPECS = new Map([
 ]);
 
 const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp)$/i;
+const IMAGE_TAG = /<(?:Frame|Image)\b[^>]*>/g;
+const IMAGE_ATTRIBUTE = /(?<![\w:-])\b(src|image)\s*=\s*(?:"([^"]*)"|{\s*"([^"]*)"\s*}|{\s*'([^']*)'\s*}|{\s*([^{}"']*?)\s*})/g;
+const MAX_IMAGE_REFERENCES = 20_000;
 
 function requestError(message) {
   return new Error(`Invalid render command: ${message}.`);
@@ -106,18 +109,46 @@ function csv(value, label) {
   return unique;
 }
 
+/** Closed, I/O-free projection shared by Render routing and asset preparation. */
+export function semanticRenderImageReferences(jsx) {
+  const source = String(jsx);
+  const references = [];
+  for (const tag of source.matchAll(IMAGE_TAG)) {
+    for (const attribute of tag[0].matchAll(IMAGE_ATTRIBUTE)) {
+      const value = (attribute[2] ?? attribute[3] ?? attribute[4] ?? attribute[5] ?? '').trim();
+      const start = tag.index + attribute.index;
+      references.push(Object.freeze({
+        attribute: attribute[1],
+        value,
+        start,
+        end: start + attribute[0].length,
+        raw: attribute[0],
+      }));
+      if (references.length > MAX_IMAGE_REFERENCES) {
+        throw requestError(`JSX accepts at most ${MAX_IMAGE_REFERENCES} image references`);
+      }
+    }
+  }
+  return Object.freeze(references);
+}
+
+function imageReferenceKind(value) {
+  if (!value) throw requestError('image references must not be empty');
+  if (/^https?:/i.test(value)) return 'remote';
+  if (/^(?:imgref:|data:)/i.test(value)) return 'embedded';
+  if (IMAGE_EXT.test(value)) return 'local';
+  throw requestError('image references must use PNG, JPEG, GIF, WEBP, HTTP(S), data:, or imgref: input');
+}
+
 function imageIntent(jsx) {
   const localPaths = [];
   let remoteCount = 0;
   let embeddedCount = 0;
-  const attributes = String(jsx).matchAll(/\b(?:src|image)\s*=\s*(?:"([^"]*)"|{([^}]*)})/g);
-  for (const match of attributes) {
-    let value = (match[1] ?? match[2] ?? '').trim();
-    const nestedQuote = /^(?:"([^"]*)"|'([^']*)')$/.exec(value);
-    if (nestedQuote) value = nestedQuote[1] ?? nestedQuote[2];
-    if (/^https?:/i.test(value)) remoteCount++;
-    else if (/^(?:imgref:|data:)/i.test(value)) embeddedCount++;
-    else if (IMAGE_EXT.test(value)) localPaths.push(value);
+  for (const reference of semanticRenderImageReferences(jsx)) {
+    const kind = imageReferenceKind(reference.value);
+    if (kind === 'remote') remoteCount++;
+    else if (kind === 'embedded') embeddedCount++;
+    else localPaths.push(reference.value);
   }
   return Object.freeze({
     localPaths: Object.freeze([...new Set(localPaths)]),

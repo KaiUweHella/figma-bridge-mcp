@@ -505,7 +505,7 @@ export class FigmaClient {
         };
       },
       resolveImageAsset: (props) => {
-        const src = String(props?.src || '');
+        const src = String(props?.src || props?.image || '');
         if (src.startsWith('imgref:')) {
           const key = src.slice(7);
           const value = this.imageData[key];

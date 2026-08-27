@@ -622,6 +622,10 @@ _Avoid_: URL allowlist, fetch helper, SSRF filter
 The explicit exact-origin capability that materializes a remote PNG, JPEG, GIF or WebP into verified bytes on the host inside one **Command Plan** deadline. It reauthorizes redirects, validates every resolved address, pins the approved HTTP/TLS identity, rejects compression and bounded-response violations, matches MIME to raster bytes and records only a redacted origin/path label plus SHA-256 content identity. Signed query strings may authorize the source request but never enter the **Semantic Render Plan**, Outcome, Audit or provenance. The Figma Plugin receives only the same embedded-raster shape used for workspace images and retains loopback-only network access.
 _Avoid_: Plugin image URL, createImageAsync URL, remote-raster plan, image proxy
 
+**Render Image Reference**:
+The closed, shared projection of literal `src` and `image` attributes used by Semantic Render classification and asset preparation. Quoted and braced PNG, JPEG, GIF and WebP workspace paths resolve through **Workspace I/O** into the same content-addressed `embedded-raster` asset; explicit HTTP(S), `data:` and `imgref:` references retain their separate policy routes. Empty values, runtime expressions and unsupported formats stop before Plugin readiness rather than becoming placeholders or bypassing workspace policy.
+_Avoid_: image expression evaluator, path rewrite regex, Plugin file path
+
 **Semantic Render Plan**:
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance. Supported semantic and numeric-string font weights are canonical numeric weights at this boundary, while FLOAT Variable references remain references and only their literal fallback is normalized.
 _Avoid_: JSX tree, generated code, render payload

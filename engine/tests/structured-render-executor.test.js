@@ -575,6 +575,24 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual([...figma.imageResources[0].bytes], [104, 101, 108, 108, 111]);
   });
 
+  it('creates a host-materialized frame image as the same native Image paint', async () => {
+    const client = new FigmaClient();
+    client.setImageData({ hero: 'aGVsbG8=' });
+    const plan = client.planJSX(
+      '<Frame name="Hero frame" image="imgref:hero" imageScale="fit" w="240" h="160" rounded="16" />',
+    );
+    const figma = fakeFigma();
+
+    assert.equal(plan.root.asset.kind, 'embedded-raster');
+    assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
+    await executeStructuredRenderPlan(figma, plan);
+    const frame = figma.created.find((node) => node.name === 'Hero frame');
+
+    assert.equal(frame.type, 'FRAME');
+    assert.deepEqual([frame.width, frame.height, frame.cornerRadius], [240, 160, 16]);
+    assert.deepEqual(frame.fills, [{ type: 'IMAGE', imageHash: 'image:1', scaleMode: 'FIT' }]);
+  });
+
   it('keeps an off-center CSS crop as a clipped native wrapper and aspect-correct Image paint', async () => {
     const client = new FigmaClient();
     client.setImageData({ hero: 'aGVsbG8=' });

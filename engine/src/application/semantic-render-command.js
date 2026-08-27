@@ -30,6 +30,7 @@ import {
 import {
   SEMANTIC_RENDER_DEVICE_PRESETS,
   semanticCompoundRenderRequestFromArgv,
+  semanticRenderImageReferences,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
   semanticRenderRequestFromArgv,
@@ -255,7 +256,9 @@ async function resolveCompoundImages(roots, io, materializeRemoteImage) {
       remoteImageCount++;
       return key;
     }
-    if (!/\.(?:png|jpe?g|gif|webp)$/i.test(value)) return null;
+    if (!/\.(?:png|jpe?g|gif|webp)$/i.test(value)) {
+      throw preflightError('Semantic Render image input must be PNG, JPEG, GIF, or WEBP.');
+    }
     const input = isAbsolute(value) ? value : resolve(io.roots[0], value);
     const existing = references.get(`workspace:${input}`);
     if (existing) return existing;
@@ -288,17 +291,17 @@ async function resolveCompoundImages(roots, io, materializeRemoteImage) {
     }
     return key;
   };
-  const pattern = /\b(src|image)\s*=\s*(?:"([^"]+)"|{\s*"([^"]+)"\s*}|{\s*'([^']+)'\s*}|{\s*([^{}"']+?)\s*})/g;
   const rewritten = [];
   for (const jsx of roots) {
     const chunks = [];
     let cursor = 0;
-    for (const match of jsx.matchAll(pattern)) {
-      const [full, attribute, quoted, doubleExpression, singleExpression, bareExpression] = match;
-      const value = (quoted ?? doubleExpression ?? singleExpression ?? bareExpression).trim();
-      const key = await resolveValue(value);
-      chunks.push(jsx.slice(cursor, match.index), key ? `${attribute}="imgref:${key}"` : full);
-      cursor = match.index + full.length;
+    for (const reference of semanticRenderImageReferences(jsx)) {
+      const key = await resolveValue(reference.value);
+      chunks.push(
+        jsx.slice(cursor, reference.start),
+        key ? `${reference.attribute}="imgref:${key}"` : reference.raw,
+      );
+      cursor = reference.end;
     }
     chunks.push(jsx.slice(cursor));
     rewritten.push(chunks.join(''));

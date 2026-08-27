@@ -30,10 +30,12 @@ import {
   semanticCompoundRenderRequestFromArgv,
   semanticRenderArgvFromRequest,
   semanticRenderArgvRoute,
+  semanticRenderImageReferences,
   semanticRenderPolicyFromArgv,
   semanticRenderRequestFromArgv,
 } from '../src/application/semantic-render-request.js';
 import { createWorkspaceIO } from '../src/lib/workspace-io.js';
+import { IMAGE_HARD_LIMIT } from '../src/lib/image-file.js';
 
 const SIMPLE_JSX = '<Frame name="Card" flex="col"><Text>Hello</Text></Frame>';
 const PNG_1X1 = Buffer.from(
@@ -241,6 +243,97 @@ test('simple, compound and named compatibility Render modes remain explicitly re
         : expected.kind === 'compound' ? 'compound-command-application'
         : expected.kind === 'help' ? 'not-render' : 'commander-compatibility',
       expected.argv.join(' '),
+    );
+  }
+});
+
+test('quoted and braced src/image syntax share one embedded content identity', async (t) => {
+  const { root, io } = workspace(t);
+  mkdirSync(join(root, 'assets'));
+  writeFileSync(join(root, 'assets', 'photo.png'), PNG_1X1);
+  const roots = [
+    '<Frame name="Quoted src"><Image src="assets/photo.png" /></Frame>',
+    '<Frame name="Bare braced src"><Image src={assets/photo.png} /></Frame>',
+    '<Frame name="Single-quoted frame image" image={\'assets/photo.png\'} w="100" h="100" imageScale="fit" />',
+    '<Frame name="Double-quoted frame image" image={"assets/photo.png"} w="100" h="100" imageScale="fit" />',
+  ];
+  const references = semanticRenderImageReferences(
+    `<Frame data-image="ignored.png" image="assets/photo.png"><Text>src="ignored.png"</Text>${roots[1]}</Frame>`,
+  );
+  assert.deepEqual(references.map(({ attribute, value }) => ({ attribute, value })), [
+    { attribute: 'image', value: 'assets/photo.png' },
+    { attribute: 'src', value: 'assets/photo.png' },
+  ]);
+
+  const plan = planFigmaCommand(['render-batch', JSON.stringify(roots)], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+  });
+  assert.equal(plan.effects.workspace, 'read');
+  const prepared = await prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io });
+  assert.deepEqual(prepared.preparedAssets, {
+    localImages: 1,
+    iconDirectory: 0,
+    remoteImages: 0,
+    embeddedImages: 0,
+    uniqueImageContent: 1,
+  });
+  assert.ok(prepared.jsxRoots.every((jsx) => /(?:src|image)="imgref:img0"/.test(jsx)));
+  const assets = prepared.renderPlans.map((renderPlan) =>
+    renderPlan.root.asset || renderPlan.root.children[0]?.asset);
+  assert.ok(assets.every((asset) => asset?.kind === 'embedded-raster'));
+  assert.equal(new Set(assets.map((asset) => asset.sha256)).size, 1);
+  assert.ok(
+    prepared.supports.every((support) => support.supported),
+    JSON.stringify(prepared.supports),
+  );
+});
+
+test('invalid local image inputs stop before Figma mutation preparation completes', async (t) => {
+  for (const jsx of [
+    '<Frame><Image src="" /></Frame>',
+    '<Frame><Image src={runtimeImageVariable} /></Frame>',
+    '<Frame image="assets/photo.bmp" />',
+  ]) {
+    assert.throws(
+      () => semanticRenderArgvRoute(['render', jsx]),
+      /Invalid render command: image reference/i,
+      jsx,
+    );
+  }
+
+  const { root, io } = workspace(t);
+  mkdirSync(join(root, 'assets'));
+  assert.throws(
+    () => planFigmaCommand(['render', '<Frame><Image src={assets/missing.png} /></Frame>'], {
+      adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+    }),
+    /path is unavailable/i,
+  );
+
+  const outside = join(tmpdir(), `fid-07-outside-${process.pid}.png`);
+  writeFileSync(outside, PNG_1X1);
+  t.after(() => rmSync(outside, { force: true }));
+  assert.throws(
+    () => planFigmaCommand(['render', `<Frame><Image src="${outside}" /></Frame>`], {
+      adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+    }),
+    /outside allowed roots/i,
+  );
+
+  writeFileSync(join(root, 'assets', 'mismatch.png'), Buffer.from('GIF89a0000'));
+  writeFileSync(join(root, 'assets', 'oversized.png'), Buffer.alloc(IMAGE_HARD_LIMIT + 1));
+  for (const [file, error] of [
+    ['mismatch.png', /extension does not match/i],
+    ['oversized.png', /exceeds .* bytes/i],
+  ]) {
+    const plan = planFigmaCommand([
+      'render', `<Frame><Image src={assets/${file}} /></Frame>`,
+    ], {
+      adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+    });
+    await assert.rejects(
+      () => prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io }),
+      error,
     );
   }
 });

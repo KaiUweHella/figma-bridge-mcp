@@ -25,6 +25,11 @@
       "version": "3.3.17",
       "fingerprint": "sha256:8e8687ac74c63bcf8f2d4f578180ef9dbb1403c4e27537a54974168b242b8325",
       "previousFingerprint": "sha256:6dbc9193a7c7af7bab410cb3ee04ded9eaaeb8d7b973be2fb3cf683c0ed49c18"
+    },
+    {
+      "version": "3.3.18",
+      "fingerprint": "sha256:fb0bbcf0350f4af2f88a218bbf9e10fdba085c085abd8c301a1031387817c8b4",
+      "previousFingerprint": "sha256:8e8687ac74c63bcf8f2d4f578180ef9dbb1403c4e27537a54974168b242b8325"
     }
   ]
 }

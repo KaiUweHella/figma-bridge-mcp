@@ -461,6 +461,12 @@ verifies MIME type against PNG/JPEG/GIF/WebP bytes and embeds the content by
 SHA-256 identity. The Figma Plugin receives only verified bytes and remains
 restricted to its existing localhost Bridge domains.
 
+Local PNG/JPEG/GIF/WebP references use the same bounded asset contract.
+Literal quoted and braced `src`/`image` forms resolve through the configured
+workspace roots and converge on one content identity; empty values, runtime
+expressions, unsupported formats and paths outside those roots fail before any
+Figma mutation.
+
 Safe Mode exposes the core canvas edits as typed commands; raw `eval` remains
 blocked:
 
