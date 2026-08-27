@@ -727,9 +727,9 @@ export async function getSelection(fileKey) {
  * the ground-truth signal: `plugin:true` means the Figma plugin is connected.
  * @returns {Promise<{ok: boolean, plugin: boolean, raw: object|null, message: string}>}
  */
-export async function health({ timeoutMs = 3000 } = {}) {
+export async function health({ timeoutMs = 3000, probe = false, fileKey = null } = {}) {
   try {
-    const response = await daemonClient().health({ timeoutMs });
+    const response = await daemonClient().health({ timeoutMs, probe, fileKey });
     const raw = response.data || {};
     // 403 = a daemon answered but rejected OUR token. Without this branch the
     // message below reads "plugin NOT connected" and sends the user to
@@ -772,18 +772,33 @@ export async function health({ timeoutMs = 3000 } = {}) {
   }
 }
 
-/** A real read-only plugin round trip. A WebSocket can remain OPEN while a
+/** A real closed, read-only Plugin main-thread round trip. A WebSocket can remain OPEN while a
  * backgrounded Figma/plugin runtime no longer services eval messages, so
  * socket state alone is not a useful readiness signal. */
 export async function probePluginResponsiveness(fileKey, timeoutMs = 4000, expectedEditor = 'figma') {
   const target = resolveFileTarget(fileKey, []);
   const started = Date.now();
   try {
-    await daemonClient().execute('eval', {
-      code: '(async () => ({ ok: true }))()',
-      timeoutMs: Math.max(1000, timeoutMs - 500),
-    }, { fileKey: target, timeoutMs, expectedEditor });
-    return { responsive: true, latencyMs: Date.now() - started, error: null };
+    const response = await daemonClient().health({
+      timeoutMs,
+      probe: true,
+      fileKey: target,
+    });
+    const connections = Array.isArray(response.data?.connections) ? response.data.connections : [];
+    const connection = target
+      ? connections.find((candidate) => candidate.fileKey === target)
+      : connections.length === 1 ? connections[0] : null;
+    const responsive = response.ok
+      && response.data?.pluginResponsive === true
+      && connection?.responsiveness === 'responsive'
+      && (!expectedEditor || connection.editorType === expectedEditor);
+    return {
+      responsive,
+      latencyMs: Date.now() - started,
+      error: responsive
+        ? null
+        : 'Authenticated Plugin socket did not complete the bounded Figma main-thread probe.',
+    };
   } catch (error) {
     return {
       responsive: false,

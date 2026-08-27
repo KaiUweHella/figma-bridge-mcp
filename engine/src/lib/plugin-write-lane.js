@@ -11,7 +11,7 @@ export const MAX_PLUGIN_WRITE_QUEUE = 64;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export class PluginWriteLaneError extends Error {
-  /** @param {'cancelled'|'deadline-elapsed'|'queue-full'} code @param {string} message */
+  /** @param {'cancelled'|'deadline-elapsed'|'prior-outcome-unknown'|'queue-full'} code @param {string} message */
   constructor(code, message) {
     super(message);
     this.name = 'PluginWriteLaneError';
@@ -40,6 +40,12 @@ function queueError(code) {
   }
   if (code === 'queue-full') {
     return new PluginWriteLaneError(code, 'Plugin write queue is full');
+  }
+  if (code === 'prior-outcome-unknown') {
+    return new PluginWriteLaneError(
+      code,
+      'Prior Plugin write outcome is still unknown; retrying carries duplicate risk. Inspect the targeted file and the original result before authoring another mutation. Focus Figma and the Plugin tab, then reload the Plugin UI or close/reopen the Plugin if the original receipt does not settle.',
+    );
   }
   return new PluginWriteLaneError('deadline-elapsed', 'Plugin write queue deadline elapsed before dispatch');
 }
@@ -87,7 +93,10 @@ export function createPluginWriteLanes({
     entry.settled = true;
     clearTimeout(entry.timer);
     if (entry.signal && entry.abort) entry.signal.removeEventListener('abort', entry.abort);
-    entry.reject(queueError(code));
+    const effectiveCode = code === 'deadline-elapsed' && lane.quarantine
+      ? 'prior-outcome-unknown'
+      : code;
+    entry.reject(queueError(effectiveCode));
     cleanup(sessionKey, lane);
     drain(sessionKey, lane);
     return true;

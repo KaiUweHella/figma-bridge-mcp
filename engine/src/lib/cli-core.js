@@ -202,8 +202,8 @@ async function daemonTypedRead(operation, request, fallbackCode, data = {}, time
   });
 }
 
-async function daemonHealth(timeoutMs = 3000) {
-  return daemonClient().health({ timeoutMs });
+async function daemonHealth(timeoutMs = 3000, { probe = false } = {}) {
+  return daemonClient().health({ timeoutMs, probe });
 }
 
 async function daemonReconnect(options = {}) {

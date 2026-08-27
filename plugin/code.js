@@ -333,8 +333,12 @@ function validatePreparedDispatchContext(receipt, {
 
 // BEGIN TYPED READ RUNTIME
 const TYPED_READ_CAPABILITY = 'typed-read-v1';
+const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
 const STYLE_CONSUMERS_TYPED_READ = 'style-consumers-v1';
-const TYPED_READ_OPERATIONS = Object.freeze([STYLE_CONSUMERS_TYPED_READ]);
+const TYPED_READ_OPERATIONS = Object.freeze([
+  BRIDGE_HEALTH_TYPED_READ,
+  STYLE_CONSUMERS_TYPED_READ,
+]);
 
 function typedReadRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -365,6 +369,11 @@ function typedReadAnchorError(value) {
 
 function typedReadRequestValidationError(operation, request) {
   if (!TYPED_READ_OPERATIONS.includes(operation)) return 'typed-read operation is unsupported';
+  if (operation === BRIDGE_HEALTH_TYPED_READ) {
+    return typedReadExactKeys(request, [])
+      ? null
+      : 'Bridge health typed-read request contains an unknown field';
+  }
   if (!typedReadExactKeys(request, ['style', 'type', 'limit', 'after'])) {
     return 'Style Consumer typed-read request has an unknown or missing field';
   }
@@ -492,6 +501,13 @@ async function executeStyleConsumersTypedRead(figmaApi, request) {
 function executeTypedReadOperation(figmaApi, operation, request) {
   const error = typedReadRequestValidationError(operation, request);
   if (error) throw new Error(error);
+  if (operation === BRIDGE_HEALTH_TYPED_READ) {
+    const editorType = String(figmaApi?.editorType || '');
+    if (!['figma', 'figjam', 'slides', 'dev'].includes(editorType) || !figmaApi?.currentPage) {
+      throw new Error('Bridge health could not read the active Figma document context.');
+    }
+    return JSON.stringify({ schemaVersion: 1, responsive: true, editorType });
+  }
   if (operation === STYLE_CONSUMERS_TYPED_READ) {
     return executeStyleConsumersTypedRead(figmaApi, request);
   }

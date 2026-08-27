@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  BRIDGE_HEALTH_TYPED_READ,
   executeTypedReadOperation,
   STYLE_CONSUMERS_TYPED_READ,
   typedReadRequestValidationError,
@@ -27,6 +28,21 @@ test('typed-read contract accepts only the closed Style Consumer request', () =>
   assert.match(typedReadRequestValidationError('future', request), /unsupported/);
   assert.match(typedReadRequestValidationError(STYLE_CONSUMERS_TYPED_READ, { ...request, code: 'write()' }), /unknown/);
   assert.match(typedReadRequestValidationError(STYLE_CONSUMERS_TYPED_READ, { ...request, limit: 501 }), /1-500/);
+});
+
+test('Bridge health is a closed identity-free main-thread read', async () => {
+  assert.equal(typedReadRequestValidationError(BRIDGE_HEALTH_TYPED_READ, {}), null);
+  assert.match(typedReadRequestValidationError(BRIDGE_HEALTH_TYPED_READ, { code: 'write()' }), /unknown/);
+  const serialized = await executeTypedReadOperation(
+    { editorType: 'figma', currentPage: { id: '1:2' } },
+    BRIDGE_HEALTH_TYPED_READ,
+    {},
+  );
+  assert.deepEqual(JSON.parse(serialized), {
+    schemaVersion: 1,
+    responsive: true,
+    editorType: 'figma',
+  });
 });
 
 test('typed Style Consumer returns one bounded deterministic page', async () => {

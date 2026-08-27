@@ -393,7 +393,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 | Tool               | Purpose                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `figma_connect`    | Ensure Safe Mode is available without replacing a healthy daemon/socket; self-heal a single unresponsive plugin iframe; generate/show the access key and print plugin setup steps.                                                                                                                                                                                                                    |
-| `figma_status`     | Report local daemon/plugin/file/key state immediately; `validateRest:true` explicitly checks the optional REST token.                                                                                                                                                                                                                                                                                 |
+| `figma_status`     | Report local daemon/plugin/file/key state and, by default, run one bounded closed Figma main-thread responsiveness probe per target; `probePlugin:false` checks sockets only and `validateRest:true` explicitly checks the optional REST token.                                                                                                                                                       |
 | `figma_pairing`    | Show the access key; `{rotate:true}` generates a fresh one.                                                                                                                                                                                                                                                                                                                                           |
 | `figma_run`        | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`.                                                                                                                                                                                                                                                                                         |
 | `figma_render`     | Render JSX into the open Figma design.                                                                                                                                                                                                                                                                                                                                                                |
@@ -1764,6 +1764,13 @@ as the other. Five properties follow:
   report settlement, recovery requires first stopping that old Plugin runtime,
   then explicitly restarting the Bridge Daemon—closing only the socket is not
   sufficient proof.
+- **Status proves more than socket presence.** Its bounded health operation is
+  a closed typed read with no JavaScript payload and never enters the write
+  lane. A responsive new connection epoch may release stale slots belonging
+  only to non-mutating reads from an older epoch. Unknown writes remain
+  quarantined until their exact settlement arrives; an attempted retry that
+  reaches its deadline reports duplicate risk and tells the caller to inspect
+  the targeted file before authoring another mutation.
 
 There is no fallback to an older handshake protocol. `figma_connect` refreshes the installed plugin
 files on every run. Figma may continue using an application-cached plugin

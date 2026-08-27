@@ -164,12 +164,19 @@ program
     if (daemonInfo && daemonInfo.running) {
       console.log(chalk.green('  \u2713 Daemon running') + chalk.gray(` (port ${getDaemonPort()})`));
       try {
-        const healthResponse = await daemonHealth();
+        const healthResponse = await daemonHealth(4000, { probe: true });
         if (!healthResponse.ok || !healthResponse.data) throw new Error(`HTTP ${healthResponse.status}`);
         const health = healthResponse.data;
         console.log(health.plugin
           ? chalk.green('  \u2713 Plugin connected') + chalk.gray(` (mode: ${health.mode})`)
           : chalk.yellow('  \u26a0 Plugin NOT connected') + chalk.gray(' \u2014 open Plugins \u2192 Development \u2192 Figma Bridge in Figma'));
+        if (health.plugin && health.pluginResponsive === true) {
+          console.log(chalk.green('  \u2713 Plugin responsive') + chalk.gray(' \u2014 authenticated Figma main-thread roundtrip completed'));
+        } else if (health.plugin) {
+          console.log(chalk.yellow('  \u26a0 Plugin socket connected, but Figma did not answer the bounded probe'));
+          console.log(chalk.gray('    Focus Figma and the Plugin tab, then run daemon reconnect.'));
+          console.log(chalk.gray('    If it remains unresponsive, close/reopen the Plugin before restarting the daemon.'));
+        }
         if (!health.keyConfigured) {
           console.log(chalk.yellow('  \u26a0 No access key configured') + chalk.gray(' \u2014 run figma_connect'));
         }
@@ -180,7 +187,7 @@ program
           console.log(chalk.white(`\n  ${conns.length} Figma windows connected:`));
           for (const c of conns) {
             console.log('    ' + chalk.cyan(c.fileKey || '(unidentified)')
-              + chalk.gray('  ' + [c.fileName, c.editorType].filter(Boolean).join('  ')));
+              + chalk.gray('  ' + [c.fileName, c.editorType, c.responsiveness].filter(Boolean).join('  ')));
           }
           console.log(chalk.gray('\n  Target one with --figma-file <key>, e.g. --figma-file '
             + (conns[0].fileKey || '<key>') + ' canvas info'));

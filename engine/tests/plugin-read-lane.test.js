@@ -62,6 +62,37 @@ test('unknown typed read holds its slot until the exact receipt settles', async 
   assert.equal(await next, 'ok');
 });
 
+test('a responsive new connection epoch releases only stale reads for its target', async () => {
+  const lane = createPluginReadLane({ maxActive: 2, maxActivePerSession: 1 });
+  const unknown = Object.assign(new Error('disconnect'), {
+    outcome: 'unknown-after-dispatch', dispatchState: 'unknown',
+  });
+  await assert.rejects(lane.run({
+    sessionKey: 'file:A', deadlineAt: Date.now() + 1000,
+    operation: ({ markDispatched }) => {
+      markDispatched({ connectionEpoch: 'old-A', requestId: 'read-A' });
+      throw unknown;
+    },
+  }), /disconnect/);
+  await assert.rejects(lane.run({
+    sessionKey: 'file:B', deadlineAt: Date.now() + 1000,
+    operation: ({ markDispatched }) => {
+      markDispatched({ connectionEpoch: 'old-B', requestId: 'read-B' });
+      throw unknown;
+    },
+  }), /disconnect/);
+
+  assert.equal(lane.recoverReconnectedSession('file:A', { connectionEpoch: 'old-A' }), 0);
+  assert.equal(lane.recoverReconnectedSession('file:A', { connectionEpoch: 'new-A' }), 1);
+  assert.deepEqual(lane.summary(), {
+    active: 1, queued: 0, quarantined: 1, sessions: 1,
+    maxActive: 2, maxActivePerSession: 1, maxQueue: 64, maxQueuePerSession: 16,
+  });
+  assert.equal(await lane.run({
+    sessionKey: 'file:A', deadlineAt: Date.now() + 1000, operation: () => 'recovered',
+  }), 'recovered');
+});
+
 test('queued read observes deadline and cancellation before dispatch', async () => {
   const lane = createPluginReadLane({ maxActive: 1 });
   const gate = deferred();

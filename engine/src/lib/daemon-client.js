@@ -308,7 +308,11 @@ export function createDaemonClient({
       return execute('render-plan-batch', { plans, options: batchOptions }, options);
     },
     health(options = {}) {
-      return request('/health', { timeoutMs: options.timeoutMs || 3000 });
+      const query = new URLSearchParams();
+      if (options.probe === true) query.set('probe', '1');
+      if (options.fileKey) query.set('fileKey', options.fileKey);
+      const route = query.size ? `/health?${query}` : '/health';
+      return request(route, { authPath: '/health', timeoutMs: options.timeoutMs || 3000 });
     },
     selection(options = {}) {
       const target = options.fileKey || null;

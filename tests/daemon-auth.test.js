@@ -266,6 +266,102 @@ test('HTTP /health with a valid signature succeeds and reports Safe-Mode shape',
   assert.equal(body.plugin, false); // no plugin connected yet
 });
 
+test('probed health distinguishes a socket from a responsive Plugin main thread', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'HEALTH_PROBE_FILE' });
+    ws.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'typed-read' || message.operation !== 'bridge-health-v1') return;
+      ws.send(JSON.stringify(pluginResult(message, {
+        result: JSON.stringify({ schemaVersion: 1, responsive: true, editorType: 'figma' }),
+      })));
+    });
+    const response = await fetch(`http://127.0.0.1:${PORT}/health?probe=1`, {
+      headers: auth('GET', '/health'),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.plugin, true);
+    assert.equal(body.pluginResponsive, true);
+    assert.equal(body.connections.length, 1);
+    assert.equal(body.connections[0].responsiveness, 'responsive');
+    assert.equal(typeof body.connections[0].lastProbeAt, 'string');
+  });
+});
+
+test('probed health reports an authenticated but unresponsive Plugin within a bound', async () => {
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'UNRESPONSIVE_PROBE_FILE' });
+    const started = Date.now();
+    const response = await fetch(`http://127.0.0.1:${PORT}/health?probe=1&fileKey=UNRESPONSIVE_PROBE_FILE`, {
+      headers: auth('GET', '/health'),
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.plugin, true);
+    assert.equal(body.pluginResponsive, false);
+    assert.equal(body.connections[0].responsiveness, 'unresponsive');
+    assert.ok(elapsed >= 1000 && elapsed < 2500, `probe must be bounded, got ${elapsed}ms`);
+  });
+});
+
+test('disconnect, reconnect and a main-thread probe recover stale safe reads without replay', async () => {
+  const first = openWs();
+  let firstDispatches = 0;
+  try {
+    await handshake(first);
+    await pushSelection(first, { fileKey: 'READ_RECOVERY_FILE' });
+    const dispatched = new Promise((resolve) => {
+      first.on('message', (raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.action !== 'typed-read' || message.operation !== 'bridge-health-v1') return;
+        firstDispatches++;
+        resolve();
+      });
+    });
+    const firstRequest = postExec({
+      action: 'typed-read', operation: 'bridge-health-v1', request: {},
+      fileKey: 'READ_RECOVERY_FILE', expectedEditor: 'figma', timeoutMs: 1000,
+    });
+    await dispatched;
+    first.close();
+    const failed = await firstRequest;
+    assert.equal(failed.status, 500);
+    assert.equal((await failed.json()).bridgeError.outcome, 'unknown-after-dispatch');
+  } finally {
+    try { first.close(); } catch {}
+  }
+
+  const second = openWs();
+  let recoveredReadDispatches = 0;
+  try {
+    await handshake(second);
+    await pushSelection(second, { fileKey: 'READ_RECOVERY_FILE' });
+    second.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.action !== 'typed-read' || message.operation !== 'bridge-health-v1') return;
+      recoveredReadDispatches++;
+      second.send(JSON.stringify(pluginResult(message, {
+        result: JSON.stringify({ schemaVersion: 1, responsive: true, editorType: 'figma' }),
+      })));
+    });
+    const probed = await fetch(`http://127.0.0.1:${PORT}/health?probe=1`, {
+      headers: auth('GET', '/health'),
+    });
+    assert.equal((await probed.json()).pluginResponsive, true);
+    const recovered = await postExec({
+      action: 'typed-read', operation: 'bridge-health-v1', request: {},
+      fileKey: 'READ_RECOVERY_FILE', expectedEditor: 'figma', timeoutMs: 1000,
+    });
+    assert.equal(recovered.status, 200);
+    assert.equal(firstDispatches, 1, 'the disconnected read is never replayed');
+    assert.equal(recoveredReadDispatches, 2, 'one explicit probe and one caller read run');
+  } finally {
+    try { second.close(); } catch {}
+  }
+});
+
 test('IPv6 localhost reaches the same authenticated loopback daemon', async () => {
   const res = await httpHealthV6(auth('GET', '/health'));
   assert.equal(res.status, 200);

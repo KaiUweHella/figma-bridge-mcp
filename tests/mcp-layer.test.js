@@ -2226,6 +2226,17 @@ test('specialized Figma tools expose consistent explicit file targeting', async 
   assert.match(screenshot.description, /mandatory/i);
 });
 
+test('MCP responsiveness probing uses the closed health read, never eval or the write lane', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/engine.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('export async function probePluginResponsiveness');
+  const end = source.indexOf('/** Ask a still-connected plugin main thread', start);
+  assert.ok(start > 0 && end > start);
+  const probe = source.slice(start, end);
+  assert.match(probe, /daemonClient\(\)\.health\(\{/);
+  assert.match(probe, /probe:\s*true/);
+  assert.doesNotMatch(probe, /\.execute\(|\.evaluate\(|\beval\b/);
+});
+
 test('figma_spec batches bounded reads behind one manual approval', async () => {
   const { TOOLS, INSTRUCTIONS, WORKFLOW_GUIDE, executeSpecBatch } = await import('../src/server.js');
   const spec = TOOLS.find((candidate) => candidate.name === 'figma_spec');

@@ -156,6 +156,27 @@ export function createPluginReadLane({
     return false;
   }
 
+  /**
+   * A typed read cannot mutate the document. Once a newly authenticated
+   * connection epoch completes a main-thread probe, stale reads from older
+   * epochs may release their slots without weakening write quarantine.
+   */
+  function recoverReconnectedSession(keyValue, { connectionEpoch } = {}) {
+    const key = sessionKey(keyValue);
+    if (typeof connectionEpoch !== 'string' || !connectionEpoch) {
+      throw new TypeError('Plugin read lane recovery requires a connection epoch');
+    }
+    let recovered = 0;
+    for (const entry of [...quarantined]) {
+      if (entry.key !== key || entry.dispatchToken?.connectionEpoch === connectionEpoch) continue;
+      quarantined.delete(entry);
+      active.delete(entry);
+      recovered++;
+    }
+    if (recovered) drain();
+    return recovered;
+  }
+
   function summary() {
     const sessions = new Set([...active, ...queue].map((entry) => entry.key)).size;
     return Object.freeze({ active: active.size, queued: queue.length,
@@ -163,5 +184,5 @@ export function createPluginReadLane({
       maxQueue, maxQueuePerSession });
   }
 
-  return Object.freeze({ run, settle, summary });
+  return Object.freeze({ run, settle, recoverReconnectedSession, summary });
 }

@@ -71,6 +71,9 @@ import {
 } from './lib/plugin-write-lane.js';
 import { PluginReadLaneError, createPluginReadLane } from './lib/plugin-read-lane.js';
 
+const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
+const PLUGIN_HEALTH_PROBE_TIMEOUT_MS = 1500;
+
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
 // Without it, the daemon walks the range and binds the first free port, which
@@ -271,7 +274,7 @@ resetIdleTimer();
 // File identity arrives with the first selection push (the plugin sends one
 // immediately on connect) — the handshake itself carries no file information,
 // and adding it there would mean signing data the transcript does not cover.
-const conns = new Map(); // ws → { connectionId, fileKey, fileName, editorType, capabilities, pluginVersion, pluginUpdateAvailable, selection, connectedAt, lastResponseAt }
+const conns = new Map(); // ws → authenticated connection facts and bounded responsiveness evidence
 let pluginPendingRequests = new Map(); // id → { resolve, reject, timeout, ws }
 let pluginMsgId = 0;
 const pluginWriteLanes = createPluginWriteLanes({
@@ -301,6 +304,8 @@ function connectionList() {
     pluginUpdateAvailable: c.pluginUpdateAvailable === true,
     connectedAt: c.connectedAt,
     lastResponseAt: c.lastResponseAt ?? null,
+    responsiveness: c.responsiveness ?? 'socket-only',
+    lastProbeAt: c.lastProbeAt ?? null,
   }));
 }
 
@@ -518,6 +523,48 @@ function resultMetadata(pending, raw) {
   };
 }
 
+async function probePluginConnection(ws, connection) {
+  const probedAt = new Date().toISOString();
+  const deadlineAt = Date.now() + PLUGIN_HEALTH_PROBE_TIMEOUT_MS;
+  try {
+    const response = await requestViaSocket(
+      ws,
+      'typed-read',
+      {
+        operation: BRIDGE_HEALTH_TYPED_READ,
+        request: {},
+        timeoutMs: PLUGIN_HEALTH_PROBE_TIMEOUT_MS,
+        deadlineAt,
+      },
+      PLUGIN_HEALTH_PROBE_TIMEOUT_MS,
+      connection.editorType,
+      { expectedConnection: snapshotPluginConnection(ws, connection.editorType) },
+    );
+    const value = JSON.parse(response.result);
+    if (value?.schemaVersion !== 1 || value?.responsive !== true
+      || value?.editorType !== connection.editorType
+      || Object.keys(value).sort().join(',') !== 'editorType,responsive,schemaVersion') {
+      throw new Error('Plugin health response is invalid');
+    }
+    const current = conns.get(ws);
+    if (current?.connectionId === connection.connectionId) {
+      current.responsiveness = 'responsive';
+      current.lastProbeAt = probedAt;
+      pluginReadLane.recoverReconnectedSession(pluginLaneKey(current), {
+        connectionEpoch: current.connectionId,
+      });
+    }
+    return true;
+  } catch {
+    const current = conns.get(ws);
+    if (current?.connectionId === connection.connectionId) {
+      current.responsiveness = 'unresponsive';
+      current.lastProbeAt = probedAt;
+    }
+    return false;
+  }
+}
+
 function getMode() {
   return isPluginConnected() ? 'safe' : 'disconnected';
 }
@@ -612,7 +659,20 @@ async function handleRequest(req, res) {
 
   // Health check
   if (path === '/health') {
+    const healthUrl = new URL(req.url, 'http://localhost');
+    const probeRequested = healthUrl.searchParams.get('probe') === '1';
+    const probeFileKey = healthUrl.searchParams.get('fileKey');
+    if (probeRequested) {
+      const targets = openConns()
+        .filter(([, connection]) => !probeFileKey || connection.fileKey === probeFileKey)
+        .map(([ws, connection]) => [ws, { ...connection }]);
+      await Promise.all(targets.map(([ws, connection]) => probePluginConnection(ws, connection)));
+    }
     const pluginConnected = isPluginConnected();
+    const connections = connectionList();
+    const probedConnections = probeFileKey
+      ? connections.filter((connection) => connection.fileKey === probeFileKey)
+      : connections;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: pluginConnected ? 'ok' : 'disconnected',
@@ -625,7 +685,11 @@ async function handleRequest(req, res) {
       restTokenConfigured: restTokenConfigured(),
       // One entry per open Figma window. Callers that see more than one must
       // name a fileKey; there is no implicit "all of them".
-      connections: connectionList(),
+      connections,
+      pluginResponsive: probeRequested
+        ? probedConnections.length > 0
+          && probedConnections.every((connection) => connection.responsiveness === 'responsive')
+        : null,
       inFlightExecs,
       writeLanes: pluginWriteLanes.summary(),
       readLane: pluginReadLane.summary(),
@@ -1099,6 +1163,7 @@ function handlePluginSocket(ws) {
         pluginVersion: version,
         pluginUpdateAvailable: updateAvailable,
         selection: null, connectedAt: new Date().toISOString(), lastResponseAt: null,
+        responsiveness: 'socket-only', lastProbeAt: null,
       });
       console.log(`[daemon] Plugin authenticated (version: ${version}) — ${openConns().length} window(s) connected`);
       // Prove ourselves back before the plugin will accept a single eval.
@@ -1132,7 +1197,10 @@ function handlePluginSocket(ws) {
         // must never complete or fail the newer request.
         if (msg.dispatchReceipt.requestId !== pending.dispatchReceipt.requestId) return;
         const conn = conns.get(ws);
-        if (conn) conn.lastResponseAt = new Date().toISOString();
+        if (conn) {
+          conn.lastResponseAt = new Date().toISOString();
+          conn.responsiveness = 'responsive';
+        }
         clearTimeout(pending.timeout);
         pluginPendingRequests.delete(msg.id);
         if (!dispatchReceiptIdentityMatches(pending.dispatchReceipt, msg.dispatchReceipt)) {

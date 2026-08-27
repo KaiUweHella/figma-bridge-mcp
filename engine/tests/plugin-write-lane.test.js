@@ -100,6 +100,24 @@ test('unknown dispatch quarantines until the exact settlement token arrives', as
   assert.equal(nextStarted, true);
 });
 
+test('a retry that outlives unresolved write quarantine reports duplicate risk', async () => {
+  const lanes = createPluginWriteLanes();
+  const unknown = Object.assign(new Error('unknown'), {
+    outcome: 'unknown-after-dispatch', dispatchState: 'unknown',
+  });
+  await assert.rejects(lanes.run({
+    sessionKey: 'file:A', deadlineAt: Date.now() + 1000,
+    operation: ({ markDispatched }) => { markDispatched('receipt'); throw unknown; },
+  }));
+  await assert.rejects(lanes.run({
+    sessionKey: 'file:A', deadlineAt: Date.now() + 20,
+    operation: () => 'must-not-run',
+  }), (error) => error instanceof PluginWriteLaneError
+    && error.code === 'prior-outcome-unknown'
+    && /duplicate risk/i.test(error.message)
+    && /inspect/i.test(error.message));
+});
+
 test('known failed receipts release, and read-after-write barriers wait in order', async () => {
   const lanes = createPluginWriteLanes();
   const failed = Object.assign(new Error('known failure'), {
