@@ -117,6 +117,37 @@ test('screenshot reports matching geometry and raster facts without conflating t
   assert.equal(saved, false, 'malformed PNG evidence is rejected before persistence');
 });
 
+test('screenshot rejects a degenerate non-empty export with exact geometry and recovery guidance', async () => {
+  let saved = false;
+  await assert.rejects(() => executeScreenshot({
+    nodeId: '1:2', scale: 0.5, savePath: '/tmp/degenerate.png',
+  }, {
+    evaluate: async () => ({
+      name: 'Variant', id: '1:2', nodeWidth: 1512, nodeHeight: 92,
+      appliedScale: 0.5, base64: pngHeader(1, 1).toString('base64'),
+    }),
+    save: async () => { saved = true; },
+  }), (error) => {
+    assert.match(error.message, /degenerate 1×1 PNG/i);
+    assert.match(error.message, /node geometry 1512×92/);
+    assert.match(error.message, /scaled geometry 756×46/);
+    assert.match(error.message, /component","list/);
+    assert.match(error.message, /parent Component Set/);
+    assert.match(error.message, /not accepted or saved/i);
+    return true;
+  });
+  assert.equal(saved, false);
+
+  const legitimate = await executeScreenshot({ nodeId: '1:3', scale: 1 }, {
+    evaluate: async () => ({
+      name: 'Pixel', id: '1:3', nodeWidth: 1, nodeHeight: 1,
+      appliedScale: 1, base64: pngHeader(1, 1).toString('base64'),
+    }),
+  });
+  assert.equal(legitimate.result.pixelWidth, 1);
+  assert.equal(legitimate.result.pixelHeight, 1);
+});
+
 test('screenshot validates deterministically and generated plugin code parses', async () => {
   await assert.rejects(() => executeScreenshot({ nodeId: '1:2', scale: 0 }, { evaluate: async () => ({}) }), /greater than 0/);
   await assert.rejects(() => executeScreenshot({ nodeId: '1:2' }, { evaluate: async () => ({ error: 'Node not found' }) }), /Node not found/);

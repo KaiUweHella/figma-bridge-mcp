@@ -411,6 +411,12 @@ you actually have open — see [Several files at once](#several-files-at-once)).
 `figma_run` with `["node","tree",...]` is a fast bounded outline for discovery
 and follow-up node ids. It reports depth/output truncation explicitly; use
 `figma_spec` plus a screenshot for exact Figma-to-code implementation facts.
+If Figma returns a 1-pixel PNG axis for a node whose scaled geometry is larger,
+the Screenshot Command rejects the image before saving it and reports both the
+actual raster and logical geometry. Refresh the identity with
+`figma_run {args:["component","list"]}`, retry the exact current Variant id, or
+capture its parent Component Set. This avoids accepting a stale or unsettled
+Variant export as visual evidence.
 
 Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on

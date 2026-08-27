@@ -115,6 +115,11 @@ Verification evidence never derives raster dimensions from logical node
 geometry. The shared Application validates the bounded PNG signature and IHDR
 before persistence and result projection, exposing exact pixel dimensions,
 logical node dimensions and requested/applied scale as distinct facts.
+When a nontrivial scaled node collapses to a one-pixel PNG axis, the Application
+rejects that degenerate evidence before persistence. The error retains the
+actual raster, logical and scaled geometry and points to a fresh Component
+Inventory identity, exact Variant retry or parent Component Set capture. A
+genuine one-pixel node remains valid.
 
 Local structural history follows the same boundary. `history snapshot`,
 `history list` and `history diff` use one closed request Interface and History

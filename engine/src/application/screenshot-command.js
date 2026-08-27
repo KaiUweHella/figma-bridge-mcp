@@ -45,6 +45,31 @@ function normalizedRequest(request = {}) {
   };
 }
 
+function projectedNodePixels(nodeWidth, nodeHeight, appliedScale) {
+  return Object.freeze({
+    width: Math.max(1, Math.round(nodeWidth * appliedScale)),
+    height: Math.max(1, Math.round(nodeHeight * appliedScale)),
+  });
+}
+
+function degenerateExportError(image, result) {
+  const projected = projectedNodePixels(
+    result.nodeWidth,
+    result.nodeHeight,
+    result.appliedScale,
+  );
+  const collapsedWidth = image.width <= 1 && projected.width > 1;
+  const collapsedHeight = image.height <= 1 && projected.height > 1;
+  if (!collapsedWidth && !collapsedHeight) return null;
+  return new Error(
+    `Figma returned a degenerate ${image.width}×${image.height} PNG for node geometry `
+    + `${result.nodeWidth}×${result.nodeHeight} at scale ${result.appliedScale} `
+    + `(scaled geometry ${projected.width}×${projected.height}). `
+    + 'The screenshot was not accepted or saved. Refresh the current component/Variant identity with '
+    + 'figma_run ["component","list"], retry the exact current Variant id, or capture its parent Component Set.',
+  );
+}
+
 export function screenshotCode({ nodeId, scale, maxDimension, measure }) {
   return `(async () => {
     let node;
@@ -107,6 +132,8 @@ export async function executeScreenshot(request, adapters = {}) {
     || !Number.isFinite(result.appliedScale) || result.appliedScale <= 0 || result.appliedScale > 4) {
     throw new Error('screenshot returned invalid bounded geometry evidence');
   }
+  const degenerate = degenerateExportError(image, result);
+  if (degenerate) throw degenerate;
   /** @type {Record<string, any>} */
   const metadata = {
     name: result.name, id: result.id,
