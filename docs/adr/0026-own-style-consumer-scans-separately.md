@@ -37,3 +37,12 @@ request object without JavaScript source; the native scan no longer consumes
 the Plugin mutation lane. Older authenticated runtimes may fall back once to
 the existing bounded Application only when capability rejection proves the
 typed read was not dispatched.
+
+Large-document acceptance uses content-free measurements rather than retaining
+document identities or node payloads. A real 29-page, 29,006-node document with
+7,906 text nodes and 136 local text styles kept three Style Catalog samples at
+or below 102.802 ms end to end and three Style Consumer samples at or below
+50.702 ms end to end. These maxima remain below 0.35% of the Catalog's 30-second
+deadline and below 0.05% of the Consumer's 120-second deadline. This evidence
+does not weaken the explicit bounds or erase the separately observed long-tail
+native Consumer call; the long timeout remains intentional.
