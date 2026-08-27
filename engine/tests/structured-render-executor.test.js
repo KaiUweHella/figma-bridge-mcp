@@ -4,6 +4,17 @@ import { readFileSync } from 'node:fs';
 import { FigmaClient } from '../src/lib/jsx-render.js';
 import { executeStructuredRenderPlan, executeStructuredRenderPlanBatch, inspectStructuredRenderPlan } from '../src/lib/structured-render-executor.js';
 import { VARIABLE_SCOPES_BY_TYPE } from '../src/lib/variable-scope-policy.js';
+import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
+import { projectSemanticRenderOutcome } from '../src/lib/semantic-render-outcome.js';
+
+function designClient(entities, targetFileKey = 'FILE_A') {
+  const client = new FigmaClient();
+  client.setDesignEntityProjection(designEntityRegistryProjection({
+    version: 1,
+    entities,
+  }, { targetFileKey }));
+  return client;
+}
 
 function extractStructuredRenderRuntime(source) {
   return source
@@ -1002,9 +1013,38 @@ describe('structured Semantic Render Plan executor', () => {
     );
   });
 
+  it('attaches a bound rendered-root Design Entity and returns its current-file locator', async () => {
+    const plan = designClient([{
+      id: 'screen.release-proof', kind: 'screen', figma: { fileKey: 'FILE_A', nodeId: '1:1' },
+    }]).planJSX(
+      '<Frame entity="screen.release-proof" name="Release proof" w="320" h="180" />',
+    );
+    const figma = fakeFigma();
+
+    assert.deepEqual(plan.designEntityBindings.bindings['screen.release-proof'], {
+      entityId: 'screen.release-proof', entityKind: 'screen', purposes: ['render-root'],
+      handleKind: 'created-root', handle: 'created-root', variantIntents: [],
+    });
+    const result = await executeStructuredRenderPlan(figma, plan);
+    const root = figma.created.find((node) => node.name === 'Release proof');
+    assert.deepEqual(JSON.parse(root.getPluginData('figma-bridge-design-entity')), {
+      version: 1, id: 'screen.release-proof', kind: 'screen',
+    });
+    assert.deepEqual(result.designEntity, {
+      id: 'screen.release-proof', kind: 'screen', nodeId: root.id,
+    });
+    const outcome = projectSemanticRenderOutcome(result, {
+      executor: 'structured-v1',
+      structure: { grid: 0, flex: 0, free: 1, absolute: 0 },
+    });
+    assert.deepEqual(outcome.roots[0].designEntity, result.designEntity);
+  });
+
   it('creates Registry-identified component variants as real Figma instances', async () => {
-    const plan = new FigmaClient().planJSX(
-      '<Frame name="Instances" flex="row"><Instance entity="ui.button" key="button-set-key" ' +
+    const plan = designClient([{
+      id: 'ui.button', kind: 'component', figma: { componentKey: 'button-set-key' },
+    }]).planJSX(
+      '<Frame name="Instances" flex="row"><Instance entity="ui.button" ' +
       'variant="State=Active, Size=Large" name="Primary action" w="140" /></Frame>',
     );
     const figma = fakeFigma({
@@ -1028,8 +1068,10 @@ describe('structured Semantic Render Plan executor', () => {
   });
 
   it('reads component property definitions from the set without touching the throwing variant accessor', async () => {
-    const plan = new FigmaClient().planJSX(
-      '<Frame name="Variant owner"><Instance entity="ui.button" id="10:2" /></Frame>',
+    const plan = designClient([{
+      id: 'ui.button', kind: 'component', figma: { nodeId: '10:2', fileKey: 'FILE_A' },
+    }]).planJSX(
+      '<Frame name="Variant owner"><Instance entity="ui.button" /></Frame>',
     );
     const figma = fakeFigma({
       components: [{
@@ -1049,8 +1091,12 @@ describe('structured Semantic Render Plan executor', () => {
   });
 
   it('falls back from a failed published key to the same Design Entity local anchor', async () => {
-    const plan = new FigmaClient().planJSX(
-      '<Frame name="Local fallback"><Instance entity="ui.local-button" key="unavailable-published-key" id="30:1" /></Frame>',
+    const plan = designClient([{
+      id: 'ui.local-button', kind: 'component', figma: {
+        componentKey: 'unavailable-published-key', nodeId: '30:1', fileKey: 'FILE_A',
+      },
+    }]).planJSX(
+      '<Frame name="Local fallback"><Instance entity="ui.local-button" /></Frame>',
     );
     const figma = fakeFigma({
       components: [{ id: '30:1', name: 'Local Button', width: 120, height: 40 }],
@@ -1064,13 +1110,55 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(instance.mainComponent.name, 'Local Button');
   });
 
-  it('applies Registry-backed property, text, fill, and nested instance overrides', async () => {
-    const client = new FigmaClient();
-    client.setComponentLinks({
-      'ui.icon.leaf': { entityId: 'ui.icon.leaf', key: 'leaf-key' },
+  it('rejects stale local handles, conflicting authored anchors, and visible-name recreation', async () => {
+    assert.throws(() => designClient([{
+      id: 'ui.local', kind: 'component', figma: { nodeId: '30:1', fileKey: 'FILE_A' },
+    }], 'FILE_B').planJSX('<Frame><Instance entity="ui.local" /></Frame>'), /belongs to Figma file FILE_A/);
+
+    const published = designClient([{
+      id: 'ui.button', kind: 'component', figma: { componentKey: 'BOUND_KEY' },
+    }]);
+    assert.throws(
+      () => published.planJSX('<Frame><Instance entity="ui.button" key="CALLER_KEY" /></Frame>'),
+      /conflicting authored key anchor/,
+    );
+
+    const local = designClient([{
+      id: 'ui.recreated', kind: 'component', figma: { nodeId: '99:1', fileKey: 'FILE_A' },
+    }]).planJSX('<Frame><Instance entity="ui.recreated" /></Frame>');
+    const recreated = fakeFigma({
+      components: [{ id: '10:1', name: 'Same Visible Name' }],
     });
+    await assert.rejects(
+      () => executeStructuredRenderPlan(recreated, local),
+      /local component node 99:1 does not exist/,
+    );
+    assert.equal(recreated.created.length, 0);
+  });
+
+  it('rejects an incompatible bound variant before canvas mutation', async () => {
+    const plan = designClient([{
+      id: 'ui.button', kind: 'component', figma: { componentKey: 'button-set-key' },
+    }]).planJSX(
+      '<Frame><Instance entity="ui.button" variant="State=Missing" /></Frame>',
+    );
+    const figma = fakeFigma({
+      components: [{
+        key: 'button-set-key', id: '10:1', name: 'Button',
+        variants: [{ id: '10:2', name: 'State=Default' }],
+      }],
+    });
+    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /does not exist/);
+    assert.equal(figma.created.length, 0);
+  });
+
+  it('applies Registry-backed property, text, fill, and nested instance overrides', async () => {
+    const client = designClient([
+      { id: 'ui.card', kind: 'component', figma: { componentKey: 'card-key' } },
+      { id: 'ui.icon.leaf', kind: 'component', figma: { componentKey: 'leaf-key' } },
+    ]);
     const plan = client.planJSX(
-      '<Frame name="Overrides"><Instance entity="ui.card" key="card-key" name="Plant card" ' +
+      '<Frame name="Overrides"><Instance entity="ui.card" name="Plant card" ' +
       'prop:Selected="true" prop:Label="Monstera" prop:Icon="ui.icon.leaf" ' +
       'text:CardTitle="Swiss cheese plant" fill:StatusDot="var:status/healthy|#22c55e" ' +
       'swap:LeadingIcon="ui.icon.leaf" /></Frame>',
@@ -1113,10 +1201,12 @@ describe('structured Semantic Render Plan executor', () => {
   });
 
   it('stops unresolved instance override targets before creating canvas nodes', async () => {
-    const client = new FigmaClient();
-    client.setComponentLinks({ 'ui.icon.leaf': { key: 'missing-leaf-key' } });
+    const client = designClient([
+      { id: 'ui.card', kind: 'component', figma: { componentKey: 'card-key' } },
+      { id: 'ui.icon.leaf', kind: 'component', figma: { componentKey: 'missing-leaf-key' } },
+    ]);
     const plan = client.planJSX(
-      '<Frame><Instance entity="ui.card" key="card-key" text:MissingLabel="Nope" swap:Icon="ui.icon.leaf" /></Frame>',
+      '<Frame><Instance entity="ui.card" text:MissingLabel="Nope" swap:Icon="ui.icon.leaf" /></Frame>',
     );
     const figma = fakeFigma({
       components: [{ id: '10:1', key: 'card-key', name: 'Plant Card', children: [{ type: 'INSTANCE', name: 'Icon' }] }],
@@ -1127,18 +1217,19 @@ describe('structured Semantic Render Plan executor', () => {
   });
 
   it('stops unresolved or name-guessed components before creating canvas nodes', async () => {
-    const missing = new FigmaClient().planJSX(
-      '<Frame><Instance entity="ui.missing" key="missing-key" /></Frame>',
+    const missing = designClient([{
+      id: 'ui.missing', kind: 'component', figma: { componentKey: 'missing-key' },
+    }]).planJSX(
+      '<Frame><Instance entity="ui.missing" /></Frame>',
     );
     const missingFigma = fakeFigma();
     await assert.rejects(() => executeStructuredRenderPlan(missingFigma, missing), /could not be imported/);
     assert.equal(missingFigma.created.length, 0);
 
-    const guessed = new FigmaClient().planJSX('<Frame><Instance component="Button" /></Frame>');
-    const guessedFigma = fakeFigma();
-    assert.match(inspectStructuredRenderPlan(guessed).problems.join('\n'), /Registry Design Entity id/);
-    await assert.rejects(() => executeStructuredRenderPlan(guessedFigma, guessed), /Registry Design Entity id/);
-    assert.equal(guessedFigma.created.length, 0);
+    assert.throws(
+      () => new FigmaClient().planJSX('<Frame><Instance component="Button" /></Frame>'),
+      /valid Design Entity id/,
+    );
   });
 
   it('imports resolved Icon assets as editable SVG trees and recolors vector paint', async () => {
@@ -1512,7 +1603,7 @@ function fakeVariable(name, resolvedType, value, scopes = ['ALL_SCOPES'], collec
   };
 }
 
-function fakeFigma({ variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, setFrameLayoutMode = null, appendChildHook = null, setTextStyleIdAsync = null, mutationCheckpoint = null, removeHook = null } = {}) {
+function fakeFigma({ fileKey = 'FILE_A', variables: initialVariables = [], collections: initialCollections = null, components = [], textStyles: initialTextStyles = [], loadFont = null, createImage = null, createImageAsync = null, createVariableHook = null, setFrameEffects = null, setFrameLayoutMode = null, appendChildHook = null, setTextStyleIdAsync = null, mutationCheckpoint = null, removeHook = null } = {}) {
   let id = 0;
   let imageId = 0;
   const created = [];
@@ -1522,7 +1613,7 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
   const collections = initialCollections ? [...initialCollections] : [{ id: 'collection:1', name: 'Tokens', modes: [{ modeId: 'mode:1', name: 'Default' }] }];
   const currentPage = { children: [] };
   const base = (type) => ({
-    id: `${type}:${++id}`, type, name: '', x: 0, y: 0, width: type === 'TEXT' ? 1 : 0, height: type === 'TEXT' ? 16 : 0,
+    id: `1:${++id}`, type, name: '', x: 0, y: 0, width: type === 'TEXT' ? 1 : 0, height: type === 'TEXT' ? 16 : 0,
     children: [], fills: [], strokes: [], effects: [], annotations: [], layoutMode: 'NONE', visible: true, locked: false,
     resize(width, height) { this.width = width; this.height = height; },
     appendChild(child) {
@@ -1689,6 +1780,7 @@ function fakeFigma({ variables: initialVariables = [], collections: initialColle
   }
   const api = {
     created, imageResources, localVariables, localTextStyles, localCollections: collections,
+    fileKey,
     __figmaBridgeMutationCheckpoint: mutationCheckpoint,
     currentPage,
     async getLocalTextStylesAsync() { return [...localTextStyles]; },

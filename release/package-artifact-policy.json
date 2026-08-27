@@ -215,6 +215,7 @@
     "engine/src/lib/daemon-port.js",
     "engine/src/lib/dispatch-receipt.js",
     "engine/src/lib/design-contract.js",
+    "engine/src/lib/design-entity-bindings.js",
     "engine/src/lib/design-link-registry.js",
     "engine/src/lib/design-md-locate.js",
     "engine/src/lib/design-spec.js",

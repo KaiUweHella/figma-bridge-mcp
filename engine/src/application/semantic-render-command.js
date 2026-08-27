@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { FigmaClient } from '../lib/jsx-render.js';
 import {
-  componentLinksFromRegistry,
+  designEntityRegistryProjection,
   readDesignLinkRegistry,
 } from '../lib/design-link-registry.js';
 import {
@@ -162,6 +162,16 @@ function compileEvidence(client, jsx, renderPlan, request, presetNote) {
   });
 }
 
+function assertRootIdentityStageCompatibility(request, renderPlans) {
+  if (!request.stages?.componentConversion) return;
+  const identified = renderPlans.find((renderPlan) => renderPlan.root.source.props.entity != null);
+  if (identified) {
+    throw preflightError(
+      'A rendered-root screen/frame Design Entity cannot use --as-component; link a component entity in a separate render instead.',
+    );
+  }
+}
+
 /** Select the exact Adapter without executing the Command. */
 export function semanticRenderPlanRoute(plan) {
   if (!isFigmaCommandPlan(plan)) {
@@ -189,9 +199,12 @@ export function prepareSemanticRenderPlan(plan, adapters = {}) {
       manifestPath: request.manifest,
       io: adapters.workspaceIO,
     }).registry;
-    client.setComponentLinks(componentLinksFromRegistry(registry));
+    client.setDesignEntityProjection(designEntityRegistryProjection(registry, {
+      targetFileKey: plan.target.fileKey,
+    }));
   }
   const renderPlan = client.planJSX(preset.jsx);
+  assertRootIdentityStageCompatibility(request, [renderPlan]);
   const evidence = compileEvidence(client, preset.jsx, renderPlan, request, preset.note);
   const support = inspectStructuredRenderPlan(renderPlan);
   const prepared = Object.freeze({ request, client, renderPlan, support, evidence, jsx: preset.jsx });
@@ -337,11 +350,14 @@ export async function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
       manifestPath: request.manifest,
       io: adapters.workspaceIO,
     }).registry;
-    client.setComponentLinks(componentLinksFromRegistry(registry));
+    client.setDesignEntityProjection(designEntityRegistryProjection(registry, {
+      targetFileKey: plan.target.fileKey,
+    }));
   }
 
   const presetRoots = imagePreparation.roots.map((jsx) => devicePreset(jsx, request.preset));
   const renderPlans = presetRoots.map(({ jsx }) => client.planJSX(jsx));
+  assertRootIdentityStageCompatibility(request, renderPlans);
   const evidence = renderPlans.map((renderPlan, index) => compileEvidence(
     client, presetRoots[index].jsx, renderPlan, request, presetRoots[index].note,
   ));
@@ -833,6 +849,9 @@ export function semanticRenderResultRows(result) {
   for (const root of outcome.roots) {
     rows.push({ tone: 'success', marker: '✓', markerTone: 'success', text: `Rendered: ${root.handle}` });
     if (root.name) rows.push({ tone: 'muted', text: `name: ${root.name}` });
+    if (root.designEntity) {
+      rows.push({ tone: 'muted', text: `Design Entity: ${root.designEntity.id} (${root.designEntity.kind}) → ${root.designEntity.nodeId}` });
+    }
   }
   if (outcome.roots.length > 1) rows.push({ tone: 'success', text: `${outcome.roots.length} roots created` });
   rows.push({

@@ -598,6 +598,10 @@ _Avoid_: mapped node, remembered component
 The versioned repository record that resolves a **Design Entity** to its code, Storybook and Figma links. `figma-bridge.json` is the durable adapter; Figma plugin data is the document-side adapter. Ambiguous or conflicting links are reported rather than guessed.
 _Avoid_: memory file, component map
 
+**Design Entity Binding Table**:
+The immutable, content-fingerprinted and target-constrained projection of the Design Link Registry embedded in one **Semantic Render Plan**. Input adapters author only Design Entity and variant intent; preparation chooses a published key or exact-file local node once. Native and generated compatibility execution consume that same table and cannot replace it with source props, names, selection or a later Registry read.
+_Avoid_: component links, instance lookup map, name fallback
+
 **Accepted Design Baseline**:
 The reviewed pair of code and Figma fingerprints for one **Design Entity**. It records the last state a human accepted as corresponding without storing source content or claiming that code and Figma are structurally comparable. Existing rendered UI may additionally require bounded **Render Provenance** before that baseline can be accepted.
 _Avoid_: last sync, golden version
@@ -787,11 +791,11 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 >
 > **Domain expert:** No. A native instance requires an explicit Design Entity and its Registry key or current-file node id. The Figma Render Executor resolves that identity and any requested variant before creating canvas nodes; display names are never identity.
 
-> **Domain expert:** JSX may name only the Design Entity. Before structural preflight, the JSX Adapter materializes its published key and/or current-file node id from the Design Link Registry into the typed Semantic Render Plan. If JSX and Registry provide conflicting anchors, preparation fails before Plugin readiness; neither side silently wins.
+> **Domain expert:** JSX may name only the Design Entity. Before structural preflight, Command preparation binds its published key or exact current-file node id from one fingerprinted Design Link Registry projection into the Plan's immutable Design Entity Binding Table. If JSX supplies a conflicting legacy anchor, preparation fails before Plugin readiness; neither side silently wins.
 
 > **Developer:** How do native instance overrides identify properties, layers and swap targets?
 >
-> **Domain expert:** `prop:<Property>` resolves one real component-property definition; `text:<Layer>` and `fill:<Layer>` resolve one exact or whitespace/hyphen/underscore-normalized descendant. `swap:<Layer>` and INSTANCE_SWAP properties carry a Design Entity id, which must have a key or local node id in the Render Plan's read-only Registry projection. Visible component names are never swap identity, and every override target is preflighted before canvas creation.
+> **Domain expert:** `prop:<Property>` resolves one real component-property definition; `text:<Layer>` and `fill:<Layer>` resolve one exact or whitespace/hyphen/underscore-normalized descendant. `swap:<Layer>` and INSTANCE_SWAP properties carry a Design Entity id, which must have a key or exact-file local node in the Plan's Design Entity Binding Table. Visible component names are never swap identity, and every override target is preflighted before canvas creation.
 
 > **Developer:** What happens when a width, height or typography value is a variable?
 >

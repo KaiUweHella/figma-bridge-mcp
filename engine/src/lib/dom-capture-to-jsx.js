@@ -14,6 +14,7 @@ import {
   semanticTrackString,
 } from './semantic-dom-model.js';
 import { createSemanticRenderPlan } from './semantic-render-plan.js';
+import { bindSemanticDesignEntities } from './design-entity-bindings.js';
 import { getBuiltinIconSvg } from './builtin-icons.js';
 
 const TRANSPARENT = new Set(['transparent', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)']);
@@ -1065,11 +1066,16 @@ function projectDomCapture(capture, { projectIcons = {}, componentLinks = {} } =
     const key = sourceIdentity.componentKey || linked.key || null;
     const id = sourceIdentity.componentNodeId || linked.id || null;
     if (!key && !id && !linked.name) return null;
+    if (sourceIdentity.componentKey && linked.key
+      && sourceIdentity.componentKey !== linked.key) {
+      throw new Error(`Design Entity ${entityId} has a conflicting captured component key`);
+    }
+    if (sourceIdentity.componentNodeId && linked.id
+      && sourceIdentity.componentNodeId !== linked.id) {
+      throw new Error(`Design Entity ${entityId} has a conflicting captured component node id`);
+    }
     return {
       entityId,
-      ...(key ? { key } : {}),
-      ...(id ? { id } : {}),
-      ...(!key && !id && linked.name ? { name: linked.name } : {}),
       ...(sourceIdentity.variant || linked.variant ? { variant: sourceIdentity.variant || linked.variant } : {}),
     };
   };
@@ -1137,10 +1143,16 @@ export function domCaptureToRenderPlan(capture, options = {}) {
       } : null;
     },
   });
-  const renderPlan = createSemanticRenderPlan({
+  const bound = bindSemanticDesignEntities({
     ...executableModel,
     diagnostics: projection.semanticModel?.diagnostics || executableModel.diagnostics,
-  }, {
+  }, options.designEntityProjection || {
+    version: 1,
+    registry: { schemaVersion: 1, sourceFingerprint: '0'.repeat(64) },
+    targetConstraint: { kind: 'authenticated-session' },
+    entities: {},
+  });
+  const renderPlan = createSemanticRenderPlan(bound.model, {
     adapter: 'dom-capture',
     provenance: {
       captureVersion: Number(capture.version || 1),
@@ -1154,7 +1166,7 @@ export function domCaptureToRenderPlan(capture, options = {}) {
         } : {}),
     },
     variableCollection: options.variableCollection || null,
-    componentLinks: options.componentLinks || null,
+    designEntityBindings: bound.designEntityBindings,
   });
   return { ...projection, renderPlan };
 }

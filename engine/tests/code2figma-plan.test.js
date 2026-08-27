@@ -5,9 +5,23 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { FigmaClient } from '../src/lib/jsx-render.js';
 import { getBuiltinIconSvg, builtinIconNames } from '../src/lib/builtin-icons.js';
+import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
 
 function assertValidJs(code) {
   assert.doesNotThrow(() => new Function(code), SyntaxError, `Generated code is not valid JS:\n${code}`);
+}
+
+function instanceClient() {
+  const client = new FigmaClient();
+  client.setDesignEntityProjection(designEntityRegistryProjection({
+    version: 1,
+    entities: [
+      { id: 'ui.card', kind: 'component', figma: { componentKey: 'CARD_KEY' } },
+      { id: 'ui.row', kind: 'component', figma: { componentKey: 'ROW_KEY' } },
+      { id: 'ui.badge', kind: 'component', figma: { componentKey: 'BADGE_KEY' } },
+    ],
+  }, { targetFileKey: 'FILE_A' }));
+  return client;
 }
 
 describe('builtin-icons module', () => {
@@ -57,9 +71,9 @@ describe('<Icon> uses built-in vectors instead of placeholder boxes', () => {
 
 describe('Instance fill:/swap: overrides', () => {
   it('fill:<Layer> compiles to __setInstanceFill with hex value', async () => {
-    const client = new FigmaClient();
+    const client = instanceClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Card" fill:photo="#AABBCC" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="ui.card" fill:photo="#AABBCC" /></Frame>'
     );
     assert.ok(code.includes('__setInstanceFill'), 'fill override helper call expected');
     assert.ok(code.includes('"photo"'), 'layer name must be passed through');
@@ -67,18 +81,18 @@ describe('Instance fill:/swap: overrides', () => {
   });
 
   it('fill:<Layer> with var: value forces the variable cache preamble', async () => {
-    const client = new FigmaClient();
+    const client = instanceClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Card" fill:photo="var:color/green/200" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="ui.card" fill:photo="var:color/green/200" /></Frame>'
     );
     assert.ok(code.includes('lookupVar'), 'var cache must be loaded for fill: overrides');
     assertValidJs(code);
   });
 
   it('swap:<Layer> compiles to __swapInstance', async () => {
-    const client = new FigmaClient();
+    const client = instanceClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Row" swap:icon="COMPONENT_LIBRARY/Badge" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="ui.row" swap:icon="ui.badge" /></Frame>'
     );
     assert.ok(code.includes('__swapInstance'), 'swap override helper call expected');
     assertValidJs(code);
@@ -181,12 +195,12 @@ describe('min/max size constraints (responsive)', () => {
   });
 
   it('min/max apply to root frame, Text, Rect and Instance', async () => {
-    const client = new FigmaClient();
+    const client = instanceClient();
     const code = await client.parseJSX(
       '<Frame name="P" flex="col" w="390" minW="320" maxW="480" bg="var:x/y">' +
       '<Text maxW="200" truncate="true">Long name</Text>' +
       '<Rect w="fill" minH="4" h="8" />' +
-      '<Instance component="Card" minW="150" />' +
+      '<Instance entity="ui.card" minW="150" />' +
       '</Frame>'
     );
     assert.ok(code.includes('frame.minWidth = 320'), 'root minWidth');

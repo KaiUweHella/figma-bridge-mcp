@@ -21,6 +21,7 @@ import {
   scoreFidelityWorkflowRun,
 } from '../engine/src/lib/fidelity-corpus.js';
 import { FigmaClient } from '../engine/src/lib/jsx-render.js';
+import { designEntityRegistryProjection } from '../engine/src/lib/design-link-registry.js';
 import { inspectStructuredRenderPlan } from '../engine/src/lib/structured-render-executor.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,6 +30,13 @@ const workflowProof = JSON.parse(
   readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip-proof.json'), 'utf8'),
 );
 const DIGEST = `sha256:${'a'.repeat(64)}`;
+
+function designProjection(figma, { targetFileKey = 'FILE_A' } = {}) {
+  return designEntityRegistryProjection({
+    version: 1,
+    entities: [{ id: 'corpus.control', kind: 'component', figma }],
+  }, { targetFileKey });
+}
 
 function expectedCells(value = corpus) {
   const facts = new Map(value.facts.map((fact) => [fact.id, fact]));
@@ -101,32 +109,32 @@ test('the Design fixture adapts into one supported typed Semantic Render Plan', 
   client.setIcons({
     'bridge-glyph': readFileSync(join(ROOT, 'evals/fidelity/v1/assets/bridge-glyph.svg'), 'utf8'),
   });
-  client.setComponentLinks({
-    'corpus.control': { entityId: 'corpus.control', key: 'PLACEHOLDERCORPUSSETKEY' },
-  });
+  client.setDesignEntityProjection(designProjection({ componentKey: 'PLACEHOLDERCORPUSSETKEY' }));
   const plan = client.planJSX(readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip.jsx'), 'utf8'));
   assert.equal(plan.kind, 'figma-bridge/semantic-render-plan');
   assert.equal(plan.version, 1);
   const instance = plan.root.children.find((node) => node.source.type === 'instance');
   assert.equal(instance.source.props.entity, 'corpus.control');
-  assert.equal(instance.source.props.key, 'PLACEHOLDERCORPUSSETKEY');
+  assert.equal(instance.source.props.key, undefined);
+  assert.equal(plan.designEntityBindings.bindings['corpus.control'].handle, 'PLACEHOLDERCORPUSSETKEY');
   assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
 });
 
 test('Design Entity links materialize local instance anchors and reject identity conflicts', () => {
   const local = new FigmaClient();
-  local.setComponentLinks({ 'corpus.control': { entityId: 'corpus.control', id: '12:34' } });
+  local.setDesignEntityProjection(designProjection({ nodeId: '12:34', fileKey: 'FILE_A' }));
   const plan = local.planJSX(
     '<Frame name="Local"><Instance entity="corpus.control" variant="State=Ready, Size=Medium" /></Frame>',
   );
-  assert.equal(plan.root.children[0].source.props.id, '12:34');
+  assert.equal(plan.root.children[0].source.props.id, undefined);
+  assert.equal(plan.designEntityBindings.bindings['corpus.control'].handle, '12:34');
   assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
 
   const conflicting = new FigmaClient();
-  conflicting.setComponentLinks({ 'corpus.control': { entityId: 'corpus.control', key: 'registry-key' } });
+  conflicting.setDesignEntityProjection(designProjection({ componentKey: 'registry-key' }));
   assert.throws(
     () => conflicting.planJSX('<Frame><Instance entity="corpus.control" key="source-key" /></Frame>'),
-    /conflicting key anchors/,
+    /conflicting authored key anchor/,
   );
 });
 
@@ -145,9 +153,7 @@ test('the representative round-trip proof pins clean inputs, deterministic outpu
   client.setIcons({
     'bridge-glyph': readFileSync(join(ROOT, 'evals/fidelity/v1/assets/bridge-glyph.svg'), 'utf8'),
   });
-  client.setComponentLinks({
-    'corpus.control': { entityId: 'corpus.control', key: 'PLACEHOLDERCORPUSSETKEY' },
-  });
+  client.setDesignEntityProjection(designProjection({ componentKey: 'PLACEHOLDERCORPUSSETKEY' }));
   const source = readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip.jsx'), 'utf8');
   const firstPlan = client.planJSX(source);
   const title = firstPlan.root.children[0].children[0].children[0];

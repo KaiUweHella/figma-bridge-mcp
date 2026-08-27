@@ -565,6 +565,104 @@ test('CLI and MCP use one authentic canonical Semantic Render Command Plan', (t)
   assert.ok(terminatedImage.argv.some((arg) => arg.startsWith('--manifest=')));
 });
 
+test('CLI and MCP bind the same target-aware Design Entity identities without authored handles', (t) => {
+  const { root, io } = workspace(t);
+  writeFileSync(join(root, 'figma-bridge.json'), JSON.stringify({
+    version: 1,
+    entities: [
+      { id: 'screen.release-proof', kind: 'screen' },
+      {
+        id: 'ui.button', kind: 'component', figma: {
+          componentKey: 'PUBLISHED_BUTTON', nodeId: '10:20', fileKey: 'FILE_A',
+          variant: 'State=Default',
+        },
+      },
+      {
+        id: 'ui.icon', kind: 'component', figma: {
+          componentKey: 'PUBLISHED_ICON', nodeId: '10:30', fileKey: 'FILE_A',
+        },
+      },
+    ],
+  }));
+  const jsx = '<Frame entity="screen.release-proof"><Instance entity="ui.button" prop:Icon="ui.icon"/></Frame>';
+  const options = { workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A' };
+  const mcp = prepareSemanticRenderPlan(
+    planFigmaCommand(['render', jsx], { ...options, adapter: 'mcp' }),
+    { workspaceIO: io },
+  );
+  const cli = prepareSemanticRenderPlan(
+    planFigmaCommand(['render', jsx], { ...options, adapter: 'cli' }),
+    { workspaceIO: io },
+  );
+
+  assert.deepEqual(cli.renderPlan.designEntityBindings, mcp.renderPlan.designEntityBindings);
+  assert.match(mcp.renderPlan.designEntityBindings.registry.sourceFingerprint, /^[a-f0-9]{64}$/);
+  assert.deepEqual(mcp.renderPlan.designEntityBindings.targetConstraint, {
+    kind: 'file-key', fileKey: 'FILE_A',
+  });
+  assert.deepEqual(mcp.renderPlan.designEntityBindings.bindings['ui.button'], {
+    entityId: 'ui.button', entityKind: 'component', purposes: ['instance'],
+    handleKind: 'published-key', handle: 'PUBLISHED_BUTTON',
+    localFallback: { handleKind: 'local-node', handle: '10:20', fileKey: 'FILE_A' },
+    variantIntents: ['State=Default'],
+  });
+  assert.deepEqual(mcp.renderPlan.designEntityBindings.bindings['ui.icon'].purposes, ['instance-swap']);
+  assert.equal(mcp.renderPlan.root.children[0].source.props.key, undefined);
+  assert.equal(mcp.renderPlan.root.children[0].source.props.id, undefined);
+  assert.equal(mcp.renderPlan.root.children[0].source.props.variant, 'State=Default');
+  assert.equal(mcp.renderPlan.designEntityBindings.bindings['screen.release-proof'].handleKind, 'created-root');
+
+  const prepare = (candidate, fileKey = 'FILE_A') => prepareSemanticRenderPlan(
+    planFigmaCommand(['render', candidate], {
+      adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey,
+    }),
+    { workspaceIO: io },
+  );
+  assert.throws(
+    () => prepare('<Frame><Instance entity="ui.button" key="CALLER_KEY"/></Frame>'),
+    /conflicting authored key anchor/,
+  );
+  assert.throws(
+    () => prepare('<Frame><Instance entity="ui.missing"/></Frame>'),
+    /missing from the Registry projection/,
+  );
+  assert.throws(
+    () => prepare('<Frame><Instance entity="screen.release-proof"/></Frame>'),
+    /must resolve to a component entity/,
+  );
+
+  writeFileSync(join(root, 'figma-bridge.json'), JSON.stringify({
+    version: 1,
+    entities: [{
+      id: 'ui.local-only', kind: 'component',
+      figma: { nodeId: '20:30', fileKey: 'FILE_A' },
+    }],
+  }));
+  assert.throws(
+    () => prepare('<Frame><Instance entity="ui.local-only"/></Frame>', 'FILE_B'),
+    /belongs to Figma file FILE_A, not the Command target/,
+  );
+});
+
+test('rendered-root identity rejects incompatible component conversion before execution', async (t) => {
+  const { root, io } = workspace(t);
+  writeFileSync(join(root, 'figma-bridge.json'), JSON.stringify({
+    version: 1,
+    entities: [{ id: 'screen.release-proof', kind: 'screen' }],
+  }));
+  const plan = planFigmaCommand([
+    'render-batch', JSON.stringify([
+      '<Frame entity="screen.release-proof" name="Release proof"/>',
+    ]), '--as-component',
+  ], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+  });
+  await assert.rejects(
+    () => prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io }),
+    /screen\/frame Design Entity cannot use --as-component/,
+  );
+});
+
 test('compound native rendering dispatches one journaled batch and returns one bounded Outcome', async (t) => {
   const roots = [
     '<Frame name="Card 1"><Text>One</Text></Frame>',

@@ -15,39 +15,16 @@ import {
   semanticRenderPlanToJsxTree,
 } from './semantic-render-plan.js';
 import { parseRichTextContent } from './rich-text.js';
+import {
+  bindSemanticDesignEntities,
+  materializeDesignBindingsForCompatibility,
+} from './design-entity-bindings.js';
 
 function resourceRecord(map) {
   const record = Object.create(null);
   if (!map || typeof map !== 'object' || Array.isArray(map)) return record;
   for (const [key, value] of Object.entries(map)) record[key] = value;
   return record;
-}
-
-function materializeComponentLinks(model, componentLinks) {
-  const visit = (node) => {
-    if (node?.source?.type === 'instance') {
-      const props = node.source.props || {};
-      const entity = typeof props.entity === 'string' ? props.entity : null;
-      const link = entity ? componentLinks[entity] : null;
-      if (link) {
-        for (const field of ['key', 'id']) {
-          if (props[field] && link[field] && props[field] !== link[field]) {
-            throw new Error(
-              `Design Entity ${entity} has conflicting ${field} anchors in JSX and the Design Link Registry`,
-            );
-          }
-        }
-        node.source.props = {
-          ...props,
-          ...(link.key ? { key: link.key } : {}),
-          ...(link.id ? { id: link.id } : {}),
-        };
-      }
-    }
-    for (const child of node?.children || []) visit(child);
-  };
-  visit(model?.root);
-  return model;
 }
 
 // NOTE: there is deliberately no built-in semantic color table here. An
@@ -82,7 +59,7 @@ export class FigmaClient {
     // Read-only projection of component Design Entities from the Registry.
     // Native instance swaps resolve through these durable handles; display
     // names never become identity.
-    this.componentLinks = Object.create(null);
+    this.designEntityProjection = null;
   }
 
   /** Pin variable lookups to a specific collection (by case-insensitive name match). */
@@ -100,9 +77,9 @@ export class FigmaClient {
     this.customIcons = resourceRecord(map);
   }
 
-  /** Provide Registry Design Entity links (entity id -> published key/local id). */
-  setComponentLinks(map) {
-    this.componentLinks = resourceRecord(map);
+  /** Provide the closed, fingerprinted Registry projection for Plan binding. */
+  setDesignEntityProjection(projection) {
+    this.designEntityProjection = projection || null;
   }
 
   // (The Chrome DevTools transport — listPages / isConnected / connect / send /
@@ -130,7 +107,9 @@ export class FigmaClient {
 
     const parsed = plans.map((plan) => {
       assertSemanticRenderPlan(plan, { executable: true });
-      const tree = semanticRenderPlanToJsxTree(plan);
+      const tree = semanticRenderPlanToJsxTree(materializeDesignBindingsForCompatibility(plan), {
+        compatibilityMaterialized: true,
+      });
       return { props: tree.props, children: tree.children };
     });
 
@@ -352,7 +331,10 @@ export class FigmaClient {
   /** Compile one already-validated plan. The generated-JavaScript executor is
    * deliberately retained as a compatibility seam in this first slice. */
   async compileRenderPlan(plan) {
-    const tree = semanticRenderPlanToJsxTree(assertSemanticRenderPlan(plan, { executable: true }));
+    const validated = assertSemanticRenderPlan(plan, { executable: true });
+    const tree = semanticRenderPlanToJsxTree(materializeDesignBindingsForCompatibility(validated), {
+      compatibilityMaterialized: true,
+    });
     const iconSvgMap = { ...this.customIcons };
     return this.generateCode(tree.props, tree.children, iconSvgMap);
   }
@@ -524,14 +506,17 @@ export class FigmaClient {
   }
 
   renderPlanForTree(tree) {
-    const semanticModel = materializeComponentLinks(
-      assertSemanticModel(this.semanticModelForTree(tree)),
-      this.componentLinks,
-    );
-    return createSemanticRenderPlan(semanticModel, {
+    const semanticModel = assertSemanticModel(this.semanticModelForTree(tree));
+    const bound = bindSemanticDesignEntities(semanticModel, this.designEntityProjection || {
+      version: 1,
+      registry: { schemaVersion: 1, sourceFingerprint: '0'.repeat(64) },
+      targetConstraint: { kind: 'authenticated-session' },
+      entities: {},
+    });
+    return createSemanticRenderPlan(bound.model, {
       adapter: 'jsx',
       variableCollection: this.collectionFilter,
-      componentLinks: this.componentLinks,
+      designEntityBindings: bound.designEntityBindings,
     });
   }
 
@@ -616,7 +601,7 @@ export class FigmaClient {
       'glass', 'glassRefraction', 'glassDepth', 'glassRadius', 'glassDispersion', 'glassLight', 'glassLightAngle'];
 
     const known = {
-      Frame: [...layout, ...paint, ...corners, ...effects],
+      Frame: ['entity', ...layout, ...paint, ...corners, ...effects],
       Text: ['name', 'size', 'weight', 'color', 'font', 'fontStyle', 'italic', 'align', 'w', 'h', 'width', 'height',
         'minW', 'maxW', 'minH', 'maxH',
         'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'paragraphSpacing', 'paragraphIndent', 'truncate', 'maxLines', 'style',
@@ -1435,6 +1420,12 @@ export class FigmaClient {
           }
           return node.type === 'COMPONENT' ? node : null;
         };
+        const __resolveBoundComponent = async (value) => {
+          const binding = value && typeof value === 'object'
+            ? value.$figmaBridgeBinding : null;
+          if (!binding) return null;
+          return __resolveComponent(binding.id || null, null, binding.variant || null, binding.key || null);
+        };
         // Map user-facing property names onto the instance's real keys.
         // Non-variant component properties carry a "#node:id" suffix in their
         // key ("Label#12:3") that callers shouldn't have to know about.
@@ -1451,6 +1442,15 @@ export class FigmaClient {
             let v = raw[k];
             if (def && def.type === 'BOOLEAN') {
               v = (v === true || v === 'true');
+            } else if (def && def.type === 'INSTANCE_SWAP'
+                       && v && typeof v === 'object' && v.$figmaBridgeBinding) {
+              const target = await __resolveBoundComponent(v);
+              if (target) v = target.id;
+              else {
+                globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
+                globalThis.__unresolvedVars.add('swap:bound-design-entity');
+                continue;
+              }
             } else if (def && def.type === 'INSTANCE_SWAP' && typeof v === 'string'
                        && !/^\\d+:\\d+$/.test(v) && !/^[0-9a-f]{20,}$/i.test(v)) {
               const target = await __resolveComponent(null, v, null);
@@ -1523,7 +1523,11 @@ export class FigmaClient {
         const __swapInstance = async (inst, layerName, componentName) => {
           const t = __findLayer(inst, layerName, n => n.type === 'INSTANCE', 'swap:');
           if (!t) return;
-          const target = await __resolveComponent(null, String(componentName), null);
+          const bound = componentName && typeof componentName === 'object'
+            && componentName.$figmaBridgeBinding;
+          const target = bound
+            ? await __resolveBoundComponent(componentName)
+            : await __resolveComponent(null, String(componentName), null);
           if (!target) { __miss('swap:' + componentName); return; }
           try { t.swapComponent(target); } catch (e) {}
         };

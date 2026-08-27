@@ -110,7 +110,7 @@ export function createSemanticRenderPlan(semanticModel, {
   adapter = 'unknown',
   provenance = null,
   variableCollection = null,
-  componentLinks = null,
+  designEntityBindings = null,
 } = {}) {
   if (!isRecord(semanticModel) || !isRecord(semanticModel.root)) {
     throw new Error('Cannot create Semantic Render Plan: semantic model root is missing');
@@ -124,7 +124,7 @@ export function createSemanticRenderPlan(semanticModel, {
     adapter,
     ...(provenance === null ? {} : { provenance }),
     ...(variableCollection ? { variableCollection } : {}),
-    ...(componentLinks && Object.keys(componentLinks).length ? { componentLinks } : {}),
+    ...(designEntityBindings ? { designEntityBindings } : {}),
     root: normalizePlanFontWeights(semanticModel.root),
     diagnostics: semanticModel.diagnostics || {},
   };
@@ -147,7 +147,10 @@ export function assertSemanticRenderPlan(plan, { executable = false } = {}) {
     && (typeof plan.variableCollection !== 'string' || !plan.variableCollection.trim())) {
     throw new Error('Semantic Render Plan variableCollection must be a non-empty string');
   }
-  if (plan.componentLinks !== undefined) validateComponentLinks(plan.componentLinks);
+  if (plan.componentLinks !== undefined) {
+    throw new Error('Semantic Render Plan legacy componentLinks are not executable');
+  }
+  if (plan.designEntityBindings !== undefined) validateDesignEntityBindings(plan.designEntityBindings);
   const validationState = { nodes: 0 };
   validateNode(plan.root, 'root', executable, 0, validationState);
   if (!isRecord(plan.diagnostics)) {
@@ -194,28 +197,71 @@ function validateFallbackAnnotations(annotations, location) {
   }
 }
 
-function validateComponentLinks(componentLinks) {
-  if (!isRecord(componentLinks)) {
-    throw new Error('Semantic Render Plan componentLinks must be an object');
+function validateDesignEntityBindings(table) {
+  if (!isRecord(table) || table.version !== 1 || !isRecord(table.registry)
+    || !isRecord(table.targetConstraint) || !isRecord(table.bindings)) {
+    throw new Error('Semantic Render Plan Design Entity bindings must use schema 1');
   }
-  for (const [entityId, link] of Object.entries(componentLinks)) {
+  if (table.registry.schemaVersion !== 1 || !SHA256.test(table.registry.sourceFingerprint)) {
+    throw new Error('Semantic Render Plan Design Entity Registry identity is invalid');
+  }
+  if (!['file-key', 'authenticated-session'].includes(table.targetConstraint.kind)
+    || (table.targetConstraint.kind === 'file-key'
+      && (typeof table.targetConstraint.fileKey !== 'string'
+        || !table.targetConstraint.fileKey || table.targetConstraint.fileKey.length > 256
+        || /[\u0000-\u001f\u007f]/.test(table.targetConstraint.fileKey)))) {
+    throw new Error('Semantic Render Plan Design Entity target constraint is invalid');
+  }
+  const entries = Object.entries(table.bindings);
+  if (!entries.length || entries.length > 2_000) {
+    throw new Error('Semantic Render Plan Design Entity bindings must contain 1-2,000 entries');
+  }
+  for (const [entityId, binding] of entries) {
     if (!/^[a-z0-9][a-z0-9._/-]{0,127}$/.test(entityId)) {
-      throw new Error(`Semantic Render Plan component link id "${entityId}" is invalid`);
+      throw new Error(`Semantic Render Plan Design Entity binding id "${entityId}" is invalid`);
     }
-    if (!isRecord(link)) {
-      throw new Error(`Semantic Render Plan component link "${entityId}" must be an object`);
+    if (!isRecord(binding) || binding.entityId !== entityId
+      || !['component', 'screen', 'frame'].includes(binding.entityKind)) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" is invalid`);
     }
-    if (link.entityId !== undefined && link.entityId !== entityId) {
-      throw new Error(`Semantic Render Plan component link "${entityId}" has a mismatched entityId`);
+    if (!Array.isArray(binding.purposes) || !binding.purposes.length
+      || binding.purposes.length > 3
+      || new Set(binding.purposes).size !== binding.purposes.length
+      || binding.purposes.some((purpose) => !['instance', 'instance-swap', 'render-root'].includes(purpose))) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" purposes are invalid`);
     }
-    if (!link.key && !link.id) {
-      throw new Error(`Semantic Render Plan component link "${entityId}" needs a published key or local node id`);
+    if (!['published-key', 'local-node', 'created-root'].includes(binding.handleKind)
+      || typeof binding.handle !== 'string' || !binding.handle || binding.handle.length > 256
+      || /[\u0000-\u001f\u007f]/.test(binding.handle)) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" handle is invalid`);
     }
-    if (link.key !== undefined && (typeof link.key !== 'string' || !link.key.trim())) {
-      throw new Error(`Semantic Render Plan component link "${entityId}" key must be a non-empty string`);
+    if (binding.handleKind === 'local-node' && !/^\d+:\d+$/.test(binding.handle)) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" local handle is invalid`);
     }
-    if (link.id !== undefined && (typeof link.id !== 'string' || !/^\d+:\d+$/.test(link.id))) {
-      throw new Error(`Semantic Render Plan component link "${entityId}" id must use Figma node-id syntax`);
+    if (binding.handleKind === 'created-root'
+      && (binding.handle !== 'created-root' || binding.entityKind === 'component'
+        || !binding.purposes.includes('render-root'))) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" root handle is invalid`);
+    }
+    if (binding.handleKind !== 'created-root'
+      && (binding.entityKind !== 'component' || binding.purposes.includes('render-root'))) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" component handle is invalid`);
+    }
+    if (binding.localFallback !== undefined
+      && (!isRecord(binding.localFallback)
+        || binding.handleKind !== 'published-key'
+        || binding.localFallback.handleKind !== 'local-node'
+        || !/^\d+:\d+$/.test(binding.localFallback.handle)
+        || typeof binding.localFallback.fileKey !== 'string'
+        || !binding.localFallback.fileKey || binding.localFallback.fileKey.length > 256
+        || /[\u0000-\u001f\u007f]/.test(binding.localFallback.fileKey))) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" fallback is invalid`);
+    }
+    if (!Array.isArray(binding.variantIntents) || binding.variantIntents.length > 100
+      || new Set(binding.variantIntents).size !== binding.variantIntents.length
+      || binding.variantIntents.some((variant) => typeof variant !== 'string' || !variant
+        || variant.length > 512 || /[\u0000-\u001f\u007f]/.test(variant))) {
+      throw new Error(`Semantic Render Plan Design Entity binding "${entityId}" variants are invalid`);
     }
   }
 }
@@ -315,6 +361,10 @@ function validateNode(node, location, executable, depth, state) {
     if (!isRecord(node.source.props)) {
       throw new Error(`Semantic Render Plan ${location}.source.props must be an object`);
     }
+    if (node.source.type === 'instance'
+      && ['key', 'id', 'component'].some((field) => node.source.props[field] != null)) {
+      throw new Error(`Semantic Render Plan ${location} component handles must exist only in Design Entity bindings`);
+    }
     if (node.source.type === 'text' && node.source.props.weight !== undefined
       && !Object.is(normalizedFontWeight(
         node.source.props.weight,
@@ -342,8 +392,8 @@ function validateNode(node, location, executable, depth, state) {
 /** Convert an executable plan to the temporary tree expected by the current
  * plugin-code generator. This is the only compatibility seam; adapters do not
  * have to emit or reparse JSX once they can create executable plan sources. */
-export function semanticRenderPlanToJsxTree(plan) {
-  assertSemanticRenderPlan(plan, { executable: true });
+export function semanticRenderPlanToJsxTree(plan, { compatibilityMaterialized = false } = {}) {
+  if (!compatibilityMaterialized) assertSemanticRenderPlan(plan, { executable: true });
   const visit = (node, root = false) => {
     const props = { ...node.source.props };
     const children = node.children.map((child) => visit(child));

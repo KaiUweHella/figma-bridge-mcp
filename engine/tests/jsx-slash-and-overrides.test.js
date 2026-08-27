@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { FigmaClient } from '../src/lib/jsx-render.js';
+import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
 
 function assertValidJs(code) {
   assert.doesNotThrow(() => new Function(code), SyntaxError, `Generated code is not valid JS:\n${code}`);
@@ -9,7 +10,19 @@ function assertValidJs(code) {
 // The client no longer fetches icon SVGs at all (no-network build) — <Icon>
 // always takes the placeholder path, so no stubbing is needed.
 function makeClient() {
-  return new FigmaClient();
+  const client = new FigmaClient();
+  client.setDesignEntityProjection(designEntityRegistryProjection({
+    version: 1,
+    entities: [
+      {
+        id: 'media.plant-card', kind: 'component', figma: {
+          componentKey: 'PLANT_CARD_KEY', nodeId: '4:618', fileKey: 'FILE_A',
+        },
+      },
+      { id: 'ui.button', kind: 'component', figma: { componentKey: 'BUTTON_KEY' } },
+    ],
+  }, { targetFileKey: 'FILE_A' }));
+  return client;
 }
 
 // Regression: the self-closing element regexes used [^/]* for the attribute
@@ -29,7 +42,7 @@ describe('self-closing elements with slashes in attribute values', () => {
   it('Instance with slash in a prop value is parsed, not dropped', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="media/Plant Card" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="media.plant-card" /></Frame>'
     );
     assert.ok(code.includes('__resolveComponent'), 'instance element must survive parsing');
     assertValidJs(code);
@@ -57,23 +70,24 @@ describe('self-closing elements with slashes in attribute values', () => {
   });
 });
 
-describe('<Instance> component reuse (cross-page, variants, overrides)', () => {
-  it('resolves by name across pages via __resolveComponent helper', async () => {
+describe('<Instance> Registry identity reuse (published keys, variants, overrides)', () => {
+  it('resolves by published identity without a visible-name anchor', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Plant Card" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="media.plant-card" /></Frame>'
     );
-    assert.ok(code.includes('loadAllPagesAsync'), 'searches beyond the current page');
-    assert.ok(code.includes("COMPONENT_SET"), 'accepts component sets');
+    assert.ok(code.includes('importComponentByKeyAsync'), 'published identity uses library import');
+    assert.ok(code.includes('"PLANT_CARD_KEY"'), 'the Registry key reaches execution');
+    assert.ok(!/__resolveComponent\([^,]+, "Plant Card"/.test(code), 'visible name is never an identity fallback');
     assertValidJs(code);
   });
 
   it('variant= picks a variant and applies setProperties', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Plant Card" variant="Tone=Teal" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="media.plant-card" variant="Tone=Teal" /></Frame>'
     );
-    assert.ok(/__resolveComponent\(null, "Plant Card", "Tone=Teal", null\)/.test(code), 'variant reaches resolver');
+    assert.ok(/__resolveComponent\("4:618", null, "Tone=Teal", "PLANT_CARD_KEY"\)/.test(code), 'variant and bound handles reach resolver');
     assert.ok(code.includes('setProperties(__variantPairs("Tone=Teal"))'), 'variant applied to instance');
     assertValidJs(code);
   });
@@ -81,7 +95,7 @@ describe('<Instance> component reuse (cross-page, variants, overrides)', () => {
   it('a requested variant that does not exist FAILS with a recipe — no silent default', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Plant Card" variant="Tone=Teal" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="media.plant-card" variant="Tone=Teal" /></Frame>'
     );
     // The throw lives inside the variantStr branch of the resolver…
     assert.ok(code.includes('not found on set'), 'missing variant throws');
@@ -97,7 +111,7 @@ describe('<Instance> component reuse (cross-page, variants, overrides)', () => {
   it('the variant-miss throw is present in the batch path too (helper parity)', async () => {
     const client = makeClient();
     const code = await client.parseJSXBatch([
-      '<Frame name="A" flex="col"><Instance component="Button" variant="Size=SM" /></Frame>',
+      '<Frame name="A" flex="col"><Instance entity="ui.button" variant="Size=SM" /></Frame>',
     ]);
     assert.ok(code.includes('not found on set'), 'batch shares the hardened resolver');
     assertValidJs(code);
@@ -106,28 +120,28 @@ describe('<Instance> component reuse (cross-page, variants, overrides)', () => {
   it('text:Layer= and prop:Name= overrides are emitted', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Plant Card" text:Name="Boston Fern" prop:Selected="true" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="media.plant-card" text:Name="Boston Fern" prop:Selected="true" /></Frame>'
     );
     assert.ok(code.includes('__setInstanceText(') && code.includes('"Boston Fern"'), 'text override emitted');
     assert.ok(code.includes('__mapProps(') && code.includes('"Selected"'), 'component property override emitted');
     assertValidJs(code);
   });
 
-  it('id-shaped component value keeps backwards-compatible id resolution', async () => {
+  it('an exact-file Registry entity keeps local-id resolution as published fallback', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="4:618" /></Frame>'
+      '<Frame name="P" flex="col"><Instance entity="media.plant-card" /></Frame>'
     );
     assert.ok(/__resolveComponent\("4:618", null/.test(code), 'id-shaped value resolves by id');
     assertValidJs(code);
   });
 
-  it('unresolved components are reported instead of silently skipped', async () => {
+  it('unresolved entities stop during binding instead of reaching generated execution', async () => {
     const client = makeClient();
-    const code = await client.parseJSX(
-      '<Frame name="P" flex="col"><Instance component="Nope" /></Frame>'
+    await assert.rejects(
+      () => client.parseJSX('<Frame name="P" flex="col"><Instance entity="ui.missing" /></Frame>'),
+      /missing from the Registry projection/,
     );
-    assert.ok(code.includes("'component:' +"), 'missing component recorded for the unresolved report');
   });
 });
 
@@ -328,7 +342,7 @@ describe('batch render path parity', () => {
   it('parseJSXBatch includes instance + text-style helpers when used', async () => {
     const client = makeClient();
     const code = await client.parseJSXBatch([
-      '<Frame name="A" flex="col"><Instance component="Button" variant="Size=SM" /></Frame>',
+      '<Frame name="A" flex="col"><Instance entity="ui.button" variant="Size=SM" /></Frame>',
       '<Frame name="B" flex="col"><Text style="Caption">x</Text></Frame>',
     ]);
     assert.ok(code.includes('__resolveComponent'), 'instance helper in batch preamble');

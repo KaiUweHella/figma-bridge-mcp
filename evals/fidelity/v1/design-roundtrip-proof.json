@@ -11,7 +11,7 @@
     "evals/fidelity/v1/prototype-reactions.json": "sha256:bf2a7a6e4092a09bd8b727b91bf02cb1d5913b2dd123537695abbe6cf134b024",
     "evals/fidelity/v1/assets/bridge-glyph.svg": "sha256:c96054c5cad312fbaab046aa965c45c1f174b4f0657ce4dadbe8a728f2410d6b"
   },
-  "semanticPlanDigest": "sha256:c96de972bd09db6938d6c840976be61ee654f780b31659fffc69153ece029a1c",
+  "semanticPlanDigest": "sha256:6a79f57f864416062a05f1d76d527c755fef2fe4cd81382369f474671e3f27bb",
   "visualTolerancePct": 1,
   "nonExactOutcomes": [
     "auto-layout-semantics:code-to-figma:structural:normalized",

@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { domCaptureToJsx, domCaptureToRenderPlan } from '../src/lib/dom-capture-to-jsx.js';
 import { FigmaClient } from '../src/lib/jsx-render.js';
+import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
 
 const style = (overrides = {}) => ({
   display: 'block', position: 'static', overflow: 'visible', opacity: '1',
@@ -81,15 +82,27 @@ describe('DOM capture to Figma JSX', () => {
     const linkedCapture = structuredClone(capture);
     linkedCapture.version = 2;
     linkedCapture.root.children[0].sourceIdentity = { component: 'ui.nav.active' };
+    const componentLinks = {
+      'ui.nav.active': { key: 'nav-active-key', id: '10:20', variant: 'State=Active' },
+    };
+    const projection = designEntityRegistryProjection({
+      version: 1,
+      entities: [{
+        id: 'ui.nav.active', kind: 'component', figma: {
+          componentKey: 'nav-active-key', nodeId: '10:20', fileKey: 'FILE_A', variant: 'State=Active',
+        },
+      }],
+    }, { targetFileKey: 'FILE_A' });
     const { jsx } = domCaptureToJsx(linkedCapture, {
-      componentLinks: {
-        'ui.nav.active': { key: 'nav-active-key', id: '10:20', variant: 'State=Active' },
-      },
+      componentLinks,
     });
 
-    assert.match(jsx, /<Instance entity="ui\.nav\.active" name="nav-item\.active" key="nav-active-key" id="10:20" variant="State=Active" w="120" h="42"/);
+    assert.match(jsx, /<Instance entity="ui\.nav\.active" name="nav-item\.active" variant="State=Active" w="120" h="42"/);
+    assert.doesNotMatch(jsx, /key="nav-active-key"|id="10:20"/);
     assert.doesNotMatch(jsx, />TEAM<\/Text>/);
-    const code = await new FigmaClient().parseJSX(jsx);
+    const client = new FigmaClient();
+    client.setDesignEntityProjection(projection);
+    const code = await client.parseJSX(jsx);
     assert.match(code, /__resolveComponent\("10:20", null, "State=Active", "nav-active-key"\)/);
     assert.match(code, /createInstance\(\)/);
   });

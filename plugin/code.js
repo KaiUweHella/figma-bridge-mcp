@@ -1220,6 +1220,13 @@ async function prepareStructuredComponents(figmaApi, plan) {
   collect(plan.root);
   if (!intents.length) return { bindings, overrides };
 
+  const table = plan.designEntityBindings;
+  const targetFileKey = table?.targetConstraint?.kind === 'file-key'
+    ? String(table.targetConstraint.fileKey || '') : null;
+  if (targetFileKey && figmaApi.fileKey !== targetFileKey) {
+    throw new Error(`Structured component preflight failed: Design Entity bindings target a different Figma file`);
+  }
+
   const resolveVariant = (target, requested, label) => {
     const wanted = structuredVariantPairs(requested);
     if (!Object.keys(wanted).length) {
@@ -1241,24 +1248,38 @@ async function prepareStructuredComponents(figmaApi, plan) {
     return matches[0];
   };
 
-  const resolveHandle = async (handle, label, variant = null) => {
+  const resolveHandle = async (binding, label, variant = null) => {
+    if (!binding || binding.entityKind !== 'component') {
+      throw new Error(`${label}: executable component binding is missing`);
+    }
+    if (variant && !binding.variantIntents.includes(String(variant))) {
+      throw new Error(`${label}: variant intent is not present in the immutable Plan binding`);
+    }
     let target = null;
-    if (handle.key) {
-      try { target = await figmaApi.importComponentByKeyAsync(String(handle.key)); }
+    if (binding.handleKind === 'published-key') {
+      try { target = await figmaApi.importComponentByKeyAsync(String(binding.handle)); }
       catch {
-        try { target = await figmaApi.importComponentSetByKeyAsync(String(handle.key)); }
+        try { target = await figmaApi.importComponentSetByKeyAsync(String(binding.handle)); }
         catch {
           // A Registry Design Entity may intentionally carry both anchors:
           // the publish key is strongest, while the node id is the explicit
           // current-file locator. Falling back to that id is still identity-
           // based and never a display-name guess.
-          if (handle.id) target = await figmaApi.getNodeByIdAsync(String(handle.id));
-          if (!target) throw new Error(`${label}: published component key ${handle.key} could not be imported and local component node ${handle.id || '(none)'} does not exist in this file`);
+          const fallback = binding.localFallback;
+          if (fallback && figmaApi.fileKey === fallback.fileKey) {
+            target = await figmaApi.getNodeByIdAsync(String(fallback.handle));
+          }
+          if (!target) throw new Error(`${label}: published component key ${binding.handle} could not be imported and its exact-file local fallback is unavailable`);
         }
       }
+    } else if (binding.handleKind === 'local-node') {
+      if (!targetFileKey || figmaApi.fileKey !== targetFileKey) {
+        throw new Error(`${label}: local component binding is stale for this Figma file`);
+      }
+      target = await figmaApi.getNodeByIdAsync(String(binding.handle));
+      if (!target) throw new Error(`${label}: local component node ${binding.handle} does not exist in this file`);
     } else {
-      target = await figmaApi.getNodeByIdAsync(String(handle.id));
-      if (!target) throw new Error(`${label}: local component node ${handle.id} does not exist in this file`);
+      throw new Error(`${label}: binding does not identify an instantiable component`);
     }
     if (!['COMPONENT', 'COMPONENT_SET'].includes(target.type)) {
       throw new Error(`${label}: linked Figma node is ${target.type}, not a component or component set`);
@@ -1272,7 +1293,8 @@ async function prepareStructuredComponents(figmaApi, plan) {
     const props = node.source.props;
     const label = `Design Entity ${props.entity}`;
     try {
-      return { node, component: await resolveHandle(props, label, props.variant) };
+      const binding = table?.bindings?.[props.entity];
+      return { node, component: await resolveHandle(binding, label, props.variant) };
     } catch (error) {
       return { node, error: error instanceof Error ? error.message : String(error) };
     }
@@ -1352,10 +1374,11 @@ async function prepareStructuredComponents(figmaApi, plan) {
   if (failures.length) throw new Error(`Structured component preflight failed: ${failures.slice(0, 5).join('; ')}`);
   const swapComponents = new Map();
   const swapOutcomes = await Promise.all([...swapEntities].map(async (entity) => {
-    const link = plan.componentLinks?.[entity];
-    if (!link) return { entity, error: `swap Design Entity ${entity} is not linked in the Render Plan Registry projection` };
+    const binding = table?.bindings?.[entity];
+    if (!binding) return { entity, error: `swap Design Entity ${entity} is not bound in the Render Plan` };
     try {
-      return { entity, component: await resolveHandle(link, `Swap Design Entity ${entity}`, link.variant) };
+      const variant = binding.variantIntents.length === 1 ? binding.variantIntents[0] : null;
+      return { entity, component: await resolveHandle(binding, `Swap Design Entity ${entity}`, variant) };
     } catch (error) {
       return { entity, error: error instanceof Error ? error.message : String(error) };
     }
@@ -1452,7 +1475,7 @@ function inspectStructuredRenderPlan(plan) {
     'imageScale', 'rounded',
     'radius', 'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing',
     'clip', 'overflow', 'position', 'x', 'y', 'grow', 'stretch', 'hug', 'opacity', 'visible', 'locked', 'rotate',
-    'blendMode', 'mask', 'maskType', 'stroke', 'strokeWidth', 'strokeAlign',
+    'blendMode', 'mask', 'maskType', 'stroke', 'strokeWidth', 'strokeAlign', 'entity',
     'strokeDashPattern', 'strokeCap', 'strokeTopWidth', 'strokeRightWidth',
     'strokeBottomWidth', 'strokeLeftWidth', 'shadow', 'innerShadow', 'blur',
     'bgBlur', 'filter', 'noise', 'noiseDensity', 'noiseSize', 'noiseColor',
@@ -1512,6 +1535,54 @@ function inspectStructuredRenderPlan(plan) {
   }
   if (typeof plan.adapter !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(plan.adapter)) {
     problems.push('render adapter must be a bounded lowercase identifier');
+  }
+  if (plan.designEntityBindings !== undefined) {
+    const table = plan.designEntityBindings;
+    const target = table?.targetConstraint;
+    const entries = isRecord(table?.bindings) ? Object.entries(table.bindings) : [];
+    if (!isRecord(table) || table.version !== 1 || !isRecord(table.registry)
+      || !/^[a-f0-9]{64}$/.test(String(table.registry.sourceFingerprint || ''))
+      || table.registry.schemaVersion !== 1 || !isRecord(target)
+      || !['file-key', 'authenticated-session'].includes(target.kind)
+      || (target.kind === 'file-key' && (typeof target.fileKey !== 'string' || !target.fileKey
+        || target.fileKey.length > 256 || /[\u0000-\u001f\u007f]/.test(target.fileKey)))
+      || !entries.length || entries.length > 2000) {
+      problems.push('Design Entity binding table is invalid');
+    } else {
+      for (const [entity, binding] of entries) {
+        if (!/^[a-z0-9][a-z0-9._/-]{0,127}$/.test(entity)
+          || !isRecord(binding) || binding.entityId !== entity
+          || !['component', 'screen', 'frame'].includes(binding.entityKind)
+          || !['published-key', 'local-node', 'created-root'].includes(binding.handleKind)
+          || typeof binding.handle !== 'string' || !binding.handle || binding.handle.length > 256
+          || /[\u0000-\u001f\u007f]/.test(binding.handle)
+          || !Array.isArray(binding.purposes) || !binding.purposes.length
+          || binding.purposes.length > 3
+          || new Set(binding.purposes).size !== binding.purposes.length
+          || binding.purposes.some((purpose) => !['instance', 'instance-swap', 'render-root'].includes(purpose))
+          || !Array.isArray(binding.variantIntents) || binding.variantIntents.length > 100
+          || new Set(binding.variantIntents).size !== binding.variantIntents.length
+          || binding.variantIntents.some((variant) => typeof variant !== 'string' || !variant
+            || variant.length > 512 || /[\u0000-\u001f\u007f]/.test(variant))
+          || (binding.handleKind === 'local-node' && !/^\d+:\d+$/.test(binding.handle))
+          || (binding.handleKind === 'created-root'
+            && (binding.handle !== 'created-root' || binding.entityKind === 'component'
+              || !binding.purposes.includes('render-root')))
+          || (binding.handleKind !== 'created-root'
+            && (binding.entityKind !== 'component' || binding.purposes.includes('render-root')))
+          || (binding.localFallback !== undefined
+            && (!isRecord(binding.localFallback)
+              || binding.handleKind !== 'published-key'
+              || binding.localFallback.handleKind !== 'local-node'
+              || !/^\d+:\d+$/.test(binding.localFallback.handle)
+              || typeof binding.localFallback.fileKey !== 'string'
+              || !binding.localFallback.fileKey || binding.localFallback.fileKey.length > 256
+              || /[\u0000-\u001f\u007f]/.test(binding.localFallback.fileKey)))) {
+          problems.push(`Design Entity binding ${entity} is invalid`);
+          break;
+        }
+      }
+    }
   }
   if (plan.provenance !== undefined) {
     let serialized = '';
@@ -1592,12 +1663,17 @@ function inspectStructuredRenderPlan(plan) {
       }
       if (type === 'instance') {
         if (typeof props.entity !== 'string' || !/^[a-z0-9][a-z0-9._/-]{0,127}$/.test(props.entity)) problems.push(`${path}: native instances require an explicit Registry Design Entity id`);
-        if (!props.key && !props.id) problems.push(`${path}: Registry instance needs a published key or explicit local node id`);
-        if (props.key != null && (typeof props.key !== 'string' || !props.key.trim())) problems.push(`${path}: component key must be a non-empty string`);
-        if (props.id != null && (typeof props.id !== 'string' || !/^\d+:\d+$/.test(props.id))) problems.push(`${path}: component id must use Figma node-id syntax`);
+        const binding = plan.designEntityBindings?.bindings?.[props.entity];
+        if (!binding || binding.entityKind !== 'component'
+          || !binding.purposes?.includes('instance')) problems.push(`${path}: Registry instance needs an immutable component binding`);
+        if (props.key != null || props.id != null) problems.push(`${path}: component handles must exist only in the Plan binding table`);
         if (props.component != null) problems.push(`${path}: name-based component lookup is not supported; use the Registry key/id`);
         try { structuredVariantPairs(props.variant); }
         catch (error) { problems.push(`${path}: ${error.message}`); }
+        if (props.variant != null && binding
+          && !binding.variantIntents?.includes(String(props.variant))) {
+          problems.push(`${path}: variant intent is absent from the immutable component binding`);
+        }
         for (const entry of structuredOverrideEntries(props, 'fill')) {
           if (!structuredColorSupported(entry.value)) problems.push(`${path}: ${entry.key} needs a solid color or COLOR variable`);
         }
@@ -1605,11 +1681,21 @@ function inspectStructuredRenderPlan(plan) {
           const entity = String(entry.value);
           if (!structuredDesignEntityId(entity)) problems.push(`${path}: ${entry.key} needs a Registry Design Entity id`);
           else {
-            const link = plan.componentLinks?.[entity];
-            if (!link?.key && !link?.id) problems.push(`${path}: swap Design Entity ${entity} has no Registry key or local id in the Render Plan`);
+            const swapBinding = plan.designEntityBindings?.bindings?.[entity];
+            if (!swapBinding || swapBinding.entityKind !== 'component'
+              || !swapBinding.purposes?.includes('instance-swap')) problems.push(`${path}: swap Design Entity ${entity} has no immutable component binding`);
           }
         }
         if ((node.children || []).length) problems.push(`${path}: an Instance cannot contain authored child nodes`);
+      }
+      if (type === 'frame' && props.entity != null) {
+        const binding = plan.designEntityBindings?.bindings?.[props.entity];
+        if (path !== 'root') problems.push(`${path}: only the rendered root may carry a Design Entity`);
+        if (!binding || !['screen', 'frame'].includes(binding.entityKind)
+          || binding.handleKind !== 'created-root'
+          || !binding.purposes?.includes('render-root')) {
+          problems.push(`${path}: rendered-root Design Entity needs an immutable created-root binding`);
+        }
       }
       if (type === 'frame' && props.flex === 'grid' && (!props.gridColumns || !props.gridRows)) {
         problems.push(`${path}: Grid requires explicit rows and columns`);
@@ -2823,6 +2909,14 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
       if (plan.provenance !== undefined) {
         created.setPluginData('figmaBridge.renderProvenance', JSON.stringify(plan.provenance));
       }
+      const entityBinding = plan.designEntityBindings?.bindings?.[props.entity];
+      if (entityBinding?.handleKind === 'created-root') {
+        created.setPluginData('figma-bridge-design-entity', JSON.stringify({
+          version: 1,
+          id: entityBinding.entityId,
+          kind: entityBinding.entityKind,
+        }));
+      }
     }
     applyFallbackAnnotations(created, semanticNode);
     createdRecords.push({ semanticNode, created, parent });
@@ -2832,10 +2926,18 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
 
   const root = await create(plan.root, null, true);
   const structuralReport = auditStructuredCreatedNodes(createdRecords);
+  const rootEntityBinding = plan.designEntityBindings?.bindings?.[plan.root.source.props.entity];
   return {
     id: root.id, name: root.name, width: root.width, height: root.height,
     executor: 'structured-v1',
     structuralReport,
+    ...(rootEntityBinding?.handleKind === 'created-root' ? {
+      designEntity: {
+        id: rootEntityBinding.entityId,
+        kind: rootEntityBinding.entityKind,
+        nodeId: root.id,
+      },
+    } : {}),
     ...(variableContext.variableReport.references ? { variableReport: variableContext.variableReport } : {}),
     ...(variableContext.createdVariables.length ? { createdVariables: variableContext.createdVariables } : {}),
     ...(variableContext.scopeQuestions.length ? { scopeQuestions: variableContext.scopeQuestions } : {}),
@@ -2857,6 +2959,13 @@ async function preflightStructuredPlans(figmaApi, plans, { batch = false } = {})
     throw new Error(batch
       ? `Structured batch unsupported: ${unsupported.slice(0, 5).join(' | ')}`
       : `Structured render unsupported: ${unsupported[0]}`);
+  }
+
+  for (const plan of plans) {
+    const target = plan.designEntityBindings?.targetConstraint;
+    if (target?.kind === 'file-key' && figmaApi.fileKey !== target.fileKey) {
+      throw new Error('Design Entity binding table targets a different Figma file');
+    }
   }
 
   // The facade keeps a shared, in-memory catalog for the whole request. This

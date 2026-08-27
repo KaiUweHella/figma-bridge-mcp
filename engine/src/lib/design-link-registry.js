@@ -351,6 +351,47 @@ export function componentLinksFromRegistry(registry) {
   return links;
 }
 
+function canonicalRegistryValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalRegistryValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [
+    key, canonicalRegistryValue(value[key]),
+  ]));
+}
+
+/** Closed, content-addressed Registry projection used while binding Semantic
+ * Render Plans. Handles remain source facts here; only the entities actually
+ * referenced by a plan are materialized into executable bindings. */
+export function designEntityRegistryProjection(registry, { targetFileKey = null } = {}) {
+  const normalized = parseDesignLinkRegistry(JSON.stringify(registry));
+  const sourceFingerprint = createHash('sha256')
+    .update(JSON.stringify(canonicalRegistryValue(normalized)))
+    .digest('hex');
+  const entities = Object.create(null);
+  for (const entity of normalized.entities) {
+    const figmaLink = object(entity.figma);
+    entities[entity.id] = Object.freeze(compact({
+      entityId: entity.id,
+      entityKind: entity.kind,
+      publishedKey: figmaLink.variantKey || figmaLink.componentKey || null,
+      localNodeId: figmaLink.nodeId || null,
+      localFileKey: figmaLink.fileKey || null,
+      variant: figmaLink.variant || null,
+    }));
+  }
+  return Object.freeze({
+    version: 1,
+    registry: Object.freeze({
+      schemaVersion: DESIGN_LINK_REGISTRY_VERSION,
+      sourceFingerprint,
+    }),
+    targetConstraint: targetFileKey
+      ? Object.freeze({ kind: 'file-key', fileKey: String(targetFileKey) })
+      : Object.freeze({ kind: 'authenticated-session' }),
+    entities: Object.freeze(entities),
+  });
+}
+
 /** Upsert one explicit entity while preserving fields omitted by the caller. */
 export function upsertDesignEntity(registry, patch) {
   const id = normalizeDesignEntityId(patch?.id);

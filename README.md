@@ -546,7 +546,6 @@ real Figma structure:
 ```jsx
 <Instance
   entity="ui.card"
-  key="..."
   prop:Selected="true"
   text:Title="New title"
   fill:StatusDot="var:status/healthy|#22c55e"
@@ -559,6 +558,15 @@ one named descendant. `swap:` values and INSTANCE_SWAP property values are
 Design Entity ids, resolved from `figma-bridge.json`; component display names
 are intentionally not accepted as swap identity. Missing, ambiguous or
 unlinked targets stop preflight before the first canvas node is created.
+
+JSX and browser capture carry only the Design Entity plus variant/override
+intent. Command preparation reads the Registry once and embeds a fingerprinted,
+target-aware binding table in the Semantic Render Plan. Published keys are
+preferred; an unpublished local node remains usable only when its Registry file
+key exactly matches the resolved Figma target. Authored `key`, `id` and
+`component` name handles cannot replace that binding. The generated
+compatibility path consumes the same table, so it does not reintroduce a second
+identity lookup.
 
 Dimensions and typography accept the same `var:name|fallback` form. The native
 executor binds width, height and min/max constraints plus font family/style,

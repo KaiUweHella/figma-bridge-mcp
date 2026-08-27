@@ -78,6 +78,13 @@ describe('validateJsxProps', () => {
     assert.deepStrictEqual(warnings, []);
   });
 
+  it('accepts an explicit rendered-root Design Entity without a false warning', () => {
+    const warnings = client.validateJsxProps(
+      '<Frame entity="screen.release-proof" name="Release proof"><Text>x</Text></Frame>',
+    );
+    assert.deepStrictEqual(warnings, []);
+  });
+
   it('flags layout= with flex suggestion', () => {
     const warnings = client.validateJsxProps('<Frame layout="horizontal"><Text>x</Text></Frame>');
     assert.strictEqual(warnings[0].prop, 'layout');

@@ -8,6 +8,7 @@ import {
   DESIGN_LINK_REGISTRY_FILE,
   adaptLegacyFigmaMap,
   componentLinksFromRegistry,
+  designEntityRegistryProjection,
   emptyDesignLinkRegistry,
   normalizeRepositoryPath,
   parseDesignEntityPluginData,
@@ -50,6 +51,31 @@ test('Design Link Registry refuses duplicate ids and conflicting Figma handles',
   assert.throws(() => upsertDesignEntity(first, {
     id: 'ui.card', kind: 'component', figma: { componentKey: 'SAME' },
   }), /Conflicting componentKey link/);
+});
+
+test('Render binding projection fingerprints Registry identity and pins the Command target', () => {
+  const registry = upsertDesignEntity(emptyDesignLinkRegistry(), {
+    id: 'ui.button', kind: 'component', figma: {
+      componentKey: 'PUBLISHED_KEY', nodeId: '10:20', fileKey: 'FILE_A',
+    },
+  });
+  const first = designEntityRegistryProjection(registry, { targetFileKey: 'FILE_A' });
+  const repeated = designEntityRegistryProjection(JSON.parse(JSON.stringify(registry)), {
+    targetFileKey: 'FILE_A',
+  });
+  const changed = designEntityRegistryProjection(upsertDesignEntity(registry, {
+    id: 'ui.button', kind: 'component', figma: { componentKey: 'NEXT_KEY' },
+  }), { targetFileKey: 'FILE_A' });
+
+  assert.equal(first.registry.sourceFingerprint, repeated.registry.sourceFingerprint);
+  assert.notEqual(first.registry.sourceFingerprint, changed.registry.sourceFingerprint);
+  assert.deepEqual(first.targetConstraint, { kind: 'file-key', fileKey: 'FILE_A' });
+  assert.deepEqual(first.entities['ui.button'], {
+    entityId: 'ui.button', entityKind: 'component', publishedKey: 'PUBLISHED_KEY',
+    localNodeId: '10:20', localFileKey: 'FILE_A',
+  });
+  assert.ok(Object.isFrozen(first));
+  assert.ok(Object.isFrozen(first.entities));
 });
 
 test('legacy figma-map.json is a read adapter and explicit entities win conflicts', () => {

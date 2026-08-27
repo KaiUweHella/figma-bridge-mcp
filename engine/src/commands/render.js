@@ -13,7 +13,11 @@ import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-st
 import { readImageBase64 } from '../lib/image-file.js';
 import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
 import { cachedInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
-import { componentLinksFromRegistry, readDesignLinkRegistry } from '../lib/design-link-registry.js';
+import {
+  componentLinksFromRegistry,
+  designEntityRegistryProjection,
+  readDesignLinkRegistry,
+} from '../lib/design-link-registry.js';
 import { inspectStructuredRenderPlan } from '../lib/structured-render-executor.js';
 import {
   executePreparedCompoundSemanticRender,
@@ -611,12 +615,15 @@ program
     let captureImages = {};
     const projectIcons = options.icons ? loadIconDir(options.icons) : {};
     let componentLinks = {};
+    let designEntityProjection = null;
     let manifestPath;
     try {
       manifestPath = resolve(options.manifest);
-      componentLinks = componentLinksFromRegistry(
-        readDesignLinkRegistry(dirname(manifestPath), { manifestPath }).registry,
-      );
+      const registry = readDesignLinkRegistry(dirname(manifestPath), { manifestPath }).registry;
+      componentLinks = componentLinksFromRegistry(registry);
+      designEntityProjection = designEntityRegistryProjection(registry, {
+        targetFileKey: program.opts().figmaFile || null,
+      });
     } catch (error) {
       console.error(chalk.red('✗'), `Could not read component Design Links: ${error.message}`);
       process.exitCode = 1;
@@ -646,6 +653,7 @@ program
         const converted = domCaptureToRenderPlan(capture, {
           projectIcons,
           componentLinks,
+          designEntityProjection,
           variableCollection: options.collection || null,
           captureHash,
         });
@@ -758,7 +766,7 @@ program
       const client = new FigmaClient();
       if (options.collection) client.setCollection(options.collection);
       client.setImageData(images);
-      client.setComponentLinks(componentLinks);
+      client.setDesignEntityProjection(designEntityProjection);
       if (Object.keys(customIcons).length > 0) client.setIcons(customIcons);
       // Every adapter stops here. JSX is parsed once; DOM capture supplies an
       // executable plan directly without serializing/reparsing JSX. Analysis,

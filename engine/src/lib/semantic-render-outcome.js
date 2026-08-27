@@ -26,6 +26,7 @@ const TOP_LEVEL_FIELDS = new Set([
   'id', 'name', 'executor', 'width', 'height', 'overflow', 'structuralReport',
   'unresolved', 'createdVariables', 'createdTextStyles', 'scopeQuestions',
   'variableReport', 'textStyleReport', 'fallbackAnnotationReport',
+  'designEntity',
   'mutationOutcome', 'mutationReport',
 ]);
 const STRUCTURAL_FIELDS = new Set(['version', 'passed', 'summary', 'mismatchCount', 'mismatches']);
@@ -328,6 +329,19 @@ function rootFromPlugin(value) {
   if (!NODE_ID.test(handle) || Buffer.byteLength(handle, 'utf8') > MAX_SEMANTIC_RENDER_HANDLE_BYTES) {
     throw resultError('Semantic Render returned an invalid root node id.');
   }
+  let designEntity = null;
+  if (value.designEntity !== undefined) {
+    const entity = value.designEntity;
+    if (!isRecord(entity)
+      || Object.keys(entity).some((key) => !['id', 'kind', 'nodeId'].includes(key))
+      || typeof entity.id !== 'string'
+      || !/^[a-z0-9][a-z0-9._/-]{0,127}$/.test(entity.id)
+      || !['screen', 'frame'].includes(entity.kind)
+      || entity.nodeId !== handle) {
+      throw resultError('Semantic Render returned an invalid Design Entity locator.');
+    }
+    designEntity = Object.freeze({ id: entity.id, kind: entity.kind, nodeId: handle });
+  }
   return Object.freeze({
     handle,
     name: optionalString(value.name, 'root name'),
@@ -335,6 +349,7 @@ function rootFromPlugin(value) {
       width: value.width === undefined ? null : finiteNumber(value.width, 'width'),
       height: value.height === undefined ? null : finiteNumber(value.height, 'height'),
     }),
+    designEntity,
   });
 }
 

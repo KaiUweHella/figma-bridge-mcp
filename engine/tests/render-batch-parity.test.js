@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { FigmaClient } from '../src/lib/jsx-render.js';
+import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
 
 function assertValidJs(code) {
   assert.doesNotThrow(() => new Function(code), SyntaxError, `Generated code is not valid JS:\n${code}`);
@@ -11,6 +12,17 @@ function assertValidJs(code) {
 // instances) must produce creation code.
 describe('parseJSXBatch child-type parity with single render', () => {
   const client = new FigmaClient();
+  client.setDesignEntityProjection(designEntityRegistryProjection({
+    version: 1,
+    entities: [
+      {
+        id: 'ui.button', kind: 'component', figma: {
+          componentKey: 'PLACEHOLDERCOMPONENTKEY', nodeId: '4:296', fileKey: 'FILE_A',
+        },
+      },
+      { id: 'ui.leading-icon', kind: 'component', figma: { nodeId: '4:31', fileKey: 'FILE_A' } },
+    ],
+  }, { targetFileKey: 'FILE_A' }));
 
   it('renders Rect children (not silently dropped)', async () => {
     const code = await client.parseJSXBatch(['<Frame name="A"><Rect w={10} h={10} bg="#ff0000" /></Frame>']);
@@ -32,7 +44,7 @@ describe('parseJSXBatch child-type parity with single render', () => {
   });
 
   it('renders Instance children', async () => {
-    const code = await client.parseJSXBatch(['<Frame name="A"><Instance name="Button" /></Frame>']);
+    const code = await client.parseJSXBatch(['<Frame name="A"><Instance entity="ui.button" name="Button" /></Frame>']);
     assert.ok(code.includes('createInstance'), 'Instance child must instantiate the component');
   });
 
@@ -40,7 +52,7 @@ describe('parseJSXBatch child-type parity with single render', () => {
   // it. This is the handle `spec` prints as the reuse hint, so the renderer
   // must accept it — name/id lookups would both come up empty.
   it('resolves an Instance by published-library key', async () => {
-    const code = await client.parseJSXBatch(['<Frame name="A"><Instance key="PLACEHOLDERCOMPONENTKEY" /></Frame>']);
+    const code = await client.parseJSXBatch(['<Frame name="A"><Instance entity="ui.button" /></Frame>']);
     assert.ok(code.includes('importComponentByKeyAsync'), 'key must go through the library import');
     assert.ok(code.includes('"PLACEHOLDERCOMPONENTKEY"'), 'the key itself must reach the eval');
     assert.ok(code.includes('createInstance'));
@@ -52,7 +64,7 @@ describe('parseJSXBatch child-type parity with single render', () => {
   // the id has to catch it. Verified live: a local test component set has a
   // key, and importComponentByKeyAsync returns nothing for it.
   it('key and id together fall through key → id', async () => {
-    const code = await client.parseJSXBatch(['<Frame name="A"><Instance key="PLACEHOLDERCOMPONENTKEY" id="4:296" /></Frame>']);
+    const code = await client.parseJSXBatch(['<Frame name="A"><Instance entity="ui.button" /></Frame>']);
     assert.ok(/__resolveComponent\("4:296", null, null, "PLACEHOLDERCOMPONENTKEY"\)/.test(code),
       'both handles reach the resolver, id in the id slot');
     assert.ok(code.includes('if (!node && id)'), 'id is tried only after the key import failed');
@@ -61,7 +73,7 @@ describe('parseJSXBatch child-type parity with single render', () => {
 
   it('keeps an explicit instance layer name when the component resolves by id', async () => {
     const code = await client.parseJSXBatch([
-      '<Frame name="A"><Instance id="4:31" name="Leading icon" /></Frame>',
+      '<Frame name="A"><Instance entity="ui.leading-icon" name="Leading icon" /></Frame>',
     ]);
     assert.match(code, /\.name = "Leading icon"/);
     assertValidJs(code);
@@ -120,6 +132,10 @@ describe('parseJSXBatch child-type parity with single render', () => {
 // The single-render path must keep working exactly as before the refactor.
 describe('single render path unchanged (characterization)', () => {
   const client = new FigmaClient();
+  client.setDesignEntityProjection(designEntityRegistryProjection({
+    version: 1,
+    entities: [{ id: 'ui.button', kind: 'component', figma: { componentKey: 'BUTTON_KEY' } }],
+  }, { targetFileKey: 'FILE_A' }));
 
   it('generates root frame with smart positioning and children', async () => {
     const code = await client.parseJSX('<Frame name="Card" bg="#ffffff" flex="col" gap={8} p={16} w={320}><Text size={16} weight="bold" color="#000000" w="fill">Title</Text><Frame bg="#3b82f6" px={16} py={10} rounded={10} flex="row" justify="center" items="center"><Text color="#ffffff">Button</Text></Frame></Frame>');
@@ -133,7 +149,7 @@ describe('single render path unchanged (characterization)', () => {
   });
 
   it('still supports slots, rects and instances', async () => {
-    const code = await client.parseJSX('<Frame name="C"><Slot name="Content" flex="col" gap={8} /><Rect w={10} h={10} /><Instance name="Btn" /></Frame>');
+    const code = await client.parseJSX('<Frame name="C"><Slot name="Content" flex="col" gap={8} /><Rect w={10} h={10} /><Instance entity="ui.button" name="Btn" /></Frame>');
     assert.ok(code.includes('createSlot'));
     assert.ok(code.includes('createRectangle'));
     assert.ok(code.includes('createInstance'));

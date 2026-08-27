@@ -9,6 +9,7 @@ import {
 import { domCaptureToSemanticModel, resolveGlyphIcon } from '../src/lib/semantic-dom-model.js';
 import { cssImageLayout, domCaptureToJsx, domCaptureToRenderPlan } from '../src/lib/dom-capture-to-jsx.js';
 import { FigmaClient } from '../src/lib/jsx-render.js';
+import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
 
 const baseStyle = (overrides = {}) => ({
   display: 'block', position: 'static', overflow: 'visible', opacity: '1',
@@ -238,14 +239,24 @@ describe('semantic browser capture contract', () => {
     });
     assert.deepEqual(model.diagnostics.unresolvedComponents, []);
 
+    const designEntityProjection = designEntityRegistryProjection({
+      version: 1,
+      entities: [{
+        id: 'ui.sidebar', kind: 'component', figma: {
+          componentKey: 'published-component-key', variant: 'State=Default',
+        },
+      }],
+    });
     const { renderPlan } = domCaptureToRenderPlan(capture, {
       componentLinks: {
         'ui.sidebar': { entityId: 'ui.sidebar', key: 'published-component-key', variant: 'State=Default' },
       },
+      designEntityProjection,
     });
     assert.equal(renderPlan.root.children[0].source.type, 'instance');
     assert.equal(renderPlan.root.children[0].source.props.entity, 'ui.sidebar');
-    assert.equal(renderPlan.root.children[0].source.props.key, 'published-component-key');
+    assert.equal(renderPlan.root.children[0].source.props.key, undefined);
+    assert.equal(renderPlan.designEntityBindings.bindings['ui.sidebar'].handle, 'published-component-key');
   });
 
   it('stops instead of guessing when an instrumented component has no Registry link', () => {
