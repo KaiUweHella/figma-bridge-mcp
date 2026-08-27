@@ -700,6 +700,36 @@ test('compound native rendering dispatches one journaled batch and returns one b
   assert.match(formatSemanticRenderResult(outcome), /2 roots created/);
 });
 
+test('compound compatibility reports the exact affected root without disabling the batch', async (t) => {
+  const roots = [
+    '<Frame filter="brightness(1.2)"/>',
+    '<Frame><Text>Still useful</Text></Frame>',
+  ];
+  const { plan, io } = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
+  let nativeCalls = 0;
+  let evalCalls = 0;
+  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => { nativeCalls++; return nativeBatchResult(2); },
+    evaluate: async () => {
+      evalCalls++;
+      return [{ id: '12:20' }, { id: '12:21' }];
+    },
+  });
+
+  assert.equal(nativeCalls, 0);
+  assert.equal(evalCalls, 1);
+  assert.equal(outcome.status, 'completed-with-findings');
+  assert.deepEqual(outcome.roots.map((root) => root.handle), ['12:20', '12:21']);
+  assert.deepEqual(outcome.degradations, [{
+    kind: 'compatibility-fallback',
+    path: 'root[0]',
+    fact: 'CSS filter brightness() is not supported by native Figma effects',
+    disposition: 'generated-eval-compatibility',
+  }]);
+  assert.equal(semanticRenderOutcomeCode(outcome), 1);
+});
+
 test('compound follow-up stages preserve position, final handles and verification artifacts', async (t) => {
   const roots = ['<Frame name="Card 1"/>', '<Frame name="Card 2"/>'];
   const { plan, io } = compoundPlan(t, [
@@ -1005,8 +1035,41 @@ test('locally unsupported native plans choose one generated execution before dis
   });
   assert.equal(nativeCalls, 0);
   assert.equal(evalCalls, 1);
+  assert.equal(result.status, 'completed-with-findings');
+  assert.equal(semanticRenderOutcomeCode(result), 1);
   assert.deepEqual(result.executor, { kind: 'generated-eval-compatibility', version: 1 });
+  assert.deepEqual(result.degradations, [{
+    kind: 'compatibility-fallback',
+    path: 'root',
+    fact: 'CSS filter brightness() is not supported by native Figma effects',
+    disposition: 'generated-eval-compatibility',
+  }]);
   assert.match(result.notices.at(-1).text, /Native preflight unsupported/);
+});
+
+test('compatibility preserves image utility while reporting exact unresolved binding loss', async (t) => {
+  const { plan, io } = renderPlan(t, [
+    'render', '<Frame gap="var:space/missing"><Image /></Frame>',
+  ]);
+  const result = await executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async () => { throw new Error('must not run'); },
+    evaluate: async () => ({ id: '3:5', unresolved: ['space/missing'] }),
+  });
+
+  assert.equal(result.status, 'completed-with-findings');
+  assert.equal(result.roots[0].handle, '3:5');
+  assert.deepEqual(result.degradations, [{
+    kind: 'compatibility-fallback',
+    path: 'root.children[0]',
+    fact: 'image needs host-materialized embedded bytes',
+    disposition: 'generated-eval-compatibility',
+  }, {
+    kind: 'unresolved-variable',
+    path: 'resources.unresolvedVariables',
+    fact: 'space/missing',
+    disposition: 'unbound',
+  }]);
 });
 
 test('malformed post-dispatch results remain unknown and never redispatch', async (t) => {
@@ -1202,8 +1265,16 @@ test('formatter preserves actionable variable, scope and overflow guidance', asy
     }),
     evaluate: async () => { throw new Error('must not run'); },
   });
+  assert.equal(result.status, 'completed-with-findings');
+  assert.equal(semanticRenderOutcomeCode(result), 1);
+  assert.deepEqual(result.degradations, [{
+    kind: 'unresolved-variable',
+    path: 'resources.unresolvedVariables',
+    fact: 'Brand/Missing',
+    disposition: 'unbound',
+  }]);
   const output = formatSemanticRenderResult(result);
-  assert.match(output, /grey placeholders/);
+  assert.match(output, /did not retain their requested Variable bindings/);
   assert.match(output, /Limit Body to TEXT_CONTENT\?/);
   assert.match(output, /shrink a child or raise the frame height/);
 });
@@ -1223,6 +1294,9 @@ test('bounded Outcome preserves successful unbound generated literal evidence', 
   assert.deepEqual(result.resources.variableReport, {
     references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
   });
+  assert.equal(result.status, 'completed');
+  assert.equal(semanticRenderOutcomeCode(result), 0);
+  assert.deepEqual(result.degradations, []);
   assert.match(formatSemanticRenderResult(result),
     /4 generated literal binding\(s\) left unbound; exact literal values were preserved/);
 });

@@ -75,6 +75,11 @@ const FAILURE_PHASES = new Set([
 ]);
 const FAILURE_OUTCOMES = new Set(['not-dispatched', 'unknown-after-dispatch']);
 const DISPATCH_STATES = new Set(['not-dispatched', 'failed', 'unknown']);
+const DEGRADATION_KINDS = new Set(['compatibility-fallback', 'unresolved-variable']);
+const DEGRADATION_DISPOSITION_BY_KIND = Object.freeze({
+  'compatibility-fallback': 'generated-eval-compatibility',
+  'unresolved-variable': 'unbound',
+});
 const OUTCOMES = new WeakSet();
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -324,6 +329,45 @@ function projectNotices(value) {
   }));
 }
 
+function projectDegradations(value, unresolvedVariables, { compatibility = false } = {}) {
+  if (!Array.isArray(value) || value.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
+    throw new TypeError('Semantic Render Outcome received invalid degradation facts.');
+  }
+  const projected = value.map((item) => {
+    if (!isRecord(item)
+      || Object.keys(item).sort().join(',') !== 'disposition,fact,kind,path'
+      || !DEGRADATION_KINDS.has(item.kind)
+      || DEGRADATION_DISPOSITION_BY_KIND[item.kind] !== item.disposition) {
+      throw new TypeError('Semantic Render Outcome received an invalid degradation fact.');
+    }
+    return Object.freeze({
+      kind: item.kind,
+      path: requiredString(item.path, 'degradation path'),
+      fact: requiredString(item.fact, 'degradation fact'),
+      disposition: item.disposition,
+    });
+  });
+  if (compatibility && !projected.some((item) => item.kind === 'compatibility-fallback')) {
+    projected.push(Object.freeze({
+      kind: 'compatibility-fallback',
+      path: 'root',
+      fact: 'Native Semantic Render support was unavailable',
+      disposition: 'generated-eval-compatibility',
+    }));
+  }
+  const remaining = Math.max(0, MAX_SEMANTIC_RENDER_ARRAY_ITEMS - projected.length);
+  for (const variable of unresolvedVariables.slice(0, remaining)) {
+    if (projected.some((item) => item.kind === 'unresolved-variable' && item.fact === variable)) continue;
+    projected.push(Object.freeze({
+      kind: 'unresolved-variable',
+      path: 'resources.unresolvedVariables',
+      fact: variable,
+      disposition: 'unbound',
+    }));
+  }
+  return Object.freeze(projected);
+}
+
 function rootFromPlugin(value) {
   const handle = requiredString(value.id, 'root node id');
   if (!NODE_ID.test(handle) || Buffer.byteLength(handle, 'utf8') > MAX_SEMANTIC_RENDER_HANDLE_BYTES) {
@@ -482,7 +526,9 @@ function finalizeOutcome(outcome) {
 }
 
 /** Convert one untrusted Plugin response into the only successful Application Outcome. */
-export function projectSemanticRenderOutcome(value, { executor, structure, notices = [] }) {
+export function projectSemanticRenderOutcome(value, {
+  executor, structure, notices = [], degradations = [],
+}) {
   assertBoundedGraph(value);
   if (!isRecord(value)) throw resultError('Semantic Render returned no structured result.');
   rejectUnknownFields(value, TOP_LEVEL_FIELDS, 'result');
@@ -505,18 +551,24 @@ export function projectSemanticRenderOutcome(value, { executor, structure, notic
     throw resultError('Semantic Render returned incomplete mutation outcome facts.');
   }
   const liveStructure = projectStructuralReport(value.structuralReport, { required: executor === 'structured-v1' });
+  const unresolvedVariables = stringArray(value.unresolved, 'unresolved variables');
+  const compatibilitySelected = executor === 'generated-eval-compatibility';
+  const projectedDegradations = projectDegradations(degradations, unresolvedVariables, {
+    compatibility: compatibilitySelected,
+  });
   const overflow = value.overflow === undefined
     ? null
     : Object.freeze({ pixels: finiteNumber(value.overflow, 'overflow') });
   const outcome = {
     schemaVersion: SEMANTIC_RENDER_OUTCOME_SCHEMA,
     kind: SEMANTIC_RENDER_OUTCOME_KIND,
-    status: liveStructure?.passed === false ? 'completed-with-findings' : 'completed',
+    status: liveStructure?.passed === false || projectedDegradations.length
+      ? 'completed-with-findings' : 'completed',
     roots: Object.freeze([rootFromPlugin(value)]),
     executor: EXECUTORS[executor],
     structure: Object.freeze({ planned: projectPlannedStructure(structure), live: liveStructure }),
     resources: Object.freeze({
-      unresolvedVariables: stringArray(value.unresolved, 'unresolved variables'),
+      unresolvedVariables,
       createdVariables: stringArray(value.createdVariables, 'created variables'),
       createdTextStyles: stringArray(value.createdTextStyles, 'created Text Styles'),
       variableReport: projectVariableReport(value.variableReport),
@@ -527,6 +579,7 @@ export function projectSemanticRenderOutcome(value, { executor, structure, notic
     overflow,
     mutation,
     stages: Object.freeze([]),
+    degradations: projectedDegradations,
     notices: projectNotices(notices),
     failure: null,
   };
@@ -568,10 +621,11 @@ function projectBatchFrame(frame, { native }) {
  *   notices?: readonly any[],
  *   stages?: readonly any[],
  *   rootHandles?: readonly string[] | null,
+ *   degradations?: readonly any[],
  * }} [options]
  */
 export function projectSemanticRenderBatchOutcome(value, {
-  executor, structures, notices = [], stages = [], rootHandles = null,
+  executor, structures, notices = [], stages = [], rootHandles = null, degradations = [],
 } = {}) {
   assertBoundedGraph(value, 'Plugin batch result', { maxCollectionItems: 10_000 });
   const native = executor === 'structured-batch-v1';
@@ -623,16 +677,21 @@ export function projectSemanticRenderBatchOutcome(value, {
   const live = combineLiveStructures(frames.map((frame) => frame.live));
   const overflowPixels = frames.map((frame) => frame.overflow).filter((item) => item !== null);
   const outcomeStages = projectCompoundStages(stages);
+  const unresolvedVariables = stringArray(envelope.unresolved, 'unresolved variables');
+  const projectedDegradations = projectDegradations(degradations, unresolvedVariables, {
+    compatibility: !native,
+  });
   return finalizeOutcome({
     schemaVersion: SEMANTIC_RENDER_OUTCOME_SCHEMA,
     kind: SEMANTIC_RENDER_OUTCOME_KIND,
-    status: live?.passed === false || outcomeStages.some((stage) => stage.status === 'completed-with-findings')
+    status: projectedDegradations.length || live?.passed === false
+      || outcomeStages.some((stage) => stage.status === 'completed-with-findings')
       ? 'completed-with-findings' : 'completed',
     roots: Object.freeze(frames.map((frame) => frame.root)),
     executor: EXECUTORS[executor],
     structure: Object.freeze({ planned: combinePlannedStructures(structures), live }),
     resources: Object.freeze({
-      unresolvedVariables: stringArray(envelope.unresolved, 'unresolved variables'),
+      unresolvedVariables,
       createdVariables: stringArray(envelope.createdVariables, 'created variables'),
       createdTextStyles: stringArray(envelope.createdTextStyles, 'created Text Styles'),
       variableReport: projectVariableReport(envelope.variableReport),
@@ -643,6 +702,7 @@ export function projectSemanticRenderBatchOutcome(value, {
     overflow: overflowPixels.length ? Object.freeze({ pixels: Math.max(...overflowPixels) }) : null,
     mutation,
     stages: outcomeStages,
+    degradations: projectedDegradations,
     notices: projectNotices(notices),
     failure: null,
   });
@@ -650,7 +710,7 @@ export function projectSemanticRenderBatchOutcome(value, {
 
 /** Project only closed failure facts. Error prose, stacks and request inputs are excluded. */
 export function projectSemanticRenderFailureOutcome(error, {
-  executor, structure, partialOutcome = null, stages = [],
+  executor, structure, partialOutcome = null, stages = [], degradations = [],
 }) {
   const failure = Object.freeze({
     kind: FAILURE_KINDS.has(error?.kind) ? error.kind : 'execution',
@@ -663,6 +723,11 @@ export function projectSemanticRenderFailureOutcome(error, {
   if (partialOutcome !== null) assertSemanticRenderOutcome(partialOutcome);
   const planned = partialOutcome?.structure?.planned
     || (Array.isArray(structure) ? combinePlannedStructures(structure) : projectPlannedStructure(structure));
+  const projectedDegradations = partialOutcome?.degradations || projectDegradations(
+    degradations,
+    Object.freeze([]),
+    { compatibility: String(executor || '').includes('compatibility') },
+  );
   return finalizeOutcome({
     schemaVersion: SEMANTIC_RENDER_OUTCOME_SCHEMA,
     kind: SEMANTIC_RENDER_OUTCOME_KIND,
@@ -674,6 +739,7 @@ export function projectSemanticRenderFailureOutcome(error, {
     overflow: partialOutcome?.overflow || null,
     mutation: parseStructuredMutationReport(error?.mutationReport) || partialOutcome?.mutation || null,
     stages: projectCompoundStages(stages),
+    degradations: projectedDegradations,
     notices: Object.freeze([]),
     failure,
   });

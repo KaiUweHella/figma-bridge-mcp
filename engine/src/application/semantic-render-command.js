@@ -59,6 +59,35 @@ function boundedText(value, max = MAX_EVIDENCE_STRING_CODE_POINTS) {
   return points.length > max ? `${points.slice(0, Math.max(0, max - 1)).join('')}…` : points.join('');
 }
 
+function compatibilityDegradations(supportOrSupports) {
+  const compound = Array.isArray(supportOrSupports);
+  const supports = compound ? supportOrSupports : [supportOrSupports];
+  const degradations = [];
+  for (let index = 0; index < supports.length; index++) {
+    for (const problem of supports[index]?.problems || []) {
+      if (degradations.length >= MAX_EVIDENCE_ITEMS) break;
+      const text = boundedText(problem);
+      const separator = text.indexOf(': ');
+      let path = separator > 0 ? text.slice(0, separator) : 'root';
+      const fact = separator > 0 ? text.slice(separator + 2) : text;
+      if (compound) {
+        path = path === 'root'
+          ? `root[${index}]`
+          : path.startsWith('root.')
+            ? `root[${index}]${path.slice(4)}`
+            : `root[${index}].${path}`;
+      }
+      degradations.push(Object.freeze({
+        kind: 'compatibility-fallback',
+        path: boundedText(path),
+        fact: boundedText(fact),
+        disposition: 'generated-eval-compatibility',
+      }));
+    }
+  }
+  return degradations;
+}
+
 function preflightError(message) {
   return Object.assign(new Error(message), {
     kind: 'validation',
@@ -552,7 +581,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     );
     if (!failure.semanticRenderOutcome) {
       failure.semanticRenderOutcome = projectSemanticRenderFailureOutcome(failure, {
-        executor, structure: prepared.structures, partialOutcome, stages,
+        executor, structure: prepared.structures, partialOutcome, stages, degradations,
       });
     }
     return failure;
@@ -568,6 +597,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   let raw;
   let executor;
   let compatibilityReason = null;
+  let degradations = [];
   if (prepared.supports.every((support) => support.supported)) {
     try {
       raw = await adapters.renderPlanBatch(prepared.renderPlans, options);
@@ -579,6 +609,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   } else {
     compatibilityReason = `Native compound preflight unsupported: ${prepared.supports
       .flatMap((support) => support.problems || []).slice(0, 5).map((problem) => boundedText(problem)).join('; ')}`;
+    degradations = compatibilityDegradations(prepared.supports);
   }
   if (compatibilityReason) {
     executor = 'generated-eval-batch-compatibility';
@@ -598,7 +629,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   let outcome;
   try {
     outcome = projectSemanticRenderBatchOutcome(raw, {
-      executor, structures: prepared.structures, notices, stages,
+      executor, structures: prepared.structures, notices, stages, degradations,
     });
   } catch (error) {
     stages.splice(-2, 2, compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
@@ -630,6 +661,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
       ));
       const partial = projectSemanticRenderBatchOutcome(raw, {
         executor, structures: prepared.structures, notices, stages, rootHandles: nextHandles,
+        degradations,
       });
       throw attachFailure(stageFailure('component-conversion'), executor, partial);
     }
@@ -653,6 +685,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
         stages.push(compoundStage('resize-probe', 'failed', index + 1, index, 1, handles.slice(0, index)));
         const partial = projectSemanticRenderBatchOutcome(raw, {
           executor, structures: prepared.structures, notices, stages, rootHandles: handles,
+          degradations,
         });
         throw attachFailure(error, executor, partial);
       }
@@ -694,6 +727,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
         stages.push(compoundStage('verification', 'failed', index + 1, index, 1, handles.slice(0, index), artifacts, verification));
         const partial = projectSemanticRenderBatchOutcome(raw, {
           executor, structures: prepared.structures, notices, stages, rootHandles: handles,
+          degradations,
         });
         throw attachFailure(error, executor, partial);
       }
@@ -718,7 +752,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   }
   return projectSemanticRenderBatchOutcome(raw, {
     executor, structures: prepared.structures,
-    notices: notices.slice(0, MAX_EVIDENCE_ITEMS), stages, rootHandles: handles,
+    notices: notices.slice(0, MAX_EVIDENCE_ITEMS), stages, rootHandles: handles, degradations,
   });
 }
 
@@ -743,6 +777,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   let raw;
   let executor;
   let compatibilityReason = null;
+  let degradations = [];
   const attachFailureOutcome = (error, failedExecutor) => {
     /** @type {Error & {semanticRenderOutcome?: unknown}} */
     const failure = error instanceof Error ? error : new Error(String(error || 'Semantic Render failed'));
@@ -750,6 +785,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
       const outcome = projectSemanticRenderFailureOutcome(failure, {
         executor: failedExecutor,
         structure: prepared.evidence.structure,
+        degradations,
       });
       try {
         failure.semanticRenderOutcome = outcome;
@@ -774,6 +810,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
     }
   } else {
     compatibilityReason = `Native preflight unsupported: ${prepared.support.problems.slice(0, 5).map((problem) => boundedText(problem)).join('; ')}`;
+    degradations = compatibilityDegradations(prepared.support);
   }
 
   if (compatibilityReason) {
@@ -796,6 +833,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
       executor,
       structure: prepared.evidence.structure,
       notices: warnings,
+      degradations,
     });
   } catch (error) {
     throw attachFailureOutcome(error, executor);
@@ -823,6 +861,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
       executor,
       structure: prepared.evidence.structure,
       notices: warnings.slice(0, MAX_EVIDENCE_ITEMS),
+      degradations,
     });
   } catch (error) {
     throw attachFailureOutcome(error, executor);
@@ -890,7 +929,7 @@ export function semanticRenderResultRows(result) {
     }
   }
   if (resources.unresolvedVariables.length) {
-    rows.push({ tone: 'warning', text: `${resources.unresolvedVariables.length} unresolved variable reference(s): ${resources.unresolvedVariables.join(', ')}. These bindings rendered as grey placeholders; inspect variables with figma_run ["var","list"].` });
+    rows.push({ tone: 'warning', text: `${resources.unresolvedVariables.length} unresolved variable reference(s): ${resources.unresolvedVariables.join(', ')}. The affected properties did not retain their requested Variable bindings; inspect variables with figma_run ["var","list"].` });
   }
   if (resources.variableReport) {
     const report = resources.variableReport;
