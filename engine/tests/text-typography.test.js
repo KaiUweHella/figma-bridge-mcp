@@ -23,6 +23,17 @@ describe('text typography props', () => {
     assert.ok(/lineHeight = \{ value: 150, unit: 'PERCENT' \}/.test(code), 'percent lineHeight -> PERCENT');
   });
 
+  it('preserves quoted unitless lineHeight as a CSS multiplier', async () => {
+    const code = await client.parseJSX('<Frame name="P"><Text size={14} lineHeight="1.1">Hi</Text></Frame>');
+    assert.ok(/lineHeight = \{ value: 110(?:\.00000000000001)?, unit: 'PERCENT' \}/.test(code),
+      'quoted unitless lineHeight -> PERCENT multiplier');
+  });
+
+  it('preserves explicit px lineHeight as PIXELS', async () => {
+    const code = await client.parseJSX('<Frame name="P"><Text size={14} lineHeight="24px">Hi</Text></Frame>');
+    assert.ok(/lineHeight = \{ value: 24, unit: 'PIXELS' \}/.test(code), 'px lineHeight -> PIXELS');
+  });
+
   it('applies letterSpacing', async () => {
     const code = await client.parseJSX('<Frame name="P" flex="col"><Text size={14} letterSpacing={0.5}>Hi</Text></Frame>');
     assert.ok(/letterSpacing = \{ value: 0\.5, unit: 'PIXELS' \}/.test(code), 'letterSpacing applied');

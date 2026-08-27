@@ -780,6 +780,29 @@ function structuredNumericSupported(value, { variable = false } = {}) {
     : Number.isFinite(Number(value));
 }
 
+function structuredLineHeight(value, fallback = { unit: 'AUTO' }) {
+  if (value == null) return fallback;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return { unit: 'PIXELS', value };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  const unit = String(value.unit || '').toUpperCase();
+  if (unit === 'AUTO' && Object.keys(value).length === 1) return { unit: 'AUTO' };
+  if (['PIXELS', 'PERCENT'].includes(unit)
+    && typeof value.value === 'number' && Number.isFinite(value.value) && value.value >= 0) {
+    return { unit, value: value.value };
+  }
+  return fallback;
+}
+
+function structuredLineHeightSupported(value) {
+  const variable = structuredVariableSpec(value);
+  if (variable) return !variable.error
+    && (variable.fallback == null || (Number.isFinite(Number(variable.fallback)) && Number(variable.fallback) >= 0));
+  const projected = structuredLineHeight(value, null);
+  return projected !== null;
+}
+
 function structuredStringSupported(value) {
   const reference = structuredVariableSpec(value);
   return reference ? !reference.error : typeof value === 'string';
@@ -1743,9 +1766,12 @@ function inspectStructuredRenderPlan(plan) {
         if (props.overflow != null && !['visible', 'hidden', 'clip'].includes(String(props.overflow))) problems.push(`${path}: overflow must be visible, hidden, or clip`);
       }
       if (type === 'text') {
-        for (const key of ['size', 'weight', 'lineHeight', 'letterSpacing', 'paragraphSpacing', 'paragraphIndent', 'grow']) {
+        for (const key of ['size', 'weight', 'letterSpacing', 'paragraphSpacing', 'paragraphIndent', 'grow']) {
           const variable = key !== 'grow';
           if (props[key] != null && !structuredNumericSupported(props[key], { variable })) problems.push(`${path}: ${key} must be numeric${variable ? ' or a FLOAT variable' : ''}`);
+        }
+        if (props.lineHeight != null && !structuredLineHeightSupported(props.lineHeight)) {
+          problems.push(`${path}: lineHeight must be AUTO, PIXELS, PERCENT, or a FLOAT variable`);
         }
         for (const key of ['font', 'fontStyle']) {
           if (props[key] != null && !structuredStringSupported(props[key])) problems.push(`${path}: ${key} must be a string or STRING variable`);
@@ -2288,7 +2314,7 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext, jour
         descriptor: {
           fontName,
           fontSize: structuredNumber(bindingValue(node, 'fontSize', props.size, 14), 14),
-          lineHeight: props.lineHeight == null ? { unit: 'AUTO' } : { unit: 'PIXELS', value: structuredNumber(bindingValue(node, 'lineHeight', props.lineHeight)) },
+          lineHeight: structuredLineHeight(bindingValue(node, 'lineHeight', props.lineHeight)),
           letterSpacing: props.letterSpacing == null ? { unit: 'PIXELS', value: 0 } : { unit: 'PIXELS', value: structuredNumber(bindingValue(node, 'letterSpacing', props.letterSpacing)) },
           paragraphSpacing: structuredNumber(bindingValue(node, 'paragraphSpacing', props.paragraphSpacing, 0)),
           paragraphIndent: structuredNumber(bindingValue(node, 'paragraphIndent', props.paragraphIndent, 0)),
@@ -2314,7 +2340,9 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext, jour
   }
   const generatedName = (descriptor) => {
     const family = String(descriptor.fontName.family).replace(/\//g, '-');
-    const lineHeight = descriptor.lineHeight.unit === 'AUTO' ? 'Auto' : `${descriptor.lineHeight.value}px`;
+    const lineHeight = descriptor.lineHeight.unit === 'AUTO'
+      ? 'Auto'
+      : `${descriptor.lineHeight.value}${descriptor.lineHeight.unit === 'PERCENT' ? '%' : 'px'}`;
     const letterSpacing = descriptor.letterSpacing.value ? ` · LS ${descriptor.letterSpacing.value}px` : '';
     return `Typography/Generated/${family}/${descriptor.fontSize} ${descriptor.fontName.style} · LH ${lineHeight}${letterSpacing}`;
   };
@@ -2660,7 +2688,8 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
       if (props.color) created.fills = [boundPaint(semanticNode, 'fill', props.color, '#808080', created)];
       if (props.align) created.textAlignHorizontal = ({ left: 'LEFT', center: 'CENTER', right: 'RIGHT', justified: 'JUSTIFIED' })[props.align] || String(props.align).toUpperCase();
       if (props.lineHeight != null) {
-        created.lineHeight = { unit: 'PIXELS', value: resolvedNumber(semanticNode, 'lineHeight', props.lineHeight) };
+        const binding = bindingFor(semanticNode, 'lineHeight');
+        created.lineHeight = structuredLineHeight(binding?.value ?? props.lineHeight);
         bindScalar(semanticNode, 'lineHeight', created, 'lineHeight');
       }
       if (props.letterSpacing != null) {

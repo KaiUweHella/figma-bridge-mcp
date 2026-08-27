@@ -205,7 +205,7 @@ describe('structured Semantic Render Plan executor', () => {
 
   it('creates and then exactly reuses a semantic named Text Style', async () => {
     const plan = new FigmaClient().planJSX(
-      '<Frame name="Typography"><Text style="Typography/Eyebrow" font="DM Sans" size="10" weight="700" lineHeight="13" letterSpacing="1.2">SYSTEM MAP</Text></Frame>',
+      '<Frame name="Typography"><Text style="Typography/Eyebrow" font="DM Sans" size="10" weight="700" lineHeight="13px" letterSpacing="1.2">SYSTEM MAP</Text></Frame>',
     );
     const figma = fakeFigma();
 
@@ -222,6 +222,51 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(texts.at(-1).textStyleId, style.id);
     assert.equal(figma.localTextStyles.filter((candidate) => candidate.name === 'Typography/Eyebrow').length, 1);
     assert.deepEqual(second.textStyleReport, { references: 1, reused: 1, created: 0, bound: 1 });
+  });
+
+  it('preserves unit-bearing line height through native Text and generated Text Styles', async () => {
+    const cases = [
+      ['lineHeight="1.1"', { unit: 'PERCENT', value: 110 }],
+      ['lineHeight="110%"', { unit: 'PERCENT', value: 110 }],
+      ['lineHeight="24px"', { unit: 'PIXELS', value: 24 }],
+      ['lineHeight={24}', { unit: 'PIXELS', value: 24 }],
+      ['lineHeight="auto"', { unit: 'AUTO' }],
+    ];
+    for (const [authored, expected] of cases) {
+      const plan = new FigmaClient().planJSX(`<Frame><Text ${authored}>Line height</Text></Frame>`);
+      assert.deepEqual(plan.root.children[0].source.props.lineHeight, expected, authored);
+      assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] }, authored);
+      const figma = fakeFigma();
+      await executeStructuredRenderPlan(figma, plan);
+      assert.deepEqual(figma.created.find((node) => node.type === 'TEXT').lineHeight, expected, authored);
+      assert.deepEqual(figma.localTextStyles[0].lineHeight, expected, authored);
+    }
+  });
+
+  it('reuses a Text Style only when its line-height unit and value both match', async () => {
+    const existing = {
+      id: 'text-style:percent', name: 'Typography/Percent',
+      fontName: { family: 'Inter', style: 'Regular' }, fontSize: 14,
+      lineHeight: { unit: 'PERCENT', value: 110 },
+      letterSpacing: { unit: 'PIXELS', value: 0 },
+      paragraphSpacing: 0, paragraphIndent: 0,
+    };
+    const figma = fakeFigma({ textStyles: [existing] });
+    const plan = new FigmaClient().planJSX('<Frame><Text lineHeight="1.1">Reusable</Text></Frame>');
+
+    const result = await executeStructuredRenderPlan(figma, plan);
+    assert.equal(figma.created.find((node) => node.type === 'TEXT').textStyleId, existing.id);
+    assert.deepEqual(result.textStyleReport, { references: 1, reused: 1, created: 0, bound: 1 });
+  });
+
+  it('rejects invalid line height before native mutation', () => {
+    for (const authored of ['lineHeight="-1"', 'lineHeight={-1}', 'lineHeight="Infinity"', 'lineHeight={NaN}', 'lineHeight="wat"']) {
+      assert.throws(
+        () => new FigmaClient().planJSX(`<Frame><Text ${authored}>Invalid</Text></Frame>`),
+        /lineHeight/,
+        authored,
+      );
+    }
   });
 
   it('never falls through to synchronous Text Style assignment after an async rejection', async () => {

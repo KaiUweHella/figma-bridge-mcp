@@ -12,6 +12,7 @@ import { assertSemanticModel, jsxTreeToSemanticModel } from './semantic-dom-mode
 import {
   assertSemanticRenderPlan,
   createSemanticRenderPlan,
+  semanticLineHeightFromAuthorValue,
   semanticRenderPlanToJsxTree,
 } from './semantic-render-plan.js';
 import { parseRichTextContent } from './rich-text.js';
@@ -690,8 +691,11 @@ export class FigmaClient {
 
     while ((match = regex.exec(propsStr)) !== null) {
       const key = match[1];
-      const value = match[2] !== undefined ? match[2] : match[3];
-      props[key] = value;
+      const quoted = match[2] !== undefined;
+      const value = quoted ? match[2] : match[3];
+      props[key] = key === 'lineHeight'
+        ? semanticLineHeightFromAuthorValue(value, { quoted, location: 'JSX lineHeight' })
+        : value;
     }
 
     return props;
@@ -1562,9 +1566,15 @@ export class FigmaClient {
           // Typography props that used to be in the known-prop list but were
           // never applied (silent footguns): lineHeight, letterSpacing, align.
           // Plus truncation (ellipsis / line-clamp), which Primer leans on.
-          // lineHeight/letterSpacing accept a number (px), a "NN%" string, or
-          // "auto" (lineHeight only). align maps to textAlignHorizontal.
+          // lineHeight accepts numeric JSX / explicit px (PIXELS), a quoted
+          // unitless CSS multiplier / NN% (PERCENT), or auto. letterSpacing
+          // keeps numeric pixel and percentage syntax. align maps to
+          // textAlignHorizontal.
           const dimUnit = (v) => {
+            if (v && typeof v === 'object') {
+              if (String(v.unit).toUpperCase() === 'AUTO') return `{ unit: 'AUTO' }`;
+              return `{ value: ${Number(v.value)}, unit: '${String(v.unit).toUpperCase()}' }`;
+            }
             if (v === 'auto' || v === 'AUTO') return `{ unit: 'AUTO' }`;
             if (typeof v === 'string' && v.trim().endsWith('%')) return `{ value: ${parseFloat(v)}, unit: 'PERCENT' }`;
             return `{ value: ${Number(v)}, unit: 'PIXELS' }`;

@@ -587,6 +587,12 @@ Named Text Styles are reconciled before canvas creation as well: an explicit
 `style="Typography/Eyebrow"` is reused only when its complete typography
 matches; a conflicting same-name style stops, and otherwise exact typography
 is reused or created under a deterministic `Typography/Generated/...` name.
+Line height keeps its authored unit in the Semantic Render Plan: quoted
+unitless CSS multipliers such as `lineHeight="1.1"` and percentages such as
+`lineHeight="110%"` become Figma `PERCENT`; explicit
+`lineHeight="24px"` and numeric JSX `lineHeight={24}` remain `PIXELS`; and
+`lineHeight="auto"` remains `AUTO`. Negative, non-finite, or unknown values
+stop before mutation. Text Style matching compares both unit and value.
 Figma float32 metric readback is normalized for stable comparison, and
 family-specific faces such as DM Sans/Manrope `SemiBold` and `ExtraBold` are
 tried before any fallback family. Successful native renders return

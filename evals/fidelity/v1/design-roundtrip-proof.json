@@ -5,13 +5,13 @@
   "rootEntityId": "fidelity.design-roundtrip",
   "componentEntityId": "corpus.control",
   "inputDigests": {
-    "evals/fidelity/v1/design-roundtrip.jsx": "sha256:f8eb08a7db1e1bd3aabf168a6250961b53adbe04d453391448759a1d8a182656",
+    "evals/fidelity/v1/design-roundtrip.jsx": "sha256:fcbc60d19395598efe800ef71c6de52a28ab9cd5f71c1586269560cb61fed813",
     "evals/fidelity/v1/design-tokens.json": "sha256:fcd86a58ce8b950bc2f8c39f492ec4edd321df75e3911048297ae47de5ff1284",
     "evals/fidelity/v1/component-contract.json": "sha256:044d534444c3c36b9a0950d9349d5881bd4ab5df30c1a4352552911925bf7815",
     "evals/fidelity/v1/prototype-reactions.json": "sha256:bf2a7a6e4092a09bd8b727b91bf02cb1d5913b2dd123537695abbe6cf134b024",
     "evals/fidelity/v1/assets/bridge-glyph.svg": "sha256:c96054c5cad312fbaab046aa965c45c1f174b4f0657ce4dadbe8a728f2410d6b"
   },
-  "semanticPlanDigest": "sha256:6a79f57f864416062a05f1d76d527c755fef2fe4cd81382369f474671e3f27bb",
+  "semanticPlanDigest": "sha256:ecd39602119c4388c784f0ddba676d457788b52fe90292489cf73a5d6129b0fa",
   "visualTolerancePct": 1,
   "nonExactOutcomes": [
     "auto-layout-semantics:code-to-figma:structural:normalized",

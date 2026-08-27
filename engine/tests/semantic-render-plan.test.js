@@ -146,6 +146,21 @@ describe('Semantic Render Plan', () => {
       stableStringifySemanticRenderPlan(plans[2]));
   });
 
+  it('carries canonical line-height units before either executor sees the Plan', () => {
+    const client = new FigmaClient();
+    const plan = client.planJSX(
+      '<Frame><Text lineHeight="1.1">Multiplier</Text><Text lineHeight="24px">Pixels</Text></Frame>',
+    );
+
+    assert.deepEqual(plan.root.children.map((node) => node.source.props.lineHeight), [
+      { unit: 'PERCENT', value: 110 },
+      { unit: 'PIXELS', value: 24 },
+    ]);
+    const nonCanonical = structuredClone(plan);
+    nonCanonical.root.children[0].source.props.lineHeight = '1.1';
+    assert.throws(() => assertSemanticRenderPlan(nonCanonical), /lineHeight must be canonical/);
+  });
+
   it('preserves FLOAT Variable intent while normalizing weight fallbacks and rich text', () => {
     const client = new FigmaClient();
     const variable = client.planJSX(

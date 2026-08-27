@@ -1,8 +1,8 @@
 <Frame name="Bridge Fidelity Corpus v1" flex="col" w="960" gap="24" p="32" bg="var:color/surface" radius="20" filter="drop-shadow(0 8px 24px #0f172a33) drop-shadow(0 2px 8px #0f172a1f)">
   <Frame name="Header" flex="row" w="fill" justify="between" items="center" gap="16">
     <Frame name="Title group" flex="col" w="fill" gap="6">
-      <Text name="Title" w="fill" size="28" weight="400" lineHeight="34" color="var:color/text">Bidirectional <strong>fidelity</strong></Text>
-      <Text name="Description" w="fill" size="15" lineHeight="22" color="var:color/muted">One redistributable fixture for structural, semantic, visual and operational evidence.</Text>
+      <Text name="Title" w="fill" size="28" weight="400" lineHeight="34px" color="var:color/text">Bidirectional <strong>fidelity</strong></Text>
+      <Text name="Description" w="fill" size="15" lineHeight="22px" color="var:color/muted">One redistributable fixture for structural, semantic, visual and operational evidence.</Text>
     </Frame>
     <Icon name="bridge-glyph" w="72" h="72" />
   </Frame>

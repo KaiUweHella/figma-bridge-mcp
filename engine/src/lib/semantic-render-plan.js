@@ -55,7 +55,45 @@ function normalizedFontWeight(value, location) {
   throw fontWeightError(location, value);
 }
 
-function normalizePlanFontWeights(node, location = 'root') {
+function lineHeightError(location, value) {
+  return new Error(`Semantic Render Plan ${location} has invalid lineHeight "${String(value)}"`);
+}
+
+export function semanticLineHeightFromAuthorValue(value, {
+  quoted = false,
+  location = 'lineHeight',
+} = {}) {
+  if (typeof value === 'string' && value.trim().startsWith('var:')) return value.trim();
+  if (isRecord(value)) {
+    const keys = Object.keys(value).sort().join(',');
+    const unit = String(value.unit || '').toUpperCase();
+    if (unit === 'AUTO' && keys === 'unit') return { unit: 'AUTO' };
+    if (!['PERCENT', 'PIXELS'].includes(unit) || keys !== 'unit,value'
+      || typeof value.value !== 'number' || !Number.isFinite(value.value) || value.value < 0) {
+      throw lineHeightError(location, JSON.stringify(value));
+    }
+    return { unit, value: value.value };
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 0) throw lineHeightError(location, value);
+    return { unit: 'PIXELS', value };
+  }
+  if (typeof value !== 'string') throw lineHeightError(location, value);
+  const source = value.trim();
+  if (/^auto$/i.test(source)) return { unit: 'AUTO' };
+  const match = /^([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(%|px)?$/i.exec(source);
+  if (!match) throw lineHeightError(location, value);
+  const number = Number(match[1]);
+  const unit = String(match[2] || '').toLowerCase();
+  const multiplierPercent = Number((number * 100).toPrecision(15));
+  const result = unit === '%' || (quoted && !unit)
+    ? { unit: 'PERCENT', value: unit === '%' ? number : multiplierPercent }
+    : { unit: 'PIXELS', value: number };
+  if (!Number.isFinite(result.value)) throw lineHeightError(location, value);
+  return result;
+}
+
+function normalizePlanTypography(node, location = 'root') {
   const source = { ...node.source, props: { ...node.source.props } };
   if (source.type === 'text') {
     if (source.props.weight !== undefined) {
@@ -73,12 +111,17 @@ function normalizePlanFontWeights(node, location = 'root') {
         return { ...run, style };
       });
     }
+    if (source.props.lineHeight !== undefined) {
+      source.props.lineHeight = semanticLineHeightFromAuthorValue(source.props.lineHeight, {
+        location: `${location}.source.props.lineHeight`,
+      });
+    }
   }
   return {
     ...node,
     source,
     children: node.children.map((child, index) =>
-      normalizePlanFontWeights(child, `${location}.children[${index}]`)),
+      normalizePlanTypography(child, `${location}.children[${index}]`)),
   };
 }
 
@@ -125,7 +168,7 @@ export function createSemanticRenderPlan(semanticModel, {
     ...(provenance === null ? {} : { provenance }),
     ...(variableCollection ? { variableCollection } : {}),
     ...(designEntityBindings ? { designEntityBindings } : {}),
-    root: normalizePlanFontWeights(semanticModel.root),
+    root: normalizePlanTypography(semanticModel.root),
     diagnostics: semanticModel.diagnostics || {},
   };
   return assertSemanticRenderPlan(plan);
@@ -371,6 +414,14 @@ function validateNode(node, location, executable, depth, state) {
         `${location}.source.props.weight`,
       ), node.source.props.weight)) {
       throw new Error(`Semantic Render Plan ${location}.source.props.weight must be canonical`);
+    }
+    if (node.source.type === 'text' && node.source.props.lineHeight !== undefined) {
+      const lineHeight = semanticLineHeightFromAuthorValue(node.source.props.lineHeight, {
+        location: `${location}.source.props.lineHeight`,
+      });
+      if (JSON.stringify(lineHeight) !== JSON.stringify(node.source.props.lineHeight)) {
+        throw new Error(`Semantic Render Plan ${location}.source.props.lineHeight must be canonical`);
+      }
     }
     if (node.source.props.runs !== undefined) {
       if (node.source.type !== 'text') throw new Error(`Semantic Render Plan ${location}.source.props.runs is only valid on text`);

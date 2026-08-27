@@ -1015,7 +1015,8 @@ test('typed Semantic Render never redispatches as eval, including before native 
 
 test('locally unsupported native plans choose one generated execution before dispatch', async (t) => {
   const { plan, io } = renderPlan(t, [
-    'render', '<Frame filter="brightness(1.2)" />', '-x-45', '-y120', '--no-smart-position',
+    'render', '<Frame filter="brightness(1.2)"><Text lineHeight="125%">Fallback</Text></Frame>',
+    '-x-45', '-y120', '--no-smart-position',
   ]);
   const prepared = prepareSemanticRenderPlan(plan, { workspaceIO: io });
   assert.equal(prepared.support.supported, false);
@@ -1030,6 +1031,7 @@ test('locally unsupported native plans choose one generated execution before dis
       evalCalls += 1;
       assert.match(code, /const smartX = -45;/);
       assert.match(code, /frame\.y = 120;/);
+      assert.match(code, /lineHeight = \{ value: 125, unit: 'PERCENT' \}/);
       return { id: '3:4', name: 'Fallback' };
     },
   });
