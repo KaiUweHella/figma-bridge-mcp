@@ -130,6 +130,43 @@ describe('Semantic Render Plan', () => {
     );
   });
 
+  it('normalizes equivalent semantic font weights in the shared Plan', () => {
+    const client = new FigmaClient();
+    const plans = [
+      client.planJSX('<Frame><Text weight="bold">Title</Text></Frame>'),
+      client.planJSX('<Frame><Text weight="700">Title</Text></Frame>'),
+      client.planJSX('<Frame><Text weight={700}>Title</Text></Frame>'),
+    ];
+
+    assert.deepEqual(plans.map((plan) => plan.root.children[0].source.props.weight),
+      [700, 700, 700]);
+    assert.equal(stableStringifySemanticRenderPlan(plans[0]),
+      stableStringifySemanticRenderPlan(plans[1]));
+    assert.equal(stableStringifySemanticRenderPlan(plans[1]),
+      stableStringifySemanticRenderPlan(plans[2]));
+  });
+
+  it('preserves FLOAT Variable intent while normalizing weight fallbacks and rich text', () => {
+    const client = new FigmaClient();
+    const variable = client.planJSX(
+      '<Frame><Text weight="var:type/weight|bold">Variable</Text></Frame>',
+    );
+    assert.equal(variable.root.children[0].source.props.weight, 'var:type/weight|700');
+
+    const rich = client.planJSX('<Frame><Text>Hello <strong>bold</strong></Text></Frame>');
+    assert.equal(rich.root.children[0].source.props.runs
+      .find((run) => run.style.weight !== undefined)?.style.weight, 700);
+
+    assert.throws(
+      () => client.planJSX('<Frame><Text weight="bolder">Relative</Text></Frame>'),
+      /font weight/i,
+    );
+    assert.throws(
+      () => client.planJSX('<Frame><Text weight="9500">Range</Text></Frame>'),
+      /font weight/i,
+    );
+  });
+
   it('validates node-local native fallback annotation intent', () => {
     const plan = new FigmaClient().planJSX('<Frame name="Annotated" />');
     plan.root.fallbackAnnotations = [{

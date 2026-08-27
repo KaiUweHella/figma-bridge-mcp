@@ -68,6 +68,30 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(text.getPluginData('figmaBridge.semanticPath'), plan.root.children[0].path);
   });
 
+  it('executes semantic, string-numeric, and numeric font weights through the same native path', async () => {
+    const plan = new FigmaClient().planJSX(
+      '<Frame name="Weight aliases" flex="col">'
+      + '<Text name="Semantic" weight="bold">Semantic</Text>'
+      + '<Text name="String numeric" weight="700">String numeric</Text>'
+      + '<Text name="Numeric" weight={700}>Numeric</Text>'
+      + '</Frame>',
+    );
+    const figma = fakeFigma();
+
+    assert.deepEqual(plan.root.children.map((node) => node.source.props.weight), [700, 700, 700]);
+    assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
+
+    const result = await executeStructuredRenderPlan(figma, plan);
+    const textNodes = figma.created.filter((node) => node.type === 'TEXT');
+
+    assert.equal(result.executor, 'structured-v1');
+    assert.deepEqual(textNodes.map((node) => node.fontName), [
+      { family: 'Inter', style: 'Bold' },
+      { family: 'Inter', style: 'Bold' },
+      { family: 'Inter', style: 'Bold' },
+    ]);
+  });
+
   it('rejects malformed DOM provenance before canvas mutation', async () => {
     const plan = new FigmaClient().planJSX('<Frame name="Malformed provenance" />');
     plan.adapter = 'dom-capture';

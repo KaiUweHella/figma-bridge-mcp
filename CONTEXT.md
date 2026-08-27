@@ -619,7 +619,7 @@ The exact-origin capability that authorizes one Storybook index read before any 
 _Avoid_: URL allowlist, fetch helper, SSRF filter
 
 **Semantic Render Plan**:
-The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance.
+The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance. Supported semantic and numeric-string font weights are canonical numeric weights at this boundary, while FLOAT Variable references remain references and only their literal fallback is normalized.
 _Avoid_: JSX tree, generated code, render payload
 
 **Responsive Text Sizing Intent**:

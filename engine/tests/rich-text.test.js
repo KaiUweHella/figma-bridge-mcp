@@ -21,8 +21,8 @@ test('inline markup becomes merged, nested UTF-16 ranges without losing copy', (
   const italic = props.runs.find((run) => props.content.slice(run.start, run.end) === 'italic');
   const red = props.runs.find((run) => props.content.slice(run.start, run.end) === 'red');
   const link = props.runs.find((run) => props.content.slice(run.start, run.end) === 'link');
-  assert.deepEqual(bold.style, { weight: 'bold' });
-  assert.deepEqual(italic.style, { weight: 'bold', italic: true });
+  assert.deepEqual(bold.style, { weight: 700 });
+  assert.deepEqual(italic.style, { weight: 700, italic: true });
   assert.deepEqual(red.style, { color: '#ff0000', size: '18' });
   assert.deepEqual(link.style, { href: 'https://example.com' });
   assert.equal(props.content.slice(-2).length, 2, 'astral Unicode uses the UTF-16 offsets Figma expects');

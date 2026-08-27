@@ -151,10 +151,10 @@ test('the representative round-trip proof pins clean inputs, deterministic outpu
   const source = readFileSync(join(ROOT, 'evals/fidelity/v1/design-roundtrip.jsx'), 'utf8');
   const firstPlan = client.planJSX(source);
   const title = firstPlan.root.children[0].children[0].children[0];
-  assert.equal(title.source.props.weight, '400');
+  assert.equal(title.source.props.weight, 400);
   assert.deepEqual(title.source.props.runs, [
     { start: 0, end: 14, style: {} },
-    { start: 14, end: 22, style: { weight: 'bold' } },
+    { start: 14, end: 22, style: { weight: 700 } },
   ]);
   const first = JSON.stringify(firstPlan);
   const second = JSON.stringify(client.planJSX(source));

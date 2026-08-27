@@ -10,6 +10,77 @@ export const SEMANTIC_RENDER_PLAN_VERSION = 1;
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const ADAPTER = /^[a-z][a-z0-9-]{0,63}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const SEMANTIC_FONT_WEIGHTS = Object.freeze({
+  thin: 100,
+  extralight: 200,
+  ultralight: 200,
+  light: 300,
+  normal: 400,
+  regular: 400,
+  medium: 500,
+  semibold: 600,
+  demibold: 600,
+  bold: 700,
+  extrabold: 800,
+  ultrabold: 800,
+  black: 900,
+  heavy: 900,
+});
+
+function fontWeightError(location, value) {
+  return new Error(`Semantic Render Plan ${location} has unsupported font weight "${String(value)}"`);
+}
+
+function normalizedFontWeight(value, location) {
+  if (typeof value === 'number') {
+    if (Number.isFinite(value) && value >= 1 && value <= 1000) return value;
+    throw fontWeightError(location, value);
+  }
+  if (typeof value !== 'string') throw fontWeightError(location, value);
+  const source = value.trim();
+  if (source.startsWith('var:')) {
+    const separator = source.indexOf('|');
+    if (separator < 0) return source;
+    const reference = source.slice(0, separator).trim();
+    const fallback = source.slice(separator + 1).trim();
+    if (!reference.slice(4).trim()) throw fontWeightError(location, value);
+    return fallback ? `${reference}|${normalizedFontWeight(fallback, `${location} fallback`)}` : reference;
+  }
+  if (/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(source)) {
+    return normalizedFontWeight(Number(source), location);
+  }
+  const semantic = source.toLowerCase().replace(/[\s_-]+/g, '');
+  const numeric = SEMANTIC_FONT_WEIGHTS[semantic];
+  if (numeric !== undefined) return numeric;
+  throw fontWeightError(location, value);
+}
+
+function normalizePlanFontWeights(node, location = 'root') {
+  const source = { ...node.source, props: { ...node.source.props } };
+  if (source.type === 'text') {
+    if (source.props.weight !== undefined) {
+      source.props.weight = normalizedFontWeight(source.props.weight, `${location}.source.props.weight`);
+    }
+    if (Array.isArray(source.props.runs)) {
+      source.props.runs = source.props.runs.map((run, index) => {
+        const style = { ...run.style };
+        if (style.weight !== undefined) {
+          style.weight = normalizedFontWeight(
+            style.weight,
+            `${location}.source.props.runs[${index}].style.weight`,
+          );
+        }
+        return { ...run, style };
+      });
+    }
+  }
+  return {
+    ...node,
+    source,
+    children: node.children.map((child, index) =>
+      normalizePlanFontWeights(child, `${location}.children[${index}]`)),
+  };
+}
 
 function validatePlanProvenance(plan) {
   if (plan.provenance === undefined) return;
@@ -54,7 +125,7 @@ export function createSemanticRenderPlan(semanticModel, {
     ...(provenance === null ? {} : { provenance }),
     ...(variableCollection ? { variableCollection } : {}),
     ...(componentLinks && Object.keys(componentLinks).length ? { componentLinks } : {}),
-    root: semanticModel.root,
+    root: normalizePlanFontWeights(semanticModel.root),
     diagnostics: semanticModel.diagnostics || {},
   };
   return assertSemanticRenderPlan(plan);
@@ -229,9 +300,25 @@ function validateNode(node, location, executable, depth, state) {
     if (!isRecord(node.source.props)) {
       throw new Error(`Semantic Render Plan ${location}.source.props must be an object`);
     }
+    if (node.source.type === 'text' && node.source.props.weight !== undefined
+      && !Object.is(normalizedFontWeight(
+        node.source.props.weight,
+        `${location}.source.props.weight`,
+      ), node.source.props.weight)) {
+      throw new Error(`Semantic Render Plan ${location}.source.props.weight must be canonical`);
+    }
     if (node.source.props.runs !== undefined) {
       if (node.source.type !== 'text') throw new Error(`Semantic Render Plan ${location}.source.props.runs is only valid on text`);
       validateRichTextRuns(node.source.props.runs, node.source.props, `${location}.source.props`);
+      for (let index = 0; index < node.source.props.runs.length; index++) {
+        const weight = node.source.props.runs[index].style.weight;
+        if (weight !== undefined && !Object.is(normalizedFontWeight(
+          weight,
+          `${location}.source.props.runs[${index}].style.weight`,
+        ), weight)) {
+          throw new Error(`Semantic Render Plan ${location}.source.props.runs[${index}].style.weight must be canonical`);
+        }
+      }
     }
   }
   node.children.forEach((child, index) => validateNode(child, `${location}.children[${index}]`, executable, depth + 1, state));
