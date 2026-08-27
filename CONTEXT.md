@@ -176,7 +176,13 @@ Collection. It closes type and optional initial value before readiness,
 resolves Collection ambiguity explicitly, preflights exact-name duplicates,
 creates once, journals identity immediately and removes the new Variable if
 initialization or result projection fails. Intentional duplicates remain an
-explicit capability.
+explicit capability. Fresh verification treats Figma-owned mode defaults as
+authored runtime facts rather than as evidence of requested initial intent. A
+compact selected-mode result distinguishes `native-default`,
+`requested-initial` and `absent`, and reports the total observed mode count.
+Explicit intent remains mandatory to verify. Figma may expand a named EASING
+preset with valid canonical function parameters; custom parameters remain
+field-exact.
 _Avoid_: variable factory eval, first-name collection choice, retryable create, implicit duplicate
 
 **Variable Batch Creation**:
@@ -186,7 +192,10 @@ is typed before readiness, duplicate intent is explicit, every returned
 Variable is journaled before initialization, and a later failure removes the
 whole journal in reverse before verifying exact absence. It preserves all
 official Variable types and the established batch utility without allowing a
-partially initialized batch to look successful.
+partially initialized batch to look successful. Native values in unselected
+modes never invalidate an explicit selected-mode write. Each compact created
+result reports the selected mode value source and observed mode count without
+returning an unbounded value matrix; complete topology remains Variable Facts.
 _Avoid_: variable batch eval, partial preflight, first mode, partial success, retryable factory loop
 
 **Variable Visualization**:

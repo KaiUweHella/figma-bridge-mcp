@@ -1,6 +1,8 @@
 // Bounded, journaled Variable Create Command Application.
 
+import { isDeepStrictEqual } from 'node:util';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
+import { normalizeVariableValue } from '../lib/variable-management.js';
 import {
   parseVariableCreateRequest,
   variableCreateArgvFromRequest,
@@ -93,6 +95,23 @@ export function variableCreateCode(request) {
       if (Array.isArray(actual) !== Array.isArray(expected)) return false;
       const actualKeys = Object.keys(actual).sort();
       const expectedKeys = Object.keys(expected).sort();
+      if (expectedKeys.length === 1 && expectedKeys[0] === 'type'
+        && typeof expected.type === 'string' && actual.type === expected.type) {
+        if (actualKeys.length === 1) return true;
+        if (actualKeys.length !== 2) return false;
+        if (actualKeys.includes('easingFunctionCubicBezier')) {
+          const curve = actual.easingFunctionCubicBezier;
+          return curve && typeof curve === 'object' && !Array.isArray(curve)
+            && Object.keys(curve).sort().join(',') === 'x1,x2,y1,y2'
+            && Number.isFinite(curve.x1) && curve.x1 >= 0 && curve.x1 <= 1
+            && Number.isFinite(curve.x2) && curve.x2 >= 0 && curve.x2 <= 1
+            && Number.isFinite(curve.y1) && Number.isFinite(curve.y2);
+        }
+        const spring = actual.easingFunctionSpring;
+        return spring && typeof spring === 'object' && !Array.isArray(spring)
+          && Object.keys(spring).join(',') === 'bounce'
+          && Number.isFinite(spring.bounce) && spring.bounce >= 0 && spring.bounce <= 1;
+      }
       return actualKeys.length === expectedKeys.length
         && actualKeys.every((key, index) => key === expectedKeys[index]
           && equivalent(actual[key], expected[key]));
@@ -132,16 +151,28 @@ export function variableCreateCode(request) {
         || Array.isArray(verifiedVariable.valuesByMode)) {
         throw new Error('Variable Create encountered invalid created metadata.');
       }
+      const observedModeIds = Object.keys(verifiedVariable.valuesByMode);
+      if (observedModeIds.length > collection.modes.length
+        || observedModeIds.some((modeId) => !collection.modes.some((mode) => mode.modeId === modeId))) {
+        throw new Error('Variable Create encountered invalid native mode values.');
+      }
       const stored = Object.prototype.hasOwnProperty.call(
         verifiedVariable.valuesByMode, collection.defaultModeId);
-      if (hasInitialValue !== stored || (hasInitialValue
-        && !equivalent(verifiedVariable.valuesByMode[collection.defaultModeId], initialValue))) {
+      if (hasInitialValue && (!stored
+        || !equivalent(verifiedVariable.valuesByMode[collection.defaultModeId], initialValue))) {
         throw new Error('Variable Create could not verify the initial value.');
       }
+      const modeValue = {
+        modeId: collection.defaultModeId,
+        source: hasInitialValue ? 'requested-initial' : (stored ? 'native-default' : 'absent'),
+        stored,
+        value: stored ? verifiedVariable.valuesByMode[collection.defaultModeId] : null,
+      };
       const payload = {
         schemaVersion: 1, status: 'created', variable: created,
         collection: { id: collection.id, name: collection.name, modeId: collection.defaultModeId },
-        initialValueSet: hasInitialValue, duplicateCountBefore: duplicates.length, residue: [],
+        initialValueSet: hasInitialValue, modeValue, observedModeCount: observedModeIds.length,
+        duplicateCountBefore: duplicates.length, residue: [],
       };
       const serialized = JSON.stringify(payload);
       if (serialized.length > ${MAX_VARIABLE_CREATE_SERIALIZED_CODE_UNITS}) {
@@ -194,10 +225,58 @@ function validIdentity(value, input, { created = false } = {}) {
     && (!created || (value.name === input.name && value.resolvedType === input.type));
 }
 
+function equivalent(actual, expected) {
+  if (typeof actual === 'number' && typeof expected === 'number') {
+    return Number.isFinite(actual) && Number.isFinite(expected)
+      && (Object.is(actual, expected) || Math.fround(actual) === Math.fround(expected));
+  }
+  if (actual === null || expected === null || typeof actual !== 'object'
+    || typeof expected !== 'object') return Object.is(actual, expected);
+  if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+  const actualKeys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  if (expectedKeys.length === 1 && expectedKeys[0] === 'type'
+    && typeof expected.type === 'string' && actual.type === expected.type) {
+    if (actualKeys.length === 1) return true;
+    if (actualKeys.length !== 2) return false;
+    if (actualKeys.includes('easingFunctionCubicBezier')) {
+      const curve = actual.easingFunctionCubicBezier;
+      return curve && typeof curve === 'object' && !Array.isArray(curve)
+        && Object.keys(curve).sort().join(',') === 'x1,x2,y1,y2'
+        && Number.isFinite(curve.x1) && curve.x1 >= 0 && curve.x1 <= 1
+        && Number.isFinite(curve.x2) && curve.x2 >= 0 && curve.x2 <= 1
+        && Number.isFinite(curve.y1) && Number.isFinite(curve.y2);
+    }
+    const spring = actual.easingFunctionSpring;
+    return spring && typeof spring === 'object' && !Array.isArray(spring)
+      && Object.keys(spring).join(',') === 'bounce'
+      && Number.isFinite(spring.bounce) && spring.bounce >= 0 && spring.bounce <= 1;
+  }
+  return actualKeys.length === expectedKeys.length
+    && actualKeys.every((key, index) => key === expectedKeys[index]
+      && equivalent(actual[key], expected[key]));
+}
+
+function validObservedValue(value, type) {
+  try { return isDeepStrictEqual(normalizeVariableValue(value, type), value); }
+  catch { return false; }
+}
+
+function validModeValue(value, input, collection) {
+  if (!exactKeys(value, ['modeId', 'source', 'stored', 'value'])
+    || value.modeId !== collection.modeId || typeof value.stored !== 'boolean') return false;
+  if (!value.stored) {
+    return input.value === undefined && value.source === 'absent' && value.value === null;
+  }
+  if (!validObservedValue(value.value, input.type)) return false;
+  if (input.value === undefined) return value.source === 'native-default';
+  return value.source === 'requested-initial' && equivalent(value.value, input.value);
+}
+
 function validSuccess(value, input) {
   return exactKeys(value, [
-    'schemaVersion', 'status', 'variable', 'collection', 'initialValueSet',
-    'duplicateCountBefore', 'residue',
+    'schemaVersion', 'status', 'variable', 'collection', 'initialValueSet', 'modeValue',
+    'observedModeCount', 'duplicateCountBefore', 'residue',
   ]) && value.schemaVersion === 1 && value.status === 'created'
     && validIdentity(value.variable, input, { created: true })
     && exactKeys(value.collection, ['id', 'name', 'modeId'])
@@ -206,6 +285,10 @@ function validSuccess(value, input) {
     && boundedString(value.collection.modeId, { empty: false })
     && value.variable.variableCollectionId === value.collection.id
     && value.initialValueSet === (input.value !== undefined)
+    && validModeValue(value.modeValue, input, value.collection)
+    && Number.isSafeInteger(value.observedModeCount) && value.observedModeCount >= 0
+    && value.observedModeCount <= MAX_VARIABLE_CREATE_MODES
+    && value.observedModeCount >= (value.modeValue.stored ? 1 : 0)
     && Number.isSafeInteger(value.duplicateCountBefore) && value.duplicateCountBefore >= 0
     && value.duplicateCountBefore <= MAX_VARIABLE_CREATE_CANDIDATES
     && (input.allowDuplicate || value.duplicateCountBefore === 0)

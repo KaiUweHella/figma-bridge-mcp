@@ -2,6 +2,7 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
+import { normalizeVariableValue } from '../lib/variable-management.js';
 import {
   MAX_VARIABLE_CREATE_BATCH_ITEMS,
   parseVariableCreateBatchRequest,
@@ -118,6 +119,23 @@ export function variableCreateBatchCommandCode(request) {
       if (Array.isArray(actual) !== Array.isArray(expected)) return false;
       const actualKeys = Object.keys(actual).sort();
       const expectedKeys = Object.keys(expected).sort();
+      if (expectedKeys.length === 1 && expectedKeys[0] === 'type'
+        && typeof expected.type === 'string' && actual.type === expected.type) {
+        if (actualKeys.length === 1) return true;
+        if (actualKeys.length !== 2) return false;
+        if (actualKeys.includes('easingFunctionCubicBezier')) {
+          const curve = actual.easingFunctionCubicBezier;
+          return curve && typeof curve === 'object' && !Array.isArray(curve)
+            && Object.keys(curve).sort().join(',') === 'x1,x2,y1,y2'
+            && Number.isFinite(curve.x1) && curve.x1 >= 0 && curve.x1 <= 1
+            && Number.isFinite(curve.x2) && curve.x2 >= 0 && curve.x2 <= 1
+            && Number.isFinite(curve.y1) && Number.isFinite(curve.y2);
+        }
+        const spring = actual.easingFunctionSpring;
+        return spring && typeof spring === 'object' && !Array.isArray(spring)
+          && Object.keys(spring).join(',') === 'bounce'
+          && Number.isFinite(spring.bounce) && spring.bounce >= 0 && spring.bounce <= 1;
+      }
       return actualKeys.length === expectedKeys.length
         && actualKeys.every((key, index) => key === expectedKeys[index]
           && equivalent(actual[key], expected[key]));
@@ -152,13 +170,27 @@ export function variableCreateBatchCommandCode(request) {
           || !variable.valuesByMode || typeof variable.valuesByMode !== 'object') {
           throw new Error('Variable Batch Creation encountered incompatible created identity.');
         }
+        const observedModeIds = Object.keys(variable.valuesByMode);
+        if (observedModeIds.length > collection.modes.length
+          || observedModeIds.some((modeId) => !collection.modes.some((item) => item.modeId === modeId))) {
+          throw new Error('Variable Batch Creation encountered invalid native mode values.');
+        }
         const hasValue = Object.prototype.hasOwnProperty.call(item, 'value');
         const stored = Object.prototype.hasOwnProperty.call(variable.valuesByMode, mode.modeId);
-        if (hasValue !== stored || (hasValue
-          && !equivalent(variable.valuesByMode[mode.modeId], item.value))) {
+        if (hasValue && (!stored
+          || !equivalent(variable.valuesByMode[mode.modeId], item.value))) {
           throw new Error('Variable Batch Creation encountered incompatible initial value.');
         }
-        created.push(compact(variable, entry.index));
+        created.push({
+          ...compact(variable, entry.index),
+          modeValue: {
+            modeId: mode.modeId,
+            source: hasValue ? 'requested-initial' : (stored ? 'native-default' : 'absent'),
+            stored,
+            value: stored ? variable.valuesByMode[mode.modeId] : null,
+          },
+          observedModeCount: observedModeIds.length,
+        });
       }
       return bounded({
         schemaVersion: 1, status: 'created', collection: {
@@ -227,6 +259,78 @@ function uniqueTargets(values, input) {
     && new Set(values.map((value) => value.index)).size === values.length;
 }
 
+function validObservedValue(value, type) {
+  try { return isDeepStrictEqual(normalizeVariableValue(value, type), value); }
+  catch { return false; }
+}
+
+function equivalent(actual, expected) {
+  if (typeof actual === 'number' && typeof expected === 'number') {
+    return Number.isFinite(actual) && Number.isFinite(expected)
+      && (Object.is(actual, expected) || Math.fround(actual) === Math.fround(expected));
+  }
+  if (actual === null || expected === null || typeof actual !== 'object'
+    || typeof expected !== 'object') return Object.is(actual, expected);
+  if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+  const actualKeys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  if (expectedKeys.length === 1 && expectedKeys[0] === 'type'
+    && typeof expected.type === 'string' && actual.type === expected.type) {
+    if (actualKeys.length === 1) return true;
+    if (actualKeys.length !== 2) return false;
+    if (actualKeys.includes('easingFunctionCubicBezier')) {
+      const curve = actual.easingFunctionCubicBezier;
+      return curve && typeof curve === 'object' && !Array.isArray(curve)
+        && Object.keys(curve).sort().join(',') === 'x1,x2,y1,y2'
+        && Number.isFinite(curve.x1) && curve.x1 >= 0 && curve.x1 <= 1
+        && Number.isFinite(curve.x2) && curve.x2 >= 0 && curve.x2 <= 1
+        && Number.isFinite(curve.y1) && Number.isFinite(curve.y2);
+    }
+    const spring = actual.easingFunctionSpring;
+    return spring && typeof spring === 'object' && !Array.isArray(spring)
+      && Object.keys(spring).join(',') === 'bounce'
+      && Number.isFinite(spring.bounce) && spring.bounce >= 0 && spring.bounce <= 1;
+  }
+  return actualKeys.length === expectedKeys.length
+    && actualKeys.every((key, index) => key === expectedKeys[index]
+      && equivalent(actual[key], expected[key]));
+}
+
+function validCreatedTarget(value, input) {
+  if (!exactKeys(value, [
+    'index', 'id', 'name', 'resolvedType', 'variableCollectionId',
+    'modeValue', 'observedModeCount',
+  ])) return false;
+  const target = {
+    index: value.index, id: value.id, name: value.name,
+    resolvedType: value.resolvedType, variableCollectionId: value.variableCollectionId,
+  };
+  if (!validTarget(target, input)
+    || !Number.isSafeInteger(value.observedModeCount) || value.observedModeCount < 0
+    || value.observedModeCount > MAX_VARIABLE_CREATE_BATCH_MODES
+    || !exactKeys(value.modeValue, ['modeId', 'source', 'stored', 'value'])
+    || typeof value.modeValue.stored !== 'boolean'
+    || !boundedString(value.modeValue.modeId, { empty: false })) return false;
+  const item = input.items[value.index];
+  const hasValue = Object.prototype.hasOwnProperty.call(item, 'value');
+  if (!value.modeValue.stored) {
+    return !hasValue && value.modeValue.source === 'absent' && value.modeValue.value === null;
+  }
+  if (value.observedModeCount < 1
+    || !validObservedValue(value.modeValue.value, item.type)) return false;
+  return hasValue
+    ? value.modeValue.source === 'requested-initial'
+      && equivalent(value.modeValue.value, item.value)
+    : value.modeValue.source === 'native-default';
+}
+
+function uniqueCreatedTargets(values, input) {
+  return Array.isArray(values) && values.length <= MAX_VARIABLE_CREATE_BATCH_ITEMS
+    && values.every((value) => validCreatedTarget(value, input))
+    && new Set(values.map((value) => value.id)).size === values.length
+    && new Set(values.map((value) => value.index)).size === values.length;
+}
+
 function validSuccess(value, input) {
   return exactKeys(value, [
     'schemaVersion', 'status', 'collection', 'mode', 'created',
@@ -246,7 +350,8 @@ function validSuccess(value, input) {
       : (value.mode.resolution === 'id' ? value.mode.modeId === input.mode
         : value.mode.resolution === 'name'
           && value.mode.name.toLowerCase().includes(input.mode.toLowerCase())))
-    && uniqueTargets(value.created, input) && value.created.length === input.items.length
+    && uniqueCreatedTargets(value.created, input) && value.created.length === input.items.length
+    && value.created.every((target) => target.modeValue.modeId === value.mode.modeId)
     && value.created.every((target) => target.variableCollectionId === value.collection.id)
     && Number.isSafeInteger(value.duplicateCountBefore) && value.duplicateCountBefore >= 0
     && value.duplicateCountBefore <= MAX_VARIABLE_CREATE_BATCH_CANDIDATES * input.items.length
