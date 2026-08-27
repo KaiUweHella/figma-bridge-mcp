@@ -67,6 +67,10 @@ update` calls. When several explicit Variable/mode values are already
    native Grid, and genuine overlays as absolute children.
 5. Import actual raster files and SVG source from the repository. Never replace
    icons with emoji, Unicode glyphs, rotated primitives, or guessed artwork.
+   A raster `<Image>` with `src` is host-materialized and native. An intentional
+   `<Image name="…" />` placeholder remains available, but its Outcome is
+   `completed-with-findings` through the generated compatibility executor; it
+   must never be accepted as pixel-exact image fidelity.
 6. Componentize repeated source structures on the first pass: create one local
    component and place instances instead of emitting a flat repeated tree.
    For multi-root `figma_render`/`render-batch`, inspect the pre-write reuse

@@ -577,6 +577,17 @@ key exactly matches the resolved Figma target. Authored `key`, `id` and
 compatibility path consumes the same table, so it does not reintroduce a second
 identity lookup.
 
+For raster content, `<Image src="assets/artwork.png" />` is materialized by the
+host as bounded embedded bytes and stays on the native executor. An intentional
+`<Image name="Artwork placeholder" />` remains useful, but it selects the
+generated compatibility executor and returns `completed-with-findings` with the
+exact `image needs host-materialized embedded bytes` degradation. A placeholder
+therefore never counts as native or pixel-exact image fidelity. The executable
+MCP form, Registry setup command, and current element-specific props are kept in
+`figma_reference {name:"workflow:code-to-figma"}`; use
+`figma_run {args:["render","--prop-reference","Image"]}` for the bounded Image
+prop reference.
+
 Dimensions and typography accept the same `var:name|fallback` form. The native
 executor binds width, height and min/max constraints plus font family/style,
 weight, size, line height, letter spacing, paragraph spacing and paragraph

@@ -714,6 +714,10 @@ _Avoid_: recursive render, batch helper, render loop
 The content-free pre-write acceptance map for one Compound Semantic Render Request. It records Design Entity Instance use across every root and assigns stable hashed Finding IDs to repeated raw Frame structures. An unapproved repetition stops before Plugin readiness with a component/Instance recipe; an intentional flat repetition may be approved only by its current exact Finding ID. The completion Outcome reports reused component entities, Instance count, components created by the request and approved flat repetitions. Default smart row placement begins to the right of occupied canvas content, while explicit column placement remains supported.
 _Avoid_: component warning, global reuse bypass, name-based componentization, vertical screen default
 
+**Semantic Render Guidance Contract**:
+The content-free authoring facts and executable public examples projected from the same closed element/property grammar and native capability claims used by Semantic Render preflight. It owns Registry-backed Instance identity, host-materialized Image requirements and truthful compatibility status for deliberate placeholders. MCP workflow guidance formats this Contract; README and packaged skills are consistency-checked consumers. Every embedded Command and JSX example crosses the current request and Plan boundaries in CI.
+_Avoid_: handwritten MCP JSX dialect, name-based Instance example, ordinary-success placeholder claim, documentation-only capability
+
 **Semantic Render Outcome**:
 The closed, versioned and deeply bounded result of one simple or compound Semantic Render Command. It retains only created-root identity, executor and structural facts, explicit compound-stage progress, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
 _Avoid_: render response, console result, Plugin result

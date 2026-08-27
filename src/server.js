@@ -35,6 +35,7 @@ import { readRestToken, getRestHealth, resolveFileKey, getVersions, getFileAtVer
 import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
 import { diffSnapshots, formatDiff, formatChangelog } from "../engine/src/lib/doc-diff.js";
 import { DEFAULT_SPEC_FORMAT, parseSpecModel, serializeSpecModel } from "../engine/src/lib/spec-format.js";
+import { formatSemanticRenderGuidance } from "../engine/src/lib/semantic-render-guidance.js";
 import {
   codeSpecPlanRoute,
   codeSpecPlanningArgvFromRequest,
@@ -1107,29 +1108,12 @@ tokens first, then components, then screens:
    variant set. Give EVERY <Text> a name= (name="label") — text: overrides
    key on layer names; content-derived names make overrides brittle (a
    warning fires on --as-component renders without them).
-4. Screens: compose <Instance component="Name" variant="axis=value"> with
-   overrides — text:<layer>, prop:<property>, fill:<layer> (hex or var:),
-   swap:<layer> ("Other Component"). Layer matching is case-, space- and
-   hyphen-insensitive (text:plantphoto matches "plant-photo").
-   REUSE before rebuild: run ["component","list"] first and instantiate what
-   exists — a render that draws a frame named like an existing component
-   prints a reuse warning with the ready <Instance> line. A variant= that
-   does not exist FAILS with the existing axes/values and the exact
-   ["component","add-variant","<set>","Axis=Value"] command; add-variant
-   clones the nearest variant (--from picks the source) so the new state
-   inherits the set's structure — then edit only what differs. Rendering
-   3+ structurally identical siblings prints a componentize hint: render
-   ONE, ["node","to-component","<id>"], place <Instance> copies.
-5. Interactions: map only representable source handlers to native prototype
+${formatSemanticRenderGuidance()}
+6. Interactions: map only representable source handlers to native prototype
    reactions with ["prototype","add",...] or lossless
    ["prototype","set","<id>","--json",...], then verify with
    ["prototype","inspect","<id>"]. Routing, application state, async work and
    other runtime behavior stay code-owned and must be reported as a boundary.
-6. Images: <Image src="/abs/or/relative.png" imageScale="FILL|FIT|CROP|TILE">
-   imports the actual file (CLI reads it, no plugin network). Without src=
-   you get a named grey placeholder carrying an "Image placeholder"
-   annotation; fill it later with ["node","set-image","<id>","photo.png"].
-   Files > 8 MB are refused — downscale first (Figma caps images at 4096px).
 7. Icons: <Icon name="check"> renders ~40 built-in geometry vectors
    (check/x/plus/chevrons/arrows/search/bell/droplet/sun/home/settings/...,
    aliases like close/back/gear). Project icons: ["render","--icons","<dir>"]

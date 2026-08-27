@@ -270,6 +270,7 @@
     "engine/src/lib/safe-read-retry.js",
     "engine/src/lib/semantic-dom-model.js",
     "engine/src/lib/semantic-render-outcome.js",
+    "engine/src/lib/semantic-render-guidance.js",
     "engine/src/lib/semantic-render-plan.js",
     "engine/src/lib/semantic-jsx-props.js",
     "engine/src/lib/semantic-resize-probe.js",

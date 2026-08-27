@@ -868,6 +868,11 @@ function structuredScopeQuestion(name, type, collection) {
   };
 }
 
+const STRUCTURED_RENDER_IMAGE_ASSET_KIND = 'embedded-raster';
+const STRUCTURED_RENDER_IMAGE_ASSET_PROBLEM = 'image needs host-materialized embedded bytes';
+const STRUCTURED_RENDER_INSTANCE_IDENTITY_PROP = 'entity';
+const STRUCTURED_RENDER_COMPATIBILITY_EXECUTOR = 'generated-eval-compatibility';
+
 export function inspectStructuredRenderPlan(plan) {
   const problems = [];
   const annotationProperties = new Set([
@@ -1069,7 +1074,9 @@ export function inspectStructuredRenderPlan(plan) {
       if (type === 'ellipse' && (!structuredFillPaintSupported(props.bg ?? props.fill) || !structuredPaintSupported(props.stroke))) problems.push(`${path}: ellipse paint needs the compatibility executor`);
       if (type === 'icon' && !structuredColorSupported(props.color ?? props.c)) problems.push(`${path}: icon paint needs the compatibility executor`);
       if (type === 'image') {
-        if (!node.asset || node.asset.kind !== 'embedded-raster') problems.push(`${path}: image needs host-materialized embedded bytes`);
+        if (!node.asset || node.asset.kind !== STRUCTURED_RENDER_IMAGE_ASSET_KIND) {
+          problems.push(`${path}: ${STRUCTURED_RENDER_IMAGE_ASSET_PROBLEM}`);
+        }
         if (props.imageScale != null && !['fill', 'fit', 'crop', 'tile'].includes(String(props.imageScale).toLowerCase())) problems.push(`${path}: imageScale is unsupported`);
       }
       if (type === 'instance') {
@@ -2572,3 +2579,25 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
   };
 }
 // END STRUCTURED RENDER RUNTIME
+
+/**
+ * Small, content-free facts shared by native preflight and public authoring
+ * guidance. The guidance must not maintain a second description of the
+ * executor's identity or image requirements.
+ */
+export function structuredRenderGuidanceFacts() {
+  return Object.freeze({
+    instance: Object.freeze({
+      identityProp: STRUCTURED_RENDER_INSTANCE_IDENTITY_PROP,
+      forbiddenIdentityProps: Object.freeze(['component', 'id', 'key']),
+      registryRequired: true,
+    }),
+    image: Object.freeze({
+      sourceProp: 'src',
+      nativeAssetKind: STRUCTURED_RENDER_IMAGE_ASSET_KIND,
+      missingSourceFact: STRUCTURED_RENDER_IMAGE_ASSET_PROBLEM,
+      missingSourceExecutor: STRUCTURED_RENDER_COMPATIBILITY_EXECUTOR,
+      missingSourceStatus: 'completed-with-findings',
+    }),
+  });
+}
