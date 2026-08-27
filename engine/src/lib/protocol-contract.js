@@ -10,6 +10,11 @@ import {
   dispatchReceiptValidationError,
 } from './dispatch-receipt.js';
 import { typedReadRequestValidationError } from './typed-read-operations.js';
+import {
+  ASSET_STREAM_CHUNK_BYTES,
+  ASSET_STREAM_MAX_BYTES,
+  assetStreamRequestValidationError,
+} from './asset-stream-protocol.js';
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -158,7 +163,12 @@ function selectionError(selection) {
 
 export function validateExecPayload(value) {
   if (!isRecord(value)) return 'request body must be an object';
-  if (!['eval', 'typed-read', 'render-plan', 'render-plan-batch'].includes(value.action)) return 'action must be "eval", "typed-read", "render-plan", or "render-plan-batch"';
+  if (!['asset-stream', 'eval', 'typed-read', 'render-plan', 'render-plan-batch'].includes(value.action)) return 'action must be "asset-stream", "eval", "typed-read", "render-plan", or "render-plan-batch"';
+  if (value.action === 'asset-stream') {
+    const error = assetStreamRequestValidationError(value.asset);
+    if (error) return error;
+    if (Object.hasOwn(value, 'code')) return 'asset-stream must not contain JavaScript code';
+  }
   if (value.action === 'eval') {
     if (typeof value.code !== 'string' || !value.code.length) return 'eval code must be a non-empty string';
     if (byteLength(value.code) > MAX_PROTOCOL_VALUE_BYTES) return 'eval code exceeds the 5 MB protocol limit';
@@ -229,11 +239,11 @@ export function validateExecPayload(value) {
     return 'expectedEditor must be "figma", "figjam", "slides", or "dev"';
   }
   if (value.requireDocumentRevision != null
-    && (value.action !== 'eval' || typeof value.requireDocumentRevision !== 'boolean')) {
-    return 'requireDocumentRevision must be a boolean on eval requests';
+    && (!['asset-stream', 'eval'].includes(value.action) || typeof value.requireDocumentRevision !== 'boolean')) {
+    return 'requireDocumentRevision must be a boolean on eval or asset-stream requests';
   }
   if (value.revisionObservation != null) {
-    if (value.action !== 'eval') return 'revisionObservation is supported only on eval requests';
+    if (!['asset-stream', 'eval'].includes(value.action)) return 'revisionObservation is supported only on eval or asset-stream requests';
     const error = revisionObservationError(value.revisionObservation);
     if (error) return error;
     if (value.requireDocumentRevision !== true) {
@@ -279,6 +289,58 @@ export function validatePluginMessage(value, { authenticated = false } = {}) {
     return null;
   }
   switch (value.type) {
+    case 'asset-stream-start': {
+      const idError = messageIdError(value.id);
+      if (idError) return `asset-stream-start ${idError}`;
+      const receiptError = dispatchReceiptValidationError(value.dispatchReceipt, { terminal: false });
+      if (receiptError) return `asset-stream-start ${receiptError}`;
+      if (!Number.isSafeInteger(value.totalBytes)
+        || value.totalBytes < 1 || value.totalBytes > ASSET_STREAM_MAX_BYTES) {
+        return `asset-stream-start totalBytes must be 1-${ASSET_STREAM_MAX_BYTES}`;
+      }
+      if (typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) {
+        return 'asset-stream-start sha256 must be lowercase SHA-256 hex';
+      }
+      if (!isRecord(value.details) || !['image', 'svg'].includes(value.details.kind)) {
+        return 'asset-stream-start details must identify image or svg';
+      }
+      const detailKeys = Object.keys(value.details).sort();
+      const expected = value.details.kind === 'image' ? ['kind', 'size'] : ['kind'];
+      if (detailKeys.length !== expected.length
+        || detailKeys.some((key, index) => key !== expected[index])) {
+        return 'asset-stream-start details contain unknown or missing fields';
+      }
+      if (value.details.kind === 'image' && value.details.size != null) {
+        const size = value.details.size;
+        if (!isRecord(size) || Object.keys(size).sort().join(',') !== 'height,width'
+          || !Number.isFinite(size.width) || size.width <= 0
+          || !Number.isFinite(size.height) || size.height <= 0) {
+          return 'asset-stream-start image size is invalid';
+        }
+      }
+      return null;
+    }
+    case 'asset-stream-chunk': {
+      const idError = messageIdError(value.id);
+      if (idError) return `asset-stream-chunk ${idError}`;
+      if (!Number.isSafeInteger(value.sequence) || value.sequence < 0) {
+        return 'asset-stream-chunk sequence must be a non-negative safe integer';
+      }
+      const maxBase64 = Math.ceil(ASSET_STREAM_CHUNK_BYTES / 3) * 4 + 4;
+      if (typeof value.base64 !== 'string' || value.base64.length < 4
+        || value.base64.length > maxBase64) {
+        return 'asset-stream-chunk base64 is outside the bounded chunk envelope';
+      }
+      return null;
+    }
+    case 'asset-stream-end': {
+      const idError = messageIdError(value.id);
+      if (idError) return `asset-stream-end ${idError}`;
+      if (!Number.isSafeInteger(value.chunks) || value.chunks < 0) {
+        return 'asset-stream-end chunks must be a non-negative safe integer';
+      }
+      return resultFieldsError(value, 'asset-stream-end', { dispatchReceipt: true });
+    }
     case 'result': {
       const idError = messageIdError(value.id);
       if (idError) return `result ${idError}`;

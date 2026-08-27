@@ -8,9 +8,10 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { WebSocket } from 'ws';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,6 +109,7 @@ function openWs(origin) {
 
 const PLUGIN_VERSION = PLUGIN_BUILD_VERSION;
 const PLUGIN_CAPABILITIES = Object.freeze([
+  'asset-stream-v1',
   'dispatch-receipt-v1',
   'eval-v1',
   'execution-deadline-v1',
@@ -220,6 +222,7 @@ before(async () => {
       // Keep the test daemon's published-port file out of ~/.figma-bridge-mcp —
       // a SIGKILLed test run must never leave a stale real port file behind.
       DAEMON_PORT_FILE: join(tmp, 'port'),
+      DAEMON_ASSET_TRANSFER_DIR: join(tmp, 'asset-transfers'),
       PLUGIN_KEY_FILE: keyFile,
       DAEMON_IDLE_TIMEOUT: '600000',
     },
@@ -1765,6 +1768,202 @@ test('unknown write quarantine survives reconnect until the exact lane settlemen
   } finally {
     try { reconnect.close(); } catch {}
   }
+});
+
+test('malformed Asset Stream order fails integrity and removes its private partial file', async () => {
+  const bytes = Buffer.from('asset');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'ASSET_STREAM_INVALID_FILE' });
+    let command = null;
+    const malformedSent = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('malformed asset stream was not routed')), 3000);
+      ws.on('message', (raw) => {
+        try {
+          const message = JSON.parse(String(raw));
+          if (message.action === 'asset-stream') {
+            command = message;
+            ws.send(JSON.stringify({
+              type: 'asset-stream-start', id: message.id,
+              totalBytes: bytes.length, sha256, details: { kind: 'svg' },
+              dispatchReceipt: message.dispatchReceipt,
+            }));
+            return;
+          }
+          if (message.type === 'asset-stream-ack' && message.sequence === -1 && command) {
+            ws.send(JSON.stringify({
+              type: 'asset-stream-chunk', id: command.id,
+              sequence: 1, base64: bytes.toString('base64'),
+            }));
+            clearTimeout(timer);
+            resolve();
+          }
+        } catch (error) {
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+    });
+    const responsePromise = postExec({
+      action: 'asset-stream', asset: { kind: 'svg', ref: '1:2' },
+      fileKey: 'ASSET_STREAM_INVALID_FILE', expectedEditor: 'figma', timeoutMs: 3000,
+    });
+    await malformedSent;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    const body = await response.json();
+    assertBridgeError(body, {
+      kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch',
+    });
+    ws.send(JSON.stringify({
+      type: 'lane-settled',
+      dispatchReceipt: terminalDispatchReceipt(command.dispatchReceipt, 'failed', 'execution-error'),
+    }));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(readdirSync(join(tmp, 'asset-transfers')), []);
+  });
+});
+
+test('Plugin disconnect during Asset Stream removes its private partial file', async () => {
+  const bytes = Buffer.alloc(256 * 1024, 0x61);
+  const declaredBytes = bytes.length + 1;
+  const sha256 = createHash('sha256').update(Buffer.concat([bytes, Buffer.from('b')])).digest('hex');
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'ASSET_STREAM_DISCONNECT_FILE' });
+    let command = null;
+    const disconnected = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('disconnect asset stream was not routed')), 3000);
+      ws.on('message', (raw) => {
+        try {
+          const message = JSON.parse(String(raw));
+          if (message.action === 'asset-stream') {
+            command = message;
+            ws.send(JSON.stringify({
+              type: 'asset-stream-start', id: message.id,
+              totalBytes: declaredBytes, sha256, details: { kind: 'svg' },
+              dispatchReceipt: message.dispatchReceipt,
+            }));
+            return;
+          }
+          if (message.type === 'asset-stream-ack' && message.sequence === -1 && command) {
+            ws.send(JSON.stringify({
+              type: 'asset-stream-chunk', id: command.id,
+              sequence: 0, base64: bytes.toString('base64'),
+            }));
+            return;
+          }
+          if (message.type === 'asset-stream-ack' && message.sequence === 0) {
+            clearTimeout(timer);
+            ws.close();
+            resolve();
+          }
+        } catch (error) {
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+    });
+    const responsePromise = postExec({
+      action: 'asset-stream', asset: { kind: 'svg', ref: '1:2' },
+      fileKey: 'ASSET_STREAM_DISCONNECT_FILE', expectedEditor: 'figma', timeoutMs: 3000,
+    });
+    await disconnected;
+    const response = await responsePromise;
+    assert.equal(response.status, 500);
+    const body = await response.json();
+    assert.equal(body.bridgeError.kind, 'plugin-unavailable');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(readdirSync(join(tmp, 'asset-transfers')), []);
+  });
+});
+
+test('authenticated Asset Stream carries bytes above the JSON ceiling with backpressure and no residue', async () => {
+  const bytes = Buffer.alloc(6 * 1024 * 1024, 0x5a);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const chunkBytes = 256 * 1024;
+  await withAuthedWs(async (ws) => {
+    await pushSelection(ws, { fileKey: 'ASSET_STREAM_FILE' });
+    let command = null;
+    let nextSequence = 0;
+    const pluginFlow = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('asset stream protocol timed out')), 10_000);
+      ws.on('message', (raw) => {
+        try {
+          const message = JSON.parse(String(raw));
+          if (message.action === 'asset-stream') {
+            command = message;
+            assert.deepEqual(message.asset, { kind: 'svg', ref: '1:2' });
+            assert.deepEqual(message.revisionObservation, { scope: 'page', nodeId: '1:2' });
+            assert.ok(message.timeoutMs > 9_000 && message.timeoutMs <= 10_000,
+              `the Plugin receives the remaining owner budget, got ${message.timeoutMs}ms`);
+            assert.ok(message.deadlineAt > Date.now() && message.deadlineAt <= Date.now() + 10_000);
+            ws.send(JSON.stringify({
+              type: 'asset-stream-start',
+              id: message.id,
+              totalBytes: bytes.length,
+              sha256,
+              details: { kind: 'svg' },
+              dispatchReceipt: message.dispatchReceipt,
+            }));
+            return;
+          }
+          if (message.type !== 'asset-stream-ack' || !command) return;
+          assert.equal(message.sequence, nextSequence - 1);
+          if (nextSequence * chunkBytes < bytes.length) {
+            const chunk = bytes.subarray(
+              nextSequence * chunkBytes,
+              Math.min(bytes.length, (nextSequence + 1) * chunkBytes),
+            );
+            ws.send(JSON.stringify({
+              type: 'asset-stream-chunk',
+              id: command.id,
+              sequence: nextSequence,
+              base64: chunk.toString('base64'),
+            }));
+            nextSequence += 1;
+            return;
+          }
+          ws.send(JSON.stringify({
+            type: 'asset-stream-end',
+            id: command.id,
+            chunks: nextSequence,
+            metadata: {
+              revisionObservation: {
+                scope: 'page', pageId: '0:1', revisionBefore: 4, revisionAfter: 4,
+              },
+            },
+            dispatchReceipt: terminalDispatchReceipt(command.dispatchReceipt, 'completed'),
+          }));
+          clearTimeout(timer);
+          resolve();
+        } catch (error) {
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+    });
+    const client = createDaemonClient({ readToken: () => TOKEN, getPort: () => PORT });
+    const streamed = await client.assetStream(
+      { kind: 'svg', ref: '1:2' },
+      {
+        expectedEditor: 'figma',
+        fileKey: 'ASSET_STREAM_FILE',
+        revisionObservation: { scope: 'page', nodeId: '1:2' },
+        timeoutMs: 10_000,
+      },
+    );
+    await pluginFlow;
+    assert.deepEqual(streamed.bytes, bytes);
+    assert.equal(streamed.totalBytes, bytes.length);
+    assert.equal(streamed.sha256, sha256);
+    assert.deepEqual(streamed.details, { kind: 'svg' });
+    assert.deepEqual(streamed.metadata.revisionObservation, {
+      scope: 'page', pageId: '0:1', revisionBefore: 4, revisionAfter: 4,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(readdirSync(join(tmp, 'asset-transfers')), [],
+      'the one-shot authenticated download must remove its private transfer file');
+  });
 });
 
 test('Daemon Client shutdown drains an in-flight execution before closing the Plugin socket', async () => {

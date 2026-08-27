@@ -184,8 +184,9 @@ test('plugin builds the exact transcripts the daemon verifies', () => {
   assert.ok(plugin.proofEquals(plugin.hmacSha256Hex(KEY, asDaemon), ack));
 });
 
-test('plugin advertises structured rendering only after the authenticated hello', () => {
+test('plugin advertises its execution capabilities only after the authenticated hello', () => {
   assert.deepEqual(plugin.PLUGIN_CAPABILITIES, [
+    'asset-stream-v1',
     'dispatch-receipt-v1',
     'eval-v1',
     'execution-deadline-v1',

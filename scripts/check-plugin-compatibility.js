@@ -12,6 +12,7 @@ export const PLUGIN_COMPATIBILITY_FILES = Object.freeze([
   'plugin/manifest.json',
   'plugin/manifest.dev.json',
   'engine/src/lib/protocol-contract.js',
+  'engine/src/lib/asset-stream-protocol.js',
   'engine/src/lib/dispatch-receipt.js',
   'engine/src/lib/plugin-execution-timing.js',
   'engine/src/lib/typed-read-operations.js',

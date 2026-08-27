@@ -137,6 +137,52 @@ async function processVector(message) {
   };
 }
 
+function createStage(message) {
+  const io = workspaceFrom(message);
+  const outputDir = io.ensureDirectory(message.outputDir, {
+    role: "asset-export-directory",
+  });
+  const requestedStage = join(outputDir, message.stageName);
+  mkdirSync(requestedStage, { mode: 0o700 });
+  const stageDir = realpathSync.native(requestedStage);
+  if (relative(outputDir, stageDir) !== message.stageName) {
+    throw new Error("Asset publication stage changed during creation.");
+  }
+  return { stageName: message.stageName, stagedBytes: 0, bufferedBytes: 0 };
+}
+
+async function stageProcessed(message, processed) {
+  const io = workspaceFrom(message);
+  const outputDir = io.ensureDirectory(message.outputDir, {
+    role: "asset-export-directory",
+  });
+  const stageDir = realpathSync.native(join(outputDir, message.stageName));
+  if (relative(outputDir, stageDir) !== message.stageName) {
+    throw new Error("Asset publication stage changed before byte write.");
+  }
+  const bytes = buffers.get(processed.handle);
+  if (!bytes) throw new Error("Asset Publication Worker lost a processed asset.");
+  try {
+    await checkpoint(message.requestId, "asset-write");
+    io.write(join(stageDir, bufferFile(processed.handle)), bytes, {
+      role: "asset-publication-buffer",
+      exclusive: true,
+    });
+    sampleMemory();
+    return processed;
+  } finally {
+    buffers.delete(processed.handle);
+  }
+}
+
+async function processImageToStage(message) {
+  return stageProcessed(message, await processImage(message));
+}
+
+async function processVectorToStage(message) {
+  return stageProcessed(message, await processVector(message));
+}
+
 async function stage(message) {
   const io = workspaceFrom(message);
   const outputDir = io.ensureDirectory(message.outputDir, {
@@ -268,8 +314,11 @@ async function cleanup(message) {
 }
 
 async function execute(message) {
+  if (message.action === "create-stage") return createStage(message);
   if (message.action === "image") return processImage(message);
+  if (message.action === "image-to-stage") return processImageToStage(message);
   if (message.action === "vector") return processVector(message);
+  if (message.action === "vector-to-stage") return processVectorToStage(message);
   if (message.action === "stage") return stage(message);
   if (message.action === "publish") return publish(message);
   if (message.action === "cleanup") return cleanup(message);

@@ -14,6 +14,7 @@ import {
   checkConnection,
   daemonExec,
   daemonExecWithMetadata,
+  daemonAssetStream,
   fastEval,
   evalPrint,
   unescapeShell,
@@ -298,6 +299,10 @@ async function runAssetExportCommand(request) {
           ...(context.revisionObservation ? {
             revisionObservation: context.revisionObservation,
           } : {}),
+        }, Math.max(1, context.remainingMs ?? remainingMs())),
+        streamAsset: (asset, context = {}) => daemonAssetStream(asset, {
+          fileKey: context.fileKey || fileKey,
+          revisionObservation: context.revisionObservation,
         }, Math.max(1, context.remainingMs ?? remainingMs())),
       });
       return { stdout: formatAssetExportResult(domainResult), stderr: '', code: 0 };

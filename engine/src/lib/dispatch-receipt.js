@@ -8,6 +8,7 @@ export const DISPATCH_RECEIPT_CAPABILITY = 'dispatch-receipt-v1';
 export const PLUGIN_WRITE_LANE_CAPABILITY = 'write-lane-v1';
 export const PLUGIN_READ_LANE_CAPABILITY = 'read-lane-v1';
 export const DISPATCH_OPERATION_CAPABILITIES = Object.freeze({
+  'asset-stream': 'asset-stream-v1',
   eval: 'eval-v1',
   'typed-read': 'typed-read-v1',
   'render-plan': 'render-plan-v1',
@@ -15,6 +16,7 @@ export const DISPATCH_OPERATION_CAPABILITIES = Object.freeze({
   'reload-ui': 'reload-ui-v1',
 });
 export const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
+  'asset-stream-v1',
   DISPATCH_RECEIPT_CAPABILITY,
   'eval-v1',
   'execution-deadline-v1',

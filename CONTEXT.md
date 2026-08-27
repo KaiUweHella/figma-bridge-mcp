@@ -681,6 +681,19 @@ the stage; after the replace, cleanup delay cannot turn committed work into a
 failure. Aggregate buffers, staged bytes and peak Worker memory remain measured.
 _Avoid_: main-thread hash, large write under output lock, in-place manifest truncation, post-commit timeout failure, unmeasured temporary bytes
 
+**Authenticated Asset Stream**:
+The closed binary read path used by **Asset Export** for one Figma image or SVG.
+The Plugin obtains one Figma-owned `Uint8Array`, hashes it cooperatively and
+sends ordered bounded chunks only after Daemon acknowledgement. The Daemon
+verifies declared size, sequence and digest into one mode-restricted transfer,
+then permits exactly one signed raw download; the Daemon Client verifies length
+and digest again before the **Cooperative Asset Publication** Worker immediately
+stages the asset. Memory is bounded by the largest current asset rather than the
+sum of an export. Chunks never enter the generic JSON result or Audit Trail, and
+an older Plugin may use Base64 only after explicit pre-dispatch capability
+rejection.
+_Avoid_: larger generic body limit, aggregate export buffers, unauthenticated download, chunk audit, silent compatibility fallback, constant-memory Figma API claim
+
 **Node Text Mutation**:
 The closed **Command Application** that replaces one TEXT node's characters only after every unique authored font has completed preflight. Its request preserves literal and empty text, its result is bounded at the Plugin Seam, and a dispatched failure is never retried or reported as a successful process outcome.
 _Avoid_: set-text handler, generated eval action

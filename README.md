@@ -712,7 +712,7 @@ when its rendered design and states actually match.
    CLI and MCP now execute this through one **Asset Export Command
    Application**. Equivalent default flag spellings attach to the same tracked
    job; polling never starts a duplicate. Every multi-step read is pinned to
-   one daemon-confirmed Figma connection, file and document revision. A change
+   one daemon-confirmed Figma connection, file and target-Page revision. A change
    aborts before publication. Document-wide revision observation initializes
    only for freshness-sensitive reads; ordinary eval/render paths keep Figma's
    dynamic page loading. A process-safe output lock serializes CLI/MCP
@@ -720,9 +720,14 @@ when its rendered design and states actually match.
    successful files, preserves last-known-good failed placements and reports
    every failed asset. If all selected assets fail, the command returns an
    error and leaves an existing `assets.json` unchanged instead of replacing
-   it with an empty manifest. Aggregate
-   in-process asset Buffers are capped at 512 MiB to protect the long-lived MCP
-   process; if that explicit guard is reached, export smaller child frames.
+   it with an empty manifest. Asset bytes use an authenticated, digest-checked
+   stream outside the generic JSON result: each 256 KiB chunk is acknowledged
+   before the next, the Daemon download is signed and one-shot, and the
+   publication Worker stages each asset before requesting another. A single
+   PNG/SVG may therefore exceed the former Base64 ceiling without raising the
+   5 MiB result limit or retaining all export bytes in memory. Figma still
+   supplies one complete byte array per individual asset; the bound is the
+   largest current asset (maximum 512 MiB), not the total export.
    Pass `force:true` to `figma_run` when an intentional fresh export should
    bypass the short retry-result cache; a running job is still never duplicated.
 5. **One `figma_spec` `nodeIds[]` batch for any missing deeper styles** — put

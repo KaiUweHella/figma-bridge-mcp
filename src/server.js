@@ -13,7 +13,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
+import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, streamFigmaAsset, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
 import { formatPublicError } from "./error-projection.js";
 import {
   explainFigmaCommandRejection,
@@ -1529,6 +1529,12 @@ async function runAssetExport(plan, label, { force = false } = {}) {
         remainingMs,
         yieldControl: () => new Promise((resolveYield) => setImmediate(resolveYield)),
         evaluate: (code, context = {}) => evaluateFigmaWithMetadata(code, {
+          fileKey: context.fileKey || fileKey,
+          expectedEditor,
+          timeoutMs: Math.max(1, context.remainingMs ?? remainingMs()),
+          revisionObservation: context.revisionObservation,
+        }),
+        streamAsset: (asset, context = {}) => streamFigmaAsset(asset, {
           fileKey: context.fileKey || fileKey,
           expectedEditor,
           timeoutMs: Math.max(1, context.remainingMs ?? remainingMs()),

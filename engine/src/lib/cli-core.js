@@ -197,6 +197,15 @@ async function daemonExecWithMetadata(action, data = {}, timeoutMs = 90000) {
   });
 }
 
+async function daemonAssetStream(asset, data = {}, timeoutMs = 90000) {
+  return daemonClient().assetStream(asset, {
+    timeoutMs,
+    fileKey: data.fileKey,
+    revisionObservation: data.revisionObservation,
+    expectedEditor: expectedEditorForCommand(),
+  });
+}
+
 async function daemonTypedRead(operation, request, fallbackCode, data = {}, timeoutMs = 90000) {
   return daemonClient().typedReadWithFallback(operation, request, fallbackCode, {
     timeoutMs,
@@ -578,6 +587,7 @@ export {
   componentContextExpr,
   daemonExec,
   daemonExecWithMetadata,
+  daemonAssetStream,
   daemonTypedRead,
   daemonHealth,
   daemonReconnect,

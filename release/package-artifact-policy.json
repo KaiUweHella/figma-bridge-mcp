@@ -212,6 +212,8 @@
     "engine/src/lib/asset-policy.js",
     "engine/src/lib/asset-publication-worker-runtime.js",
     "engine/src/lib/asset-publication-worker.js",
+    "engine/src/lib/asset-stream-protocol.js",
+    "engine/src/lib/asset-transfer-store.js",
     "engine/src/lib/bridge-execution-timing.js",
     "engine/src/lib/bounded-remote-http.js",
     "engine/src/lib/browser-capture-assets.js",

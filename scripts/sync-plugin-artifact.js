@@ -32,6 +32,13 @@ const TYPED_READ_CANONICAL_PATH = join(
   "lib",
   "typed-read-operations.js"
 );
+const ASSET_STREAM_CANONICAL_PATH = join(
+  ROOT,
+  "engine",
+  "src",
+  "lib",
+  "asset-stream-protocol.js"
+);
 const ARTIFACT_PATH = join(ROOT, "plugin", "code.js");
 const BEGIN = "// BEGIN STRUCTURED RENDER RUNTIME";
 const END = "// END STRUCTURED RENDER RUNTIME";
@@ -41,6 +48,8 @@ const TIMING_BEGIN = "// BEGIN PLUGIN EXECUTION TIMING RUNTIME";
 const TIMING_END = "// END PLUGIN EXECUTION TIMING RUNTIME";
 const TYPED_READ_BEGIN = "// BEGIN TYPED READ RUNTIME";
 const TYPED_READ_END = "// END TYPED READ RUNTIME";
+const ASSET_STREAM_BEGIN = "// BEGIN ASSET STREAM RUNTIME";
+const ASSET_STREAM_END = "// END ASSET STREAM RUNTIME";
 
 function normalizeLf(source) {
   return String(source).replace(/\r\n?/g, "\n");
@@ -56,7 +65,9 @@ function markedRuntime(source, label, begin = BEGIN, end = END) {
       ? "Dispatch Receipt runtime"
       : begin === TIMING_BEGIN
         ? "Plugin Execution Timing runtime"
-        : "Typed Read runtime";
+        : begin === TYPED_READ_BEGIN
+          ? "Typed Read runtime"
+          : "Asset Stream runtime";
   if (beginCount !== 1 || endCount !== 1) {
     throw new Error(
       `${label} must contain exactly one ${markerName} marker pair`
@@ -115,16 +126,26 @@ export function renderPluginTypedReadArtifact(canonicalSource, pluginSource) {
   });
 }
 
+export function renderPluginAssetStreamArtifact(canonicalSource, pluginSource) {
+  return replaceMarkedRuntime(canonicalSource, pluginSource, {
+    begin: ASSET_STREAM_BEGIN,
+    end: ASSET_STREAM_END,
+    canonicalLabel: "canonical Asset Stream runtime",
+  });
+}
+
 export function syncPluginArtifact({ check = false } = {}) {
   const canonical = readFileSync(CANONICAL_PATH, "utf8");
   const dispatchCanonical = readFileSync(DISPATCH_CANONICAL_PATH, "utf8");
   const timingCanonical = readFileSync(TIMING_CANONICAL_PATH, "utf8");
   const typedReadCanonical = readFileSync(TYPED_READ_CANONICAL_PATH, "utf8");
+  const assetStreamCanonical = readFileSync(ASSET_STREAM_CANONICAL_PATH, "utf8");
   const current = readFileSync(ARTIFACT_PATH, "utf8");
   const structured = renderPluginArtifact(canonical, current);
   const dispatched = renderPluginDispatchArtifact(dispatchCanonical, structured);
   const timed = renderPluginTimingArtifact(timingCanonical, dispatched);
-  const expected = renderPluginTypedReadArtifact(typedReadCanonical, timed);
+  const typed = renderPluginTypedReadArtifact(typedReadCanonical, timed);
+  const expected = renderPluginAssetStreamArtifact(assetStreamCanonical, typed);
   const normalizedCurrent = normalizeLf(current);
   if (normalizedCurrent === expected)
     return { changed: false, path: ARTIFACT_PATH };

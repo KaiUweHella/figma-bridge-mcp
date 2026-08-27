@@ -19,6 +19,7 @@ import {
   assetExportRequestFromArgv,
   executeAssetExport,
   executeAssetExportPlan,
+  assetExportResultRows,
   formatAssetExportResult,
 } from "../src/application/asset-export-command.js";
 import {
@@ -337,6 +338,147 @@ test("Asset Export publishes files before assets.json and preserves its shared r
   const output = formatAssetExportResult(result);
   assert.match(output, /2 file\(s\).*3 node reference/);
   assert.match(output, /verify-build <projectDir>/);
+});
+
+test("Asset Export prefers typed binary streams and never asks eval for asset bytes", async (t) => {
+  const { root, io } = workspace(t, "asset-export-stream-");
+  const found = collector({ images: false });
+  const evaluated = [];
+  const streamed = [];
+  const result = await executeAssetExport(
+    {
+      nodeId: "1:1",
+      outputDir: join(root, "assets"),
+      max: 100,
+      rasterScale: 2,
+    },
+    {
+      workspaceIO: io,
+      evaluate: async (code) => {
+        evaluated.push(code);
+        if (code.includes("format: 'SVG'")) {
+          throw new Error("legacy SVG eval must not run");
+        }
+        return JSON.stringify(found);
+      },
+      streamAsset: async (asset) => {
+        streamed.push(asset);
+        return { bytes: svgBytes, details: { kind: "svg" } };
+      },
+    }
+  );
+  assert.deepEqual(streamed, [{ kind: "svg", ref: "1:4" }]);
+  assert.equal(evaluated.length, 1, "only the bounded collector remains an eval");
+  assert.deepEqual(result.files, ["brand-mark.svg"]);
+});
+
+test("Asset Export falls back only when an older Plugin rejects streaming before dispatch", async (t) => {
+  const { root, io } = workspace(t, "asset-export-stream-fallback-");
+  const found = collector({ images: false });
+  let streamCalls = 0;
+  let legacyByteReads = 0;
+  const result = await executeAssetExport(
+    {
+      nodeId: "1:1",
+      outputDir: join(root, "assets"),
+      max: 100,
+      rasterScale: 2,
+    },
+    {
+      workspaceIO: io,
+      evaluate: async (code) => {
+        if (code.includes("format: 'SVG'")) {
+          legacyByteReads += 1;
+          return JSON.stringify({ base64: svgBytes.toString("base64") });
+        }
+        return JSON.stringify(found);
+      },
+      streamAsset: async () => {
+        streamCalls += 1;
+        throw Object.assign(new Error("capability missing"), {
+          kind: "plugin-capability",
+          outcome: "not-dispatched",
+        });
+      },
+    }
+  );
+  assert.equal(streamCalls, 1);
+  assert.equal(legacyByteReads, 1);
+  assert.deepEqual(result.files, ["brand-mark.svg"]);
+});
+
+test("immediate staging permits one streamed asset above the old JSON ceiling without aggregate buffering", async (t) => {
+  const { root, io } = workspace(t, "asset-export-large-stream-");
+  const found = collector({ images: false });
+  const largeSvg = Buffer.concat([
+    Buffer.from('<svg width="32" height="24"><!--'),
+    Buffer.alloc(6 * 1024 * 1024, 0x20),
+    Buffer.from('--><path d="M0 0h32v24z"/></svg>'),
+  ]);
+  const largeSvgLength = largeSvg.length;
+  const result = await executeAssetExport(
+    {
+      nodeId: "1:1",
+      outputDir: join(root, "assets"),
+      max: 100,
+      rasterScale: 2,
+    },
+    {
+      workspaceIO: io,
+      evaluate: async () => JSON.stringify(found),
+      streamAsset: async () => ({ bytes: largeSvg, details: { kind: "svg" } }),
+      maxBufferedBytes: 1,
+    }
+  );
+  assert.deepEqual(result.files, ["brand-mark.svg"]);
+  assert.equal(result.publication.bufferedBytes, largeSvgLength);
+  assert.equal(readFileSync(join(root, "assets", "brand-mark.svg")).length, largeSvgLength);
+});
+
+test("stream domain failures stay partial while transport failures abort and remove their stage", async (t) => {
+  const partialWorkspace = workspace(t, "asset-export-stream-domain-");
+  const partialOutput = join(partialWorkspace.root, "assets");
+  const partial = await executeAssetExport(
+    { nodeId: "1:1", outputDir: partialOutput, max: 100, rasterScale: 2 },
+    {
+      workspaceIO: partialWorkspace.io,
+      evaluate: async () => JSON.stringify(collector()),
+      streamAsset: async (asset) => {
+        if (asset.kind === "image") return { bytes: imageBytes, details: { kind: "image" } };
+        throw new Error("vector export denied");
+      },
+    }
+  );
+  assert.deepEqual(partial.files, ["image-hash1.jpg"]);
+  assert.deepEqual(partial.failures, [
+    { name: "Brand Mark", message: "vector export denied" },
+  ]);
+
+  const transportWorkspace = workspace(t, "asset-export-stream-transport-");
+  const transportOutput = join(transportWorkspace.root, "assets");
+  await assert.rejects(
+    executeAssetExport(
+      { nodeId: "1:1", outputDir: transportOutput, max: 100, rasterScale: 2 },
+      {
+        workspaceIO: transportWorkspace.io,
+        evaluate: async () => JSON.stringify(collector({ images: false })),
+        streamAsset: async () => {
+          throw Object.assign(new Error("stream integrity failed"), {
+            kind: "asset-transfer",
+            outcome: "not-dispatched",
+          });
+        },
+      }
+    ),
+    (error) => error.kind === "asset-transfer"
+  );
+  assert.equal(
+    readdirSync(transportOutput).some((name) =>
+      name.startsWith(".figma-bridge-assets-stage-")
+    ),
+    false,
+    "a failed stream must not leave its private publication stage behind"
+  );
 });
 
 test("concurrent exports of different roots into one output merge without losing either root", async (t) => {
@@ -1101,4 +1243,42 @@ test("Asset Export Command Application has no console, termination or global arg
       relative
     );
   }
+});
+
+test("oversized raster guidance distinguishes downsampleable PNG from retained JPEG", () => {
+  const base = {
+    status: "complete",
+    files: ["photo.jpg"],
+    outputDir: "/workspace/assets",
+    placements: [],
+    manifestPath: "/workspace/assets/assets.json",
+    flagged: [],
+    optimizedRasters: [],
+    dropped: [],
+    failures: [],
+    kept: 0,
+    rasterScale: 0,
+  };
+  const jpeg = assetExportResultRows({
+    ...base,
+    oversizedRasters: [{
+      file: "photo.jpg", extension: "jpg", bytes: 2 * 1024 * 1024,
+      nodes: [{ w: 40, h: 40 }],
+    }],
+  }).map((row) => row.text).join("\n");
+  assert.match(jpeg, /photo\.jpg \(JPG\)/);
+  assert.match(jpeg, /retained byte-for-byte/);
+  assert.doesNotMatch(jpeg, /--raster-scale 2/);
+
+  const png = assetExportResultRows({
+    ...base,
+    files: ["photo.png"],
+    oversizedRasters: [{
+      file: "photo.png", extension: "png", bytes: 2 * 1024 * 1024,
+      nodes: [{ w: 40, h: 40 }],
+    }],
+  }).map((row) => row.text).join("\n");
+  assert.match(png, /photo\.png \(PNG\)/);
+  assert.match(png, /--raster-scale 2/);
+  assert.doesNotMatch(png, /retained byte-for-byte/);
 });

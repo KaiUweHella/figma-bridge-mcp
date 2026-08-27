@@ -311,8 +311,9 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.27';
+    const PLUGIN_VERSION = '3.3.28';
     const PLUGIN_CAPABILITIES = Object.freeze([
+      'asset-stream-v1',
       'dispatch-receipt-v1',
       'eval-v1',
       'execution-deadline-v1',
@@ -699,8 +700,13 @@
       } catch (e) {}
       const reply = msg.action === 'eval-batch'
         ? { type: 'batch-result', id: msg.id, results: (msg.codes || []).map(() => ({ success: false, error })) }
-        : { type: 'result', id: msg.id, error, dispatchReceipt };
+        : msg.action === 'asset-stream'
+          ? { type: 'asset-stream-end', id: msg.id, chunks: 0, error, dispatchReceipt }
+          : { type: 'result', id: msg.id, error, dispatchReceipt };
       try { ws.send(JSON.stringify(reply)); } catch (e) {}
+      if (msg.action === 'asset-stream') {
+        try { ws.send(JSON.stringify({ type: 'lane-settled', dispatchReceipt })); } catch (e) {}
+      }
       addLog({ id: msg.id, t0: Date.now(), label: 'rejected (paused)', kind: 'meta', status: 'err', ms: 0 });
       errCount++; renderStats();
     }
@@ -1221,6 +1227,25 @@
         return;
       }
 
+      if (msg.type === 'asset-stream-ack') {
+        parent.postMessage({ pluginMessage: {
+          type: 'asset-stream-ack', id: msg.id, sequence: msg.sequence,
+        } }, '*');
+        return;
+      }
+
+      if (msg.action === 'asset-stream') {
+        if (paused) { rejectPaused(msg); return; }
+        addLog({ id: msg.id, t0: Date.now(), label: 'asset stream · ' + (msg.asset?.kind || 'unknown'), kind: 'read' });
+        parent.postMessage({ pluginMessage: {
+          type: 'asset-stream', id: msg.id, asset: msg.asset,
+          timeoutMs: msg.timeoutMs,
+          deadlineAt: msg.deadlineAt,
+          requireDocumentRevision: msg.requireDocumentRevision === true,
+          revisionObservation: msg.revisionObservation || null,
+          dispatchReceipt: msg.dispatchReceipt,
+        } }, '*');
+      }
       if (msg.action === 'eval') {
         if (paused) { rejectPaused(msg); return; }
         addLog({ id: msg.id, t0: Date.now(), label: evalLabel(msg.code || ''), kind: WRITE_RE.test(msg.code || '') ? 'write' : 'read' });
@@ -1375,6 +1400,17 @@
         finishLog(msg.id, msg.error);
         if (ws && ws.readyState === WebSocket.OPEN && authed) {
           ws.send(JSON.stringify({ type: 'result', id: msg.id, result: msg.result, error: msg.error, metadata: msg.metadata, dispatchReceipt: msg.dispatchReceipt }));
+        }
+      }
+      if (msg.type === 'asset-stream-start' || msg.type === 'asset-stream-chunk') {
+        if (ws && ws.readyState === WebSocket.OPEN && authed) {
+          ws.send(JSON.stringify(msg));
+        }
+      }
+      if (msg.type === 'asset-stream-end') {
+        finishLog(msg.id, msg.error);
+        if (ws && ws.readyState === WebSocket.OPEN && authed) {
+          ws.send(JSON.stringify(msg));
         }
       }
       if (msg.type === 'lane-settled') {

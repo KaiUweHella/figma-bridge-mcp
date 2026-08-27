@@ -70,9 +70,15 @@ import {
   createPluginWriteLanes,
 } from './lib/plugin-write-lane.js';
 import { PluginReadLaneError, createPluginReadLane } from './lib/plugin-read-lane.js';
+import { createAssetTransferStore } from './lib/asset-transfer-store.js';
 
 const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
 const PLUGIN_HEALTH_PROBE_TIMEOUT_MS = 1500;
+const assetTransferStore = createAssetTransferStore(
+  process.env.DAEMON_ASSET_TRANSFER_DIR
+    ? { root: process.env.DAEMON_ASSET_TRANSFER_DIR }
+    : {}
+);
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).
@@ -416,7 +422,7 @@ async function requestViaSocket(
       { kind: 'plugin-capability', phase: 'plugin-dispatch', outcome: 'not-dispatched' },
     );
   }
-  const laneCapability = action === 'typed-read'
+  const laneCapability = ['asset-stream', 'typed-read'].includes(action)
     ? PLUGIN_READ_LANE_CAPABILITY : PLUGIN_WRITE_LANE_CAPABILITY;
   if (!conn?.capabilities?.includes(laneCapability)) {
     throw new BridgeDaemonError(
@@ -449,6 +455,7 @@ async function requestViaSocket(
       action,
     });
     const timeout = setTimeout(() => {
+      try { pluginPendingRequests.get(id)?.assetWriter?.abort(); } catch {}
       pluginPendingRequests.delete(id);
       reject(new BridgeDaemonError(`Plugin execution timeout (${timeoutMs / 1000}s)`, {
         kind: 'plugin-timeout',
@@ -462,6 +469,8 @@ async function requestViaSocket(
       reject,
       timeout,
       ws,
+      action,
+      assetWriter: null,
       dispatchReceipt,
       metadata: {
         connectionId: conn.connectionId,
@@ -682,6 +691,49 @@ async function handleRequest(req, res) {
   // selects WHICH connected window to read, and every connected window is
   // equally authorised. Anything that grants access stays in the signed part.
   const path = requestPath;
+
+  const assetTransferMatch = /^\/asset-transfer\/([0-9a-f-]{36})$/.exec(path);
+  if (assetTransferMatch) {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+    let transfer;
+    try {
+      transfer = assetTransferStore.consume(assetTransferMatch[1]);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Asset transfer is missing or expired' }));
+      return;
+    }
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      try { transfer.release(); } catch (error) {
+        console.error('[daemon] Asset transfer cleanup failed:', error.message);
+      }
+    };
+    // On Windows an open file cannot be unlinked. Release only after the
+    // ReadStream has closed its descriptor; an aborted response first destroys
+    // that stream and reaches the same one-shot cleanup path.
+    res.on('close', () => {
+      if (!transfer.stream.destroyed) transfer.stream.destroy();
+    });
+    transfer.stream.on('close', release);
+    transfer.stream.on('error', (error) => {
+      if (!res.destroyed) res.destroy(error);
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(transfer.totalBytes),
+      'X-Figma-Bridge-Sha256': transfer.sha256,
+      'Cache-Control': 'no-store',
+    });
+    transfer.stream.pipe(res);
+    return;
+  }
 
   // Health check
   if (path === '/health') {
@@ -914,7 +966,7 @@ function handleExec(req, res) {
     inFlightExecs++;
     try {
       const {
-        action, code, plan, plans, options, timeoutMs, deadlineAt, fileKey, expectedEditor,
+        action, asset, code, plan, plans, options, timeoutMs, deadlineAt, fileKey, expectedEditor,
         requireDocumentRevision, revisionObservation,
       } = payload;
       let result;
@@ -945,7 +997,8 @@ function handleExec(req, res) {
       let laneStartedAt = laneQueuedAt;
       let pluginStartedAt = laneQueuedAt;
       let pluginFinishedAt = laneQueuedAt;
-      const dispatchLane = action === 'typed-read' ? pluginReadLane : pluginWriteLanes;
+      const dispatchLane = ['asset-stream', 'typed-read'].includes(action)
+        ? pluginReadLane : pluginWriteLanes;
       const execution = await dispatchLane.run({
         sessionKey,
         deadlineAt: ownerDeadline,
@@ -955,7 +1008,14 @@ function handleExec(req, res) {
           const ms = executionBudget();
           const common = { timeoutMs: ms, deadlineAt: ownerDeadline };
           let data;
-          if (action === 'eval') {
+          if (action === 'asset-stream') {
+            data = {
+              asset,
+              ...(requireDocumentRevision === true ? { requireDocumentRevision: true } : {}),
+              ...(revisionObservation ? { revisionObservation } : {}),
+              ...common,
+            };
+          } else if (action === 'eval') {
             data = {
               code,
               ...(requireDocumentRevision === true ? { requireDocumentRevision: true } : {}),
@@ -987,7 +1047,7 @@ function handleExec(req, res) {
       result = execution.result;
       metadata = {
         ...execution.metadata,
-        bridgeExecutionTiming: (action === 'typed-read'
+        bridgeExecutionTiming: (['asset-stream', 'typed-read'].includes(action)
           ? createBridgeTypedReadTiming : createBridgeExecutionTiming)({
           requestStartedAt,
           laneQueuedAt,
@@ -1134,6 +1194,7 @@ function handlePluginSocket(ws) {
         if (pending && pending.ws === ws) {
           clearTimeout(pending.timeout);
           pluginPendingRequests.delete(msg.id);
+          try { pending.assetWriter?.abort(); } catch {}
           pending.reject(new BridgeDaemonError(`Plugin protocol error: ${messageError}`, {
             kind: 'plugin-protocol',
             phase: 'plugin-response',
@@ -1215,6 +1276,91 @@ function handlePluginSocket(ws) {
     }
 
     // --- Authenticated message handling ---
+    if (msg.type === 'asset-stream-start') {
+      const pending = pluginPendingRequests.get(msg.id);
+      if (pending && pending.ws === ws && pending.action === 'asset-stream') {
+        try {
+          if (pending.assetWriter) throw new Error('asset stream started more than once');
+          if (msg.dispatchReceipt.requestId !== pending.dispatchReceipt.requestId
+              || msg.dispatchReceipt.state !== 'prepared') {
+            throw new Error('asset stream start receipt did not match the request');
+          }
+          pending.assetWriter = assetTransferStore.begin({
+            totalBytes: msg.totalBytes,
+            sha256: msg.sha256,
+            details: msg.details,
+          });
+          ws.send(JSON.stringify({ type: 'asset-stream-ack', id: msg.id, sequence: -1 }));
+        } catch (error) {
+          clearTimeout(pending.timeout);
+          pluginPendingRequests.delete(msg.id);
+          try { pending.assetWriter?.abort(); } catch {}
+          pending.reject(new BridgeDaemonError(`Plugin asset stream start failed: ${error.message}`, {
+            kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch',
+          }));
+        }
+      }
+    }
+
+    if (msg.type === 'asset-stream-chunk') {
+      const pending = pluginPendingRequests.get(msg.id);
+      if (pending && pending.ws === ws && pending.action === 'asset-stream') {
+        try {
+          if (!pending.assetWriter) throw new Error('asset stream chunk arrived before start');
+          pending.assetWriter.write(msg.sequence, msg.base64);
+          ws.send(JSON.stringify({ type: 'asset-stream-ack', id: msg.id, sequence: msg.sequence }));
+        } catch (error) {
+          clearTimeout(pending.timeout);
+          pluginPendingRequests.delete(msg.id);
+          try { pending.assetWriter?.abort(); } catch {}
+          pending.reject(new BridgeDaemonError(`Plugin asset stream chunk failed: ${error.message}`, {
+            kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch',
+          }));
+        }
+      }
+    }
+
+    if (msg.type === 'asset-stream-end') {
+      const pending = pluginPendingRequests.get(msg.id);
+      if (pending && pending.ws === ws && pending.action === 'asset-stream') {
+        const conn = conns.get(ws);
+        if (conn) {
+          conn.lastResponseAt = new Date().toISOString();
+          conn.responsiveness = 'responsive';
+        }
+        clearTimeout(pending.timeout);
+        pluginPendingRequests.delete(msg.id);
+        if (!dispatchReceiptIdentityMatches(pending.dispatchReceipt, msg.dispatchReceipt)) {
+          try { pending.assetWriter?.abort(); } catch {}
+          pending.reject(new BridgeDaemonError('Plugin Asset Stream Dispatch Receipt did not match the selected request', {
+            kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch',
+          }));
+        } else if (msg.dispatchReceipt.state !== 'completed') {
+          try { pending.assetWriter?.abort(); } catch {}
+          pending.reject(new BridgeDaemonError(msg.error, {
+            kind: msg.dispatchReceipt.state === 'not-dispatched' ? 'plugin-capability' : 'execution',
+            phase: msg.dispatchReceipt.state === 'not-dispatched' ? 'plugin-dispatch' : 'plugin-execution',
+            outcome: msg.dispatchReceipt.state === 'not-dispatched' ? 'not-dispatched' : 'unknown-after-dispatch',
+            dispatchState: msg.dispatchReceipt.state,
+          }));
+        } else if (!pending.assetWriter) {
+          pending.reject(new BridgeDaemonError('Plugin asset stream completed without a start frame', {
+            kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch',
+          }));
+        } else {
+          try {
+            const transfer = pending.assetWriter.finish({ chunks: msg.chunks });
+            pending.resolve({ result: { schemaVersion: 1, transfer }, metadata: resultMetadata(pending, msg.metadata) });
+          } catch (error) {
+            try { pending.assetWriter.abort(); } catch {}
+            pending.reject(new BridgeDaemonError(`Plugin asset stream integrity failed: ${error.message}`, {
+              kind: 'plugin-protocol', phase: 'plugin-response', outcome: 'unknown-after-dispatch',
+            }));
+          }
+        }
+      }
+    }
+
     if (msg.type === 'result') {
       const pending = pluginPendingRequests.get(msg.id);
       if (pending && pending.ws === ws) {
@@ -1372,6 +1518,7 @@ function handlePluginSocket(ws) {
             for (const [id, pending] of pluginPendingRequests) {
               if (pending.ws !== other) continue;
               clearTimeout(pending.timeout);
+              try { pending.assetWriter?.abort(); } catch {}
               pending.reject(new BridgeDaemonError(
                 'Plugin connection superseded by another Figma window',
                 {
@@ -1403,6 +1550,7 @@ function handlePluginSocket(ws) {
       for (const [id, pending] of pluginPendingRequests) {
         if (pending.ws !== ws) continue;
         clearTimeout(pending.timeout);
+        try { pending.assetWriter?.abort(); } catch {}
         pending.reject(new BridgeDaemonError('Plugin disconnected', {
           kind: 'plugin-unavailable',
           phase: 'plugin-execution',
@@ -1581,6 +1729,7 @@ function shutdown() {
       console.log(`[daemon] Forcing exit with ${inFlightExecs} eval(s) still in flight`);
     }
     for (const [ws] of conns) { try { ws.close(); } catch {} }
+    assetTransferStore.abortAll();
     // Only clear the port file if it still names our port — a dying old daemon
     // must not delete a newer daemon's published port.
     if (boundPort !== null) clearPortFile(process.env, boundPort);

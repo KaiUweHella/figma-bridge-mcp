@@ -273,6 +273,30 @@ export class AssetPublicationWorker {
     );
   }
 
+  /** @param {Buffer|Uint8Array} bytes @param {{outputDir:string,stageName:string,usages?:Array,rasterScale?:number}} options */
+  processImageToStage(
+    bytes,
+    { outputDir, stageName, usages = [], rasterScale = 0 }
+  ) {
+    const transferable = transferBuffer(bytes);
+    const handle = randomUUID();
+    const canonicalOut = this.io.ensureDirectory(outputDir, {
+      role: "asset-export-directory",
+    });
+    return this.#request(
+      "image-to-stage",
+      {
+        handle,
+        bytes: transferable,
+        outputDir: canonicalOut,
+        stageName,
+        usages,
+        rasterScale,
+      },
+      [transferable]
+    );
+  }
+
   processVector(bytes, kind) {
     const transferable = transferBuffer(bytes);
     const handle = randomUUID();
@@ -285,6 +309,37 @@ export class AssetPublicationWorker {
       },
       [transferable]
     );
+  }
+
+  /** @param {Buffer|Uint8Array} bytes @param {string} kind @param {{outputDir:string,stageName:string}} options */
+  processVectorToStage(bytes, kind, { outputDir, stageName }) {
+    const transferable = transferBuffer(bytes);
+    const handle = randomUUID();
+    const canonicalOut = this.io.ensureDirectory(outputDir, {
+      role: "asset-export-directory",
+    });
+    return this.#request(
+      "vector-to-stage",
+      {
+        handle,
+        bytes: transferable,
+        kind,
+        outputDir: canonicalOut,
+        stageName,
+      },
+      [transferable]
+    );
+  }
+
+  createStage(outputDir) {
+    const stageName = `${ASSET_PUBLICATION_STAGE_PREFIX}${randomUUID()}`;
+    const canonicalOut = this.io.ensureDirectory(outputDir, {
+      role: "asset-export-directory",
+    });
+    return this.#request("create-stage", {
+      outputDir: canonicalOut,
+      stageName,
+    });
   }
 
   stage({ outputDir, candidates }) {

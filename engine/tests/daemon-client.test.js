@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDaemonClient, DaemonClientError } from '../src/lib/daemon-client.js';
+import { createHash } from 'node:crypto';
 
 const FIGMA = Object.freeze({ expectedEditor: 'figma' });
 
@@ -68,6 +69,79 @@ test('metadata-aware eval preserves daemon-owned scoped freshness facts', async 
     'the compatibility flag keeps older plugins on their bounded document proof');
   assert.equal(Object.hasOwn(bodies[2], 'requireDocumentRevision'), false,
     'ordinary eval retains Figma dynamic-page loading');
+});
+
+test('daemon client downloads one authenticated binary Asset Stream outside the JSON result limit', async () => {
+  const bytes = Buffer.alloc(6 * 1024 * 1024, 0x5a);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const calls = [];
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith('/exec')) {
+        return response(200, {
+          result: {
+            schemaVersion: 1,
+            transfer: {
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              totalBytes: bytes.length,
+              sha256,
+              details: { kind: 'svg' },
+            },
+          },
+          metadata: { connectionId: 'CONN_A', fileKey: 'FILE_A' },
+        });
+      }
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          'content-length': String(bytes.length),
+          'x-figma-bridge-sha256': sha256,
+          'content-type': 'application/octet-stream',
+        },
+      });
+    },
+  });
+  const result = await client.assetStream({ kind: 'svg', ref: '1:2' }, {
+    ...FIGMA,
+    fileKey: 'FILE_A',
+    revisionObservation: { scope: 'page', nodeId: '1:2' },
+  });
+  assert.deepEqual(result.bytes, bytes);
+  assert.equal(result.sha256, sha256);
+  assert.deepEqual(result.details, { kind: 'svg' });
+  assert.equal(calls.length, 2);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.asset, { kind: 'svg', ref: '1:2' });
+  assert.equal(body.action, 'asset-stream');
+  assert.equal(body.requireDocumentRevision, true);
+  assert.deepEqual(body.revisionObservation, { scope: 'page', nodeId: '1:2' });
+  assert.ok(Buffer.byteLength(calls[0].options.body) < 1024);
+  assert.match(calls[1].url, /\/asset-transfer\/aaaaaaaa-/);
+  assert.ok(calls[1].options.headers['X-Daemon-Auth']);
+});
+
+test('daemon client rejects a truncated or digest-mismatched Asset Stream', async () => {
+  const bytes = Buffer.from('actual bytes');
+  const expected = Buffer.from('expected bytes');
+  const sha256 = createHash('sha256').update(expected).digest('hex');
+  const client = createDaemonClient({
+    readToken: () => 'token', getPort: () => 3456,
+    fetchImpl: async (url) => url.endsWith('/exec')
+      ? response(200, { result: { schemaVersion: 1, transfer: {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        totalBytes: bytes.length, sha256, details: { kind: 'svg' },
+      } } })
+      : new Response(bytes, { status: 200, headers: {
+        'content-length': String(bytes.length),
+        'x-figma-bridge-sha256': sha256,
+      } }),
+  });
+  await assert.rejects(
+    () => client.assetStream({ kind: 'svg', ref: '1:2' }, FIGMA),
+    (error) => error.kind === 'asset-transfer' && /digest verification/.test(error.message),
+  );
 });
 
 test('daemon client sends Semantic Render Plans as structured authenticated payloads', async () => {

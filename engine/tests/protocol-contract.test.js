@@ -25,6 +25,14 @@ const PREPARED_RECEIPT = createPreparedDispatchReceipt({
 });
 const COMPLETED_RECEIPT = terminalDispatchReceipt(PREPARED_RECEIPT, 'completed');
 const FAILED_RECEIPT = terminalDispatchReceipt(PREPARED_RECEIPT, 'failed', 'execution-error');
+const ASSET_PREPARED_RECEIPT = createPreparedDispatchReceipt({
+  requestId: '33333333-3333-4333-8333-333333333333',
+  connectionEpoch: '22222222-2222-4222-8222-222222222222',
+  fileKey: 'FILE',
+  editorType: 'figma',
+  action: 'asset-stream',
+});
+const ASSET_COMPLETED_RECEIPT = terminalDispatchReceipt(ASSET_PREPARED_RECEIPT, 'completed');
 
 test('execution protocol accepts bounded eval and Semantic Render Plan shapes', () => {
   const plan = new FigmaClient().planJSX('<Frame name="Card"><Text>Hello</Text></Frame>');
@@ -36,6 +44,11 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.equal(validateExecPayload({ action: 'typed-read', operation: 'style-consumers-v1', request: {
     style: 'Surface', type: 'PAINT', limit: 100, after: null,
   }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
+  assert.equal(validateExecPayload({
+    action: 'asset-stream', asset: { kind: 'svg', ref: '1:2' },
+    expectedEditor: 'figma', requireDocumentRevision: true,
+    revisionObservation: { scope: 'page', nodeId: '1:2' },
+  }), null);
   assert.equal(validateExecPayload({ action: 'typed-read', operation: 'token-overlap-v1', request: {
     queries: ['Alpha', 'Beta'], limit: 200,
   }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
@@ -65,7 +78,7 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', timeoutMs: Infinity }), /finite/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', deadlineAt: Infinity }), /timestamp/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', requireDocumentRevision: 'yes' }), /boolean/);
-  assert.match(validateExecPayload({ action: 'render-plan', plan, expectedEditor: 'figma', requireDocumentRevision: true }), /eval requests/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan, expectedEditor: 'figma', requireDocumentRevision: true }), /eval or asset-stream requests/);
   assert.match(validateExecPayload({
     action: 'eval', code: 'x', expectedEditor: 'figma',
     revisionObservation: { scope: 'page', nodeId: '1:2' },
@@ -82,7 +95,7 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
     action: 'typed-read', operation: 'token-overlap-v1',
     request: { queries: ['Alpha', 'Beta'], limit: 1 }, expectedEditor: 'figma',
     revisionObservation: { scope: 'document' },
-  }), /only on eval requests/);
+  }), /only on eval or asset-stream requests/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'unknown' }), /expectedEditor/);
 });
 
@@ -120,6 +133,18 @@ test('plugin protocol has explicit pre-auth and authenticated message contracts'
   }, { authenticated: true }), null);
   assert.equal(validatePluginMessage({
     type: 'lane-settled', dispatchReceipt: COMPLETED_RECEIPT,
+  }, { authenticated: true }), null);
+  assert.equal(validatePluginMessage({
+    type: 'asset-stream-start', id: 2, totalBytes: 3,
+    sha256: 'a'.repeat(64), details: { kind: 'svg' },
+    dispatchReceipt: ASSET_PREPARED_RECEIPT,
+  }, { authenticated: true }), null);
+  assert.equal(validatePluginMessage({
+    type: 'asset-stream-chunk', id: 2, sequence: 0, base64: 'YWJj',
+  }, { authenticated: true }), null);
+  assert.equal(validatePluginMessage({
+    type: 'asset-stream-end', id: 2, chunks: 1,
+    dispatchReceipt: ASSET_COMPLETED_RECEIPT,
   }, { authenticated: true }), null);
   assert.match(validatePluginMessage({
     type: 'lane-settled', dispatchReceipt: PREPARED_RECEIPT,

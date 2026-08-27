@@ -67,6 +67,35 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-ASSET-STREAM",
+    [
+      [
+        "tests/daemon-auth.test.js",
+        "authenticated Asset Stream carries bytes above the JSON ceiling with backpressure and no residue",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "malformed Asset Stream order fails integrity and removes its private partial file",
+      ],
+      [
+        "tests/daemon-auth.test.js",
+        "Plugin disconnect during Asset Stream removes its private partial file",
+      ],
+      [
+        "engine/tests/asset-transfer-store.test.js",
+        "a completed asset transfer verifies sequence, length and digest before one-shot consumption",
+      ],
+      [
+        "engine/tests/asset-transfer-store.test.js",
+        "private permissions and restart cleanup retain no recognised transfer bytes",
+      ],
+      [
+        "engine/tests/daemon-client.test.js",
+        "daemon client rejects a truncated or digest-mismatched Asset Stream",
+      ],
+    ],
+  ],
+  [
     "SEC-TARGET",
     [
       [

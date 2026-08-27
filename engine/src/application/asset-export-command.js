@@ -26,10 +26,9 @@ export { assetExportArgvFromRequest } from "./asset-export-request.js";
 export { assetExportPlanningArgvFromRequest } from "./asset-export-request.js";
 
 const ASSET_EXPORT_APPLICATION_ID = "export.assets";
-// The old child process could be reclaimed after a huge export. The shared
-// long-lived Application therefore refuses an unbounded aggregate Buffer set.
-// Normal exports remain far below this; a larger root can be exported by its
-// child frames until the streaming follow-up replaces Base64 transport.
+// A known older Plugin may still require the Base64 compatibility path. Keep
+// that aggregate Buffer set bounded; asset-stream-v1 stages each candidate
+// immediately and therefore does not apply this total-export guard.
 export const MAX_BUFFERED_ASSET_BYTES = 512 * 1024 * 1024;
 
 export class AssetExportFailure extends Error {
@@ -225,17 +224,83 @@ async function evaluateJson(
   return parseEvaluation(response.value, role);
 }
 
-async function imageCandidate(job, response, rasterScale, byteWorker) {
+async function readAssetBytes(job, adapters, remainingMs, revisionContext) {
+  const role = job.kind === "image" ? "image bytes" : "SVG bytes";
+  if (typeof adapters.streamAsset === "function") {
+    assertTimeRemaining(remainingMs);
+    try {
+      const response = await adapters.streamAsset(
+        {
+          kind: job.kind === "image" ? "image" : "svg",
+          ref: job.kind === "image" ? job.hash : job.id,
+        },
+        {
+          phase: role,
+          remainingMs:
+            typeof remainingMs === "function"
+              ? Math.max(1, remainingMs())
+              : undefined,
+          ...(revisionContext?.targetFileKey()
+            ? { fileKey: revisionContext.targetFileKey() }
+            : {}),
+          ...(revisionContext
+            ? { revisionObservation: revisionContext.observation() }
+            : {}),
+        }
+      );
+      if (!response || !Buffer.isBuffer(response.bytes)) {
+        throw new Error("Asset Stream returned no binary bytes.");
+      }
+      if (revisionContext) revisionContext.accept(response.metadata, role);
+      return {
+        bytes: response.bytes,
+        ...(response.details?.size ? { size: response.details.size } : {}),
+      };
+    } catch (error) {
+      const unsupportedBeforeDispatch =
+        error?.kind === "plugin-capability" &&
+        error?.outcome === "not-dispatched";
+      if (!unsupportedBeforeDispatch) throw error;
+    }
+  }
+  return evaluateJson(
+    adapters.evaluate,
+    job.kind === "image" ? imageBytesCode(job.hash) : svgBytesCode(job.id),
+    role,
+    remainingMs,
+    revisionContext
+  );
+}
+
+async function imageCandidate(
+  job,
+  response,
+  rasterScale,
+  byteWorker,
+  stage = null
+) {
   if (response?.error) throw new Error(response.error);
-  if (typeof response?.base64 !== "string" || response.base64.length === 0) {
+  if (
+    !Buffer.isBuffer(response?.bytes) &&
+    (typeof response?.base64 !== "string" || response.base64.length === 0)
+  ) {
     throw new Error("image bytes were missing from the plugin response");
   }
-  const source = Buffer.from(response.base64, "base64");
+  const source = Buffer.isBuffer(response.bytes)
+    ? response.bytes
+    : Buffer.from(response.base64, "base64");
   if (source.length === 0) throw new Error("decoded image bytes were empty");
-  const raster = await byteWorker.processImage(source, {
-    usages: job.nodes,
-    rasterScale,
-  });
+  const raster = stage
+    ? await byteWorker.processImageToStage(source, {
+        outputDir: stage.outputDir,
+        stageName: stage.stageName,
+        usages: job.nodes,
+        rasterScale,
+      })
+    : await byteWorker.processImage(source, {
+        usages: job.nodes,
+        rasterScale,
+      });
   const contentDigest = raster.contentDigest;
   return {
     candidate: {
@@ -274,21 +339,36 @@ async function imageCandidate(job, response, rasterScale, byteWorker) {
       rasterScale === 0 &&
       raster.sourceByteLength >= 1024 * 1024 &&
       Math.max(...job.nodes.map((node) => Math.max(node.w, node.h))) <= 256
-        ? { contentDigest, bytes: raster.sourceByteLength, nodes: job.nodes }
+        ? {
+            contentDigest,
+            bytes: raster.sourceByteLength,
+            extension: raster.extension,
+            nodes: job.nodes,
+          }
         : null,
   };
 }
 
-async function vectorCandidate(job, response, byteWorker) {
+async function vectorCandidate(job, response, byteWorker, stage = null) {
   if (response?.error) throw new Error(response.error);
-  if (typeof response?.base64 !== "string" || response.base64.length === 0) {
+  if (
+    !Buffer.isBuffer(response?.bytes) &&
+    (typeof response?.base64 !== "string" || response.base64.length === 0)
+  ) {
     throw new Error("SVG bytes were missing from the plugin response");
   }
-  const bytes = Buffer.from(response.base64, "base64");
+  const bytes = Buffer.isBuffer(response.bytes)
+    ? response.bytes
+    : Buffer.from(response.base64, "base64");
   if (bytes.length === 0) throw new Error("decoded SVG bytes were empty");
   const node = job.nodes[0];
   const kind = job.icon ? "icon" : "vector";
-  const processed = await byteWorker.processVector(bytes, kind);
+  const processed = stage
+    ? await byteWorker.processVectorToStage(bytes, kind, {
+        outputDir: stage.outputDir,
+        stageName: stage.stageName,
+      })
+    : await byteWorker.processVector(bytes, kind);
   const contentDigest = processed.contentDigest;
   return {
     sourceIdentity: node.designEntityId
@@ -423,32 +503,48 @@ export async function executeAssetExport(request, adapters = {}) {
   const oversizedRasters = [];
   const failedJobs = [];
   let bufferedBytes = 0;
+  let activeStage = null;
 
   try {
+    if (typeof byteWorker.createStage === "function") {
+      activeStage = {
+        ...(await byteWorker.createStage(outputDir)),
+        outputDir,
+      };
+    }
     for (const job of jobs) {
       try {
-        const response = await evaluateJson(
-          adapters.evaluate,
-          job.kind === "image"
-            ? imageBytesCode(job.hash)
-            : svgBytesCode(job.id),
-          job.kind === "image" ? "image bytes" : "SVG bytes",
+        const response = await readAssetBytes(
+          job,
+          adapters,
           remainingMs,
           revisionContext
         );
         const resolved =
           job.kind === "image"
-            ? await imageCandidate(job, response, rasterScale, byteWorker)
+            ? await imageCandidate(
+                job,
+                response,
+                rasterScale,
+                byteWorker,
+                activeStage
+              )
             : {
-                candidate: await vectorCandidate(job, response, byteWorker),
+                candidate: await vectorCandidate(
+                  job,
+                  response,
+                  byteWorker,
+                  activeStage
+                ),
                 optimized: null,
                 oversized: null,
               };
         bufferedBytes += resolved.candidate.byteLength;
         if (
-          !Number.isFinite(bufferLimit) ||
-          bufferLimit < 1 ||
-          bufferedBytes > bufferLimit
+          !activeStage &&
+          (!Number.isFinite(bufferLimit) ||
+            bufferLimit < 1 ||
+            bufferedBytes > bufferLimit)
         ) {
           throw new AssetExportFailure(
             `Asset Export buffered more than ${(bufferLimit / 1024 / 1024).toFixed(0)} MiB. Export smaller child frames; the existing manifest was left unchanged.`,
@@ -493,7 +589,13 @@ export async function executeAssetExport(request, adapters = {}) {
     // Large candidate bytes are staged before acquiring the shared output lock.
     // The lock therefore covers only revision fence -> read prior -> plan ->
     // atomic manifest commit, not PNG/SVG writes.
-    const staged = await byteWorker.stage({ outputDir, candidates });
+    const staged = activeStage
+      ? {
+          stageName: activeStage.stageName,
+          stagedBytes: bufferedBytes,
+          bufferedBytes,
+        }
+      : await byteWorker.stage({ outputDir, candidates });
     let lockedPublication;
     try {
       lockedPublication = await withAssetOutputLock(
@@ -545,6 +647,7 @@ export async function executeAssetExport(request, adapters = {}) {
     } finally {
       try {
         await byteWorker.cleanupStage(outputDir, staged.stageName);
+        activeStage = null;
       } catch {}
     }
     const { exportPlan, publication } = lockedPublication;
@@ -601,6 +704,11 @@ export async function executeAssetExport(request, adapters = {}) {
       source: revisionContext?.source() || null,
     };
   } finally {
+    if (activeStage) {
+      try {
+        await byteWorker.cleanupStage(outputDir, activeStage.stageName);
+      } catch {}
+    }
     if (ownsByteWorker) {
       try {
         await byteWorker.close();
@@ -663,21 +771,32 @@ export function assetExportResultRows(result) {
     if (result.oversizedRasters.length) {
       rows.push({
         tone: "warning",
-        text: `⚠ ${result.oversizedRasters.length} PNG(s) exceed 1 MiB although every usage is at most 256px:`,
+        text: `⚠ ${result.oversizedRasters.length} raster file(s) exceed 1 MiB although every usage is at most 256px:`,
       });
       for (const item of result.oversizedRasters.slice(0, 10)) {
         const maxUse = Math.max(
           ...item.nodes.map((node) => Math.max(node.w, node.h))
         );
+        const extension = String(
+          item.extension || item.file?.split(".").at(-1) || "raster"
+        ).toUpperCase();
         rows.push({
           tone: "plain",
-          text: `  - ${item.file}: ${(item.bytes / 1024 / 1024).toFixed(1)} MiB for max ${maxUse}px use`,
+          text: `  - ${item.file} (${extension}): ${(item.bytes / 1024 / 1024).toFixed(1)} MiB for max ${maxUse}px use`,
         });
       }
-      rows.push({
-        tone: "plain",
-        text: "  Re-run this export with --raster-scale 2 for a retina-sized PNG; placement and CSS crop semantics stay unchanged.",
-      });
+      if (result.oversizedRasters.some((item) => item.extension === "png")) {
+        rows.push({
+          tone: "plain",
+          text: "  Re-run this export with --raster-scale 2 to downsample oversized PNG sources; placement and CSS crop semantics stay unchanged.",
+        });
+      }
+      if (result.oversizedRasters.some((item) => item.extension !== "png")) {
+        rows.push({
+          tone: "plain",
+          text: "  JPEG/GIF/WebP sources are retained byte-for-byte; optimize the source upstream if that size is unintended.",
+        });
+      }
     }
     rows.push({
       tone: "plain",

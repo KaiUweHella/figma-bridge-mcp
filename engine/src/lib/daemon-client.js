@@ -4,6 +4,7 @@
 // file targeting, timeouts and daemon/plugin error normalization. CLI and MCP
 // are adapters at this seam; neither needs to know the wire protocol.
 import { signRequest } from './daemon-auth.js';
+import { createHash } from 'node:crypto';
 import {
   MAX_BRIDGE_DAEMON_ERROR_BYTES,
   adaptLegacyDaemonError,
@@ -124,6 +125,7 @@ export function createDaemonClient({
     timeoutMs = 3000,
     headers = {},
     execution = false,
+    raw = false,
   } = {}) {
     const token = tokenOrThrow();
     const port = getPort();
@@ -167,6 +169,9 @@ export function createDaemonClient({
       );
     }
 
+    if (raw && response.ok) {
+      return { ok: true, status: response.status, data: null, text: '', url, response };
+    }
     const text = response.ok ? await response.text() : await readErrorText(response);
     return {
       ok: response.ok,
@@ -264,6 +269,88 @@ export function createDaemonClient({
     return (await executeWithMetadata(action, data, options)).value;
   }
 
+  async function assetStream(asset, options = {}) {
+    const startedAt = Date.now();
+    const timeoutMs = Number(options.timeoutMs || 90000);
+    const execution = await executeWithMetadata('asset-stream', {
+      asset,
+      requireDocumentRevision: true,
+      revisionObservation: options.revisionObservation || { scope: 'document' },
+    }, options);
+    const transfer = execution.value?.transfer;
+    if (execution.value?.schemaVersion !== 1 || !transfer
+        || typeof transfer.id !== 'string'
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(transfer.id)
+        || !Number.isSafeInteger(transfer.totalBytes) || transfer.totalBytes < 1
+        || typeof transfer.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(transfer.sha256)) {
+      throw new DaemonClientError('Daemon returned an invalid Asset Stream descriptor', {
+        kind: 'plugin-protocol', phase: 'daemon-response', outcome: 'not-dispatched',
+      });
+    }
+    const remaining = Math.max(1, timeoutMs - (Date.now() - startedAt));
+    const route = `/asset-transfer/${transfer.id}`;
+    const response = await request(route, { timeoutMs: remaining, raw: true });
+    if (!response.ok || !response.response?.body) {
+      throw new DaemonClientError('Daemon Asset Stream body is unavailable', {
+        kind: 'asset-transfer', phase: 'daemon-response', outcome: 'not-dispatched',
+      });
+    }
+    const declaredLength = Number(response.response.headers.get('content-length'));
+    const declaredDigest = response.response.headers.get('x-figma-bridge-sha256');
+    if (declaredLength !== transfer.totalBytes || declaredDigest !== transfer.sha256) {
+      await response.response.body.cancel().catch(() => {});
+      throw new DaemonClientError('Daemon Asset Stream headers did not match its authenticated descriptor', {
+        kind: 'asset-transfer', phase: 'daemon-response', outcome: 'not-dispatched',
+      });
+    }
+    const reader = response.response.body.getReader();
+    let output = null;
+    if (typeof options.onChunk !== 'function') {
+      try {
+        output = Buffer.allocUnsafe(transfer.totalBytes);
+      } catch (error) {
+        await reader.cancel().catch(() => {});
+        throw new DaemonClientError(`Daemon Asset Stream buffer allocation failed: ${error.message}`, {
+          kind: 'asset-transfer', phase: 'daemon-response', outcome: 'not-dispatched', cause: error,
+        });
+      }
+    }
+    const hash = createHash('sha256');
+    let received = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = Buffer.from(value);
+        if (received + chunk.length > transfer.totalBytes) {
+          throw new Error('received bytes exceed the declared length');
+        }
+        hash.update(chunk);
+        if (typeof options.onChunk === 'function') await options.onChunk(chunk);
+        else chunk.copy(output, received);
+        received += chunk.length;
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw new DaemonClientError(`Daemon Asset Stream failed: ${error.message}`, {
+        kind: 'asset-transfer', phase: 'daemon-response', outcome: 'not-dispatched', cause: error,
+      });
+    }
+    const digest = hash.digest('hex');
+    if (received !== transfer.totalBytes || digest !== transfer.sha256) {
+      throw new DaemonClientError('Daemon Asset Stream failed final length or digest verification', {
+        kind: 'asset-transfer', phase: 'daemon-response', outcome: 'not-dispatched',
+      });
+    }
+    return {
+      ...(output ? { bytes: output } : {}),
+      totalBytes: received,
+      sha256: digest,
+      details: transfer.details,
+      metadata: execution.metadata,
+    };
+  }
+
   async function typedRead(operation, typedRequest, options = {}) {
     const error = typedReadRequestValidationError(operation, typedRequest);
     if (error) throw new TypeError(error);
@@ -289,6 +376,7 @@ export function createDaemonClient({
   return {
     execute,
     executeWithMetadata,
+    assetStream,
     evaluate(code, options) {
       return execute('eval', { code }, options);
     },

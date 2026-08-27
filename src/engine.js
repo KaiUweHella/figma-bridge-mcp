@@ -580,6 +580,21 @@ export async function evaluateFigmaWithMetadata(code, {
   });
 }
 
+export async function streamFigmaAsset(asset, {
+  target,
+  fileKey,
+  expectedEditor,
+  timeoutMs = EXEC_TIMEOUT_MS,
+  revisionObservation,
+} = {}) {
+  return daemonClient().assetStream(asset, {
+    fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
+    expectedEditor,
+    timeoutMs,
+    ...(revisionObservation ? { revisionObservation } : {}),
+  });
+}
+
 export async function typedReadFigma(operation, request, fallbackCode, {
   target,
   fileKey,
