@@ -30,7 +30,7 @@ The canonical, lossless Figma facts collected for one node and one set of captur
 _Avoid_: walker output, cache entry
 
 **Node Binding Facts**:
-The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
+The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. Local identities resolve from one bounded Variable and Collection catalog before any exact remote lookup; an unavailable remote identity remains explicit and unresolved. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
 _Avoid_: binding dump, token proof, complete variable capture
 
 **Component Identity Facts**:

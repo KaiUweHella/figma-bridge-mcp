@@ -8,6 +8,7 @@ import {
   formatNodeBindingsResult,
   MAX_NODE_BINDING_FACTS,
   MAX_NODE_BINDING_LABEL_CODE_UNITS,
+  MAX_NODE_BINDING_RESOURCES,
   NODE_BINDING_LOOKUP_TIMEOUT_MS,
   nodeBindingsCode,
   nodeBindingsPlanRoute,
@@ -93,6 +94,88 @@ test('Node Binding Facts preserve scalar, array and component-property topology'
   assert.match(text, /fills\.2: color\/accent \[Theme \] · COLOR/);
   assert.match(text, /componentProperties\["State"\]: state\/default/);
   assert.deepEqual(JSON.parse(formatNodeBindingsResult(result, { json: true })), result);
+});
+
+test('Node Binding Facts resolve local aliases from one bounded catalog before exact remote lookup', async () => {
+  const node = {
+    id: '1:2', name: 'Local binding fixture', type: 'TEXT',
+    boundVariables: { fontSize: [alias('VariableID:local')] },
+  };
+  let directVariableLookups = 0;
+  let directCollectionLookups = 0;
+  const figma = {
+    currentPage: { selection: [] },
+    getNodeByIdAsync: async () => node,
+    variables: {
+      getLocalVariablesAsync: async () => [{
+        id: 'VariableID:local', name: 'type/size', resolvedType: 'FLOAT', remote: false,
+        variableCollectionId: 'VariableCollectionId:local',
+      }],
+      getLocalVariableCollectionsAsync: async () => [{
+        id: 'VariableCollectionId:local', name: 'Local tokens', remote: false,
+      }],
+      getVariableByIdAsync: async () => {
+        directVariableLookups++;
+        throw new Error('direct lookup unavailable');
+      },
+      getVariableCollectionByIdAsync: async () => {
+        directCollectionLookups++;
+        throw new Error('direct lookup unavailable');
+      },
+    },
+  };
+
+  const result = await new Function('figma',
+    `return ${nodeBindingsCode({ nodeId: node.id })};`)(figma);
+
+  assert.equal(result.nodes[0].bindings[0].variable.resolved, true);
+  assert.equal(result.nodes[0].bindings[0].variable.name, 'type/size');
+  assert.equal(result.nodes[0].bindings[0].variable.collection.name, 'Local tokens');
+  assert.equal(directVariableLookups, 0);
+  assert.equal(directCollectionLookups, 0);
+});
+
+test('Node Binding Facts keep an unavailable non-local alias explicit and unresolved', async () => {
+  const node = {
+    id: '1:2', name: 'Remote binding fixture', type: 'FRAME',
+    boundVariables: { itemSpacing: alias('VariableID:remote') },
+  };
+  const figma = {
+    currentPage: { selection: [] },
+    getNodeByIdAsync: async () => node,
+    variables: {
+      getLocalVariablesAsync: async () => [],
+      getLocalVariableCollectionsAsync: async () => [],
+      getVariableByIdAsync: async () => { throw new Error('remote lookup unavailable'); },
+      getVariableCollectionByIdAsync: async () => { throw new Error('remote lookup unavailable'); },
+    },
+  };
+
+  const result = await new Function('figma',
+    `return ${nodeBindingsCode({ nodeId: node.id })};`)(figma);
+  assert.deepEqual(result.nodes[0].bindings[0].variable, {
+    id: 'VariableID:remote', name: null, resolvedType: null, collection: null, resolved: false,
+  });
+});
+
+test('Node Binding Facts reject an oversized local resource catalog', async () => {
+  const node = {
+    id: '1:2', name: 'Bounded fixture', type: 'FRAME',
+    boundVariables: { itemSpacing: alias('VariableID:1') },
+  };
+  const figma = {
+    currentPage: { selection: [] },
+    getNodeByIdAsync: async () => node,
+    variables: {
+      getLocalVariablesAsync: async () => Array(MAX_NODE_BINDING_RESOURCES + 1).fill(null),
+      getVariableByIdAsync: async () => null,
+    },
+  };
+
+  await assert.rejects(
+    () => new Function('figma', `return ${nodeBindingsCode({ nodeId: node.id })};`)(figma),
+    /local Variable catalog exceeds the bounded Node Binding Facts contract/,
+  );
 });
 
 test('Node Bindings preserve empty selection and reject missing explicit nodes', async () => {

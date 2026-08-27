@@ -16,6 +16,7 @@ const NODE_BINDINGS_APPLICATION_ID = 'node.bindings';
 export const MAX_NODE_BINDING_NODES = 128;
 export const MAX_NODE_BINDING_FACTS = 384;
 export const MAX_NODE_BINDING_LABEL_CODE_UNITS = 512;
+export const MAX_NODE_BINDING_RESOURCES = 20_000;
 export const NODE_BINDING_LOOKUP_TIMEOUT_MS = 7000;
 const MAX_NODE_BINDING_FIELD_CODE_UNITS = 128;
 const MAX_NODE_BINDING_ID_CODE_UNITS = 512;
@@ -47,6 +48,7 @@ export function nodeBindingsCode(request) {
     const MAX_NODES = ${MAX_NODE_BINDING_NODES};
     const MAX_FACTS = ${MAX_NODE_BINDING_FACTS};
     const MAX_LABEL = ${MAX_NODE_BINDING_LABEL_CODE_UNITS};
+    const MAX_RESOURCES = ${MAX_NODE_BINDING_RESOURCES};
     const MAX_FIELD = ${MAX_NODE_BINDING_FIELD_CODE_UNITS};
     const MAX_ID = ${MAX_NODE_BINDING_ID_CODE_UNITS};
     const LOOKUP_TIMEOUT_MS = ${NODE_BINDING_LOOKUP_TIMEOUT_MS};
@@ -79,13 +81,55 @@ export function nodeBindingsCode(request) {
 
     const variableCache = new Map();
     const collectionCache = new Map();
+    let localVariables = null;
+    let localCollections = null;
     let factCount = 0;
+    async function localVariable(id) {
+      if (localVariables === null) {
+        localVariables = false;
+        if (typeof figma.variables.getLocalVariablesAsync === 'function') {
+          try {
+            const candidates = await figma.variables.getLocalVariablesAsync();
+            if (!Array.isArray(candidates) || candidates.length > MAX_RESOURCES) {
+              throw new Error('Figma local Variable catalog exceeds the bounded Node Binding Facts contract.');
+            }
+            localVariables = new Map(candidates
+              .filter((candidate) => candidate && candidate.remote === false
+                && typeof candidate.id === 'string' && candidate.id.length <= MAX_ID)
+              .map((candidate) => [candidate.id, candidate]));
+          } catch (error) {
+            if (/exceeds the bounded/.test(String(error && error.message || error))) throw error;
+          }
+        }
+      }
+      return localVariables && localVariables.get(id) || null;
+    }
+    async function localCollection(id) {
+      if (localCollections === null) {
+        localCollections = false;
+        if (typeof figma.variables.getLocalVariableCollectionsAsync === 'function') {
+          try {
+            const candidates = await figma.variables.getLocalVariableCollectionsAsync();
+            if (!Array.isArray(candidates) || candidates.length > MAX_RESOURCES) {
+              throw new Error('Figma local Collection catalog exceeds the bounded Node Binding Facts contract.');
+            }
+            localCollections = new Map(candidates
+              .filter((candidate) => candidate && candidate.remote === false
+                && typeof candidate.id === 'string' && candidate.id.length <= MAX_ID)
+              .map((candidate) => [candidate.id, candidate]));
+          } catch (error) {
+            if (/exceeds the bounded/.test(String(error && error.message || error))) throw error;
+          }
+        }
+      }
+      return localCollections && localCollections.get(id) || null;
+    }
     async function collectionFact(collectionId) {
       if (!collectionId) return null;
       const id = clean(collectionId, MAX_ID);
       if (collectionCache.has(id)) return collectionCache.get(id);
-      let collection = null;
-      if (typeof figma.variables.getVariableCollectionByIdAsync === 'function') {
+      let collection = await localCollection(id);
+      if (!collection && typeof figma.variables.getVariableCollectionByIdAsync === 'function') {
         try { collection = await figma.variables.getVariableCollectionByIdAsync(id); } catch {}
       }
       const fact = {
@@ -102,7 +146,10 @@ export function nodeBindingsCode(request) {
       }
       const id = clean(alias.id, MAX_ID);
       if (variableCache.has(id)) return variableCache.get(id);
-      const variable = await figma.variables.getVariableByIdAsync(id);
+      let variable = await localVariable(id);
+      if (!variable && typeof figma.variables.getVariableByIdAsync === 'function') {
+        try { variable = await figma.variables.getVariableByIdAsync(id); } catch {}
+      }
       const fact = variable ? {
         id,
         name: clean(variable.name, MAX_LABEL),
