@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { FigmaClient } from '../src/lib/jsx-render.js';
+import {
+  formatSemanticJsxPropReference,
+  semanticJsxPropReference,
+} from '../src/lib/semantic-jsx-props.js';
 
 const client = new FigmaClient();
 
@@ -94,6 +98,33 @@ describe('validateJsxProps', () => {
   it('suggests near-miss names (typos)', () => {
     const warnings = client.validateJsxProps('<Frame roundedd={8}><Text>x</Text></Frame>');
     assert.strictEqual(warnings[0].suggestion, 'rounded');
+  });
+
+  it('keeps reviewed aliases inside the addressed element grammar', () => {
+    const warnings = client.validateJsxProps([
+      '<Frame fontSize={16}>',
+      '<Text fill="#fff" backgroundColor="#000">x</Text>',
+      '</Frame>',
+    ].join(''));
+    const byTagProp = Object.fromEntries(warnings.map((warning) => [
+      `${warning.tag}.${warning.prop}`, warning.suggestion,
+    ]));
+    assert.strictEqual(byTagProp['Frame.fontSize'], null,
+      'Frame must not inherit the Text-only size suggestion');
+    assert.strictEqual(byTagProp['Text.fill'], 'color');
+    assert.strictEqual(byTagProp['Text.backgroundColor'], null,
+      'Text background is not interchangeable with foreground paint');
+  });
+
+  it('returns one bounded element prop reference with only valid aliases', () => {
+    const reference = semanticJsxPropReference('text');
+    assert.strictEqual(reference.element, 'Text');
+    assert.ok(reference.props.includes('color'));
+    assert.ok(!reference.props.includes('bg'));
+    assert.deepStrictEqual(reference.aliases.fill, 'color');
+    assert.strictEqual(reference.aliases.backgroundColor, undefined);
+    assert.match(formatSemanticJsxPropReference(reference), /Semantic JSX props for <Text>/);
+    assert.throws(() => semanticJsxPropReference('UnknownElement'), /supported elements/i);
   });
 
   it('accepts all documented props without warnings', () => {

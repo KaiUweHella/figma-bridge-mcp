@@ -8,6 +8,7 @@
 
 import { detectWrapperSplit } from '../lib/jsx-split.js';
 import { parseResizeProbeDelta } from '../lib/semantic-resize-probe.js';
+import { semanticJsxPropReference } from '../lib/semantic-jsx-props.js';
 
 export const MAX_SEMANTIC_RENDER_JSX_CODE_UNITS = 200_000;
 export const MAX_SEMANTIC_RENDER_OPTION_CODE_UNITS = 16_384;
@@ -47,6 +48,7 @@ const OPTION_SPECS = new Map([
   ['--dom-capture', { key: 'domCapture', value: 'required', compatibility: 'dom-capture' }],
   ['--manifest', { key: 'manifest', value: 'required' }],
   ['--print-browser-capture', { key: 'printBrowserCapture', value: 'optional', compatibility: 'browser-capture-expression' }],
+  ['--prop-reference', { key: 'propReference', value: 'required', compatibility: 'prop-reference' }],
   ['--structural-gate', { key: 'structuralGate', value: 'none', compatibility: 'structural-gate' }],
   ['--resize-probe', { key: 'resizeProbe', value: 'optional', compatibility: 'resize-probe' }],
   ['--approve-fallback', { key: 'approveFallback', value: 'required' }],
@@ -358,6 +360,11 @@ function inspectRenderArgv(args) {
   }
   if (values.printBrowserCapture) {
     return Object.freeze({ kind: 'compatibility', reason: 'browser-capture-expression', mutatesDesign: false, target: 'none', values, jsx: jsx ?? null });
+  }
+  if (values.propReference !== undefined) {
+    try { semanticJsxPropReference(values.propReference); }
+    catch (error) { throw requestError(error.message); }
+    return Object.freeze({ kind: 'compatibility', reason: 'prop-reference', mutatesDesign: false, target: 'none', values, jsx: jsx ?? null });
   }
   if (jsx === undefined && values.domCapture === undefined) {
     throw requestError('pass JSX or --dom-capture <file>');

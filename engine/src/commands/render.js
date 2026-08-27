@@ -10,6 +10,10 @@ import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import { BROWSER_DOM_CAPTURE_LIMITS, browserDomCaptureScript } from '../lib/browser-dom-capture.js';
 import { resolveBrowserCaptureAssets } from '../lib/browser-capture-assets.js';
 import { auditSemanticStructure, formatStructuralGate } from '../lib/semantic-structural-gate.js';
+import {
+  formatSemanticJsxPropReference,
+  semanticJsxPropReference,
+} from '../lib/semantic-jsx-props.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import { namedContainers, matchInventory, formatReuseWarning, findRepeatedSiblings } from '../lib/render-lint.js';
 import { cachedInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
@@ -553,6 +557,7 @@ program
   .option('--dom-capture <file>', 'Render a browser DOM/computed-style capture JSON instead of hand-authored JSX')
   .option('--manifest <file>', 'Design Link Registry used to resolve data-figma-component identities', 'figma-bridge.json')
   .option('--print-browser-capture [selector]', 'Print the semantic browser capture expression (default selector: body); no Figma connection required')
+  .option('--prop-reference <element>', 'Print the bounded valid props and reviewed aliases for one Semantic JSX element; no Figma connection required')
   .option('--structural-gate', 'Audit semantic layout/tokens/icons without connecting to or writing Figma')
   .option('--resize-probe [delta]', 'Temporarily widen the rendered root (default 120 px), audit responsive descendants, then restore it')
   .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this render/audit')
@@ -607,6 +612,10 @@ program
     if (options.printBrowserCapture !== undefined) {
       const selector = typeof options.printBrowserCapture === 'string' ? options.printBrowserCapture : 'body';
       console.log(browserDomCaptureScript(selector, { serialized: true }));
+      return;
+    }
+    if (options.propReference !== undefined) {
+      console.log(formatSemanticJsxPropReference(semanticJsxPropReference(options.propReference)));
       return;
     }
     let jsx;

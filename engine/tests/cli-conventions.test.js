@@ -1266,6 +1266,20 @@ test('browser capture ignores unused render project inputs without touching the 
     /Icon directory not found|Could not read DOM capture|Workspace render-icons rejected/);
 });
 
+test('semantic JSX prop reference is bounded, offline and element-specific', () => {
+  const entry = join(COMMANDS_DIR, '..', 'index.js');
+  const result = spawnSync(process.execPath, [
+    entry, 'render', '--prop-reference', 'Text', '--icons', '/outside-workspace',
+    '--dom-capture', '/also-unused',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /Semantic JSX props for <Text>/);
+  assert.match(result.stdout, /fill → color/);
+  assert.doesNotMatch(result.stdout, /backgroundColor → bg/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`,
+    /Plugin not connected|figma_connect|Icon directory not found|Could not read DOM capture/);
+});
+
 test('node set-text rejects excess CLI positionals before Plugin readiness', () => {
   const entry = join(COMMANDS_DIR, '..', 'index.js');
   const result = spawnSync(process.execPath, [entry, 'node', 'set-text', '1:2', 'Hello', 'extra'], {

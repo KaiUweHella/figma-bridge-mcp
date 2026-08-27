@@ -83,4 +83,30 @@ describe('semantic structural acceptance gate', () => {
     assert.equal(model.diagnostics.classifiedFallbacks[0].fallback, 'font.named-faces');
     assert.equal(auditSemanticStructure(model).passed, false);
   });
+
+  it('defers live Variable resolution offline without turning it into a false failure', () => {
+    const root = node('TokenRoot', { kind: 'flex', direction: 'column' }, [], {
+      paint: { background: { token: 'surface/default', value: null } },
+    });
+    const report = auditSemanticStructure(model(root));
+    const tokenCheck = report.checks.find((check) => check.id === 'token-provenance');
+    assert.equal(report.status, 'DEFERRED');
+    assert.equal(report.passed, true);
+    assert.equal(tokenCheck.status, 'DEFERRED');
+    assert.equal(tokenCheck.passed, true);
+    assert.match(formatStructuralGate(report), /Structural gate: DEFERRED/);
+    assert.match(formatStructuralGate(report), /live Figma Variable preflight required/i);
+  });
+
+  it('keeps real structural failures failed when Variable evidence is deferred', () => {
+    const root = node('BrokenRoot', { kind: 'unsupported-layout' }, [], {
+      paint: { background: { token: 'surface/default', value: null } },
+    });
+    const report = auditSemanticStructure(model(root));
+    assert.equal(report.status, 'FAIL');
+    assert.equal(report.passed, false);
+    assert.equal(report.checks.find((check) => check.id === 'native-layout').status, 'FAIL');
+    assert.equal(report.checks.find((check) => check.id === 'token-provenance').status, 'DEFERRED');
+    assert.match(formatStructuralGate(report), /Structural gate: FAIL/);
+  });
 });

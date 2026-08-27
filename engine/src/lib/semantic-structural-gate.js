@@ -55,37 +55,51 @@ export function auditSemanticStructure(model, {
   const effectiveApprovals = [...DEFAULT_APPROVED_FALLBACKS, ...approvedFallbacks];
   const unapprovedFallbacks = (diagnostics.classifiedFallbacks || [])
     .filter((finding) => !approved(finding, effectiveApprovals));
+  const check = (id, findings, { deferred = false } = {}) => {
+    const status = findings.length === 0 ? 'PASS' : deferred ? 'DEFERRED' : 'FAIL';
+    return { id, status, passed: status !== 'FAIL', count: findings.length, findings };
+  };
   const checks = [
-    { id: 'semantic-model', passed: unclassified.length === 0, count: unclassified.length, findings: unclassified },
-    { id: 'native-layout', passed: unsupportedLayouts.length === 0, count: unsupportedLayouts.length, findings: unsupportedLayouts },
-    { id: 'free-layout', passed: unapprovedFree.length === 0, count: unapprovedFree.length, findings: unapprovedFree },
-    { id: 'absolute-intent', passed: absoluteMismatches.length === 0, count: absoluteMismatches.length, findings: absoluteMismatches },
-    { id: 'token-provenance', passed: tokenWithoutValue.length === 0, count: tokenWithoutValue.length, findings: tokenWithoutValue },
-    { id: 'resolved-icons', passed: unresolvedIcons.length === 0, count: unresolvedIcons.length, findings: unresolvedIcons },
-    { id: 'approved-fallbacks', passed: unapprovedFallbacks.length === 0, count: unapprovedFallbacks.length, findings: unapprovedFallbacks },
+    check('semantic-model', unclassified),
+    check('native-layout', unsupportedLayouts),
+    check('free-layout', unapprovedFree),
+    check('absolute-intent', absoluteMismatches),
+    // This audit is deliberately offline. A var: reference without a literal
+    // fallback is neither resolved nor failed here; the native executor owns
+    // exact live Collection/Variable resolution before its first canvas write.
+    check('token-provenance', tokenWithoutValue, { deferred: true }),
+    check('resolved-icons', unresolvedIcons),
+    check('approved-fallbacks', unapprovedFallbacks),
   ];
+  const status = checks.some((entry) => entry.status === 'FAIL')
+    ? 'FAIL'
+    : checks.some((entry) => entry.status === 'DEFERRED') ? 'DEFERRED' : 'PASS';
   return {
     version: 1,
-    passed: checks.every((check) => check.passed),
+    status,
+    passed: status !== 'FAIL',
     summary: { nodes, containers, grids, autoLayouts: flex, freeLayouts: free, absoluteNodes: absolute, tokenReferences: tokens },
     checks,
   };
 }
 
 export function formatStructuralGate(report) {
-  const lines = [`Structural gate: ${report.passed ? 'PASS' : 'FAIL'}`];
+  const status = report.status || (report.passed ? 'PASS' : 'FAIL');
+  const lines = [`Structural gate: ${status}`];
   const labels = {
     'semantic-model': 'no unclassified semantic facts',
     'native-layout': 'all containers have a supported native layout',
     'free-layout': 'all free-layout containers are explicitly approved',
     'absolute-intent': 'all absolute nodes originate from source intent',
-    'token-provenance': 'all authored tokens carry a resolvable source value',
+    'token-provenance': 'authored tokens have a literal value or defer to live resolution',
     'resolved-icons': 'all icon roles resolve to vector/component assets',
     'approved-fallbacks': 'all structural fallbacks are explicitly approved',
   };
   for (const check of report.checks) {
-    lines.push(`${check.passed ? '✓' : '✗'} ${labels[check.id]}${check.passed ? '' : ` (${check.count})`}`);
-    if (!check.passed) {
+    const checkStatus = check.status || (check.passed ? 'PASS' : 'FAIL');
+    const marker = checkStatus === 'PASS' ? '✓' : checkStatus === 'DEFERRED' ? '…' : '✗';
+    lines.push(`${marker} ${labels[check.id]}${checkStatus === 'PASS' ? '' : ` (${check.count}; ${checkStatus})`}`);
+    if (checkStatus !== 'PASS') {
       for (const finding of check.findings.slice(0, 5)) {
         lines.push(`  - ${typeof finding === 'string' ? finding : `${finding.path}: ${finding.fact || finding.kind || finding.fallback}`}`);
       }
@@ -97,6 +111,9 @@ export function formatStructuralGate(report) {
     .filter((finding) => finding?.fallback === 'font.named-faces');
   if (fontFindings.length) {
     lines.push('Decision required before render: install the requested variable font, or approve a currently available named face. Exact variation-axis values cannot be written through the current Figma Plugin API.');
+  }
+  if (report.checks.some((check) => check.status === 'DEFERRED')) {
+    lines.push('Live Figma Variable preflight required before render; unresolved explicit token intent still fails before the first canvas write.');
   }
   lines.push(`Summary: ${s.nodes} nodes, ${s.grids} Grid, ${s.autoLayouts} Auto Layout, ${s.freeLayouts} free, ${s.absoluteNodes} absolute, ${s.tokenReferences} authored tokens`);
   return lines.join('\n');

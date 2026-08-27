@@ -270,6 +270,7 @@
     "engine/src/lib/semantic-dom-model.js",
     "engine/src/lib/semantic-render-outcome.js",
     "engine/src/lib/semantic-render-plan.js",
+    "engine/src/lib/semantic-jsx-props.js",
     "engine/src/lib/semantic-resize-probe.js",
     "engine/src/lib/semantic-structural-gate.js",
     "engine/src/lib/shader-management.js",

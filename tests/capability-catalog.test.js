@@ -1199,6 +1199,7 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['verify', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['render', '<Frame/>']).execution.retry, 'never');
   assert.equal(planFigmaCommand(['render', '--print-browser-capture', '.screen']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['render', '--prop-reference', 'Text']).target.kind, 'none');
   assert.equal(planFigmaCommand(['render', '<Frame name="Audit" />', '--structural-gate']).target.kind, 'none');
   assert.deepEqual(planFigmaCommand(['render', '<Frame name="Audit" />', '--structural-gate']).execution.okExitCodes, [0, 1]);
   assert.equal(planFigmaCommand(['render', '<Frame/>']).execution.timeout, 'long');

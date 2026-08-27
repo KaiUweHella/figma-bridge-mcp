@@ -1457,7 +1457,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       // Browser-capture expression generation returns before every project
       // input in Commander. Keep its Plan honest: unused paths are neither
       // authorized nor reported as effects.
-      if (initialRoute.reason === 'browser-capture-expression') break;
+      if (['browser-capture-expression', 'prop-reference'].includes(initialRoute.reason)) break;
       const icons = pathFlag(args, ['--icons'], baseDir, capability.options);
       if (icons) markRead(icons.value, 'render-icons', 'directory');
       const capture = pathFlag(args, ['--dom-capture'], baseDir, capability.options);

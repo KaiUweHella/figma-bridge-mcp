@@ -213,6 +213,7 @@ test('simple, compound and named compatibility Render modes remain explicitly re
       kind: 'compatibility', reason: 'structural-gate', write: false, target: 'none',
     },
     { argv: ['render', '--print-browser-capture', '.screen'], kind: 'compatibility', reason: 'browser-capture-expression', write: false, target: 'none' },
+    { argv: ['render', '--prop-reference', 'Text'], kind: 'compatibility', reason: 'prop-reference', write: false, target: 'none' },
     { argv: ['render', '--help'], kind: 'help', reason: null, write: false, target: 'none' },
   ];
 

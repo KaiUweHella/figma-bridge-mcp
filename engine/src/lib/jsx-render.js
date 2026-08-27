@@ -20,6 +20,10 @@ import {
   bindSemanticDesignEntities,
   materializeDesignBindingsForCompatibility,
 } from './design-entity-bindings.js';
+import {
+  semanticJsxPropsForElement,
+  semanticJsxPropSuggestion,
+} from './semantic-jsx-props.js';
 
 function resourceRecord(map) {
   const record = Object.create(null);
@@ -584,79 +588,12 @@ export class FigmaClient {
    * Returns [{ tag, prop, suggestion|null }].
    */
   validateJsxProps(jsx) {
-    const layout = ['name', 'flex', 'gap', 'rowGap', 'columnGap', 'wrapGap', 'counterAxisSpacing', 'wrap',
-      'p', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'padding',
-      'justify', 'items', 'align', 'grow', 'stretch', 'hug',
-      'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
-      'position', 'x', 'y', 'top', 'right', 'bottom', 'left', 'centerOffsetX', 'centerOffsetY',
-      'gridRows', 'gridColumns', 'gridAutoFlow', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan',
-      'gridHAlign', 'gridVAlign'];
-    const paint = ['bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign', 'strokeDashPattern', 'strokeCap',
-      'strokeTopWidth', 'strokeRightWidth', 'strokeBottomWidth', 'strokeLeftWidth', 'opacity', 'blendMode',
-      'image', 'imageScale', 'visible', 'locked', 'clip', 'overflow', 'rotate', 'mask', 'maskType'];
-    const corners = ['rounded', 'radius', 'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing'];
-    const effects = ['shadow', 'innerShadow', 'blur', 'bgBlur', 'filter',
-      'noise', 'noiseDensity', 'noiseSize', 'noiseColor', 'noiseColor2', 'noiseOpacity',
-      'texture', 'textureSize', 'textureRadius', 'textureClip',
-      'progressiveBlur', 'progressiveBlurDir', 'progressiveBlurStart',
-      'glass', 'glassRefraction', 'glassDepth', 'glassRadius', 'glassDispersion', 'glassLight', 'glassLightAngle'];
-
-    const known = {
-      Frame: ['entity', ...layout, ...paint, ...corners, ...effects],
-      Text: ['name', 'size', 'weight', 'color', 'font', 'fontStyle', 'italic', 'align', 'w', 'h', 'width', 'height',
-        'minW', 'maxW', 'minH', 'maxH',
-        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'paragraphSpacing', 'paragraphIndent', 'truncate', 'maxLines', 'style',
-        'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'fontAxes', 'mask', 'maskType'],
-      Icon: ['name', 'size', 's', 'w', 'h', 'width', 'height', 'color', 'c', 'preserveColors',
-        'x', 'y', 'position', 'opacity', 'rotate', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'mask', 'maskType'],
-      Rect: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'rounded', 'radius',
-        'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing', 'blendMode', 'opacity', 'x', 'y', 'position', 'filter', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'mask', 'maskType'],
-      Rectangle: null, // alias of Rect, filled below
-      Ellipse: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign', 'strokeDashPattern', 'strokeCap',
-        'arc', 'arcStart', 'innerRadius', 'opacity', 'x', 'y', 'position', 'filter', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'mask', 'maskType'],
-      Circle: null,    // alias of Ellipse, filled below
-      Image: ['name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH', 'bg', 'fill', 'rounded', 'radius',
-        'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing', 'blendMode', 'opacity', 'x', 'y', 'position', 'src', 'imageScale', 'filter', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'mask', 'maskType'],
-      Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
-      Instance: ['entity', 'name', 'component', 'id', 'key', 'variant', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
-        'grow', 'opacity', 'x', 'y', 'position', 'gridRow', 'gridColumn', 'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign'],
-    };
-    known.Rectangle = known.Rect;
-    known.Circle = known.Ellipse;
-
-    // Common wrong names -> the prop that actually works
-    const aliases = {
-      layout: 'flex', direction: 'flex', flexDirection: 'flex',
-      cornerRadius: 'rounded', borderRadius: 'rounded',
-      background: 'bg', backgroundColor: 'bg',
-      border: 'stroke', borderColor: 'stroke', borderWidth: 'strokeWidth',
-      fontSize: 'size', fontWeight: 'weight', fontFamily: 'font', textAlign: 'align',
-      spacing: 'gap', itemSpacing: 'gap',
-      alignItems: 'items', justifyContent: 'justify',
-      visibility: 'visible',
-    };
-
-    const levenshtein = (a, b) => {
-      const m = a.length, n = b.length;
-      const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
-      for (let j = 0; j <= n; j++) d[0][j] = j;
-      for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-          d[i][j] = Math.min(
-            d[i - 1][j] + 1, d[i][j - 1] + 1,
-            d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-          );
-        }
-      }
-      return d[m][n];
-    };
-
     const warnings = [];
     const tagRegex = /<(Frame|Text|Icon|Rect|Rectangle|Ellipse|Circle|Image|Slot|Instance)([^>]*?)\/?>/g;
     let m;
     while ((m = tagRegex.exec(jsx)) !== null) {
       const tag = m[1];
-      const valid = known[tag];
+      const valid = semanticJsxPropsForElement(tag);
       if (!valid) continue;
       const props = this.parseProps(m[2] || '');
       for (const prop of Object.keys(props)) {
@@ -665,16 +602,7 @@ export class FigmaClient {
         // text:<Layer>, prop:<Property>, fill:<Layer>, swap:<Layer>
         if (tag === 'Instance' && (prop.startsWith('text:') || prop.startsWith('prop:')
           || prop.startsWith('fill:') || prop.startsWith('swap:'))) continue;
-        let suggestion = aliases[prop] || null;
-        if (!suggestion) {
-          // Typo detection: closest known prop within edit distance 2
-          let best = null, bestDist = 3;
-          for (const k of valid) {
-            const dist = levenshtein(prop.toLowerCase(), k.toLowerCase());
-            if (dist < bestDist) { best = k; bestDist = dist; }
-          }
-          suggestion = best;
-        }
+        const suggestion = semanticJsxPropSuggestion(tag, prop);
         warnings.push({ tag, prop, suggestion });
       }
     }

@@ -690,6 +690,10 @@ _Avoid_: image expression evaluator, path rewrite regex, Plugin file path
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance. Supported semantic and numeric-string font weights are canonical numeric weights at this boundary, while FLOAT Variable references remain references and only their literal fallback is normalized.
 _Avoid_: JSX tree, generated code, render payload
 
+**Offline Structural Gate**:
+The repository-only audit of one Semantic Render Plan before Plugin readiness. Every check is explicitly PASS, FAIL or DEFERRED: structural contradictions fail, locally provable facts pass, and facts requiring the live Figma document remain deferred rather than being guessed. A deferred check never claims live acceptance and never weakens the authoritative Figma executor preflight, which still resolves explicit Variable intent and stops before the first canvas write when resolution is missing, ambiguous or unsupported.
+_Avoid_: dry-run render, offline Variable resolver, best-effort acceptance
+
 **Responsive Text Sizing Intent**:
 The Browser DOM Capture decision that separates intrinsic HUG sizing from available-width FILL sizing before a Semantic Render Plan is accepted. It derives from authored fixed/auto/percentage size, parent-axis stretch or growth, computed wrapping facts and source text alignment. FILL text expresses centering or end alignment on the native Text node; container alignment never substitutes for text alignment.
 _Avoid_: measured text width, overflow patch, always-HUG text, always-FILL text
