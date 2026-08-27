@@ -41,7 +41,10 @@ environment variables leave less identity-bearing shell history.
 - Plugin reload is targeted independently for both files and followed by a
   verified marker read.
 - The manual checkpoint asks the maintainer to background or sleep Figma/the
-  computer, wake it, and acknowledge that both Plugin windows recovered.
+  computer, wake it, and acknowledge that both Plugin windows recovered. The
+  Plugin Keepalive treats a delayed UI interval as suspension and grants one
+  fresh bounded Pong window; a UI that keeps ticking without a Pong still
+  disconnects on the normal deadline.
 - A temporary Bridge Daemon uses a 1–2 second idle window, deliberately below
   the Plugin keepalive interval. It is allowed to exit, then a read recovers
   once through the normal Daemon Client path. The final daemon is restarted

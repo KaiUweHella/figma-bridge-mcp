@@ -76,6 +76,20 @@ function loadPluginReconnect() {
   return factory([3456, 3457, 3458, 3459, 3460], 3, 3000);
 }
 
+function loadPluginKeepalive() {
+  const start = UI.indexOf('function keepaliveDecision(');
+  const end = UI.indexOf('function startKeepalive(', start);
+  assert.ok(start > 0, 'keepaliveDecision() not found in ui.html');
+  assert.ok(end > start, 'startKeepalive() marker not found after keepaliveDecision()');
+  const source = UI.slice(start, end);
+  const factory = new Function(
+    'KEEPALIVE_INTERVAL_MS',
+    'KEEPALIVE_TIMEOUT_MS',
+    `${source}; return { keepaliveDecision };`,
+  );
+  return factory(3000, 8000);
+}
+
 test('plugin HMAC matches Node crypto across sizes and key lengths', () => {
   const cases = [
     ['k', ''],
@@ -268,6 +282,31 @@ test('the shipped plugin scripts parse', () => {
   assert.ok(script, 'ui.html must contain a <script> block');
   new Script(script[1], { filename: 'plugin/ui.html' });
   new Script(PLUGIN_CODE, { filename: 'plugin/code.js' });
+});
+
+test('Plugin keepalive distinguishes a suspended UI event loop from a dead daemon', () => {
+  const { keepaliveDecision } = loadPluginKeepalive();
+
+  assert.deepEqual(
+    keepaliveDecision({ now: 6000, lastTick: 3000, lastPong: 1000 }),
+    { close: false, resumed: false, lastTick: 6000, lastPong: 1000 },
+    'a regularly ticking UI keeps the normal daemon-death deadline',
+  );
+  assert.deepEqual(
+    keepaliveDecision({ now: 10000, lastTick: 7000, lastPong: 1000 }),
+    { close: true, resumed: false, lastTick: 10000, lastPong: 1000 },
+    'a live UI still closes a daemon that stopped answering',
+  );
+  assert.deepEqual(
+    keepaliveDecision({ now: 30000, lastTick: 3000, lastPong: 2000 }),
+    { close: false, resumed: true, lastTick: 30000, lastPong: 30000 },
+    'a delayed timer grants one fresh Pong window after Figma resumes the iframe',
+  );
+  assert.deepEqual(
+    keepaliveDecision({ now: 39001, lastTick: 36000, lastPong: 30000 }),
+    { close: true, resumed: false, lastTick: 39001, lastPong: 30000 },
+    'the resume grace remains bounded when the daemon is actually gone',
+  );
 });
 
 test('the shipped plugin UI opens Setup for a missing key and scans after receiving a stored key', () => {

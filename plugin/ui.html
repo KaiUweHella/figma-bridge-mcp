@@ -311,7 +311,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.21';
+    const PLUGIN_VERSION = '3.3.22';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'dispatch-receipt-v1',
       'eval-v1',
@@ -457,6 +457,7 @@
     let discoveryInFlight = false;
     let keepaliveTimer = null;
     let lastPong = Date.now();
+    let lastKeepaliveTick = Date.now();
     let lastPingSent = 0;
     let latencyMs = null;
     let connectedPort = null;
@@ -1299,16 +1300,44 @@
       }
     }
 
+    const KEEPALIVE_INTERVAL_MS = 3000;
+    const KEEPALIVE_TIMEOUT_MS = 8000;
+
+    function keepaliveDecision({ now, lastTick, lastPong }) {
+      // Figma can suspend every Plugin iframe while one Plugin main thread is
+      // doing document work. On resume, an overdue interval may run before the
+      // queued WebSocket Pong, so wall-clock Pong age alone would close a
+      // healthy transport. Timer drift proves that this UI could not observe
+      // liveness; grant one fresh, bounded window instead. When intervals keep
+      // ticking normally, an unanswered daemon still closes on the old limit.
+      const resumed = now - lastTick > KEEPALIVE_INTERVAL_MS * 2;
+      const effectiveLastPong = resumed ? now : lastPong;
+      return {
+        close: !resumed && now - effectiveLastPong > KEEPALIVE_TIMEOUT_MS,
+        resumed,
+        lastTick: now,
+        lastPong: effectiveLastPong,
+      };
+    }
+
     function startKeepalive() {
       stopKeepalive();
       lastPong = Date.now();
+      lastKeepaliveTick = lastPong;
       keepaliveTimer = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          if (Date.now() - lastPong > 8000) { ws.close(); return; }
-          lastPingSent = Date.now();
+          const decision = keepaliveDecision({
+            now: Date.now(),
+            lastTick: lastKeepaliveTick,
+            lastPong,
+          });
+          lastKeepaliveTick = decision.lastTick;
+          lastPong = decision.lastPong;
+          if (decision.close) { ws.close(); return; }
+          lastPingSent = decision.lastTick;
           ws.send(JSON.stringify({ type: 'ping' }));
         }
-      }, 3000);
+      }, KEEPALIVE_INTERVAL_MS);
     }
     function stopKeepalive() {
       if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }

@@ -24,7 +24,8 @@ export function fontVariableBindingApplicationCode(request) {
     const collectionQuery = ${JSON.stringify(input.collection)};
     const node = await figma.getNodeByIdAsync(${JSON.stringify(input.nodeId)});
     if (!node || node.type !== 'TEXT' || typeof node.setBoundVariable !== 'function'
-      || typeof node.setRangeBoundVariable !== 'function' || typeof node.getRangeBoundVariable !== 'function') {
+      || typeof node.setRangeBoundVariable !== 'function' || typeof node.getRangeBoundVariable !== 'function'
+      || typeof node.getStyledTextSegments !== 'function') {
       throw new Error('Target must be one mutable TEXT node with typography-variable binding support.');
     }
     const nodeIdentity = { id: node.id, type: 'TEXT' };
@@ -44,18 +45,29 @@ export function fontVariableBindingApplicationCode(request) {
       if (!loaded.has(key)) { await figma.loadFontAsync(fontName); loaded.add(key); }
     };
     for (const fontName of fontNames) await loadFont(fontName);
+    let localVariables = null;
+    const readLocalVariables = async () => {
+      if (localVariables !== null) return localVariables;
+      const candidates = await figma.variables.getLocalVariablesAsync();
+      if (!Array.isArray(candidates) || candidates.length > ${MAX_FONT_BINDING_CANDIDATES}) throw new Error('Variable candidate limit exceeded.');
+      localVariables = candidates.filter((candidate) => candidate && candidate.remote === false);
+      return localVariables;
+    };
+    const resolveVariableById = async (id) => {
+      let direct = null;
+      try { direct = await figma.variables.getVariableByIdAsync(id); } catch {}
+      if (direct) return direct;
+      return (await readLocalVariables()).find((candidate) => candidate.id === id) || null;
+    };
     let variable = null; let variableResolution = null;
     if (variableQuery !== null) {
-      let direct = null;
-      try { direct = await figma.variables.getVariableByIdAsync(variableQuery); } catch {}
-      variable = direct;
+      variable = await resolveVariableById(variableQuery);
       variableResolution = 'id';
       if (!variable) {
-        const variables = await figma.variables.getLocalVariablesAsync();
+        const variables = await readLocalVariables();
         const collections = collectionQuery === null ? [] : await figma.variables.getLocalVariableCollectionsAsync();
-        if (!Array.isArray(variables) || variables.length > ${MAX_FONT_BINDING_CANDIDATES}) throw new Error('Variable candidate limit exceeded.');
         if (!Array.isArray(collections) || collections.length > ${MAX_FONT_BINDING_CANDIDATES}) throw new Error('Collection candidate limit exceeded.');
-        let pool = variables.filter((candidate) => candidate && candidate.remote === false);
+        let pool = variables;
         if (collectionQuery !== null) {
           const lower = collectionQuery.toLowerCase();
           const exactCollections = collections.filter((candidate) => candidate.name.toLowerCase() === lower);
@@ -93,18 +105,53 @@ export function fontVariableBindingApplicationCode(request) {
         }
       }
     }
-    const readAlias = () => ${ranged
-      ? 'node.getRangeBoundVariable(start, end, field)'
-      : '(node.boundVariables && node.boundVariables[field]) || null'};
     const aliasId = (alias) => alias === null || alias === undefined ? null
       : alias && alias.type === 'VARIABLE_ALIAS' && typeof alias.id === 'string' ? alias.id : false;
+    const readAlias = () => ${ranged
+      ? 'node.getRangeBoundVariable(start, end, field)'
+      : `start < end ? node.getRangeBoundVariable(start, end, field) : (() => {
+          const raw = node.boundVariables && node.boundVariables[field];
+          if (!Array.isArray(raw)) return raw || null;
+          if (raw.length === 0) return null;
+          return raw.length === 1 ? raw[0] : false;
+        })()`};
     const priorAlias = readAlias(); const priorId = aliasId(priorAlias);
-    if (priorId === false) throw new Error('Existing typography binding is incompatible.');
-    const priorVariable = priorId === null ? null : await figma.variables.getVariableByIdAsync(priorId);
-    if (priorId !== null && !priorVariable) throw new Error('Existing typography binding could not be resolved for rollback.');
-    const setBinding = (value) => ${ranged
-      ? 'node.setRangeBoundVariable(start, end, field, value)'
-      : 'node.setBoundVariable(field, value)'};
+    let priorTopology = null;
+    const priorVariables = new Map();
+    if (priorId === false) {
+      if (start === end) throw new Error('Existing typography binding is incompatible.');
+      const segments = node.getStyledTextSegments(['boundVariables'], start, end);
+      if (!Array.isArray(segments) || segments.length < 1 || segments.length > ${MAX_FONT_BINDING_CANDIDATES}) {
+        throw new Error('Existing typography binding topology exceeds the rollback limit.');
+      }
+      priorTopology = [];
+      let cursor = start;
+      for (const segment of segments) {
+        if (!segment || segment.start !== cursor || !Number.isSafeInteger(segment.end)
+          || segment.end <= segment.start || segment.end > end) {
+          throw new Error('Existing typography binding topology is invalid.');
+        }
+        const raw = segment.boundVariables && segment.boundVariables[field];
+        const id = aliasId(raw || null);
+        if (id === false) throw new Error('Existing typography binding topology is incompatible.');
+        priorTopology.push({ start: segment.start, end: segment.end, id });
+        cursor = segment.end;
+      }
+      if (cursor !== end) throw new Error('Existing typography binding topology is incomplete.');
+      for (const id of new Set(priorTopology.map((segment) => segment.id).filter(Boolean))) {
+        const prior = await resolveVariableById(id);
+        if (!prior || prior.resolvedType !== expectedType) throw new Error('Existing typography binding could not be resolved for rollback.');
+        priorVariables.set(id, prior);
+      }
+    }
+    const priorVariable = priorId === null || priorId === false ? null : await resolveVariableById(priorId);
+    if (priorId !== null && priorId !== false && (!priorVariable || priorVariable.resolvedType !== expectedType)) {
+      throw new Error('Existing typography binding could not be resolved for rollback.');
+    }
+    const setBinding = (value) => {
+      if (${ranged ? 'true' : 'false'} || priorTopology !== null) node.setRangeBoundVariable(start, end, field, value);
+      else node.setBoundVariable(field, value);
+    };
     const requestedId = variable === null ? null : variable.id;
     let setterFailed = false;
     try { setBinding(variable); } catch { setterFailed = true; }
@@ -116,7 +163,19 @@ export function fontVariableBindingApplicationCode(request) {
         observedVariableId: observedId, residue: [] });
     }
     let restored = false; let restoredObservedId = observedId;
-    try { setBinding(priorVariable); restoredObservedId = aliasId(readAlias()); restored = restoredObservedId === priorId; } catch {}
+    try {
+      if (priorTopology !== null) {
+        for (const segment of priorTopology) {
+          node.setRangeBoundVariable(segment.start, segment.end, field,
+            segment.id === null ? null : priorVariables.get(segment.id));
+        }
+        restored = priorTopology.every((segment) =>
+          aliasId(node.getRangeBoundVariable(segment.start, segment.end, field)) === segment.id);
+        restoredObservedId = aliasId(readAlias());
+      } else {
+        setBinding(priorVariable); restoredObservedId = aliasId(readAlias()); restored = restoredObservedId === priorId;
+      }
+    } catch {}
     const residue = restored ? [] : [{ node: nodeIdentity, field, range,
       observedVariableId: typeof restoredObservedId === 'string' ? restoredObservedId : null }];
     return JSON.stringify({ schemaVersion: 1, status: 'failed', action, nodeResolution: 'id',

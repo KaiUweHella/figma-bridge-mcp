@@ -147,9 +147,12 @@ The bounded, non-retrying bind or unbind of one supported typography field on
 one explicit Text Node or character range. It closes Node Reference, field,
 Variable, optional Collection and range input before readiness; preflights the
 compatible Variable and prior binding; and requires a fresh exact-id
-readback after mutation. A setter exception, silent no-op or mismatched
-readback restores and verifies the prior binding where possible. Otherwise it
-reports the exact node/field/range residue instead of success or atomicity.
+readback after mutation. Text Node binding arrays and mixed character-range
+topologies are captured as a bounded segment journal before mutation; an
+explicit whole-node intent may therefore replace them without making rollback
+impossible. A setter exception, silent no-op or mismatched readback restores
+and verifies every prior segment where possible. Otherwise it reports the
+exact node/field/range residue instead of success or atomicity.
 _Avoid_: generated font binding eval, setter-result success, retryable binding, unverified rollback
 
 **Layout Grid Facts**:
@@ -557,6 +560,15 @@ _Avoid_: message id, current-file check, socket metadata
 **Plugin Write Lane**:
 The bounded, deadline-aware serialization boundary for mutations against one resolved Plugin document session. Queue expiry and cancellation before start are not dispatched; an unknown dispatched outcome quarantines only that target until the exact Dispatch Receipt proves the Plugin operation has stopped or an explicit recovery proves the old runtime stopped. Other document sessions remain independent.
 _Avoid_: global mutex, eval chain, request timeout
+
+**Plugin Keepalive**:
+The authenticated UI-to-Daemon liveness exchange for one Plugin socket. A
+regularly ticking Plugin UI closes an unanswered Daemon after one bounded
+deadline. A delayed Plugin timer proves only that Figma or the host suspended
+that observer, so resume grants one fresh bounded Pong window instead of
+turning legitimate document work or system sleep into a disconnect. Keepalive
+never proves command completion and never releases a quarantined lane.
+_Avoid_: wall-clock Pong age, command timeout, reconnect proof
 
 **Structured Mutation Journal**:
 The request-scoped ownership record for resources and scene nodes created by one native Semantic Render execution. It cleans removable Command-owned entries in reverse creation order, never includes reused user/library resources, and reports bounded stable residue when Figma exposes no reversal API or cleanup fails.
