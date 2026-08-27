@@ -246,6 +246,31 @@ test('node set-text delegates one non-retrying Command Application', () => {
   );
 });
 
+test('node move delegates raw signed positionals to one closed Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'node-move-command.js'), 'utf8');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('move [args...]')");
+  const end = adapter.indexOf(".command('resize <nodeId> <width> <height>')", start);
+  const action = adapter.slice(start, end);
+  const helperStart = adapter.indexOf('async function runNodeMoveCommand');
+  const helper = adapter.slice(helperStart, start);
+
+  assert.match(action, /\.allowUnknownOption\(true\)/,
+    'Commander must retain signed numeric tokens for the closed parser');
+  assert.match(action, /runNodeMoveCommand\(\['node', 'move', \.\.\.args\]\)/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|node\.x\s*=|node\.y\s*=/,
+    'Commander must not retain Node Move execution logic');
+  assert.match(helper, /nodeMoveRequestFromArgv\(argv\)/);
+  assert.match(helper, /nodeMoveRequestFromArgv\(argv\)/);
+  assert.match(helper, /planFigmaCommand\(argv/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /executeNodeMovePlan\(plan/);
+  assert.match(application, /absoluteBoundingBox/,
+    'the Application must verify in absolute canvas coordinates');
+});
+
 test('node tree delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('node-ops.js');
   assert.ok(adapter, 'node-ops.js exists');

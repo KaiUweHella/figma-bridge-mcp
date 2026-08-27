@@ -39,6 +39,12 @@ import {
   parseNodeTextRequest,
 } from '../engine/src/application/node-text-request.js';
 import {
+  acceptsNodeMoveArgv,
+  nodeMoveArgvFromRequest,
+  nodeMoveFigmaUrlFileKeyFromArgv,
+  parseNodeMoveRequest,
+} from '../engine/src/application/node-move-request.js';
+import {
   acceptsNodeCssArgv,
   nodeCssArgvFromRequest,
   nodeCssFigmaUrlFileKeyFromArgv,
@@ -409,7 +415,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
+  'link.set', 'node.bindings', 'node.css', 'node.move', 'node.set-text', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
@@ -743,6 +749,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'move' && !action.help && !acceptsNodeMoveArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'tree' && !action.help && !acceptsNodeTreeArgv(args)) {
@@ -1390,6 +1399,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           throw new Error('Node Text target projection disagrees with its closed request Interface.');
         }
         args.splice(0, args.length, ...nodeTextArgvFromRequest(parseNodeTextRequest(args)));
+      } else if (args[1] === 'move') {
+        const closedNodeMoveFileKey = nodeMoveFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeMoveFileKey;
+        args.splice(0, args.length, ...nodeMoveArgvFromRequest(parseNodeMoveRequest(args)));
       } else if (args[1] === 'set-image') {
         const imageIndex = positionalIndexes(args, 2)[1];
         if (typeof args[imageIndex] === 'string') {

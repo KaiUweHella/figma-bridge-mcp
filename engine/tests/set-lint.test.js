@@ -24,6 +24,15 @@ describe('parseSetRequest', () => {
     assert.deepEqual(r.props, { radius: 8, visible: false });
   });
 
+  test('x and y share the bounded signed coordinate contract with node move', () => {
+    const request = parseSetRequest({ node: '1:2', x: '-3600.5', y: '400' });
+    assert.deepEqual(request.props, { x: -3600.5, y: 400 });
+    assert.throws(
+      () => parseSetRequest({ node: '1:2', x: String(Number.MAX_SAFE_INTEGER + 1) }),
+      /x must be a finite number between/,
+    );
+  });
+
   test('a non-numeric number is refused, naming the property', () => {
     assert.throws(() => parseSetRequest({ node: '1:2', radius: 'abc' }), /radius must be a number/);
   });

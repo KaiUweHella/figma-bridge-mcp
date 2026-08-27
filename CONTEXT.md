@@ -155,6 +155,10 @@ and verifies every prior segment where possible. Otherwise it reports the
 exact node/field/range residue instead of success or atomicity.
 _Avoid_: generated font binding eval, setter-result success, retryable binding, unverified rollback
 
+**Node Move**:
+The bounded, non-retrying placement of one explicit canvas node at an absolute-canvas X/Y coordinate, with optional top-level Page reparenting. Its closed request distinguishes signed numeric positionals from unknown options before readiness, shares the coordinate validator used by Node Property mutation, and preserves Figma URL targeting independently of option order. Success is claimed only after a fresh absolute-position readback matches the requested coordinates; CLI and MCP execute the same Command Plan and Application without re-entering Commander.
+_Avoid_: Commander move handler, parent-relative placement claim, setter-only success, implicit page selection
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

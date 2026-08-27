@@ -337,6 +337,19 @@ test('figma_run routes Node Text through the shared non-retrying Application', (
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Text must not re-enter Commander');
 });
 
+test('figma_run routes Node Move through the shared verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeMoveRoute = nodeMovePlanRoute(plan)');
+  const end = source.indexOf('const nodeBindingsRoute = nodeBindingsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeMovePlan\(plan/);
+  assert.match(slice, /formatNodeMoveResult\(result\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Move must not re-enter Commander');
+});
+
 test('figma_run routes Node Tree through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeTreeRoute = nodeTreePlanRoute(plan)');
@@ -2069,6 +2082,23 @@ test('figma_run rejects malformed Node Text argv before confirmation or readines
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /PREVIEW|private-value/);
   }
+});
+
+test('figma_run preserves precise Node Move request errors before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const unknown = await handleTool('figma_run', {
+    args: ['node', 'move', '1:2', '--future', '2', '3'],
+  });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.content[0].text, /Invalid node move command: unknown option --future/);
+  assert.doesNotMatch(unknown.content[0].text, /Unknown or unsupported Figma Command/);
+
+  const malformed = await handleTool('figma_run', {
+    args: ['node', 'move', '1:2', '-4', 'not-a-number'],
+  });
+  assert.equal(malformed.isError, true);
+  assert.match(malformed.content[0].text, /Invalid node move command: y must be a finite number/);
+  assert.doesNotMatch(malformed.content[0].text, /Plugin not connected|figma_connect/);
 });
 
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {

@@ -12,7 +12,7 @@ import {
   fastEval
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
-import { generateFillCode, isVarRef, pageLookupCode, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
+import { generateFillCode, isVarRef, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
 import { readImageBase64 } from '../lib/image-file.js';
 import {
   executeNodeCssPlan,
@@ -28,6 +28,12 @@ import {
   nodeTextPlanningArgvFromRequest,
   nodeTextResultRows,
 } from '../application/node-text-command.js';
+import {
+  executeNodeMovePlan,
+  formatNodeMoveResult,
+  nodeMoveRequestFromArgv,
+} from '../application/node-move-command.js';
+import { finiteNodeCoordinate } from '../application/node-coordinate.js';
 import {
   executeNodeTreePlan,
   nodeTreePlanningArgvFromRequest,
@@ -439,49 +445,40 @@ node
     }
   });
 
+async function runNodeMoveCommand(argv) {
+  nodeMoveRequestFromArgv(argv);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      const result = await executeNodeMovePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+      return { stdout: formatNodeMoveResult(result), stderr: '', code: 0 };
+    });
+}
+
 node
-  .command('move <nodeId> <x> <y>')
+  .command('move [args...]')
+  .usage('<nodeId> <x> <y> [--page <nameOrId>]')
   .description('Move a node to an absolute canvas position (top-left corner). Sections move with their children.')
-  .option('-p, --page <nameOrId>', 'Reparent onto this page (top level) before positioning')
-  .action(async (nodeId, x, y, options) => {
-    await checkConnection();
-    const targetX = Number(x);
-    const targetY = Number(y);
-    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
-      console.log(chalk.red('✗ x and y must be numbers'));
-      return;
-    }
-    const code = `(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
-      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-      if (!('x' in node)) throw new Error('Node has no position: ' + node.type);
-      ${options.page ? `{
-        ${pageLookupCode(options.page)}
-        await target.loadAsync();
-        target.appendChild(node);
-        // Top level of a page: x/y ARE absolute, set directly.
-        node.x = ${targetX};
-        node.y = ${targetY};
-        return { id: node.id, name: node.name, x: node.x, y: node.y, page: target.name };
-      }` : ''}
-      // node.x/y are parent-relative; translate the absolute target into the
-      // parent's coordinate space so the command means the same thing at any
-      // nesting depth.
-      const b = node.absoluteBoundingBox;
-      if (b) {
-        node.x = node.x + (${targetX} - b.x);
-        node.y = node.y + (${targetY} - b.y);
-      } else {
-        node.x = ${targetX};
-        node.y = ${targetY};
-      }
-      return { id: node.id, name: node.name, x: node.x, y: node.y };
-    })()`;
+  // Commander normally consumes signed numbers as options. Retain every raw
+  // token and let the closed request Interface distinguish them fail-closed.
+  .allowUnknownOption(true)
+  .addHelpText('after', '\nAdditional accepted syntax:\n  -p, --page <nameOrId>  Reparent onto this page before positioning')
+  .action(async (args) => {
     try {
-      const r = await fastEval(code);
-      console.log(chalk.green('✓'), `Moved "${r.name}" (${r.id})`);
-    } catch (e) {
-      console.log(chalk.red('✗ Move failed: ' + e.message));
+      const result = await runNodeMoveCommand(['node', 'move', ...args]);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Move failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });
@@ -917,7 +914,14 @@ export function parseSetRequest(entry) {
     }
     const want = SET_PROPS[key];
     if (want === 'number') {
-      const n = Number(value);
+      let n;
+      try {
+        n = key === 'x' || key === 'y'
+          ? finiteNodeCoordinate(value, key)
+          : Number(value);
+      } catch (error) {
+        throw new Error(error.message);
+      }
       if (!Number.isFinite(n)) throw new Error(`${key} must be a number, got ${JSON.stringify(value)}`);
       props[key] = n;
     } else if (want === 'nullable-number') {

@@ -78,6 +78,12 @@ import {
   nodeTextPlanRoute,
 } from "../engine/src/application/node-text-command.js";
 import {
+  executeNodeMovePlan,
+  formatNodeMoveResult,
+  nodeMovePlanRoute,
+  nodeMoveRequestFromArgv,
+} from "../engine/src/application/node-move-command.js";
+import {
   executeNodeCssPlan,
   nodeCssPlanRoute,
 } from "../engine/src/application/node-css-command.js";
@@ -1996,6 +2002,13 @@ export async function handleTool(name, rawArgs) {
       if (input.preview !== undefined && typeof input.preview !== "boolean") {
         return errorResult("preview must be a boolean.");
       }
+      if (args[0] === "node" && args[1] === "move") {
+        try {
+          nodeMoveRequestFromArgv(args);
+        } catch (error) {
+          return errorResult(error?.message || String(error));
+        }
+      }
       const plan = planFigmaRunCommand(args, {
         fileKey: input.fileKey,
         workspaceIO: WORKSPACE_IO,
@@ -2089,6 +2102,24 @@ export async function handleTool(name, rawArgs) {
             stderr: "",
             code: 0,
           };
+        });
+        return resultFromCli(res);
+      }
+      const nodeMoveRoute = nodeMovePlanRoute(plan);
+      if (nodeMoveRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          const result = await executeNodeMovePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+          return { stdout: formatNodeMoveResult(result), stderr: "", code: 0 };
         });
         return resultFromCli(res);
       }
