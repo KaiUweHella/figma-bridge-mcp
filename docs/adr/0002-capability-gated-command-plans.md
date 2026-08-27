@@ -317,6 +317,16 @@ Plugin axis metadata distinct: it does not invent the general variation-axis
 tuple that the Figma Plugin API does not expose. Typography binding mutations
 and metadata writes remain separate Commands.
 
+`font bind` and `font unbind` own the adjacent Node Typography Variable Binding
+write. Their closed request preserves one semantic Text Node Reference,
+supported field, optional character range, and bounded Variable/Collection
+queries regardless of option order. Commander and `figma_run` execute one
+non-retrying Command Plan and Command Application. Success requires fresh
+field/range readback of the exact requested Variable Alias id (or exact unbound
+state); silent setter no-ops and mismatches restore the prior binding or report
+bounded residue. The write never re-enters Commander or creates a second MCP
+approval.
+
 Current-page Canvas Awareness follows the same rule for `canvas info` and
 `canvas next`. Their closed request Interface owns the complete option surface,
 including bounded numeric gaps and the `right|below` direction. Commander and

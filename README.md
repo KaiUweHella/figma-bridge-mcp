@@ -1532,6 +1532,20 @@ variable bindings. `--all-open-type` also includes false feature values. The
 result names the API limit explicitly: a reported `fontWeight` is not a general
 `wght`/`wdth`/`opsz`/custom-axis tuple, and OpenType features are read-only.
 
+Typography Variable bindings use the same explicit node/range boundary:
+
+```
+figma_run ["font", "bind", "12:36", "fontSize", "type/body", "--collection", "Typography"]
+figma_run ["font", "bind", "12:36", "lineHeight", "type/leading", "--start", "0", "--end", "12"]
+figma_run ["font", "unbind", "12:36", "lineHeight", "--start", "0", "--end", "12"]
+```
+
+`font bind` and `font unbind` are non-retrying writes shared by CLI and MCP.
+They preflight type compatibility, fonts, ambiguity and the prior binding, then
+freshly read the exact node/range binding after the setter. A silent no-op or
+wrong Variable id is a failure, not success; the prior binding is restored and
+verified where possible, otherwise the result reports bounded residue.
+
 When the exact axis values are known from the UI or another font tool, preserve
 them on the text node as range metadata:
 

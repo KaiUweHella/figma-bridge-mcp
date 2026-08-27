@@ -239,6 +239,12 @@ import {
   parseFontInspectionRequest,
 } from '../engine/src/application/font-inspection-request.js';
 import {
+  acceptsFontVariableBindingArgv,
+  fontVariableBindingArgvFromRequest,
+  fontVariableBindingFigmaUrlFileKeyFromArgv,
+  parseFontVariableBindingRequest,
+} from '../engine/src/application/font-variable-binding-request.js';
+import {
   acceptsComponentMainArgv,
   componentMainArgvFromRequest,
   componentMainFigmaUrlFileKeyFromArgv,
@@ -404,7 +410,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.set-text', 'node.tree', 'find',
-  'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
   'var.create-batch',
@@ -656,6 +662,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
   }
+  if (name === 'font' && ['bind', 'unbind'].includes(sub)) pathPolicy = 'font-variable-binding-input';
   if (name === 'component' && sub === 'main') {
     retry = 'safe-read';
     pathPolicy = 'component-main-input';
@@ -870,6 +877,10 @@ function commandCapability(args) {
   }
   if (name === 'font' && args[1] === 'inspect'
     && !action.help && !acceptsFontInspectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'font' && ['bind', 'unbind'].includes(args[1])
+    && !action.help && !acceptsFontVariableBindingArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'main'
@@ -1626,6 +1637,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...fontInspectionArgvFromRequest(parseFontInspectionRequest(args)));
+      break;
+    }
+    case 'font-variable-binding-input': {
+      const closedFileKey = fontVariableBindingFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...fontVariableBindingArgvFromRequest(parseFontVariableBindingRequest(args)));
       break;
     }
     case 'inspect-input': {

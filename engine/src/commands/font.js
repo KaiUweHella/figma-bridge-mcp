@@ -12,17 +12,19 @@ import {
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   fontAxesCode,
-  fontVariableBindingCode,
   forgetAxesCode,
   parseAxisSpec,
   parseOptionalIndex,
-  parseTypographyField,
   rememberAxesCode,
 } from '../lib/font-introspection.js';
 import {
   executeFontInspectionPlan,
   fontInspectionPlanningArgvFromRequest,
 } from '../application/font-inspection-command.js';
+import {
+  executeFontVariableBindingPlan,
+  fontVariableBindingPlanningArgvFromRequest,
+} from '../application/font-variable-binding-command.js';
 
 const font = program
   .command('font')
@@ -43,47 +45,48 @@ rangeOptions(font
   .command('bind <nodeId> <field> <variable>')
   .description('Bind a STRING/FLOAT variable to a typography field on a TEXT node or character range'))
   .option('-c, --collection <name>', 'Narrow an ambiguous local variable name to one collection')
+  .allowExcessArguments(false)
   .action(async (nodeId, field, variable, options) => {
     try {
-      const id = normalizeNodeId(nodeId).id;
-      const normalizedField = parseTypographyField(field);
       const range = parsedRange(options);
-      await checkConnection();
-      const result = await fastEval(fontVariableBindingCode({
-        nodeId: id,
-        field: normalizedField,
-        variableName: variable,
-        collection: options.collection || null,
-        ...range,
-      }));
-      console.log(chalk.green('✓'), `Bound ${normalizedField} to ${result.variable.name}.`);
-      print(result);
+      await runFontVariableBinding({ action: 'bind', nodeId, field, variable,
+        collection: options.collection || null, ...range });
     } catch (error) {
-      handleEvalError(error);
+      console.error(chalk.red('✗ Font binding failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
 rangeOptions(font
   .command('unbind <nodeId> <field>')
   .description('Remove a typography-variable binding from a TEXT node or character range'))
+  .allowExcessArguments(false)
   .action(async (nodeId, field, options) => {
     try {
-      const id = normalizeNodeId(nodeId).id;
-      const normalizedField = parseTypographyField(field);
       const range = parsedRange(options);
-      await checkConnection();
-      const result = await fastEval(fontVariableBindingCode({
-        nodeId: id,
-        field: normalizedField,
-        unbind: true,
-        ...range,
-      }));
-      console.log(chalk.green('✓'), `Unbound ${normalizedField}.`);
-      print(result);
+      await runFontVariableBinding({ action: 'unbind', nodeId, field, ...range });
     } catch (error) {
-      handleEvalError(error);
+      console.error(chalk.red('✗ Font unbinding failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
+
+async function runFontVariableBinding(request) {
+  const plan = planFigmaCommand(fontVariableBindingPlanningArgvFromRequest(request), {
+    adapter: 'cli', fileKey: program.opts().figmaFile || null,
+  });
+  const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeFontVariableBindingPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code, ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+  if (result.stderr) console.error(chalk.yellow(result.stderr));
+  console.log(result.stdout);
+}
 
 rangeOptions(font
   .command('inspect <nodeId>')

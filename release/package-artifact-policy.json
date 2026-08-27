@@ -97,6 +97,8 @@
     "engine/src/application/design-link-request.js",
     "engine/src/application/font-inspection-command.js",
     "engine/src/application/font-inspection-request.js",
+    "engine/src/application/font-variable-binding-command.js",
+    "engine/src/application/font-variable-binding-request.js",
     "engine/src/application/figma-scalar.js",
     "engine/src/application/history-command.js",
     "engine/src/application/history-request.js",

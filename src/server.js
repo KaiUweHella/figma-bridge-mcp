@@ -218,6 +218,10 @@ import {
   fontInspectionPlanRoute,
 } from "../engine/src/application/font-inspection-command.js";
 import {
+  executeFontVariableBindingPlan,
+  fontVariableBindingPlanRoute,
+} from "../engine/src/application/font-variable-binding-command.js";
+import {
   componentMainPlanRoute,
   executeComponentMainPlan,
 } from "../engine/src/application/component-main-command.js";
@@ -2669,6 +2673,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeFontInspectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const fontVariableBindingRoute = fontVariableBindingPlanRoute(plan);
+      if (fontVariableBindingRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeFontVariableBindingPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

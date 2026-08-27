@@ -736,6 +736,21 @@ test('Text Style bind and unbind close policy-identical non-retrying writes', ()
   }
 });
 
+test('Node typography bind and unbind close policy-identical non-retrying writes', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [['font','bind','1-2','font-size','type/size','--start','1','--end','4','-c','Fixture'],
+      ['font','bind','--collection=Fixture','--end=4','--start=1','--','1:2','fontSize','type/size'], 'font.bind'],
+    [['font','unbind','1:2','line-height'], ['font','unbind','--','1:2','lineHeight'], 'font.unbind'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+    assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
 test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['grid', 'list', '10-3', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['grid', 'list', '--json', '10:3'], { adapter: 'mcp' });

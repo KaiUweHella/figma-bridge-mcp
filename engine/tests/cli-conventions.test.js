@@ -1234,6 +1234,20 @@ test('font inspect delegates one Plan-bound bounded-read Command Application', (
     'Commander must not retain Font Inspection readiness, capture, or formatting logic');
 });
 
+test('font bind and unbind delegate one readback-verified rollback-owned Application', () => {
+  const adapter = sources.get('font.js');
+  const start = adapter.indexOf(".command('bind <nodeId> <field> <variable>')");
+  const end = adapter.indexOf(".command('inspect <nodeId>')", start);
+  const slice = adapter.slice(start, end);
+  assert.match(slice, /\.allowExcessArguments\(false\)/);
+  assert.match(slice, /fontVariableBindingPlanningArgvFromRequest/);
+  assert.match(slice, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(slice, /executeFontVariableBindingPlan/);
+  assert.match(slice, /daemonExec\('eval'/);
+  assert.doesNotMatch(slice, /fontVariableBindingCode\(|fastEval\(|checkConnection\(/,
+    'Commander must not retain an unverified legacy binding path');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {

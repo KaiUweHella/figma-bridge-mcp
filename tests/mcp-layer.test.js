@@ -1189,6 +1189,33 @@ test('figma_run routes Font Inspection through the shared bounded-read Applicati
     'Font Inspection must not re-enter Commander');
 });
 
+test('figma_run routes Font binding through the shared readback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const fontVariableBindingRoute = fontVariableBindingPlanRoute(plan)');
+  const end = source.indexOf('const componentMainRoute = componentMainPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeFontVariableBindingPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Font binding must not re-enter Commander or a second approval path');
+});
+
+test('figma_run rejects malformed Font binding before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['font','bind','1:2','fontSize'], ['font','unbind','1:2','width'],
+    ['font','unbind','--collection','private-value','1:2','fontSize'],
+    ['font','bind','--start','1','--start','2','1:2','fontSize','V:1'],
+  ]) {
+    const result = await handleTool('figma_run', { args, confirm: true });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Font Inspection before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

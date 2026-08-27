@@ -142,6 +142,16 @@ binding after a setter failure where possible, and returns compact identities
 without authored Text Style values.
 _Avoid_: font binding eval, raw Text Style result, retryable binding, atomic claim
 
+**Node Typography Variable Binding**:
+The bounded, non-retrying bind or unbind of one supported typography field on
+one explicit Text Node or character range. It closes Node Reference, field,
+Variable, optional Collection and range input before readiness; preflights the
+compatible Variable and prior binding; and requires a fresh exact-id
+readback after mutation. A setter exception, silent no-op or mismatched
+readback restores and verifies the prior binding where possible. Otherwise it
+reports the exact node/field/range residue instead of success or atomicity.
+_Avoid_: generated font binding eval, setter-result success, retryable binding, unverified rollback
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

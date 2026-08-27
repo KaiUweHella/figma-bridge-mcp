@@ -1,7 +1,8 @@
 // Exact bounded Font Inspection Command Application.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { TYPOGRAPHY_VARIABLE_FIELDS, fontInspectCode } from '../lib/font-introspection.js';
+import { fontInspectCode } from '../lib/font-introspection.js';
+import { FONT_VARIABLE_FIELDS } from './font-variable-binding-request.js';
 import {
   fontInspectionArgvFromRequest,
   fontInspectionPlanningArgvFromRequest,
@@ -29,7 +30,7 @@ const AXIS_METADATA_ERRORS = new Set([
   'Axis metadata contains an invalid axis.',
   'Axis metadata contains an empty axis tuple.',
 ]);
-const TYPOGRAPHY_FIELDS = new Set(Object.keys(TYPOGRAPHY_VARIABLE_FIELDS));
+const TYPOGRAPHY_FIELDS = new Set(Object.keys(FONT_VARIABLE_FIELDS));
 
 function normalizedRequest(request) {
   return parseFontInspectionRequest(fontInspectionArgvFromRequest(request));
