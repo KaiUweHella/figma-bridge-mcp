@@ -491,9 +491,18 @@ values as executable code.
 
 `canvas pages` and `canvas page` likewise use one Page Navigation path across
 CLI and MCP. Page listing is a bounded safe read; switching is explicit,
-non-retrying, and resolves only an id, exact name, or unique substring. It
+non-retrying, and resolves only an id, exact name, or unique substring. Use
+`node:<id-or-Figma-URL>` for explicit node identity or `name:<literal>` for an
+explicit page name; an unprefixed value remains the compatible `query:` search.
+Only the explicit node form may derive the target file from a Figma URL. It
 changes the active editor page without modifying document content, while
 ambiguous names fail instead of selecting a page by guesswork.
+
+The same discriminator protects union lookups in Figma Slides and
+`component add-variant`: `node:`, `name:` and (for Slides) `label:` select one
+identity surface, while bare values preserve the existing query workflow.
+URL-shaped names and labels therefore stay usable without silently retargeting
+the Command.
 
 Top-level `find` provides bounded Node Discovery on the fully loaded current
 page across CLI and MCP. Case-insensitive partial-name matching, the optional

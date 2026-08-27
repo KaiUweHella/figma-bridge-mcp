@@ -87,8 +87,9 @@ export function nearestVariant(variants, targetPairs, defaultId) {
 
 /**
  * Eval source for `component add-variant <set> <pairs> [--from <name>]`.
- * setRef: node id, exact set name, or normalized set name. pairs: parsed
- * target pairs. fromName: explicit clone source (variant name), or null.
+ * setRef: typed node/name/query reference (a string remains a compatibility
+ * query). pairs: parsed target pairs. fromName: explicit clone source
+ * (variant name), or null.
  *
  * The eval refuses to mutate a set whose variantGroupProperties throws
  * (conflicting variant names), refuses duplicates, and — when a pair names a
@@ -97,8 +98,17 @@ export function nearestVariant(variants, targetPairs, defaultId) {
  * the set in Figma's "missing property" error state.
  */
 export function addVariantCode({ setRef, pairs, fromName }) {
+  const reference = typeof setRef === 'string'
+    ? { kind: 'query', value: setRef }
+    : setRef;
+  if (!reference || typeof reference !== 'object'
+    || !['node', 'name', 'query'].includes(reference.kind)
+    || typeof reference.value !== 'string' || reference.value.length === 0) {
+    throw new TypeError('addVariantCode requires a typed Component Set reference.');
+  }
   return `(async () => {
-    const setRef = ${JSON.stringify(String(setRef))};
+    const reference = ${JSON.stringify({ kind: reference.kind, value: reference.value })};
+    const setRef = reference.value;
     const target = ${JSON.stringify(pairs)};
     const fromName = ${JSON.stringify(fromName || null)};
     const __pairsFromName = ${variantNamePairs.toString()};
@@ -106,14 +116,16 @@ export function addVariantCode({ setRef, pairs, fromName }) {
     const __norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     await figma.loadAllPagesAsync();
-    const idShaped = /^\\d+:\\d+$/.test(setRef) || setRef.indexOf(';') !== -1;
+    const idShaped = reference.kind === 'node' || (reference.kind === 'query'
+      && (/^\\d+:\\d+$/.test(setRef) || setRef.indexOf(';') !== -1));
     let set = null;
     if (idShaped) {
       const n = await figma.getNodeByIdAsync(setRef);
       if (n && n.type === 'COMPONENT_SET') set = n;
       else if (n) throw new Error('Node ' + setRef + ' is a ' + n.type + ', not a COMPONENT_SET.');
+      else if (reference.kind === 'node') throw new Error('Component Set node not found: ' + setRef + '.');
     }
-    if (!set) {
+    if (!set && reference.kind !== 'node') {
       const all = [];
       const walk = (node) => {
         if (node.type === 'COMPONENT_SET') { all.push(node); return; }

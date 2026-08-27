@@ -22,11 +22,15 @@ test('Page Navigation request closes and canonicalizes pages and page', () => {
     action: 'pages', json: true,
   });
   assert.deepEqual(parsePageNavigationRequest(['canvas', 'page', '--', '--help']), {
-    action: 'page', query: '--help',
+    action: 'page',
+    reference: {
+      kind: 'query', value: '--help', nodeId: null, fileKey: null,
+      warning: '', planningValue: '--help',
+    },
   });
   assert.deepEqual(pageNavigationArgvFromRequest({ action: 'pages' }), ['canvas', 'pages']);
   assert.deepEqual(pageNavigationArgvFromRequest({ action: 'page', query: '--help' }),
-    ['canvas', 'page', '--', '--help']);
+    ['canvas', 'page', 'query:--help']);
 
   for (const argv of [
     ['canvas', 'pages', '--json', '--json'],
@@ -62,7 +66,7 @@ test('Page Navigation switches by the closed query and sanitizes text projection
     },
   });
   assert.match(code, /setCurrentPageAsync\(target\)/);
-  assert.match(code, /const q = "Comp"/);
+  assert.match(code, /"kind":"query","value":"Comp"/);
   assert.equal(result.stdout, '✓ Switched to page: Comp�[31monents (0:2)');
   assert.equal(result.result.name, 'Comp\u001b[31monents');
 });
@@ -157,4 +161,38 @@ test('Page Navigation resolves policy-identical CLI and MCP Plans', () => {
     const { adapter: _mcpAdapter, allowed: _mcpAllowed, ...mcpPolicy } = mcp;
     assert.deepEqual(cliPolicy, mcpPolicy);
   }
+});
+
+test('Page Navigation projects a Figma file only from an explicit node variant', () => {
+  const url = 'https://www.figma.com/design/ARGUMENTPLACEHOLDERKEY/FILE_NAME?node-id=0-2';
+  const node = planFigmaCommand(['canvas', 'page', `node:${url}`], { adapter: 'mcp' });
+  assert.equal(node.allowed, true);
+  assert.deepEqual(node.argv, ['canvas', 'page', 'node:0:2']);
+  assert.equal(node.target.fileKey, 'ARGUMENTPLACEHOLDERKEY');
+  assert.equal(node.target.source, 'figma-url');
+
+  for (const value of [`name:${url}`, `query:${url}`, url]) {
+    const payload = planFigmaCommand(['canvas', 'page', value], { adapter: 'mcp' });
+    assert.equal(payload.allowed, true, value);
+    assert.equal(payload.target.fileKey, null, value);
+    assert.equal(payload.target.source, 'implicit-single-window', value);
+  }
+});
+
+test('Page Navigation explicit node and name variants do not fall through to another identity kind', async () => {
+  let code = '';
+  await assert.rejects(
+    () => executePageNavigation({ action: 'page', reference: { kind: 'node', value: '0:9' } }, {
+      evaluate: async (value) => { code = value; return { status: 'not-found' }; },
+    }),
+    /Page not found: 0:9/,
+  );
+  assert.match(code, /reference\.kind !== 'node'/);
+
+  await assert.rejects(
+    () => executePageNavigation({ action: 'page', reference: { kind: 'name', value: '0:2' } }, {
+      evaluate: async () => ({ status: 'not-found' }),
+    }),
+    /Page not found: 0:2/,
+  );
 });

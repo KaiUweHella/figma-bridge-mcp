@@ -19,11 +19,12 @@ the Bridge never guesses which one should own a cross-file-looking request.
 
 Node fields continue to accept canonical ids, dashed URL ids, full Figma URLs,
 surrounding whitespace, and documented schemaless URL forms. A union field
-that also accepts a user-authored name or label does not derive a target until
-its request Interface can distinguish node identity from payload. This keeps
-URL-shaped names usable and preserves ordinary single-window workflows; users
-can always provide the explicit file target when a command has no unambiguous
-URL-bearing identity field.
+that also accepts a user-authored name or label derives a target only from the
+explicit `node:` variant defined by ADR 0080. `name:`, `label:`, `query:` and
+unprefixed compatibility values remain payload. This keeps URL-shaped names
+usable and preserves ordinary single-window workflows; users can always
+provide the explicit file target when a command has no unambiguous URL-bearing
+identity field.
 
 Closed request Interfaces that share this syntax delegate to one internal Node
 Reference Module. It owns the common bound, accepted bare/dashed/instance-path

@@ -9,15 +9,15 @@ authenticated Bridge Daemon and plugin transport.
 
 ## Beta contract delivered in 0.4.0
 
-| Command | Contract |
-|---|---|
-| `slides inspect [slide]` | Read the native canvas grid, focus, names, coordinates, skip state, transition and child count |
-| `slides create [label]` | Create and focus a slide, optionally at a zero-based row/column; store a durable Bridge label because Figma renumbers native slide names |
-| `slides duplicate <slide>` | Clone one explicit slide, add an optional durable `--label`, and move the copy to the end or an existing coordinate |
-| `slides move <slide> <row> <col>` | Move one explicit slide through `moveNodesToCoord` |
-| `slides transition <slide> <style>` | Set the native style, duration, curve and click/delay timing |
-| `slides skip <slide> [on\|off]` | Set presentation skip state explicitly |
-| `slides delete <slide>` | Delete one id/exact-name/unique-substring match; ambiguity refuses |
+| Command                             | Contract                                                                                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `slides inspect [slide]`            | Read the native canvas grid, focus, names, coordinates, skip state, transition and child count                                           |
+| `slides create [label]`             | Create and focus a slide, optionally at a zero-based row/column; store a durable Bridge label because Figma renumbers native slide names |
+| `slides duplicate <slide>`          | Clone one explicit slide, add an optional durable `--label`, and move the copy to the end or an existing coordinate                      |
+| `slides move <slide> <row> <col>`   | Move one explicit slide through `moveNodesToCoord`                                                                                       |
+| `slides transition <slide> <style>` | Set the native style, duration, curve and click/delay timing                                                                             |
+| `slides skip <slide> [on\|off]`     | Set presentation skip state explicitly                                                                                                   |
+| `slides delete <slide>`             | Delete one id/exact-name/unique-substring match; ambiguity refuses                                                                       |
 
 The implementation uses the current `getCanvasGrid` and `moveNodesToCoord`
 APIs rather than the deprecated Slide Grid setters. Every snippet rejects other
@@ -26,6 +26,12 @@ Catalog and write-confirmation gate. Native slide names are presentation
 numbers and are rewritten on grid changes, so stable labels use plugin data and
 are reported separately. Duplicate and move preflight their target row/column;
 only create may establish a new row through the documented `createSlide` API.
+
+Slide references are discriminated before target resolution. `node:<id-or-URL>`
+selects only node identity and may derive a file target; `name:<literal>` and
+`label:<literal>` select only their named Slides fact. Bare values canonicalize
+to the compatible `query:` lookup and never let a URL-shaped authored name or
+label change the target file.
 
 ## Next candidates
 

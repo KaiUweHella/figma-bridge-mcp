@@ -82,6 +82,21 @@ describe('addVariantCode', () => {
   test('generated eval parses (name ref, id ref, with and without --from)', () => {
     parses(addVariantCode({ setRef: 'Button', pairs: { State: 'Hover' }, fromName: null }), 'by name');
     parses(addVariantCode({ setRef: '12:34', pairs: { State: 'Hover', Size: 'XL' }, fromName: 'State=Default' }), 'by id + from');
+    parses(addVariantCode({ setRef: { kind: 'node', value: '12:34' }, pairs: { State: 'Hover' }, fromName: null }), 'typed node');
+  });
+
+  test('typed Component Set references keep node and name resolution disjoint', () => {
+    const node = addVariantCode({
+      setRef: { kind: 'node', value: '12:34' }, pairs: { State: 'Hover' }, fromName: null,
+    });
+    assert.match(node, /"kind":"node","value":"12:34"/);
+    assert.match(node, /reference\.kind !== 'node'/);
+    assert.match(node, /Component Set node not found/);
+
+    const name = addVariantCode({
+      setRef: { kind: 'name', value: '12:34' }, pairs: { State: 'Hover' }, fromName: null,
+    });
+    assert.match(name, /"kind":"name","value":"12:34"/);
   });
 
   test('a quoted payload cannot break out of the eval', () => {

@@ -173,7 +173,7 @@ canvas
 
 canvas
   .command('page <nameOrId>')
-  .description('Switch the current page (by exact id, exact name, or unique substring)')
+  .description('Switch page (node:<id-or-URL>, name:<literal>, or compatible query)')
   .allowExcessArguments(false)
   .action(async (nameOrId) => {
     try {

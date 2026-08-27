@@ -578,6 +578,10 @@ _Avoid_: fileKey parameter, current window
 The bounded semantic identity accepted by closed node-bearing Figma Command Interfaces. It canonicalizes bare, dashed, instance-path and Figma-URL forms for Plugin dispatch while retaining URL warning and file-target facts only for Command planning. Required or optional arity remains owned by each Figma Command.
 _Avoid_: raw node string, URL argument
 
+**Union Reference**:
+The closed discriminator for a Figma Command field that may mean node identity, native name, durable Bridge label or a compatibility query. Only the explicit `node:` variant may derive Figma Target Context; `name:`, `label:`, `query:` and unprefixed legacy values remain payload in the already resolved file. Execution never falls through from an explicit variant to another identity kind.
+_Avoid_: name-or-id string, guessed reference
+
 **Asset Policy**:
 The canonical classification of image fills, vector artwork and vector clusters shared by **Design Capture** projections and asset export. Node-side and plugin-side adapters apply the same policy implementation.
 _Avoid_: vector heuristic, exporter rule

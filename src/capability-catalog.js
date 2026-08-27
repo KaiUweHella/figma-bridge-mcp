@@ -104,8 +104,21 @@ import {
 import {
   acceptsPageNavigationArgv,
   pageNavigationArgvFromRequest,
+  pageNavigationFigmaUrlFileKeyFromArgv,
   parsePageNavigationRequest,
 } from '../engine/src/application/page-navigation-request.js';
+import {
+  acceptsSlidesReferenceArgv,
+  parseSlidesReferenceRequest,
+  slidesReferenceArgvFromRequest,
+  slidesReferenceFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-reference-request.js';
+import {
+  acceptsComponentSetReferenceArgv,
+  componentSetReferenceArgvFromRequest,
+  componentSetReferenceFigmaUrlFileKeyFromArgv,
+  parseComponentSetReferenceRequest,
+} from '../engine/src/application/component-set-reference-request.js';
 import {
   acceptsPageStructureArgv,
   pageStructureArgvFromRequest,
@@ -647,6 +660,9 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'component-main-input';
   }
+  if (name === 'component' && sub === 'add-variant') {
+    pathPolicy = 'component-set-reference-input';
+  }
   if (name === 'style' && sub === 'show') {
     retry = 'safe-read';
     pathPolicy = 'style-facts-input';
@@ -683,6 +699,10 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'canvas' && ['page-create', 'page-divider'].includes(sub)) {
     pathPolicy = 'page-structure-input';
+  }
+  if (name === 'slides') {
+    if (sub === 'inspect') retry = 'safe-read';
+    pathPolicy = 'slides-reference-input';
   }
   return { execution, timeoutClass, pathPolicy, retry };
 }
@@ -725,6 +745,13 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'bindings' && !action.help && !acceptsNodeBindingsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'add-variant'
+    && !action.help && !acceptsComponentSetReferenceArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'find' && !action.help && !acceptsNodeDiscoveryArgv(args)) {
@@ -1368,6 +1395,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...componentMainArgvFromRequest(parseComponentMainRequest(args)));
       break;
     }
+    case 'component-set-reference-input': {
+      const closedFileKey = componentSetReferenceFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentSetReferenceArgvFromRequest(
+        parseComponentSetReferenceRequest(args)));
+      break;
+    }
     case 'style-facts-input': {
       args.splice(0, args.length,
         ...styleFactsArgvFromRequest(parseStyleFactsRequest(args)));
@@ -1424,6 +1458,8 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'page-navigation-input': {
+      const closedPageFileKey = pageNavigationFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedPageFileKey;
       args.splice(0, args.length,
         ...pageNavigationArgvFromRequest(parsePageNavigationRequest(args)));
       break;
@@ -1431,6 +1467,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'page-structure-input': {
       args.splice(0, args.length,
         ...pageStructureArgvFromRequest(parsePageStructureRequest(args)));
+      break;
+    }
+    case 'slides-reference-input': {
+      const closedFileKey = slidesReferenceFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesReferenceArgvFromRequest(parseSlidesReferenceRequest(args)));
       break;
     }
     case 'node-discovery-input': {

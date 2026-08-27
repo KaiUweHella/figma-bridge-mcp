@@ -10,6 +10,7 @@ import {
   handleEvalError,
 } from '../lib/cli-core.js';
 import * as snippets from '../lib/slides-snippets.js';
+import { unionReferenceExecutionValue } from '../application/union-reference.js';
 
 const slides = program
   .command('slides')
@@ -48,9 +49,10 @@ function index(value, label, { optional = false } = {}) {
 
 slides
   .command('inspect [slide]')
-  .description('Read the slide grid, or one slide by id, native name or durable Bridge label')
+  .description('Read the slide grid, or one typed node:/name:/label: reference or compatible query')
   .action(async (slide) => {
-    await run(snippets.inspect(slide), (result) => console.log(JSON.stringify(result, null, 2)));
+    const reference = slide ? unionReferenceExecutionValue(slide) : null;
+    await run(snippets.inspect(reference), (result) => console.log(JSON.stringify(result, null, 2)));
   });
 
 slides
@@ -78,13 +80,14 @@ slides
   .option('--row <n>', 'Zero-based target row')
   .option('--col <n>', 'Zero-based target column (requires --row)')
   .action(async (slide, options) => {
+    const reference = unionReferenceExecutionValue(slide);
     const row = index(options.row, 'row', { optional: true });
     const col = index(options.col, 'col', { optional: true });
     if (col !== null && row === null) {
       console.error(chalk.red('✗ --col requires --row.'));
       process.exit(1);
     }
-    await run(snippets.duplicate(slide, { label: options.label, row, col }), (result) => {
+    await run(snippets.duplicate(reference, { label: options.label, row, col }), (result) => {
       const labelled = result.slide.label ? ` [${result.slide.label}]` : '';
       console.log(chalk.green('✓'), `Slide ${result.sourceId} duplicated as ${result.slide.id}${labelled}`);
     });
@@ -94,9 +97,10 @@ slides
   .command('move <slide> <row> <col>')
   .description('Move one slide to a zero-based grid coordinate')
   .action(async (slide, rowValue, colValue) => {
+    const reference = unionReferenceExecutionValue(slide);
     const row = index(rowValue, 'row');
     const col = index(colValue, 'col');
-    await run(snippets.move(slide, row, col), (result) => {
+    await run(snippets.move(reference, row, col), (result) => {
       console.log(chalk.green('✓'), `Slide ${result.id} moved to ${result.row},${result.col}`);
     });
   });
@@ -109,6 +113,7 @@ slides
   .option('--timing <timing>', `One of: ${snippets.TRANSITION_TIMINGS.join(', ')}`, 'ON_CLICK')
   .option('--delay <seconds>', 'Delay for AFTER_DELAY timing', '0')
   .action(async (slide, styleValue, options) => {
+    const reference = unionReferenceExecutionValue(slide);
     const style = String(styleValue).toUpperCase();
     const curve = String(options.curve).toUpperCase();
     const timing = String(options.timing).toUpperCase();
@@ -136,7 +141,7 @@ slides
       curve,
       timing: timing === 'AFTER_DELAY' ? { type: timing, delay } : { type: timing },
     };
-    await run(snippets.transition(slide, transition), (result) => {
+    await run(snippets.transition(reference, transition), (result) => {
       console.log(chalk.green('✓'), `Slide ${result.id} transition: ${result.transition.style}`);
     });
   });
@@ -145,22 +150,24 @@ slides
   .command('skip <slide> [state]')
   .description('Include or skip a slide in presentation playback (on/off; default on)')
   .action(async (slide, state = 'on') => {
+    const reference = unionReferenceExecutionValue(slide);
     const normalized = String(state).toLowerCase();
     if (!['on', 'off', 'true', 'false'].includes(normalized)) {
       console.error(chalk.red('✗ State must be on or off.'));
       process.exit(1);
     }
     const skipped = normalized === 'on' || normalized === 'true';
-    await run(snippets.skip(slide, skipped), (result) => {
+    await run(snippets.skip(reference, skipped), (result) => {
       console.log(chalk.green('✓'), `Slide ${result.id} is ${result.skipped ? 'skipped' : 'included'}`);
     });
   });
 
 slides
   .command('delete <slide>')
-  .description('Delete exactly one slide resolved by id, exact native name or durable Bridge label')
+  .description('Delete exactly one slide resolved by typed node:/name:/label: reference or compatible query')
   .action(async (slide) => {
-    await run(snippets.remove(slide), (result) => {
+    const reference = unionReferenceExecutionValue(slide);
+    await run(snippets.remove(reference), (result) => {
       const labelled = result.label ? ` [${result.label}]` : '';
       console.log(chalk.green('✓'), `Deleted slide ${result.id}${labelled} (Figma name: "${result.name}")`);
     });

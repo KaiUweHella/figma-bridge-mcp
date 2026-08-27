@@ -28,23 +28,37 @@ const GUARD = `
     return { error: 'WRONG_EDITOR', editor: figma.editorType };
   }`;
 
-// Resolution is intentionally strict: id -> exact native name or durable
-// Bridge label -> unique substring. Delete, transition and move must never
-// pick the first fuzzy match.
+// Resolution is intentionally discriminated before Plugin dispatch. Explicit
+// node/name/label variants use only their named identity surface; the query
+// variant preserves the prior id -> exact name/label -> unique substring
+// behavior without contributing Figma Target Context.
 const RESOLVER = `
   const __label = (slide) => {
     try { return slide.getPluginData(${JSON.stringify('bridge-slide-label')}) || ''; } catch (e) { return ''; }
   };
   const __grid = () => figma.getCanvasGrid();
   const __slides = () => __grid().flat().filter(n => n && n.type === 'SLIDE');
-  const __resolveSlide = async (query) => {
-    const q = String(query);
-    const byId = await figma.getNodeByIdAsync(q);
-    if (byId && byId.type === 'SLIDE') return byId;
+  const __resolveSlide = async (reference) => {
+    const kind = reference.kind;
+    const q = String(reference.value);
+    if (kind === 'node' || kind === 'query') {
+      const byId = await figma.getNodeByIdAsync(q);
+      if (byId && byId.type === 'SLIDE') return byId;
+      if (kind === 'node') {
+        if (byId) throw new Error('Node ' + q + ' is a ' + byId.type + ', not a SLIDE.');
+        throw new Error('Slide node not found: ' + q);
+      }
+    }
     const slides = __slides();
-    const exact = slides.filter(n => n.name === q || __label(n) === q);
+    const exact = kind === 'name'
+      ? slides.filter(n => n.name === q)
+      : kind === 'label'
+        ? slides.filter(n => __label(n) === q)
+        : slides.filter(n => n.name === q || __label(n) === q);
     if (exact.length === 1) return exact[0];
     if (exact.length > 1) throw new Error('Ambiguous slide name "' + q + '": ' + exact.map(n => n.id).join(', '));
+    if (kind === 'name') throw new Error('Slide name not found: ' + q);
+    if (kind === 'label') throw new Error('Slide label not found: ' + q);
     const lower = q.toLowerCase();
     const fuzzy = slides.filter(n => n.name.toLowerCase().includes(lower) || __label(n).toLowerCase().includes(lower));
     if (fuzzy.length === 1) return fuzzy[0];
@@ -85,9 +99,20 @@ function wrap(body) {
   return `(async () => {${GUARD}${RESOLVER}\n${body}\n})()`;
 }
 
+function referenceValue(value) {
+  if (typeof value === 'string') return { kind: 'query', value };
+  if (!value || typeof value !== 'object'
+    || !['node', 'name', 'label', 'query'].includes(value.kind)
+    || typeof value.value !== 'string' || value.value.length === 0) {
+    throw new TypeError('Slides requires a typed slide reference.');
+  }
+  return { kind: value.kind, value: value.value };
+}
+
 export function inspect(slideRef) {
+  const reference = slideRef ? referenceValue(slideRef) : null;
   return wrap(slideRef ? `
-  const slide = await __resolveSlide(${JSON.stringify(String(slideRef))});
+  const slide = await __resolveSlide(${JSON.stringify(reference)});
   return { editor: 'slides', focusedId: figma.currentPage.focusedSlide?.id || null, slide: __facts(slide) };`
     : `
   const grid = __grid();
@@ -111,9 +136,10 @@ export function create(label, { row = null, col = null } = {}) {
 }
 
 export function duplicate(slideRef, { label = null, row = null, col = null } = {}) {
+  const reference = referenceValue(slideRef);
   const moveArgs = row === null ? '' : col === null ? `, ${row}` : `, ${row}, ${col}`;
   return wrap(`
-  const source = await __resolveSlide(${JSON.stringify(String(slideRef))});
+  const source = await __resolveSlide(${JSON.stringify(reference)});
   ${row === null ? '' : `const targetGrid = __grid();
   if (!targetGrid[${row}]) throw new Error('Target row ${row} does not exist. Create a slide in that row first.');
   if (${col === null ? 'false' : `${col} > targetGrid[${row}].length`}) throw new Error('Target column ${col} is outside row ${row}.');`}
@@ -127,8 +153,9 @@ export function duplicate(slideRef, { label = null, row = null, col = null } = {
 }
 
 export function move(slideRef, row, col) {
+  const reference = referenceValue(slideRef);
   return wrap(`
-  const slide = await __resolveSlide(${JSON.stringify(String(slideRef))});
+  const slide = await __resolveSlide(${JSON.stringify(reference)});
   const targetGrid = __grid();
   if (!targetGrid[${row}]) throw new Error('Target row ${row} does not exist. Create a slide in that row first.');
   if (${col} > targetGrid[${row}].length) throw new Error('Target column ${col} is outside row ${row}.');
@@ -138,23 +165,26 @@ export function move(slideRef, row, col) {
 }
 
 export function transition(slideRef, value) {
+  const reference = referenceValue(slideRef);
   return wrap(`
-  const slide = await __resolveSlide(${JSON.stringify(String(slideRef))});
+  const slide = await __resolveSlide(${JSON.stringify(reference)});
   const transition = ${JSON.stringify(value)};
   slide.setSlideTransition(transition);
   return __facts(slide);`);
 }
 
 export function skip(slideRef, skipped = true) {
+  const reference = referenceValue(slideRef);
   return wrap(`
-  const slide = await __resolveSlide(${JSON.stringify(String(slideRef))});
+  const slide = await __resolveSlide(${JSON.stringify(reference)});
   slide.isSkippedSlide = ${skipped ? 'true' : 'false'};
   return __facts(slide);`);
 }
 
 export function remove(slideRef) {
+  const reference = referenceValue(slideRef);
   return wrap(`
-  const slide = await __resolveSlide(${JSON.stringify(String(slideRef))});
+  const slide = await __resolveSlide(${JSON.stringify(reference)});
   const result = { id: slide.id, name: slide.name, label: __label(slide) || null };
   slide.remove();
   return result;`);

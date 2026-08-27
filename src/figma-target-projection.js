@@ -38,7 +38,9 @@ export const FIGMA_URL_TARGET_ROOTS = Object.freeze({
   dev: 'semantic-fields',
   annotate: 'semantic-fields',
   a11y: 'semantic-fields',
-  canvas: 'none',
+  // `canvas page` owns a discriminated node/name/query request. Its closed
+  // request projects only the explicit node variant during planning.
+  canvas: 'semantic-fields',
   find: 'none',
   verify: 'semantic-fields',
   inspect: 'semantic-fields',
@@ -58,10 +60,9 @@ export const FIGMA_URL_TARGET_ROOTS = Object.freeze({
   'verify-build': 'semantic-fields',
   history: 'semantic-fields',
   jam: 'semantic-fields',
-  // A slide reference is deliberately not projected: Slides accepts an id,
-  // native name or Bridge label in the same field, so an URL-shaped name must
-  // remain payload until that request has a typed discriminator.
-  slides: 'none',
+  // Slides owns a discriminated node/name/label/query request. Its closed
+  // request projects only the explicit node variant during planning.
+  slides: 'semantic-fields',
   kit: 'semantic-fields',
 });
 

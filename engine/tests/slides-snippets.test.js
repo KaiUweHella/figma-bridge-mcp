@@ -126,6 +126,22 @@ test('slide resolution refuses ambiguous names and missing slides', async () => 
   await assert.rejects(execute(slides.inspect('Missing'), figma), /Slide not found/);
 });
 
+test('typed slide references never fall through to another identity surface', async () => {
+  const { figma, intro, details } = fixture();
+  const urlShaped = 'https://www.figma.com/design/PAYLOADPLACEHOLDERKEY/FILE_NAME?node-id=9-9';
+  intro.name = urlShaped;
+  details.setPluginData(slides.SLIDE_LABEL_KEY, urlShaped);
+
+  const byName = await execute(slides.inspect({ kind: 'name', value: urlShaped }), figma);
+  assert.equal(byName.slide.id, intro.id);
+  const byLabel = await execute(slides.inspect({ kind: 'label', value: urlShaped }), figma);
+  assert.equal(byLabel.slide.id, details.id);
+  await assert.rejects(
+    execute(slides.inspect({ kind: 'node', value: '9:9' }), figma),
+    /Slide node not found/,
+  );
+});
+
 test('create, duplicate and move update the native canvas grid explicitly', async () => {
   const { figma } = fixture();
   const created = await execute(slides.create('Agenda', { row: 1, col: 0 }), figma);

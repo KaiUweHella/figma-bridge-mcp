@@ -87,18 +87,21 @@ function pagesCode() {
 })))()`;
 }
 
-function pageCode(query) {
+function pageCode(reference) {
   return `(async () => {
-const q = ${JSON.stringify(query)};
+const reference = ${JSON.stringify({ kind: reference.kind, value: reference.value })};
+const q = reference.value;
 const pages = figma.root.children;
-let target = pages.find((page) => page.id === q);
+let target = reference.kind === 'node' || reference.kind === 'query'
+  ? pages.find((page) => page.id === q)
+  : null;
 let matches = [];
-if (!target) {
+if (!target && reference.kind !== 'node') {
   const exactMatches = pages.filter((page) => page.name === q);
   if (exactMatches.length === 1) target = exactMatches[0];
   else if (exactMatches.length > 1) matches = exactMatches;
 }
-if (!target && matches.length === 0) {
+if (!target && matches.length === 0 && reference.kind === 'query') {
   matches = pages.filter((page) => page.name.toLowerCase().includes(q.toLowerCase()));
   if (matches.length === 1) target = matches[0];
 }
@@ -139,15 +142,16 @@ export async function executePageNavigation(request, adapters = {}) {
     };
   }
 
-  const result = switchResult(await adapters.evaluate(pageCode(input.query)));
+  const result = switchResult(await adapters.evaluate(pageCode(input.reference)));
+  const displayReference = input.reference.value;
   if (result.status === 'not-found') {
-    throw new Error(`Page not found: ${safeDisplay(input.query)}`);
+    throw new Error(`Page not found: ${safeDisplay(displayReference)}`);
   }
   if (result.status === 'ambiguous') {
     const remainder = result.count - result.matches.length;
     const suffix = remainder > 0 ? ` (and ${remainder} more)` : '';
     throw new Error(
-      `Ambiguous page name "${safeDisplay(input.query)}": `
+      `Ambiguous page name "${safeDisplay(displayReference)}": `
       + `${result.matches.map((page) => `${safeDisplay(page.name)} (${safeDisplay(page.id)})`).join(', ')}${suffix}`,
     );
   }

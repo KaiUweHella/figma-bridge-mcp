@@ -29,6 +29,7 @@ import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
+import { unionReferenceExecutionValue } from '../application/union-reference.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -848,11 +849,14 @@ componentCmd
 
 componentCmd
   .command('add-variant <set> <pairs>')
-  .description('Add a variant to an existing set by cloning the nearest one (e.g. "State=Hover")')
+  .description('Add a variant to a node:/name: Component Set reference or compatible query')
   .option('--from <variantName>', 'Clone this variant instead of the nearest match')
   .option('--json', 'Output as JSON')
   .action(async (set, pairsArg, options) => {
     await checkConnection();
+    const setReference = unionReferenceExecutionValue(set, {
+      allowedKinds: ['node', 'name', 'query'],
+    });
     let pairs;
     try {
       pairs = parseVariantPairs(pairsArg);
@@ -860,7 +864,7 @@ componentCmd
       console.error(chalk.red('✗'), e.message);
       process.exit(1);
     }
-    const code = addVariantCode({ setRef: set, pairs, fromName: options.from });
+    const code = addVariantCode({ setRef: setReference, pairs, fromName: options.from });
     try {
       const r = await daemonExec('eval', { code });
       if (options.json) {
