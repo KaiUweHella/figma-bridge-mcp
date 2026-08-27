@@ -343,6 +343,24 @@ test('component main delegates one Plan-bound bounded-read Command Application',
     'Commander must not retain component identity readiness, capture, or formatting logic');
 });
 
+test('component combine delegates every raw argument to one verified Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('async function runComponentCombineCommand');
+  const end = adapter.indexOf(".command('add-variant <set> <pairs>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.command\('combine \[args\.\.\.\]'\)/);
+  assert.match(action, /componentCombineRequestFromArgv\(argv\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeComponentCombinePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|combineAsVariants|ids\.split/,
+    'Commander must not lose positionals or retain Component Combine preflight/mutation logic');
+});
+
 test('style show delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');

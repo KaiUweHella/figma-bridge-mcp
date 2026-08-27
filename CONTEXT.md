@@ -62,6 +62,16 @@ advisory Render reuse checks, but name equality alone never authorizes Design
 Entity reuse.
 _Avoid_: component dump, partial catalog, unbounded library scan, name-based reuse permission
 
+**Component Combine**:
+The closed structural mutation that turns two or more distinct standalone
+local Components from one Figma page into one Component Set. Comma-separated
+and repeated Node References become the same ordered request; every Component,
+its locality and reparentable ancestry are preflighted before mutation. A
+successful result is fresh evidence of the Set identity and its complete
+ordered Variant membership, not permission to add another Variant to an
+existing Set.
+_Avoid_: partial combine, Component Set merge, add Variant, count-only success
+
 **Style Facts**:
 The exact, versioned and deeply bounded read of one Figma PAINT, TEXT, EFFECT
 or GRID style by id or unambiguous local name. It preserves publishable

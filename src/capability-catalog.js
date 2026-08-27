@@ -257,6 +257,12 @@ import {
   parseComponentMainRequest,
 } from '../engine/src/application/component-main-request.js';
 import {
+  acceptsComponentCombineArgv,
+  componentCombineArgvFromRequest,
+  componentCombineFigmaUrlFileKeyFromArgv,
+  parseComponentCombineRequest,
+} from '../engine/src/application/component-combine-request.js';
+import {
   acceptsStyleFactsArgv,
   parseStyleFactsRequest,
   styleFactsArgvFromRequest,
@@ -445,7 +451,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
   'col.extend',
-  'component.main',
+  'component.main', 'component.combine',
   'style.list',
   'style.create',
   'style.update',
@@ -677,6 +683,9 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'component-main-input';
   }
+  if (name === 'component' && sub === 'combine') {
+    pathPolicy = 'component-combine-input';
+  }
   if (name === 'component' && sub === 'add-variant') {
     pathPolicy = 'component-set-reference-input';
   }
@@ -903,6 +912,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'main'
     && !action.help && !acceptsComponentMainArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'combine'
+    && !action.help && !acceptsComponentCombineArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'style' && args[1] === 'show'
@@ -1540,6 +1553,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...componentMainArgvFromRequest(parseComponentMainRequest(args)));
+      break;
+    }
+    case 'component-combine-input': {
+      const closedFileKey = componentCombineFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...componentCombineArgvFromRequest(parseComponentCombineRequest(args)));
       break;
     }
     case 'component-set-reference-input': {

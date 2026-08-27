@@ -26,6 +26,10 @@ import {
   executeComponentMainPlan,
 } from '../application/component-main-command.js';
 import {
+  componentCombineRequestFromArgv,
+  executeComponentCombinePlan,
+} from '../application/component-combine-command.js';
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
@@ -819,31 +823,43 @@ propCmd
     }
   });
 
+async function runComponentCombineCommand(argv) {
+  componentCombineRequestFromArgv(argv);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentCombinePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
-  .command('combine <ids>')
-  .description('Combine components (comma-separated IDs) into a single variant set')
-  .option('-n, --name <name>', 'Name for the resulting component set', 'ComponentSet')
-  .action(async (ids, options) => {
-    await checkConnection();
-    const idArr = ids.split(',').map(s => s.trim());
-    const code = `(async () => {
-      const components = [];
-      for (const id of ${JSON.stringify(idArr)}) {
-        const n = await figma.getNodeByIdAsync(id);
-        if (!n) throw new Error('Node not found: ' + id);
-        if (n.type !== 'COMPONENT') throw new Error('Not a component: ' + id + ' (type=' + n.type + ')');
-        components.push(n);
-      }
-      const set = figma.combineAsVariants(components, figma.currentPage);
-      set.name = ${JSON.stringify(options.name)};
-      delete globalThis.__invCache;
-      return { id: set.id, name: set.name, count: components.length };
-    })()`;
+  .command('combine [args...]')
+  .usage('<id[,id...]> [moreIds...] [-n|--name <name>] [--json]')
+  .description('Combine two or more standalone local components into a verified variant set')
+  .allowUnknownOption(true)
+  .addHelpText('after', [
+    '',
+    'Accepted syntax:',
+    '  component combine 10:1,10:2 --name Button',
+    '  component combine 10:1 10:2 --name Button --json',
+  ].join('\n'))
+  .action(async (args) => {
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Combined ${r.count} components into "${r.name}" (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runComponentCombineCommand(['component', 'combine', ...args]);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Combine failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

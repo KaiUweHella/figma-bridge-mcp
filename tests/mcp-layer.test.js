@@ -1418,6 +1418,19 @@ test('figma_run routes Component Main through the shared bounded-read Applicatio
     'Component Main must not re-enter Commander');
 });
 
+test('figma_run routes Component Combine through the shared verified mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentCombineRoute = componentCombinePlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentCombinePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Combine must not re-enter Commander');
+});
+
 test('figma_run routes Style Facts through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const styleFactsRoute = styleFactsPlanRoute(plan)');
@@ -1676,6 +1689,21 @@ test('figma_run rejects malformed Component Main argv before readiness or dispat
     ['component', 'main'],
     ['component', 'main', '10:3', '10:4'],
     ['component', 'main', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|not allowed|invalid/i);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Component Combine argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['component', 'combine', '10:1'],
+    ['component', 'combine', '10:1', '10:1'],
+    ['component', 'combine', '10:1', '10:2', '--name'],
+    ['component', 'combine', '10:1', '10:2', '--future', 'private-value'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));

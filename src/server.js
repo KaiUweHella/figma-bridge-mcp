@@ -233,6 +233,10 @@ import {
   executeComponentMainPlan,
 } from "../engine/src/application/component-main-command.js";
 import {
+  componentCombinePlanRoute,
+  executeComponentCombinePlan,
+} from "../engine/src/application/component-combine-command.js";
+import {
   executeStyleFactsPlan,
   styleFactsPlanRoute,
 } from "../engine/src/application/style-facts-command.js";
@@ -2739,6 +2743,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeComponentMainPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentCombineRoute = componentCombinePlanRoute(plan);
+      if (componentCombineRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentCombinePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
