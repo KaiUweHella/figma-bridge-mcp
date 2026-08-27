@@ -69,6 +69,13 @@ update` calls. When several explicit Variable/mode values are already
    icons with emoji, Unicode glyphs, rotated primitives, or guessed artwork.
 6. Componentize repeated source structures on the first pass: create one local
    component and place instances instead of emitting a flat repeated tree.
+   For multi-root `figma_render`/`render-batch`, inspect the pre-write reuse
+   finding and replace raw repetition with linked `<Instance entity="…" />`
+   nodes. Approve `approvedFlatRepetitions`/`--approve-flat-repetition` only
+   for an intentional one-off exception using the exact current `flat-…`
+   finding id; never use it as a workflow-wide bypass. Keep the default smart
+   row placement so new screens appear to the right of occupied canvas content;
+   request column placement only when the review layout intentionally needs it.
 7. Preserve text sizing intent. Use HUG for intrinsic content that cannot
    overrun its surrounding container; use FILL when copy must follow and wrap
    with a narrower container. Center or end-align FILL copy with the native
@@ -103,7 +110,9 @@ update` calls. When several explicit Variable/mode values are already
 3. Create or repair the Design Entity link with `link set`, then record a
    visually verified baseline with `link accept --compare --max-diff`.
 4. Report the entity id, reused and created components, token bindings, checks,
-   pixel result, and any explicit semantic boundary decision.
+   pixel result, approved flat repetitions, and any explicit semantic boundary
+   decision. For a multi-screen render, use the returned component-reuse
+   summary instead of estimating those counts from the screenshot.
 
 Use an existing browser tool or project harness for capture. Do not install
 Playwright or another browser dependency solely for this workflow without the

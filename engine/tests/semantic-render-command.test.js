@@ -375,6 +375,7 @@ test('auto-split and explicit batch close the same option semantics', () => {
     '--no-smart-position', '--as-component', '--verify', '--resize-probe=180',
     '--collection=Brand', '--preset=desktop', '--icons=icons', '--manifest=links.json',
     '--approve-fallback=font.named-faces,root', '--allow-free-layout=root.free',
+    '--approve-flat-repetition=flat-0123456789ab',
   ];
   const auto = semanticCompoundRenderRequestFromArgv(autoArgv);
   assert.deepEqual(auto.layout, { direction: 'col', gap: 0 });
@@ -385,6 +386,7 @@ test('auto-split and explicit batch close the same option semantics', () => {
   assert.deepEqual(auto.assets, {
     localPaths: ['assets/photo.png'], remoteCount: 1, embeddedCount: 0,
   });
+  assert.deepEqual(auto.approvedFlatRepetitions, ['flat-0123456789ab']);
   assert.deepEqual(
     semanticCompoundRenderRequestFromArgv(semanticCompoundRenderArgvFromRequest(auto)),
     auto,
@@ -410,6 +412,8 @@ test('auto-split and explicit batch close the same option semantics', () => {
     ['render-batch', '["<Frame/>"]', '--direction=diagonal'],
     ['render-batch', '["<Frame/>"]', '--gap=-1'],
     ['render-batch', '["<Frame/>"]', '--verify', '--verify'],
+    ['render-batch', '["<Frame/>"]', '--approve-flat-repetition=*'],
+    ['render-batch', '["<Frame/>"]', '--approve-flat-repetition=flat-0123456789ab', '--approve-flat-repetition=flat-abcdefabcdef'],
     ['render-batch', '["<Frame/>"]', '--verification-output-dir=/tmp/figma-bridge-verify-test-only'],
     ['render', SIMPLE_JSX, '--gap=20'],
   ]) {
@@ -645,6 +649,39 @@ test('CLI and MCP bind the same target-aware Design Entity identities without au
   );
 });
 
+test('compound reuse planning resolves component Instances before any screen can dispatch', async (t) => {
+  const { root, io } = workspace(t);
+  const manifest = join(root, 'figma-bridge.json');
+  writeFileSync(manifest, JSON.stringify({
+    version: 1,
+    entities: [{
+      id: 'ui.card', kind: 'component',
+      figma: { componentKey: 'PUBLISHED_CARD', nodeId: '10:20', fileKey: 'FILE_A' },
+    }],
+  }));
+  const roots = [
+    '<Frame name="First" flex="col"><Instance entity="ui.card" text:Label="One" /></Frame>',
+    '<Frame name="Second" flex="col"><Instance entity="ui.card" text:Label="Two" /></Frame>',
+  ];
+  const plan = planFigmaCommand([
+    'render-batch', JSON.stringify(roots), `--manifest=${manifest}`,
+  ], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+  });
+  const prepared = await prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io });
+
+  assert.deepEqual(prepared.reusePlan.summary, {
+    reusedComponents: 1, reusedInstances: 2, approvedFlatRepetitions: 0,
+  });
+  assert.deepEqual(prepared.reusePlan.components, [{
+    entity: 'ui.card', instances: 2, rootIndexes: [0, 1], firstRoot: 0,
+  }]);
+  assert.ok(prepared.renderPlans.every((renderPlan) => (
+    renderPlan.designEntityBindings.bindings['ui.card'].handle === 'PUBLISHED_CARD'
+    && renderPlan.root.children[0].source.type === 'instance'
+  )));
+});
+
 test('rendered-root identity rejects incompatible component conversion before execution', async (t) => {
   const { root, io } = workspace(t);
   writeFileSync(join(root, 'figma-bridge.json'), JSON.stringify({
@@ -689,6 +726,7 @@ test('compound native rendering dispatches one journaled batch and returns one b
   assert.deepEqual(outcome.executor, { kind: 'structured-batch', version: 1 });
   assert.equal(outcome.mutation.outcome, 'completed');
   assert.deepEqual(outcome.stages.map(({ kind, status }) => ({ kind, status })), [
+    { kind: 'reuse-preflight', status: 'completed' },
     { kind: 'asset-preparation', status: 'skipped' },
     { kind: 'render', status: 'completed' },
     { kind: 'placement', status: 'completed' },
@@ -699,6 +737,52 @@ test('compound native rendering dispatches one journaled batch and returns one b
   ]);
   assert.equal(semanticRenderOutcomeCode(outcome), 0);
   assert.match(formatSemanticRenderResult(outcome), /2 roots created/);
+  assert.match(formatSemanticRenderResult(outcome), /component reuse: 0 component entities, 0 instances, 0 components created/);
+});
+
+test('multi-screen acceptance blocks flat repetition before dispatch and reports an exact approval', async (t) => {
+  const card = (label) => `<Frame name="Card ${label}" flex="col" gap={8} p={16} bg="#ffffff" rounded={12} w={200}>`
+    + `<Text size={16} weight="bold">${label}</Text><Text size={12}>Supporting copy</Text></Frame>`;
+  const roots = [
+    `<Frame name="Screen One" flex="col">${card('One')}</Frame>`,
+    `<Frame name="Screen Two" flex="col">${card('Two')}</Frame>`,
+  ];
+  const first = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
+  let findingId;
+  await assert.rejects(
+    () => prepareCompoundSemanticRenderPlan(first.plan, { workspaceIO: first.io }),
+    (error) => {
+      findingId = error.message.match(/flat-[0-9a-f]{12}/)?.[0];
+      return error.outcome === 'not-dispatched'
+        && /replace the copies with <Instance entity=/.test(error.message)
+        && Boolean(findingId);
+    },
+  );
+
+  const approved = compoundPlan(t, [
+    'render-batch', JSON.stringify(roots), `--approve-flat-repetition=${findingId}`,
+  ]);
+  let writes = 0;
+  const outcome = await executeCompoundSemanticRenderPlan(approved.plan, {
+    workspaceIO: approved.io,
+    renderPlanBatch: async (_plans, options) => {
+      writes++;
+      assert.deepEqual(options, { gap: 40, vertical: false, smart: true, x: null, y: null });
+      return nativeBatchResult(2);
+    },
+  });
+  assert.equal(writes, 1);
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(outcome.reuse.summary, {
+    reusedComponents: 0,
+    reusedInstances: 0,
+    createdComponents: 0,
+    approvedFlatRepetitions: 1,
+  });
+  assert.deepEqual(outcome.reuse.flatRepetitions, [{
+    id: findingId, count: 2, rootIndexes: [0, 1], approved: true,
+  }]);
+  assert.match(formatSemanticRenderResult(outcome), /1 approved flat repetition/);
 });
 
 test('compound compatibility reports the exact affected root without disabling the batch', async (t) => {
@@ -791,6 +875,7 @@ test('compound follow-up stages preserve position, final handles and verificatio
   assert.deepEqual(outcome.roots.map((root) => root.handle), ['30:40', '31:41']);
   assert.deepEqual(written, ['/tmp/verify-30-40.png', '/tmp/verify-31-41.png']);
   assert.equal(outcome.stages.find((stage) => stage.kind === 'component-conversion').status, 'completed');
+  assert.equal(outcome.reuse.summary.createdComponents, 2);
   assert.equal(outcome.stages.find((stage) => stage.kind === 'resize-probe').status, 'completed');
   const verification = outcome.stages.find((stage) => stage.kind === 'verification');
   assert.deepEqual(verification.artifacts, written);

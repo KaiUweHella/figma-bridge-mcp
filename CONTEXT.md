@@ -710,6 +710,10 @@ _Avoid_: CSS checklist, screenshot diff, unbounded selector scan, model judgment
 The closed request for a bounded ordered set of **Semantic Render Plans** plus their shared placement and explicit follow-up stages. Wrapper auto-split, explicit batch, CLI and MCP adapt into the same request before readiness. Rendering, placement, component conversion, resize probing and verification retain one target, deadline, confirmation, Audit lifecycle and truthful partial Outcome; a post-dispatch failure never selects another executor.
 _Avoid_: recursive render, batch helper, render loop
 
+**Multi-screen Reuse Plan**:
+The content-free pre-write acceptance map for one Compound Semantic Render Request. It records Design Entity Instance use across every root and assigns stable hashed Finding IDs to repeated raw Frame structures. An unapproved repetition stops before Plugin readiness with a component/Instance recipe; an intentional flat repetition may be approved only by its current exact Finding ID. The completion Outcome reports reused component entities, Instance count, components created by the request and approved flat repetitions. Default smart row placement begins to the right of occupied canvas content, while explicit column placement remains supported.
+_Avoid_: component warning, global reuse bypass, name-based componentization, vertical screen default
+
 **Semantic Render Outcome**:
 The closed, versioned and deeply bounded result of one simple or compound Semantic Render Command. It retains only created-root identity, executor and structural facts, explicit compound-stage progress, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
 _Avoid_: render response, console result, Plugin result

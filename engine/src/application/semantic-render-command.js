@@ -39,6 +39,11 @@ import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
 import { rasterDimensions, rasterKind } from '../lib/raster-dimensions.js';
 import { materializeRemoteRenderImage } from '../lib/remote-render-assets.js';
 import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
+import {
+  assertMultiScreenReuseAcceptance,
+  buildMultiScreenReusePlan,
+  completeMultiScreenReuseReport,
+} from '../lib/multi-screen-reuse-plan.js';
 import { decodeVerificationPngBase64 } from './verification-artifact.js';
 import { verificationPngExportCode } from './verification-settle.js';
 
@@ -385,6 +390,16 @@ export async function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
   }
 
   const presetRoots = imagePreparation.roots.map((jsx) => devicePreset(jsx, request.preset));
+  const reusePlan = buildMultiScreenReusePlan(
+    client,
+    presetRoots.map(({ jsx }) => jsx),
+    {
+      approvedFlatRepetitions: request.approvedFlatRepetitions,
+      direction: request.layout.direction,
+      placement: request.placement,
+    },
+  );
+  assertMultiScreenReuseAcceptance(reusePlan);
   const renderPlans = presetRoots.map(({ jsx }) => client.planJSX(jsx));
   assertRootIdentityStageCompatibility(request, renderPlans);
   const evidence = renderPlans.map((renderPlan, index) => compileEvidence(
@@ -399,7 +414,7 @@ export async function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
     }))),
   ].slice(0, MAX_EVIDENCE_ITEMS);
   const prepared = Object.freeze({
-    request, client,
+    request, client, reusePlan,
     jsxRoots: Object.freeze(presetRoots.map(({ jsx }) => jsx)),
     renderPlans: Object.freeze(renderPlans),
     supports: Object.freeze(supports),
@@ -568,6 +583,11 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     throw new TypeError('Compound Semantic Render verification requires a writeVerification adapter.');
   }
   const stages = [];
+  stages.push(prepared.request.roots.length > 1
+    ? compoundStage('reuse-preflight', 'completed', prepared.request.roots.length, prepared.request.roots.length)
+    : compoundStage('reuse-preflight', 'skipped', 0, 0));
+  let createdComponents = 0;
+  const reuseReport = () => completeMultiScreenReuseReport(prepared.reusePlan, { createdComponents });
   const assetCount = prepared.preparedAssets.localImages + prepared.preparedAssets.iconDirectory
     + prepared.preparedAssets.remoteImages + prepared.preparedAssets.embeddedImages;
   stages.push(compoundStage(
@@ -582,6 +602,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     if (!failure.semanticRenderOutcome) {
       failure.semanticRenderOutcome = projectSemanticRenderFailureOutcome(failure, {
         executor, structure: prepared.structures, partialOutcome, stages, degradations,
+        reuse: reuseReport(),
       });
     }
     return failure;
@@ -630,6 +651,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   try {
     outcome = projectSemanticRenderBatchOutcome(raw, {
       executor, structures: prepared.structures, notices, stages, degradations,
+      reuse: reuseReport(),
     });
   } catch (error) {
     stages.splice(-2, 2, compoundStage('render', 'failed', prepared.renderPlans.length, 0, 1));
@@ -655,17 +677,19 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     }
     const nextHandles = [...converted.converted, ...handles.slice(converted.converted.length)];
     if (converted.failedIndex !== null) {
+      createdComponents = converted.converted.length;
       stages.push(compoundStage(
         'component-conversion', 'failed', converted.failedIndex + 1,
         converted.converted.length, 1, [...converted.converted],
       ));
       const partial = projectSemanticRenderBatchOutcome(raw, {
         executor, structures: prepared.structures, notices, stages, rootHandles: nextHandles,
-        degradations,
+        degradations, reuse: reuseReport(),
       });
       throw attachFailure(stageFailure('component-conversion'), executor, partial);
     }
     handles = nextHandles;
+    createdComponents = handles.length;
     stages.push(compoundStage(
       'component-conversion', 'completed', handles.length, handles.length, 0, handles,
     ));
@@ -685,7 +709,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
         stages.push(compoundStage('resize-probe', 'failed', index + 1, index, 1, handles.slice(0, index)));
         const partial = projectSemanticRenderBatchOutcome(raw, {
           executor, structures: prepared.structures, notices, stages, rootHandles: handles,
-          degradations,
+          degradations, reuse: reuseReport(),
         });
         throw attachFailure(error, executor, partial);
       }
@@ -727,7 +751,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
         stages.push(compoundStage('verification', 'failed', index + 1, index, 1, handles.slice(0, index), artifacts, verification));
         const partial = projectSemanticRenderBatchOutcome(raw, {
           executor, structures: prepared.structures, notices, stages, rootHandles: handles,
-          degradations,
+          degradations, reuse: reuseReport(),
         });
         throw attachFailure(error, executor, partial);
       }
@@ -753,6 +777,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
   return projectSemanticRenderBatchOutcome(raw, {
     executor, structures: prepared.structures,
     notices: notices.slice(0, MAX_EVIDENCE_ITEMS), stages, rootHandles: handles, degradations,
+    reuse: reuseReport(),
   });
 }
 
@@ -893,6 +918,13 @@ export function semanticRenderResultRows(result) {
     }
   }
   if (outcome.roots.length > 1) rows.push({ tone: 'success', text: `${outcome.roots.length} roots created` });
+  if (outcome.reuse) {
+    const summary = outcome.reuse.summary;
+    rows.push({
+      tone: summary.approvedFlatRepetitions ? 'warning' : 'muted',
+      text: `component reuse: ${summary.reusedComponents} component entities, ${summary.reusedInstances} instances, ${summary.createdComponents} components created, ${summary.approvedFlatRepetitions} approved flat repetition(s)`,
+    });
+  }
   rows.push({
     tone: outcome.executor.kind.startsWith('structured') ? 'muted' : 'warning',
     text: `executor: ${outcome.executor.kind.startsWith('structured')

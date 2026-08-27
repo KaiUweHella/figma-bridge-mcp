@@ -1821,7 +1821,7 @@ test('figma_render exposes complete typed simple and compound requests', async (
   for (const field of [
     'jsx', 'roots', 'keepWrapper', 'gap', 'direction', 'x', 'y', 'smartPosition',
     'asComponent', 'verify', 'resizeProbe', 'collection', 'preset', 'manifest', 'icons',
-    'approvedFallbacks', 'allowedFreePaths', 'confirm', 'preview', 'label', 'fileKey',
+    'approvedFallbacks', 'approvedFlatRepetitions', 'allowedFreePaths', 'confirm', 'preview', 'label', 'fileKey',
   ]) assert.ok(schema[field], `figma_render schema misses ${field}`);
 
   const preview = await handleTool('figma_render', {
@@ -1854,6 +1854,12 @@ test('figma_render exposes complete typed simple and compound requests', async (
   });
   assert.equal(malformed.isError, true);
   assert.match(malformed.content[0].text, /approvedFallbacks/);
+
+  const broadReuseApproval = await handleTool('figma_render', {
+    roots: ['<Frame />', '<Frame />'], approvedFlatRepetitions: ['*'],
+  });
+  assert.equal(broadReuseApproval.isError, true);
+  assert.match(broadReuseApproval.content[0].text, /approve-flat-repetition.*exact flat-/);
 
   const excessive = await handleTool('figma_render', {
     jsx: '<Frame />',

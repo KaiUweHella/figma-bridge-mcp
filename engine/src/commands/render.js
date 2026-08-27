@@ -561,6 +561,7 @@ program
   .option('--structural-gate', 'Audit semantic layout/tokens/icons without connecting to or writing Figma')
   .option('--resize-probe [delta]', 'Temporarily widen the rendered root (default 120 px), audit responsive descendants, then restore it')
   .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this render/audit')
+  .option('--approve-flat-repetition <ids>', 'Approve exact flat-repetition finding ids for a multi-root render')
   .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
   .action(async (rawJsx, options) => {
     let legacyVerificationPlan = null;
@@ -887,6 +888,7 @@ program
   .option('--manifest <file>', 'Design Link Registry used to resolve data-figma-component identities', 'figma-bridge.json')
   .option('--resize-probe [delta]', 'Temporarily widen every rendered root, audit responsive descendants, then restore it')
   .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this batch')
+  .option('--approve-flat-repetition <ids>', 'Approve exact flat-repetition finding ids for this batch')
   .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
   .action(async (jsxArrayStr, options) => {
     try {

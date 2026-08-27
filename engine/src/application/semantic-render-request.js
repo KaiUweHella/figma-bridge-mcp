@@ -52,6 +52,7 @@ const OPTION_SPECS = new Map([
   ['--structural-gate', { key: 'structuralGate', value: 'none', compatibility: 'structural-gate' }],
   ['--resize-probe', { key: 'resizeProbe', value: 'optional', compatibility: 'resize-probe' }],
   ['--approve-fallback', { key: 'approveFallback', value: 'required' }],
+  ['--approve-flat-repetition', { key: 'approveFlatRepetition', value: 'required' }],
   ['--allow-free-layout', { key: 'allowFreeLayout', value: 'required' }],
   ['--help', { key: 'help', value: 'none' }],
   ['-h', { key: 'help', value: 'none' }],
@@ -75,6 +76,7 @@ const BATCH_OPTION_SPECS = new Map([
   ['--manifest', { key: 'manifest', value: 'required' }],
   ['--resize-probe', { key: 'resizeProbe', value: 'optional' }],
   ['--approve-fallback', { key: 'approveFallback', value: 'required' }],
+  ['--approve-flat-repetition', { key: 'approveFlatRepetition', value: 'required' }],
   ['--allow-free-layout', { key: 'allowFreeLayout', value: 'required' }],
   ['--help', { key: 'help', value: 'none' }],
   ['-h', { key: 'help', value: 'none' }],
@@ -109,6 +111,14 @@ function csv(value, label) {
     throw requestError(`${label} must contain at most ${MAX_SEMANTIC_RENDER_LIST_ITEMS} unique values`);
   }
   return unique;
+}
+
+function flatRepetitionApprovals(value) {
+  const values = csv(value, '--approve-flat-repetition');
+  if (values.some((item) => !/^flat-[0-9a-f]{12}$/.test(item))) {
+    throw requestError('--approve-flat-repetition must contain exact flat-xxxxxxxxxxxx finding ids');
+  }
+  return values;
 }
 
 /** Closed, I/O-free projection shared by Render routing and asset preparation. */
@@ -252,6 +262,7 @@ function compoundRequest({ source, roots, sourceJsx = null, direction, values })
     icons: values.icons || null,
     manifest: values.manifest || null,
     approvedFallbacks: Object.freeze(values.approveFallback || []),
+    approvedFlatRepetitions: Object.freeze(values.approveFlatRepetition || []),
     allowedFreePaths: Object.freeze(values.allowFreeLayout || []),
     stages: Object.freeze({
       componentConversion: values.asComponent === true,
@@ -353,6 +364,9 @@ function inspectRenderArgv(args) {
   if (values.collection !== undefined) values.collection = boundedOption(values.collection.trim(), '--collection');
   if (values.manifest !== undefined) values.manifest = boundedOption(values.manifest, '--manifest');
   if (values.approveFallback !== undefined) values.approveFallback = csv(values.approveFallback, '--approve-fallback');
+  if (values.approveFlatRepetition !== undefined) {
+    values.approveFlatRepetition = flatRepetitionApprovals(values.approveFlatRepetition);
+  }
   if (values.allowFreeLayout !== undefined) values.allowFreeLayout = csv(values.allowFreeLayout, '--allow-free-layout');
 
   if (values.help) {
@@ -388,6 +402,9 @@ function inspectRenderArgv(args) {
   }
   if (values.gap !== undefined || values.direction !== undefined) {
     throw requestError('--gap and --direction require an auto-split wrapper');
+  }
+  if (values.approveFlatRepetition !== undefined) {
+    throw requestError('--approve-flat-repetition requires a multi-root render');
   }
   if (values.verify) {
     const request = compoundRequest({
@@ -504,6 +521,9 @@ function inspectRenderBatchArgv(args) {
     if (!values.verify) throw requestError('--verification-output-dir requires --verify');
   }
   if (values.approveFallback !== undefined) values.approveFallback = csv(values.approveFallback, '--approve-fallback');
+  if (values.approveFlatRepetition !== undefined) {
+    values.approveFlatRepetition = flatRepetitionApprovals(values.approveFlatRepetition);
+  }
   if (values.allowFreeLayout !== undefined) values.allowFreeLayout = csv(values.allowFreeLayout, '--allow-free-layout');
   const request = compoundRequest({
     source: 'explicit-batch', roots, direction: values.direction || 'row', values,
@@ -595,6 +615,9 @@ function compoundOptions(request) {
   if (request.icons) options.push(`--icons=${request.icons}`);
   if (request.manifest) options.push(`--manifest=${request.manifest}`);
   if (request.approvedFallbacks.length) options.push(`--approve-fallback=${request.approvedFallbacks.join(',')}`);
+  if (request.approvedFlatRepetitions.length) {
+    options.push(`--approve-flat-repetition=${request.approvedFlatRepetitions.join(',')}`);
+  }
   if (request.allowedFreePaths.length) options.push(`--allow-free-layout=${request.allowedFreePaths.join(',')}`);
   return options;
 }

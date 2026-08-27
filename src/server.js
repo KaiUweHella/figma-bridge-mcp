@@ -527,6 +527,11 @@ export const TOOLS = [
           maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
           items: { type: "string", minLength: 1 },
         },
+        approvedFlatRepetitions: {
+          type: "array",
+          maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
+          items: { type: "string", pattern: "^flat-[0-9a-f]{12}$" },
+        },
         allowedFreePaths: {
           type: "array",
           maxItems: MAX_SEMANTIC_RENDER_LIST_ITEMS,
@@ -1754,7 +1759,7 @@ function semanticRenderToolArgv(input) {
       throw new Error(`${key} must be a non-empty string.`);
     }
   }
-  for (const key of ["approvedFallbacks", "allowedFreePaths"]) {
+  for (const key of ["approvedFallbacks", "approvedFlatRepetitions", "allowedFreePaths"]) {
     if (input[key] !== undefined && (!Array.isArray(input[key])
       || input[key].length > MAX_SEMANTIC_RENDER_LIST_ITEMS
       || input[key].some((value) => typeof value !== "string" || value.length === 0))) {
@@ -1787,6 +1792,9 @@ function semanticRenderToolArgv(input) {
   if (input.manifest !== undefined) args.push(`--manifest=${input.manifest}`);
   if (input.icons !== undefined) args.push(`--icons=${input.icons}`);
   if (input.approvedFallbacks?.length) args.push(`--approve-fallback=${input.approvedFallbacks.join(",")}`);
+  if (input.approvedFlatRepetitions?.length) {
+    args.push(`--approve-flat-repetition=${input.approvedFlatRepetitions.join(",")}`);
+  }
   if (input.allowedFreePaths?.length) args.push(`--allow-free-layout=${input.allowedFreePaths.join(",")}`);
   // Typed JSX is always data, even when it happens to equal a CLI flag.
   if (hasJsx) args.push("--", input.jsx);

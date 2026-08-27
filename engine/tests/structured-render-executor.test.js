@@ -714,6 +714,7 @@ describe('structured Semantic Render Plan executor', () => {
       client.planJSX('<Frame name="Two" w="90" h="60"><Text>Two</Text></Frame>'),
     ];
     const figma = fakeFigma();
+    figma.currentPage.children.push({ id: 'existing:1', x: 50, y: 20, width: 200, height: 100 });
 
     const result = await executeStructuredRenderPlanBatch(figma, plans, { gap: 24, vertical: false });
     const one = figma.created.find((node) => node.name === 'One');
@@ -721,7 +722,7 @@ describe('structured Semantic Render Plan executor', () => {
 
     assert.equal(result.executor, 'structured-batch-v1');
     assert.deepEqual(result.frames.map((frame) => frame.name), ['One', 'Two']);
-    assert.deepEqual([one.x, one.y, two.x, two.y], [0, 100, 144, 100]);
+    assert.deepEqual([one.x, one.y, two.x, two.y], [350, 100, 494, 100]);
   });
 
   it('applies explicit single-root placement in the creation journal', async () => {

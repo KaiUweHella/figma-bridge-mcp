@@ -57,7 +57,7 @@ const BATCH_TOP_LEVEL_FIELDS = new Set([
   'mutationOutcome', 'mutationReport',
 ]);
 const COMPOUND_STAGE_KINDS = new Set([
-  'asset-preparation', 'render', 'placement', 'component-conversion',
+  'reuse-preflight', 'asset-preparation', 'render', 'placement', 'component-conversion',
   'resize-probe', 'verification', 'structural-gate',
 ]);
 const COMPOUND_STAGE_STATUSES = new Set([
@@ -409,6 +409,105 @@ function emptyResources() {
   });
 }
 
+function projectReuseReport(report, expectedRoots) {
+  if (!isRecord(report)
+    || Object.keys(report).some((key) => ![
+      'version', 'rootCount', 'placement', 'components', 'flatRepetitions', 'summary',
+    ].includes(key))
+    || report.version !== 1
+    || report.rootCount !== expectedRoots) {
+    throw new TypeError('Semantic Render Outcome received an invalid multi-screen reuse report.');
+  }
+  const placement = report.placement;
+  if (!isRecord(placement)
+    || Object.keys(placement).some((key) => ![
+      'direction', 'startsRightOfOccupiedCanvas', 'explicitVertical',
+    ].includes(key))
+    || !['row', 'col'].includes(placement.direction)
+    || typeof placement.startsRightOfOccupiedCanvas !== 'boolean'
+    || typeof placement.explicitVertical !== 'boolean'
+    || placement.explicitVertical !== (placement.direction === 'col')
+    || (placement.startsRightOfOccupiedCanvas && placement.direction !== 'row')) {
+    throw new TypeError('Semantic Render Outcome received invalid multi-screen placement evidence.');
+  }
+  if (!Array.isArray(report.components) || report.components.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
+    throw new TypeError('Semantic Render Outcome received invalid component reuse evidence.');
+  }
+  const components = Object.freeze(report.components.map((component) => {
+    if (!isRecord(component)
+      || Object.keys(component).some((key) => !['entity', 'instances', 'rootIndexes', 'firstRoot'].includes(key))
+      || typeof component.entity !== 'string'
+      || !/^[a-z0-9][a-z0-9._/-]{0,127}$/.test(component.entity)) {
+      throw new TypeError('Semantic Render Outcome received invalid component reuse evidence.');
+    }
+    const instances = finiteCount(component.instances, 'component reuse instances');
+    const rootIndexes = component.rootIndexes;
+    if (!Array.isArray(rootIndexes) || !rootIndexes.length || rootIndexes.length > expectedRoots
+      || rootIndexes.some((index, position) => !Number.isSafeInteger(index)
+        || index < 0 || index >= expectedRoots
+        || (position > 0 && index <= rootIndexes[position - 1]))
+      || component.firstRoot !== rootIndexes[0]) {
+      throw new TypeError('Semantic Render Outcome received invalid component reuse roots.');
+    }
+    return Object.freeze({
+      entity: component.entity,
+      instances,
+      rootIndexes: Object.freeze([...rootIndexes]),
+      firstRoot: component.firstRoot,
+    });
+  }));
+  if (!Array.isArray(report.flatRepetitions)
+    || report.flatRepetitions.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
+    throw new TypeError('Semantic Render Outcome received invalid flat repetition evidence.');
+  }
+  const flatRepetitions = Object.freeze(report.flatRepetitions.map((finding) => {
+    if (!isRecord(finding)
+      || Object.keys(finding).some((key) => !['id', 'count', 'rootIndexes', 'approved'].includes(key))
+      || typeof finding.id !== 'string' || !/^flat-[0-9a-f]{12}$/.test(finding.id)
+      || finding.approved !== true) {
+      throw new TypeError('Semantic Render Outcome received invalid flat repetition evidence.');
+    }
+    const count = finiteCount(finding.count, 'flat repetition count');
+    const rootIndexes = finding.rootIndexes;
+    if (!Array.isArray(rootIndexes) || !rootIndexes.length || rootIndexes.length > expectedRoots
+      || rootIndexes.some((index, position) => !Number.isSafeInteger(index)
+        || index < 0 || index >= expectedRoots
+        || (position > 0 && index <= rootIndexes[position - 1]))) {
+      throw new TypeError('Semantic Render Outcome received invalid flat repetition roots.');
+    }
+    return Object.freeze({
+      id: finding.id, count,
+      rootIndexes: Object.freeze([...rootIndexes]), approved: true,
+    });
+  }));
+  const summary = report.summary;
+  if (!isRecord(summary)
+    || Object.keys(summary).some((key) => ![
+      'reusedComponents', 'reusedInstances', 'createdComponents', 'approvedFlatRepetitions',
+    ].includes(key))) {
+    throw new TypeError('Semantic Render Outcome received invalid reuse summary.');
+  }
+  const projectedSummary = Object.freeze({
+    reusedComponents: finiteCount(summary.reusedComponents, 'reused components', 100),
+    reusedInstances: finiteCount(summary.reusedInstances, 'reused instances'),
+    createdComponents: finiteCount(summary.createdComponents, 'created components', 100),
+    approvedFlatRepetitions: finiteCount(summary.approvedFlatRepetitions, 'approved flat repetitions', 100),
+  });
+  if (projectedSummary.reusedComponents !== components.length
+    || projectedSummary.reusedInstances !== components.reduce((sum, item) => sum + item.instances, 0)
+    || projectedSummary.approvedFlatRepetitions !== flatRepetitions.length) {
+    throw new TypeError('Semantic Render Outcome received an inconsistent reuse summary.');
+  }
+  return Object.freeze({
+    version: 1,
+    rootCount: expectedRoots,
+    placement: Object.freeze({ ...placement }),
+    components,
+    flatRepetitions,
+    summary: projectedSummary,
+  });
+}
+
 function projectCompoundStages(value) {
   if (value === undefined) return Object.freeze([]);
   if (!Array.isArray(value) || value.length > MAX_SEMANTIC_RENDER_ARRAY_ITEMS) {
@@ -578,6 +677,7 @@ export function projectSemanticRenderOutcome(value, {
     }),
     overflow,
     mutation,
+    reuse: null,
     stages: Object.freeze([]),
     degradations: projectedDegradations,
     notices: projectNotices(notices),
@@ -622,10 +722,11 @@ function projectBatchFrame(frame, { native }) {
  *   stages?: readonly any[],
  *   rootHandles?: readonly string[] | null,
  *   degradations?: readonly any[],
+ *   reuse?: any,
  * }} [options]
  */
 export function projectSemanticRenderBatchOutcome(value, {
-  executor, structures, notices = [], stages = [], rootHandles = null, degradations = [],
+  executor, structures, notices = [], stages = [], rootHandles = null, degradations = [], reuse,
 } = {}) {
   assertBoundedGraph(value, 'Plugin batch result', { maxCollectionItems: 10_000 });
   const native = executor === 'structured-batch-v1';
@@ -681,6 +782,7 @@ export function projectSemanticRenderBatchOutcome(value, {
   const projectedDegradations = projectDegradations(degradations, unresolvedVariables, {
     compatibility: !native,
   });
+  const projectedReuse = projectReuseReport(reuse, frames.length);
   return finalizeOutcome({
     schemaVersion: SEMANTIC_RENDER_OUTCOME_SCHEMA,
     kind: SEMANTIC_RENDER_OUTCOME_KIND,
@@ -701,6 +803,7 @@ export function projectSemanticRenderBatchOutcome(value, {
     }),
     overflow: overflowPixels.length ? Object.freeze({ pixels: Math.max(...overflowPixels) }) : null,
     mutation,
+    reuse: projectedReuse,
     stages: outcomeStages,
     degradations: projectedDegradations,
     notices: projectNotices(notices),
@@ -710,7 +813,7 @@ export function projectSemanticRenderBatchOutcome(value, {
 
 /** Project only closed failure facts. Error prose, stacks and request inputs are excluded. */
 export function projectSemanticRenderFailureOutcome(error, {
-  executor, structure, partialOutcome = null, stages = [], degradations = [],
+  executor, structure, partialOutcome = null, stages = [], degradations = [], reuse = null,
 }) {
   const failure = Object.freeze({
     kind: FAILURE_KINDS.has(error?.kind) ? error.kind : 'execution',
@@ -738,6 +841,10 @@ export function projectSemanticRenderFailureOutcome(error, {
     resources: partialOutcome?.resources || emptyResources(),
     overflow: partialOutcome?.overflow || null,
     mutation: parseStructuredMutationReport(error?.mutationReport) || partialOutcome?.mutation || null,
+    reuse: partialOutcome?.reuse || (reuse === null ? null : projectReuseReport(
+      reuse,
+      Array.isArray(structure) ? structure.length : 1,
+    )),
     stages: projectCompoundStages(stages),
     degradations: projectedDegradations,
     notices: Object.freeze([]),
