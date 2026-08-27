@@ -55,7 +55,7 @@ program
   .option('--pages <list>', 'only pages whose name matches one of these (comma list, case-insensitive substring)')
   .option('--selection', 'only the currently selected nodes (overrides --pages)')
   .option('--split', 'additionally write full per-page trees to DESIGN-structure/')
-  .option('--no-split', 'never auto-split, even for huge files (one big DESIGN.md)')
+  .option('--no-split', 'keep Structure in one DESIGN.md; hard Workspace limits and safe Variable degradation still apply')
   .action(async (output, options) => {
     await checkConnection();
     const outPath = resolve(output || 'DESIGN.md');

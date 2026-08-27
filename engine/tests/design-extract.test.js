@@ -207,11 +207,12 @@ test('variantMatrixTable renders a property/values table', () => {
 });
 
 import { generateDesignMd, ALL_SECTIONS } from '../src/design-extract.js';
-import { parseDesignMd, variableImportCode } from '../src/design-md.js';
-import { createWorkspaceIO } from '../src/lib/workspace-io.js';
+import { parseDesignMd, parseDesignMdText, variableImportCode } from '../src/design-md.js';
+import { createWorkspaceIO, DEFAULT_WORKSPACE_LIMITS } from '../src/lib/workspace-io.js';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const EXTRACTION = {
   fileName: 'Test File',
@@ -229,6 +230,15 @@ test('generateDesignMd emits all 12 sections by default', () => {
   ]) {
     assert.match(md, new RegExp(`^## ${i}\\. ${title.replace(/[&]/g, '\\$&')}`, 'm'), `missing section ${i} ${title}`);
   }
+});
+
+test('normal-sized DESIGN.md output remains byte-compatible', () => {
+  const md = generateDesignMd(EXTRACTION);
+  assert.equal(Buffer.byteLength(md, 'utf8'), 3399);
+  assert.equal(
+    createHash('sha256').update(md).digest('hex'),
+    '910a7b95de985b314794c8d29439ee6c4a1f2e451c1ae3bda407b7e12fd3c9e1',
+  );
 });
 
 test('Variables section degrades gracefully when the file has no variables', () => {
@@ -637,7 +647,7 @@ test('Variable Snapshot v2 rejects foreign mode values and open Alias capture fa
   assert.throws(() => buildVariableSnapshotV2([openAlias]), /not a closed source fact/);
 });
 
-test('generated DESIGN.md refuses output that its bounded reader cannot import', () => {
+test('oversized duplicate Variable projections degrade to complete importable v2', () => {
   const longValue = 'x'.repeat(16_384);
   const variables = Array.from({ length: 170 }, (_value, index) => ({
     id: `V:${index}`, name: `string-${index}`, type: 'STRING', description: '',
@@ -649,8 +659,60 @@ test('generated DESIGN.md refuses output that its bounded reader cannot import',
     defaultModeId: 'M:1', modes: [{ id: 'M:1', name: 'Mode' }],
     variables, expectedVariableCount: variables.length, captureComplete: true,
   }] };
-  assert.throws(() => generateDesignMd(extraction, { sections: ['variables', 'tokens'] }),
-    /Generated DESIGN\.md exceeds/);
+  const md = generateDesignMd(extraction, {
+    sections: ['variables', 'tokens'],
+    // A caller may narrow the authority for testing or a stricter host, but
+    // may never raise it to retain the unsafe duplicate output.
+    workspaceLimits: { textBytes: DEFAULT_WORKSPACE_LIMITS.textBytes * 2 },
+  });
+  assert.ok(Buffer.byteLength(md, 'utf8') <= DEFAULT_WORKSPACE_LIMITS.textBytes);
+  assert.match(md, /Safe size degradation/);
+  assert.match(md, /Legacy v1 token data is omitted/);
+  assert.match(md, /\[16386 chars\]/, 'formatted display value is explicitly shortened');
+
+  const parsed = parseDesignMdText(md);
+  assert.equal(parsed.tokens.variables, undefined);
+  assert.equal(parsed.tokens.meta.exportCompatibility.legacyVariables, 'omitted-size-limit');
+  assert.equal(parsed.tokens.variableSnapshot.complete, true);
+  assert.equal(
+    parsed.tokens.variableSnapshot.collections[0].variables[169]
+      .values['collection:1/mode:1'],
+    longValue,
+  );
+});
+
+test('DESIGN.md uses normal bytes at the limit and safe v2 one byte over it', () => {
+  const longValue = 'y'.repeat(2_048);
+  const variables = Array.from({ length: 3 }, (_value, index) => ({
+    id: `V:${index}`, name: `copy-${index}`, type: 'STRING', description: '',
+    hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+    values: { Mode: longValue }, exactValues: { 'M:1': longValue },
+  }));
+  const extraction = { ...EXTRACTION, variables: [{
+    id: 'C:1', name: 'Boundary', hiddenFromPublishing: false,
+    defaultModeId: 'M:1', modes: [{ id: 'M:1', name: 'Mode' }],
+    variables, expectedVariableCount: variables.length, captureComplete: true,
+  }] };
+  const options = { sections: ['variables', 'tokens'] };
+  const normal = generateDesignMd(extraction, options);
+  const normalBytes = Buffer.byteLength(normal, 'utf8');
+  const atLimit = generateDesignMd(extraction, {
+    ...options,
+    workspaceLimits: { textBytes: normalBytes },
+  });
+  assert.equal(atLimit, normal);
+
+  const oneByteOver = generateDesignMd(extraction, {
+    ...options,
+    workspaceLimits: { textBytes: normalBytes - 1 },
+  });
+  assert.match(oneByteOver, /Safe size degradation/);
+  assert.ok(Buffer.byteLength(oneByteOver, 'utf8') <= normalBytes - 1);
+  const parsed = parseDesignMdText(oneByteOver, {
+    limits: { ...DEFAULT_WORKSPACE_LIMITS, textBytes: normalBytes - 1 },
+  });
+  assert.equal(parsed.tokens.variableSnapshot.collections[0].variables[2]
+    .values['collection:1/mode:1'], longValue);
 });
 
 test('generated DESIGN.md carries v2 identity beside the bounded legacy reader', () => {

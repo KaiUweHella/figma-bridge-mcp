@@ -31,6 +31,14 @@ test('every checkConnection() call is awaited', () => {
   assert.deepEqual(offenders, []);
 });
 
+test('extract --no-split does not imply bypassing hard Workspace limits', () => {
+  const source = sources.get('extract.js');
+  const option = source.match(/\.option\('--no-split',\s*'([^']+)'\)/)?.[1] || '';
+  assert.match(option, /Structure/);
+  assert.match(option, /hard Workspace limits/);
+  assert.match(option, /safe Variable degradation/);
+});
+
 test('no command uses the removed figmaUse transport', () => {
   const offenders = [];
   for (const [file, src] of sources) {

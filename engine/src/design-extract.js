@@ -2248,6 +2248,28 @@ export const ALL_SECTIONS = [
   'depth', 'components', 'states', 'rules', 'extending', 'tokens',
 ];
 
+const DEGRADED_VARIABLE_CELL_CODE_POINTS = 160;
+
+function designExportLimitError(message, cause) {
+  return Object.assign(new Error(message, { cause }), { code: 'DESIGN_EXPORT_LIMIT' });
+}
+
+function boundedDisplayCell(value) {
+  const codePoints = Array.from(String(value));
+  if (codePoints.length <= DEGRADED_VARIABLE_CELL_CODE_POINTS) return codePoints.join('');
+  return `${codePoints.slice(0, DEGRADED_VARIABLE_CELL_CODE_POINTS).join('')}… [${codePoints.length} chars]`;
+}
+
+function narrowedWorkspaceLimits(overrides = {}) {
+  return Object.freeze(Object.fromEntries(Object.entries(DEFAULT_WORKSPACE_LIMITS)
+    .map(([key, authority]) => {
+      const requested = overrides[key];
+      return [key, Number.isSafeInteger(requested) && requested > 0
+        ? Math.min(authority, requested)
+        : authority];
+    })));
+}
+
 const SECTION_TITLES = {
   identity: 'Identity', structure: 'Structure', color: 'Color', variables: 'Variables',
   typography: 'Typography', spacing: 'Spacing & Layout', depth: 'Depth & Motion',
@@ -2262,8 +2284,9 @@ const SECTION_TITLES = {
  * Output layout matches the "Design to Markdown" plugin format so
  * parseDesignMd() (Format B: json design-tokens block) reads it unchanged.
  */
-export function generateDesignMd(extraction, options = {}) {
+function renderDesignMd(extraction, options = {}, policy = {}) {
   const sections = ALL_SECTIONS.filter(s => !options.sections || options.sections.includes(s));
+  const limits = policy.limits || DEFAULT_WORKSPACE_LIMITS;
   const census = buildCensus(extraction.pages);
   const colorNames = assignSemanticNames(census.colors);
   const typeScale = buildTypeScale(census.typography);
@@ -2283,6 +2306,9 @@ export function generateDesignMd(extraction, options = {}) {
   out.push(`nodes-scanned: ${extraction.pages.reduce((a, p) => a + (p.nodeCount || 0), 0)}`);
   out.push(`generator: figma-bridge-engine extract`);
   out.push('-->', '');
+  if (policy.safeVariableDegradation) {
+    out.push('> **Safe size degradation:** the exact Portable Variable Snapshot v2 remains complete and canonical. Legacy v1 token data is omitted, and human-readable Variable table cells are shortened only for display.', '');
+  }
 
   let num = 0;
   const header = (key) => { num += 1; out.push(`## ${num}. ${SECTION_TITLES[key]}`, ''); };
@@ -2321,13 +2347,17 @@ export function generateDesignMd(extraction, options = {}) {
         out.push('_no local variables found — this file has no variable collections, the palette above is sampled from raw fills_', '');
       } else {
         out.push('Real Figma variable collections — the authoritative tokens (names, modes, values). These come straight from the file, unlike the sampled palette above. figma_run ["import", "<this file>"] can recreate them as variables.', '');
+        if (policy.safeVariableDegradation) {
+          out.push(`_Display cells longer than ${DEGRADED_VARIABLE_CELL_CODE_POINTS} characters are shortened below. Exact values remain unchanged in Portable Variable Snapshot v2._`, '');
+        }
         for (const col of resolvedVars) {
-          out.push(`### Collection: ${col.name}  ·  ${col.variables.length} variables  ·  modes: ${col.modes.join(', ')}`, '');
-          out.push(`| Variable | Type | ${col.modes.map(mdCell).join(' | ')} |`);
+          const display = policy.safeVariableDegradation ? boundedDisplayCell : String;
+          out.push(`### Collection: ${display(col.name)}  ·  ${col.variables.length} variables  ·  modes: ${col.modes.map(mode => display(mode)).join(', ')}`, '');
+          out.push(`| Variable | Type | ${col.modes.map(mode => mdCell(display(mode))).join(' | ')} |`);
           out.push(`|---|---|${col.modes.map(() => '---').join('|')}|`);
           for (const v of col.variables) {
-            const cells = col.modes.map(m => mdCell(formatVarValue(v.values[m])));
-            out.push(`| ${mdCell(v.name)} | ${v.type} | ${cells.join(' | ')} |`);
+            const cells = col.modes.map(m => mdCell(display(formatVarValue(v.values[m]))));
+            out.push(`| ${mdCell(display(v.name))} | ${v.type} | ${cells.join(' | ')} |`);
           }
           out.push('');
         }
@@ -2425,7 +2455,17 @@ export function generateDesignMd(extraction, options = {}) {
       out.push('The block below is the canonical token map. It mirrors the tables above but is unambiguous and parseable.', '');
       const tokens = {
         $schema: 'design-tokens.v1',
-        meta: { source: extraction.fileName, generated: extraction.date },
+        meta: {
+          source: extraction.fileName,
+          generated: extraction.date,
+          ...(policy.safeVariableDegradation ? {
+            exportCompatibility: {
+              legacyVariables: 'omitted-size-limit',
+              humanVariableCells: 'truncated-size-limit',
+              canonicalVariables: 'variableSnapshot-v2',
+            },
+          } : {}),
+        },
         color: colorNames,
         typography: typeScale,
         spacing: { 'base-unit': baseUnit },
@@ -2433,7 +2473,9 @@ export function generateDesignMd(extraction, options = {}) {
         shadow: {},
         fonts,
         ...(resolvedVars.length ? {
-          variables: buildVariableTokens(resolvedVars),
+          ...(policy.safeVariableDegradation ? {} : {
+            variables: buildVariableTokens(resolvedVars),
+          }),
           variableSnapshot: buildVariableSnapshotV2(rawVars),
         } : {}),
       };
@@ -2446,9 +2488,15 @@ export function generateDesignMd(extraction, options = {}) {
       }
       const serializedTokens = JSON.stringify(tokens, null, 2);
       try {
-        parseBoundedJson(serializedTokens, { role: 'generated-design-token-block' });
-      } catch {
-        throw new Error('Generated DESIGN.md token data exceeds the safe import structure or byte limits.');
+        parseBoundedJson(serializedTokens, {
+          role: 'generated-design-token-block',
+          limits,
+        });
+      } catch (cause) {
+        throw designExportLimitError(
+          'Generated DESIGN.md token data exceeds the safe import structure or byte limits.',
+          cause,
+        );
       }
       out.push('```json design-tokens');
       out.push(serializedTokens);
@@ -2456,10 +2504,30 @@ export function generateDesignMd(extraction, options = {}) {
     }
   }
   const document = out.join('\n');
-  if (Buffer.byteLength(document, 'utf8') > DEFAULT_WORKSPACE_LIMITS.textBytes) {
-    throw new Error(`Generated DESIGN.md exceeds the ${DEFAULT_WORKSPACE_LIMITS.textBytes}-byte workspace limit.`);
+  if (Buffer.byteLength(document, 'utf8') > limits.textBytes) {
+    throw designExportLimitError(
+      `Generated DESIGN.md exceeds the ${limits.textBytes}-byte workspace limit.`,
+    );
   }
   return document;
+}
+
+export function generateDesignMd(extraction, options = {}) {
+  const limits = narrowedWorkspaceLimits(options.workspaceLimits);
+  try {
+    return renderDesignMd(extraction, options, { limits });
+  } catch (error) {
+    const sections = ALL_SECTIONS.filter(section =>
+      !options.sections || options.sections.includes(section));
+    const canDegradeVariables = error?.code === 'DESIGN_EXPORT_LIMIT'
+      && sections.includes('tokens')
+      && (extraction.variables || []).length > 0;
+    if (!canDegradeVariables) throw error;
+    return renderDesignMd(extraction, options, {
+      limits,
+      safeVariableDegradation: true,
+    });
+  }
 }
 
 /** Full uncompressed tree for one page (used by --split). */

@@ -336,6 +336,16 @@ byte or structure budget used by its reader. Source Figma ids and publish keys
 are evidence only; they never become target identity in another file.
 _Avoid_: name-keyed variable map, first mode, alias by display name, silent partial capture, source id as mutation target
 
+**Safe Variable Export Degradation**:
+The deterministic publication fallback used only when a normal DESIGN.md would
+exceed Workspace import authority because Variable values are duplicated in
+human tables, legacy v1 and exact v2. It keeps Portable Variable Snapshot v2
+complete and canonical, shortens only human display cells, explicitly omits
+legacy v1 and records both changes in human and machine-readable metadata. A
+normal export remains byte-compatible; `--no-split` controls only Structure
+placement and cannot raise hard Workspace byte or graph limits.
+_Avoid_: larger parser limit, truncated exact value, silent v1 omission, lossy fallback without v2, no-split authority bypass
+
 **Exact Variable Snapshot Import**:
 The bounded, non-retrying restoration of one complete Portable Variable
 Snapshot into newly owned local Collections. The source contract is normalized
