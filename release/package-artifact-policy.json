@@ -38,6 +38,8 @@
     "engine/src/application/variable-visualization-request.js",
     "engine/src/application/variable-set-value-command.js",
     "engine/src/application/variable-set-value-request.js",
+    "engine/src/application/variable-set-value-batch-command.js",
+    "engine/src/application/variable-set-value-batch-request.js",
     "engine/src/application/variable-snapshot-import-command.js",
     "engine/src/application/variable-code-syntax-command.js",
     "engine/src/application/variable-code-syntax-request.js",

@@ -336,6 +336,18 @@ previously empty mode is reported truthfully as partial residue rather than as
 rollback or success.
 _Avoid_: variable value eval, retryable setter, implicit ambiguity, fabricated rollback
 
+**Variable Mode Value Batch Mutation**:
+The bounded, non-retrying update of several explicit Variable/mode pairs under
+one `best-effort-rollback` policy. It resolves every Variable, Collection,
+mode, literal or alias, type and duplicate resolved pair before its first
+setter. Previously empty modes remain valid normal targets: success commits
+them, while rollback coverage identifies them as non-reversible because Figma
+cannot remove one mode value. After a later failure, existing prior values are
+restored in reverse and every remaining empty-mode write or failed restoration
+is reported as exact bounded residue. One Command Plan and approval own the
+whole batch without claiming atomicity.
+_Avoid_: repeated single-value approvals, reject-empty default, atomic batch claim, hidden residue
+
 **Variable Code Syntax Mutation**:
 The bounded, non-retrying set or removal of one official platform syntax on one
 local Variable. It closes platform, value-versus-remove intent and Variable

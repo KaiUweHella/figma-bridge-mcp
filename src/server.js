@@ -186,6 +186,10 @@ import {
   variableSetValuePlanRoute,
 } from "../engine/src/application/variable-set-value-command.js";
 import {
+  executeVariableSetValueBatchPlan,
+  variableSetValueBatchPlanRoute,
+} from "../engine/src/application/variable-set-value-batch-command.js";
+import {
   executeVariableCodeSyntaxPlan,
   variableCodeSyntaxPlanRoute,
 } from "../engine/src/application/variable-code-syntax-command.js";
@@ -1187,7 +1191,13 @@ Required behavior:
    ["var","update-batch","[{\"variable\":\"space/md\",\"collection\":\"Tokens\",\"scopes\":[\"GAP\"]},{\"variable\":\"color/text\",\"collection\":\"Tokens\",\"scopes\":[\"TEXT_FILL\"]}]"]
    Do not emit one var update call per known Variable. Multiple scopes are valid.
    Use ALL_SCOPES alone to remove a restriction.
-4. If a name strongly suggests a different scope (for example opacity/*,
+4. When several explicit mode-value assignments are already known, collect
+   them into one var set-value-batch JSON array. Previously empty modes are
+   normal supported targets. The policy is best-effort-rollback: a successful
+   batch commits all values; a failed batch restores prior values and reports
+   exact residue for values Figma cannot remove. Do not emit repeated
+   var set-value calls.
+5. If a name strongly suggests a different scope (for example opacity/*,
    font-size/*, text/*, stroke/* or effect/*), mention that compatible candidate
    in the question, but still ask unless a project policy explicitly decided it.
 `;
@@ -1432,6 +1442,9 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
       pluginDispatch: execution.pluginDispatch || "none",
     }),
     confirmationPolicy: writeExecutionPolicyFacts().confirmation,
+    mutationPolicy: plan.mutationPolicy?.rollback
+      ? Object.freeze({ rollback: plan.mutationPolicy.rollback })
+      : null,
   });
 }
 
@@ -1461,6 +1474,9 @@ function previewResult(plan, { reason = "explicit-preview" } = {}) {
     `  target: ${facts.target.kind} (${facts.target.source})`,
     `  execution: ${facts.execution.mode}, timeout=${facts.execution.timeout}, retry=${facts.execution.retry}, plugin=${facts.execution.pluginDispatch}`,
     `  effective confirmation policy: ${facts.confirmationPolicy}`,
+    ...(facts.mutationPolicy
+      ? [`  mutation rollback policy: ${facts.mutationPolicy.rollback}`]
+      : []),
     "  dispatched: no",
     "",
     next,
@@ -2351,6 +2367,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableSetValuePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableSetValueBatchRoute = variableSetValueBatchPlanRoute(plan);
+      if (variableSetValueBatchRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableSetValueBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

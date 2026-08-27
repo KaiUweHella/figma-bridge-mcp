@@ -178,6 +178,12 @@ import {
   variableSetValueArgvFromRequest,
 } from '../engine/src/application/variable-set-value-request.js';
 import {
+  acceptsVariableSetValueBatchArgv,
+  parseVariableSetValueBatchRequest,
+  variableSetValueBatchArgvFromRequest,
+  VARIABLE_SET_VALUE_BATCH_ROLLBACK_POLICY,
+} from '../engine/src/application/variable-set-value-batch-request.js';
+import {
   acceptsVariableCodeSyntaxArgv,
   parseVariableCodeSyntaxRequest,
   variableCodeSyntaxArgvFromRequest,
@@ -398,6 +404,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.overlap',
   'tokens.rebind',
   'var.set-value',
+  'var.set-value-batch',
   'var.code-syntax',
   'var.update',
   'var.update-batch',
@@ -604,6 +611,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'token-rebind-input';
   }
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
+  if (name === 'var' && sub === 'set-value-batch') pathPolicy = 'variable-set-value-batch-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
   if (name === 'var' && sub === 'update-batch') pathPolicy = 'variable-update-batch-input';
@@ -775,6 +783,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'set-value'
     && !action.help && !acceptsVariableSetValueArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'set-value-batch'
+    && !action.help && !acceptsVariableSetValueBatchArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'code-syntax'
@@ -1492,6 +1504,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...variableSetValueArgvFromRequest(parseVariableSetValueRequest(args)));
       break;
     }
+    case 'variable-set-value-batch-input': {
+      args.splice(0, args.length,
+        ...variableSetValueBatchArgvFromRequest(parseVariableSetValueBatchRequest(args)));
+      break;
+    }
     case 'variable-code-syntax-input': {
       args.splice(0, args.length,
         ...variableCodeSyntaxArgvFromRequest(parseVariableCodeSyntaxRequest(args)));
@@ -1853,6 +1870,9 @@ export function planFigmaCommand(rawArgs, {
     target,
     effects,
     confirmation: capability.mutatesDesign ? 'configured' : 'none',
+    mutationPolicy: capability.actionId === 'var.set-value-batch'
+      ? Object.freeze({ rollback: VARIABLE_SET_VALUE_BATCH_ROLLBACK_POLICY })
+      : null,
     execution: Object.freeze({
       mode: capability.execution === 'background' ? 'tracked-job' : 'foreground',
       timeout: capability.timeoutClass,

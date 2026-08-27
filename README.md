@@ -1312,6 +1312,7 @@ figma_run ["var", "update", "space/md", "--description", "Medium spacing", "--sc
 figma_run ["var", "update-batch", "[{\"variable\":\"space/md\",\"collection\":\"Primitives\",\"description\":\"Medium spacing\",\"scopes\":[\"GAP\"]},{\"variable\":\"space/lg\",\"collection\":\"Primitives\",\"hidden\":false}]"]
 figma_run ["var", "set-value", "space/md", "12", "--mode", "Light"]
 figma_run ["var", "set-value", "space/card", "--alias", "space/md", "--mode", "Light"]
+figma_run ["var", "set-value-batch", "[{\"variable\":\"space/md\",\"collection\":\"Primitives\",\"mode\":\"Light\",\"value\":12},{\"variable\":\"space/card\",\"mode\":\"Dark\",\"alias\":\"space/md\"}]"]
 figma_run ["var", "code-syntax", "space/md", "WEB", "var(--space-md)"]
 figma_run ["var", "resolve", "space/md", "12:34"]
 figma_run ["col", "mode-add", "Primitives", "Dark"]
@@ -1327,7 +1328,13 @@ variable names. When metadata edits for several known local Variables are
 already available, collect them into one `var update-batch` JSON array instead
 of emitting one `var update` call per Variable. The batch preflights every
 identity before its first write and owns reverse rollback under one confirmation;
-keep `var update` for a single target. URL-shaped names remain payload and cannot
+keep `var update` for a single target. Batch several already-known mode-value
+assignments into one `var set-value-batch` call instead of repeating `var
+set-value`. Its explicit `best-effort-rollback` policy does not reject
+previously empty modes: successful writes commit normally; after a later
+failure, prior values are restored and any value that Figma cannot remove is
+reported as exact residue. This preserves normal utility without claiming
+atomic rollback. Keep `var set-value` for a single pair. URL-shaped names remain payload and cannot
 retarget the command. `var resolve` deliberately requires a consumer node because aliases
 can resolve differently under that node's selected modes. Collection
 `show`, `update`, `mode-add`, `mode-rename`, `mode-remove` and

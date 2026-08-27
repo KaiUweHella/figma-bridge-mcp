@@ -673,7 +673,7 @@ test('var set-value delegates one Plan-bound rollback-owned non-retrying Applica
   const adapter = sources.get('variables.js');
   assert.ok(adapter, 'variables.js exists');
   const start = adapter.indexOf("variables.command('set-value <variable> [value]')");
-  const end = adapter.indexOf("variables.command('code-syntax <variable> <platform> [value]')", start);
+  const end = adapter.indexOf("variables.command('set-value-batch <json>')", start);
   const action = adapter.slice(start, end);
   assert.match(action, /variableSetValuePlanningArgvFromRequest/);
   assert.match(action, /\.allowExcessArguments\(false\)/);
@@ -684,6 +684,22 @@ test('var set-value delegates one Plan-bound rollback-owned non-retrying Applica
   assert.match(action, /process\.exitCode = 1/);
   assert.doesNotMatch(action, /checkConnection\(|fastEval\(|variableSetValueCode\(/,
     'Commander must not retain Variable Set Value execution or formatting logic');
+});
+
+test('var set-value-batch delegates one Plan-bound best-effort rollback Application', () => {
+  const adapter = sources.get('variables.js');
+  const start = adapter.indexOf("variables.command('set-value-batch <json>')");
+  const end = adapter.indexOf("variables.command('code-syntax <variable> <platform> [value]')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableSetValueBatchPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableSetValueBatchPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|variableSetValueBatchCommandCode\(/,
+    'Commander must not retain Variable Set Value Batch execution or rollback logic');
 });
 
 test('var code-syntax delegates one Plan-bound rollback-owned non-retrying Application', () => {

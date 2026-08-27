@@ -55,7 +55,10 @@ contract. Preserve all three instead of drawing a flattened approximation.
    CSS variable names, and handle every `SCOPE DECISION REQUIRED` result before
    continuing. When metadata edits are known for several Variables, collect
    them into one `var update-batch` call instead of emitting repeated `var
-update` calls. Bind supported properties instead of freezing raw values.
+update` calls. When several explicit Variable/mode values are already
+   known, use one `var set-value-batch` call; previously empty modes are valid
+   and its best-effort rollback Outcome must be checked for exact residue.
+   Bind supported properties instead of freezing raw values.
 3. Reuse existing component instances. When a missing reusable component must
    be created, follow `figma-bridge-component-library` before composing it into
    the screen.

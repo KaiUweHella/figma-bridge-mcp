@@ -28,6 +28,10 @@ import {
   variableSetValuePlanningArgvFromRequest,
 } from '../application/variable-set-value-command.js';
 import {
+  executeVariableSetValueBatchPlan,
+  variableSetValueBatchPlanningArgvFromRequest,
+} from '../application/variable-set-value-batch-command.js';
+import {
   executeVariableCodeSyntaxPlan,
   variableCodeSyntaxPlanningArgvFromRequest,
 } from '../application/variable-code-syntax-command.js';
@@ -248,6 +252,31 @@ variables.command('set-value <variable> [value]')
         async ({ fileKey, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableSetValuePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
+  });
+
+variables.command('set-value-batch <json>')
+  .description('Set several explicit Variable/mode values with best-effort rollback')
+  .allowExcessArguments(false)
+  .action(async (json) => {
+    try {
+      const plan = planFigmaCommand(variableSetValueBatchPlanningArgvFromRequest({
+        items: JSON.parse(json),
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableSetValueBatchPlan(plan, {
             evaluate: (code) => daemonExec('eval', {
               code,
               ...(fileKey ? { fileKey } : {}),

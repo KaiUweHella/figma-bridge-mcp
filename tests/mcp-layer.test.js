@@ -865,6 +865,43 @@ test('figma_run confirms one Variable Metadata Update Batch and rejects malforme
   }
 });
 
+test('figma_run routes and previews one Variable Set Value Batch rollback policy', async () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const variableSetValueBatchRoute = variableSetValueBatchPlanRoute(plan)');
+  const end = source.indexOf('const variableCodeSyntaxRoute = variableCodeSyntaxPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeVariableSetValueBatchPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Variable Set Value Batch must not re-enter Commander');
+
+  const { handleTool } = await import('../src/server.js');
+  const json = JSON.stringify([
+    { variable: 'space/md', mode: 'Light', value: 20 },
+    { variable: 'space/lg', mode: 'Dark', alias: 'space/md' },
+  ]);
+  const preview = await handleTool('figma_run', {
+    args: ['var', 'set-value-batch', json],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  assert.match(preview.content[0].text, /mutation rollback policy: best-effort-rollback/);
+  for (const args of [
+    ['var', 'set-value-batch', '[]'],
+    ['var', 'set-value-batch', '[{"variable":"x","mode":"Light"}]'],
+    ['var', 'set-value-batch', '[{"variable":"x","mode":"Light","value":1,"alias":"y"}]'],
+    ['var', 'set-value-batch', '[{"variable":"x","mode":"Light","value":1,"future":true}]'],
+    ['var', 'set-value-batch', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Variable Deletion through its shared irreversible Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const variableDeleteRoute = variableDeletePlanRoute(plan)');
