@@ -2,10 +2,10 @@
 
 An immutable Command Plan must classify an operation as `typed-read` before it
 can bypass serialized Plugin mutation dispatch. The allowlisted operations are
-the versioned Style Consumer Application and an identity-free Bridge health
-probe. Their Daemon payloads are closed request objects; JavaScript source is
-invalid on this path. Every other read, including opaque compatibility eval,
-remains conservative serialized work.
+the versioned Style Consumer and Node Binding Facts Applications plus an
+identity-free Bridge health probe. Their Daemon payloads are closed request
+objects; JavaScript source is invalid on this path. Every other read, including
+opaque compatibility eval, remains conservative serialized work.
 
 The Daemon read scheduler permits at most two active operations globally, one
 per resolved file or connection-scoped draft session, 64 queued requests
@@ -25,12 +25,15 @@ health probe, the scheduler may release stale read slots for the same target
 whose receipts belong to older epochs. This is safe only because typed reads
 cannot mutate the document. The proof never releases a write quarantine.
 
-The closed runtime validates Style Consumer request fields, candidate counts,
-page size, cursor identity and serialized result size on both sides of the
-transport. Commander and MCP prefer it. They may fall back once to the prior
-bounded Style Consumer eval only after a structured capability or validation
-failure proves non-dispatch; timeouts, malformed results and every
-post-dispatch failure are never retried.
+The closed runtime validates every operation's request and serialized result
+bounds on both sides of the transport. Style Consumer also validates candidate
+counts, page size and cursor identity. Node Binding Facts preserves its direct
+Alias topology, local-catalog-first identity resolution and unresolved remote
+Aliases unchanged from the compatibility projection. Commander and MCP prefer
+typed reads. They may fall back once to the prior bounded operation-specific
+eval only after a structured capability or validation failure proves
+non-dispatch; timeouts, malformed results and every post-dispatch failure are
+never retried.
 
 The status surface invokes the health operation directly with one bounded
 request per selected authenticated connection. This distinguishes socket-only,

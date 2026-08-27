@@ -2151,6 +2151,13 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeNodeBindingsPlan(plan, {
+            typedRead: (operation, request, fallbackCode) => typedReadFigma(
+              operation, request, fallbackCode, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              },
+            ),
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

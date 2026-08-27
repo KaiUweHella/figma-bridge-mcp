@@ -106,7 +106,10 @@ operation selected by an immutable Command Plan. It carries validated data,
 never JavaScript source, and uses bounded global and per-target concurrency
 outside the serialized mutation lane while retaining the same target/editor
 Dispatch Receipt, deadline, result-size, audit and error contracts. Unknown or
-opaque reads remain conservative serialized executions.
+opaque reads remain conservative serialized executions. Bridge health, Style
+Consumer Facts and Node Binding Facts own typed operations; compatibility eval
+is permitted only when an older Plugin explicitly rejects the operation before
+dispatch.
 _Avoid_: parallel eval, generic read lane, unbounded scan, weakened targeting
 
 **Style Publish Status Facts**:

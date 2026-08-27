@@ -19,6 +19,10 @@ import {
   nodeBindingsArgvFromRequest,
   parseNodeBindingsRequest,
 } from '../src/application/node-bindings-request.js';
+import {
+  executeTypedReadOperation,
+  NODE_BINDINGS_TYPED_READ,
+} from '../src/lib/typed-read-operations.js';
 
 const alias = (id) => ({ type: 'VARIABLE_ALIAS', id });
 
@@ -79,6 +83,12 @@ test('Node Binding Facts preserve scalar, array and component-property topology'
     },
   };
   const result = await new Function('figma', `return ${nodeBindingsCode({ nodeId: node.id })};`)(figma);
+  const typedResult = JSON.parse(await executeTypedReadOperation(
+    figma,
+    NODE_BINDINGS_TYPED_READ,
+    { nodeId: node.id },
+  ));
+  assert.deepEqual(typedResult, result, 'closed typed-read and legacy fallback must project identical facts');
   assert.deepEqual(result.nodes[0].bindings.map(({ field, index, propertyName }) => ({
     field, index, propertyName,
   })), [
@@ -244,6 +254,7 @@ test('Node Bindings Plan route accepts only its authentic safe-read Plan', async
   const plan = planFigmaCommand(['node', 'bindings', '1-2', '--json'], { adapter: 'cli' });
   assert.equal(plan.allowed, true);
   assert.equal(plan.execution.retry, 'safe-read');
+  assert.equal(plan.execution.pluginDispatch, 'typed-read');
   assert.equal(nodeBindingsPlanRoute(plan), 'command-application');
   assert.deepEqual(plan.argv, ['node', 'bindings', '1:2', '--json']);
   const result = { schemaVersion: 1, source: 'node', nodes: [{
@@ -256,6 +267,25 @@ test('Node Bindings Plan route accepts only its authentic safe-read Plan', async
   );
   assert.equal(nodeBindingsPlanRoute(planFigmaCommand(['node', 'css', '1:2'], { adapter: 'mcp' })),
     'not-node-bindings');
+});
+
+test('Node Bindings prefers the closed typed-read Adapter with bounded eval fallback', async () => {
+  const result = { schemaVersion: 1, source: 'node', nodes: [{
+    id: '1:2', name: 'Card', type: 'FRAME', bindings: [],
+  }] };
+  const calls = [];
+  const projected = await executeNodeBindings({ nodeId: '1:2', json: true }, {
+    typedRead: async (operation, request, fallbackCode) => {
+      calls.push({ operation, request, fallbackCode });
+      return JSON.stringify(result);
+    },
+    evaluate: async () => { throw new Error('must not use eval when typed-read is available'); },
+  });
+  assert.deepEqual(projected.result, result);
+  assert.equal(calls[0].operation, 'node-bindings-v1');
+  assert.deepEqual(calls[0].request, { nodeId: '1:2' });
+  assert.match(calls[0].fallbackCode, /getNodeByIdAsync/);
+  assert.doesNotMatch(calls[0].fallbackCode, /nodeBindingsCode/);
 });
 
 test('Node Bindings planning keeps option-first URL target separate from canonical argv', () => {

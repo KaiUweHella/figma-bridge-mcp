@@ -6,6 +6,7 @@ import {
   nodeBindingsPlanningArgvFromRequest,
   parseNodeBindingsRequest,
 } from './node-bindings-request.js';
+import { NODE_BINDINGS_TYPED_READ } from '../lib/typed-read-operations.js';
 
 export {
   nodeBindingsArgvFromRequest,
@@ -18,6 +19,7 @@ export const MAX_NODE_BINDING_FACTS = 384;
 export const MAX_NODE_BINDING_LABEL_CODE_UNITS = 512;
 export const MAX_NODE_BINDING_RESOURCES = 20_000;
 export const NODE_BINDING_LOOKUP_TIMEOUT_MS = 7000;
+export const MAX_NODE_BINDING_SERIALIZED_CODE_UNITS = 1_000_000;
 const MAX_NODE_BINDING_FIELD_CODE_UNITS = 128;
 const MAX_NODE_BINDING_ID_CODE_UNITS = 512;
 const NODE_ID_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
@@ -292,13 +294,25 @@ export function formatNodeBindingsResult(result, { json = false } = {}) {
   }).join('\n\n');
 }
 
-/** @param {object} request @param {{evaluate?: (code:string) => Promise<any>}} [adapters] */
+/** @param {object} request @param {{typedRead?: Function, evaluate?: (code:string) => Promise<any>}} [adapters] */
 export async function executeNodeBindings(request, adapters = {}) {
-  if (typeof adapters.evaluate !== 'function') {
-    throw new TypeError('executeNodeBindings requires evaluate(code)');
+  if (typeof adapters.typedRead !== 'function' && typeof adapters.evaluate !== 'function') {
+    throw new TypeError('executeNodeBindings requires typedRead(operation, request, fallbackCode) or evaluate(code)');
   }
   const input = normalizedRequest(request);
-  const result = await adapters.evaluate(nodeBindingsCode(input));
+  const fallbackCode = nodeBindingsCode(input);
+  const value = typeof adapters.typedRead === 'function'
+    ? await adapters.typedRead(NODE_BINDINGS_TYPED_READ, { nodeId: input.nodeId }, fallbackCode)
+    : await adapters.evaluate(fallbackCode);
+  let result = value;
+  if (typeof value === 'string') {
+    if (value.length > MAX_NODE_BINDING_SERIALIZED_CODE_UNITS) {
+      throw new Error('Node Bindings returned an invalid bounded result.');
+    }
+    try { result = JSON.parse(value); }
+    catch { throw new Error('Node Bindings returned invalid JSON.'); }
+  }
+  if (!validResult(result)) throw new Error('Node Bindings returned an invalid bounded result.');
   return {
     stdout: formatNodeBindingsResult(result, { json: input.json }),
     stderr: input.warning ? `⚠ ${input.warning}` : '',
@@ -311,6 +325,7 @@ export function nodeBindingsPlanRoute(plan) {
     throw new TypeError('Node Bindings routing requires a Command Plan created by the Capability Catalog.');
   }
   return plan.allowed && plan.id === NODE_BINDINGS_APPLICATION_ID
+    && plan.execution.pluginDispatch === 'typed-read'
     ? 'command-application'
     : 'not-node-bindings';
 }

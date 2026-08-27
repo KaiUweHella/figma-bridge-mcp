@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   BRIDGE_HEALTH_TYPED_READ,
   executeTypedReadOperation,
+  NODE_BINDINGS_TYPED_READ,
   STYLE_CONSUMERS_TYPED_READ,
   typedReadRequestValidationError,
 } from '../src/lib/typed-read-operations.js';
@@ -61,4 +62,38 @@ test('typed Style Consumer rejects malformed native facts before projection', as
   await assert.rejects(() => executeTypedReadOperation(figmaFor([
     { node: { id: '1:1', name: 'Node', type: 'FRAME' }, fields: ['futureStyleId'] },
   ]), STYLE_CONSUMERS_TYPED_READ, request), /incompatible inherited style field/);
+});
+
+test('typed Node Binding Facts accepts only one closed optional Node identity', async () => {
+  assert.equal(typedReadRequestValidationError(NODE_BINDINGS_TYPED_READ, { nodeId: null }), null);
+  assert.equal(typedReadRequestValidationError(NODE_BINDINGS_TYPED_READ, { nodeId: '12:34' }), null);
+  assert.match(
+    typedReadRequestValidationError(NODE_BINDINGS_TYPED_READ, { nodeId: '12:34', code: 'write()' }),
+    /unknown or missing field/,
+  );
+  assert.match(
+    typedReadRequestValidationError(NODE_BINDINGS_TYPED_READ, { nodeId: 'not-a-node' }),
+    /nodeId is invalid/,
+  );
+
+  const node = {
+    id: '12:34', name: 'Typed fixture', type: 'FRAME',
+    boundVariables: { itemSpacing: { type: 'VARIABLE_ALIAS', id: 'VariableID:1' } },
+  };
+  const serialized = await executeTypedReadOperation({
+    currentPage: { selection: [] },
+    getNodeByIdAsync: async () => node,
+    variables: {
+      getLocalVariablesAsync: async () => [{
+        id: 'VariableID:1', name: 'space/md', resolvedType: 'FLOAT', remote: false,
+        variableCollectionId: 'VariableCollectionId:1',
+      }],
+      getLocalVariableCollectionsAsync: async () => [{
+        id: 'VariableCollectionId:1', name: 'Tokens', remote: false,
+      }],
+    },
+  }, NODE_BINDINGS_TYPED_READ, { nodeId: node.id });
+  const result = JSON.parse(serialized);
+  assert.equal(result.nodes[0].bindings[0].variable.name, 'space/md');
+  assert.equal(result.nodes[0].bindings[0].variable.collection.name, 'Tokens');
 });

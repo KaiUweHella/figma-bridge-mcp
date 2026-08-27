@@ -335,9 +335,11 @@ function validatePreparedDispatchContext(receipt, {
 const TYPED_READ_CAPABILITY = 'typed-read-v1';
 const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
 const STYLE_CONSUMERS_TYPED_READ = 'style-consumers-v1';
+const NODE_BINDINGS_TYPED_READ = 'node-bindings-v1';
 const TYPED_READ_OPERATIONS = Object.freeze([
   BRIDGE_HEALTH_TYPED_READ,
   STYLE_CONSUMERS_TYPED_READ,
+  NODE_BINDINGS_TYPED_READ,
 ]);
 
 function typedReadRecord(value) {
@@ -373,6 +375,17 @@ function typedReadRequestValidationError(operation, request) {
     return typedReadExactKeys(request, [])
       ? null
       : 'Bridge health typed-read request contains an unknown field';
+  }
+  if (operation === NODE_BINDINGS_TYPED_READ) {
+    if (!typedReadExactKeys(request, ['nodeId'])) {
+      return 'Node Binding Facts typed-read request has an unknown or missing field';
+    }
+    if (request.nodeId !== null && (typeof request.nodeId !== 'string'
+      || request.nodeId.length < 1 || request.nodeId.length > 512
+      || !/^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/.test(request.nodeId))) {
+      return 'Node Binding Facts typed-read nodeId is invalid';
+    }
+    return null;
   }
   if (!typedReadExactKeys(request, ['style', 'type', 'limit', 'after'])) {
     return 'Style Consumer typed-read request has an unknown or missing field';
@@ -498,7 +511,177 @@ async function executeStyleConsumersTypedRead(figmaApi, request) {
   return serialized;
 }
 
-function executeTypedReadOperation(figmaApi, operation, request) {
+async function executeNodeBindingsTypedRead(figmaApi, request) {
+  const requestError = typedReadRequestValidationError(NODE_BINDINGS_TYPED_READ, request);
+  if (requestError) throw new Error(requestError);
+  const maxNodes = 128;
+  const maxFacts = 384;
+  const maxLabel = 512;
+  const maxResources = 20_000;
+  const maxField = 128;
+  const maxId = 512;
+  const maxSerializedCodeUnits = 1_000_000;
+  const lookupTimeoutMs = 7000;
+  const clean = (value, limit) => {
+    const text = String(value == null ? '' : value)
+      .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ');
+    if (text.length > limit) {
+      throw new Error('Figma Node Binding Facts exceed the bounded result contract.');
+    }
+    return text;
+  };
+  async function findTarget(id) {
+    let timeoutHandle;
+    try {
+      return await Promise.race([
+        figmaApi.getNodeByIdAsync(id),
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(
+            'Figma node lookup timed out before the bounded read: ' + id,
+          )), lookupTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle != null) clearTimeout(timeoutHandle);
+    }
+  }
+  const target = request.nodeId ? await findTarget(request.nodeId) : null;
+  if (request.nodeId && !target) {
+    throw new Error('Node not found in the targeted Figma document: ' + request.nodeId);
+  }
+  const nodes = request.nodeId ? [target] : Array.from(figmaApi.currentPage.selection || []);
+  if (nodes.length > maxNodes) {
+    throw new Error('Figma selection exceeds the bounded Node Binding Facts contract.');
+  }
+
+  const variableCache = new Map();
+  const collectionCache = new Map();
+  let localVariables = null;
+  let localCollections = null;
+  let factCount = 0;
+  async function localVariable(id) {
+    if (localVariables === null) {
+      localVariables = false;
+      if (typeof figmaApi.variables.getLocalVariablesAsync === 'function') {
+        try {
+          const candidates = await figmaApi.variables.getLocalVariablesAsync();
+          if (!Array.isArray(candidates) || candidates.length > maxResources) {
+            throw new Error('Figma local Variable catalog exceeds the bounded Node Binding Facts contract.');
+          }
+          localVariables = new Map(candidates
+            .filter((candidate) => candidate && candidate.remote === false
+              && typeof candidate.id === 'string' && candidate.id.length <= maxId)
+            .map((candidate) => [candidate.id, candidate]));
+        } catch (error) {
+          if (/exceeds the bounded/.test(String(error && error.message || error))) throw error;
+        }
+      }
+    }
+    return localVariables && localVariables.get(id) || null;
+  }
+  async function localCollection(id) {
+    if (localCollections === null) {
+      localCollections = false;
+      if (typeof figmaApi.variables.getLocalVariableCollectionsAsync === 'function') {
+        try {
+          const candidates = await figmaApi.variables.getLocalVariableCollectionsAsync();
+          if (!Array.isArray(candidates) || candidates.length > maxResources) {
+            throw new Error('Figma local Collection catalog exceeds the bounded Node Binding Facts contract.');
+          }
+          localCollections = new Map(candidates
+            .filter((candidate) => candidate && candidate.remote === false
+              && typeof candidate.id === 'string' && candidate.id.length <= maxId)
+            .map((candidate) => [candidate.id, candidate]));
+        } catch (error) {
+          if (/exceeds the bounded/.test(String(error && error.message || error))) throw error;
+        }
+      }
+    }
+    return localCollections && localCollections.get(id) || null;
+  }
+  async function collectionFact(collectionId) {
+    if (!collectionId) return null;
+    const id = clean(collectionId, maxId);
+    if (collectionCache.has(id)) return collectionCache.get(id);
+    let collection = await localCollection(id);
+    if (!collection && typeof figmaApi.variables.getVariableCollectionByIdAsync === 'function') {
+      try { collection = await figmaApi.variables.getVariableCollectionByIdAsync(id); } catch {}
+    }
+    const fact = { id, name: collection ? clean(collection.name, maxLabel) : null, resolved: !!collection };
+    collectionCache.set(id, fact);
+    return fact;
+  }
+  async function variableFact(alias) {
+    if (!alias || typeof alias.id !== 'string') {
+      throw new Error('Figma returned unsupported node binding topology.');
+    }
+    const id = clean(alias.id, maxId);
+    if (variableCache.has(id)) return variableCache.get(id);
+    let variable = await localVariable(id);
+    if (!variable && typeof figmaApi.variables.getVariableByIdAsync === 'function') {
+      try { variable = await figmaApi.variables.getVariableByIdAsync(id); } catch {}
+    }
+    const fact = variable ? {
+      id,
+      name: clean(variable.name, maxLabel),
+      resolvedType: clean(variable.resolvedType, 64),
+      collection: await collectionFact(variable.variableCollectionId),
+      resolved: true,
+    } : { id, name: null, resolvedType: null, collection: null, resolved: false };
+    variableCache.set(id, fact);
+    return fact;
+  }
+  async function bindingFact(field, variableAlias, index = null, propertyName = null) {
+    factCount++;
+    if (factCount > maxFacts) {
+      throw new Error('Figma node bindings exceed the bounded Node Binding Facts contract.');
+    }
+    return {
+      field: clean(field, maxField),
+      index,
+      propertyName: propertyName == null ? null : clean(propertyName, maxLabel),
+      variable: await variableFact(variableAlias),
+    };
+  }
+
+  const results = [];
+  for (const node of nodes) {
+    const bindings = [];
+    for (const [field, value] of Object.entries(node.boundVariables || {})) {
+      if (field === 'componentProperties' && value && typeof value === 'object'
+        && !Array.isArray(value) && typeof value.id !== 'string') {
+        for (const [propertyName, variableAlias] of Object.entries(value)) {
+          if (variableAlias == null) continue;
+          bindings.push(await bindingFact(field, variableAlias, null, propertyName));
+        }
+      } else if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index++) {
+          if (value[index] == null) continue;
+          bindings.push(await bindingFact(field, value[index], index));
+        }
+      } else if (value != null) {
+        bindings.push(await bindingFact(field, value));
+      }
+    }
+    results.push({
+      id: clean(node.id, 96),
+      name: clean(node.name, maxLabel),
+      type: clean(node.type, 64),
+      bindings,
+    });
+  }
+  const payload = {
+    schemaVersion: 1,
+    source: request.nodeId ? 'node' : 'selection',
+    nodes: results,
+  };
+  if (JSON.stringify(payload).length > maxSerializedCodeUnits) {
+    throw new Error('Figma Node Binding Facts exceed the bounded serialized result contract.');
+  }
+  return payload;
+}
+
+async function executeTypedReadOperation(figmaApi, operation, request) {
   const error = typedReadRequestValidationError(operation, request);
   if (error) throw new Error(error);
   if (operation === BRIDGE_HEALTH_TYPED_READ) {
@@ -510,6 +693,9 @@ function executeTypedReadOperation(figmaApi, operation, request) {
   }
   if (operation === STYLE_CONSUMERS_TYPED_READ) {
     return executeStyleConsumersTypedRead(figmaApi, request);
+  }
+  if (operation === NODE_BINDINGS_TYPED_READ) {
+    return JSON.stringify(await executeNodeBindingsTypedRead(figmaApi, request));
   }
   throw new Error('Typed-read operation is unsupported.');
 }

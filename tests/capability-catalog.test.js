@@ -1025,6 +1025,18 @@ test('Node Delete closes one policy-identical non-retrying batch without losing 
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
 });
 
+test('Node Binding Facts use the closed typed-read dispatch in both Adapters', () => {
+  const cli = planFigmaCommand(['node', 'bindings', '12:34', '--json'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['node', 'bindings', '--json', '12-34'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.execution.pluginDispatch, 'typed-read');
+  assert.equal(cli.effects.figma, 'read');
+});
+
 test('Inspect closes one policy-identical CLI/MCP read without losing formats or URL targets', () => {
   const url = 'https://www.figma.com/design/FILEA/Inspect-Lab?node-id=12-34';
   for (const input of [

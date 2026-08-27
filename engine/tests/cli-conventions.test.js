@@ -321,6 +321,7 @@ test('node bindings delegates one Plan-bound bounded-read Command Application', 
   assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(action, /executeNodeBindingsPlan\(plan/);
+  assert.match(action, /daemonTypedRead\(/);
   assert.match(action, /daemonExec\('eval'/);
   assert.match(action, /process\.exitCode = 1/);
   assert.doesNotMatch(action, /checkConnection\(|fastEval\(|boundVariables|getVariableByIdAsync/,

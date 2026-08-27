@@ -1402,6 +1402,7 @@ test('figma_run routes Node Binding Facts through the shared bounded-read Applic
   assert.match(slice, /compatibilityFallback:\s*false/);
   assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
   assert.match(slice, /executeNodeBindingsPlan\(plan/);
+  assert.match(slice, /typedReadFigma\(/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Node Binding Facts must not re-enter Commander');
 });
