@@ -176,6 +176,7 @@ test('history delegates private structural persistence to the Snapshot Store', (
 test('asset export Adapter delegates one Command Application to Manifest v2', () => {
   const adapter = sources.get('export-eval.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'asset-export-command.js'), 'utf8');
+  const publicationWorker = readFileSync(join(LIB_DIR, 'asset-publication-worker-runtime.js'), 'utf8');
   assert.ok(adapter, 'export-eval.js exists');
   assert.match(adapter, /runInProcessCommandPlan\(/);
   assert.match(adapter, /executeAssetExportPlan\(/);
@@ -190,10 +191,16 @@ test('asset export Adapter delegates one Command Application to Manifest v2', ()
     'every Asset Export roundtrip must carry daemon-owned revision metadata');
   assert.doesNotMatch(adapter, /planAssetExport\(|publishAssetExportPlan\(/,
     'Commander must not own Asset Export domain logic');
-  assert.match(application, /planAssetExport\(/,
-    'asset export must resolve cross-run identity and filename collisions centrally');
-  assert.match(application, /publishAssetExportPlan\(/,
-    'asset export must use staged publication with the manifest written last');
+  assert.match(application, /AssetPublicationWorker/,
+    'asset export must keep CPU and large publication work off the MCP event loop');
+  assert.match(application, /byteWorker\.stage\(/,
+    'asset bytes must be staged before the shared output lock');
+  assert.match(application, /byteWorker\.publish\(/,
+    'the Application must delegate the lock-bounded merge and commit');
+  assert.match(publicationWorker, /planAssetExport\(/,
+    'the Worker must resolve cross-run identity and filename collisions centrally');
+  assert.match(publicationWorker, /prepareAssetExportPublication\(/,
+    'the Worker must use staged atomic manifest-last publication');
   assert.doesNotMatch(application, /const usedNames\s*=|const byContent\s*=/,
     'run-local filename ordinals and dedup maps must not return');
 });

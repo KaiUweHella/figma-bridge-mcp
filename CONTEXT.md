@@ -667,8 +667,19 @@ The canonical classification of image fills, vector artwork and vector clusters 
 _Avoid_: vector heuristic, exporter rule
 
 **Asset Export**:
-The manifest-last **Command Application** that pins one Figma connection and document revision, collects image/vector identities from one Figma root, fetches each byte payload, plans stable cross-run filenames and publishes workspace files without overwriting unrelated content. Commander and MCP share the same implementation; tracked-job polling remains an MCP Adapter concern, while an output lock serializes manifest merges across processes.
+The manifest-last **Command Application** that pins one Figma connection and observed Page revision, collects image/vector identities from one Figma root, fetches each byte payload, plans stable cross-run filenames and publishes workspace files without overwriting unrelated content. Commander and MCP share the same implementation; tracked-job polling remains an MCP Adapter concern, while an output lock serializes manifest merges across processes.
 _Avoid_: export loop, background CLI command
+
+**Cooperative Asset Publication**:
+The bounded worker-owned byte lifecycle inside **Asset Export**. Hashing, PNG
+optimization and large Workspace writes stay off the MCP event loop; candidate
+bytes move into one private same-directory stage before the output lock. The
+lock then owns only revision fence, prior-manifest read, deterministic merge,
+hard-link publication and the atomic manifest replace. Deadline or Worker
+failure before that replace preserves the prior advertised manifest and removes
+the stage; after the replace, cleanup delay cannot turn committed work into a
+failure. Aggregate buffers, staged bytes and peak Worker memory remain measured.
+_Avoid_: main-thread hash, large write under output lock, in-place manifest truncation, post-commit timeout failure, unmeasured temporary bytes
 
 **Node Text Mutation**:
 The closed **Command Application** that replaces one TEXT node's characters only after every unique authored font has completed preflight. Its request preserves literal and empty text, its result is bounded at the Plugin Seam, and a dispatched failure is never retried or reported as a successful process outcome.
