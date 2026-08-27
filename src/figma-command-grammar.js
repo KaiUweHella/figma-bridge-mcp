@@ -255,7 +255,7 @@ const COMMAND_GRAMMAR = Object.freeze({
   }),
   tokens: actionGroup('spacing radii import sync overlap import-design-md add rebind'),
   var: group({
-    ...actionGroup('list create find show update set-value code-syntax resolve publish-status visualize create-batch delete').children,
+    ...actionGroup('list create find show update update-batch set-value code-syntax resolve publish-status visualize create-batch delete').children,
     // The legacy implementation can delete every local variable and
     // collection without an exact scope or complete preflight. Keep its real
     // Commander path in the drift contract, but make it unreachable through

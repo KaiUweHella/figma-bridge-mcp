@@ -24,3 +24,19 @@ The Application reuses the canonical generated Variable mutation runtime.
 Successful output retains the established complete Variable Facts JSON. Mode
 values, code syntax, Collection metadata and token import remain separate
 Commands.
+
+`var update-batch` extends this ownership only for several explicitly named
+local Variables whose metadata edits are already known. Its closed JSON request
+accepts at most 64 items and rejects malformed fields and duplicate query plus
+Collection identities before readiness. The Plugin additionally rejects two
+different queries that resolve to the same Variable. Every target, owning
+Collection, complete Facts payload and requested prior field is resolved and
+snapshotted before the first assignment, so an earlier rename cannot change a
+later lookup.
+
+Batch writes are deterministic and non-retrying. Each attempted Variable is
+verified before the next begins. A later failure restores all attempted
+Variables in reverse order and returns bounded attempted, confirmed, restored
+and residual identities; it never projects unrelated catalog entries. Commander
+and `figma_run` share one authentic, confirmation-configured Command Plan. The
+single-target command and its complete Facts stdout remain unchanged.

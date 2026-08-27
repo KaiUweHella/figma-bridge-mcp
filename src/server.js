@@ -194,6 +194,10 @@ import {
   variableUpdatePlanRoute,
 } from "../engine/src/application/variable-update-command.js";
 import {
+  executeVariableUpdateBatchPlan,
+  variableUpdateBatchPlanRoute,
+} from "../engine/src/application/variable-update-batch-command.js";
+import {
   executeVariableDeletePlan,
   variableDeletePlanRoute,
 } from "../engine/src/application/variable-delete-command.js";
@@ -1175,11 +1179,14 @@ Required behavior:
    variable name, type and compatible scopes to the user. Ask whether it should
    stay ALL_SCOPES or which compatible scope(s) they want. Do not choose for
    them from an ambiguous name.
-3. Apply the answer with figma_run:
+3. Apply one answer with figma_run:
    ["var","update","<variable>","--collection","<collection>",
     "--scopes","TEXT_FILL,STROKE_COLOR"]
-   Multiple comma-separated scopes are valid. Use ALL_SCOPES alone to remove a
-   restriction.
+   When answers or other metadata edits are known for several Variables,
+   collect them into one closed JSON array and call exactly one batch:
+   ["var","update-batch","[{\"variable\":\"space/md\",\"collection\":\"Tokens\",\"scopes\":[\"GAP\"]},{\"variable\":\"color/text\",\"collection\":\"Tokens\",\"scopes\":[\"TEXT_FILL\"]}]"]
+   Do not emit one var update call per known Variable. Multiple scopes are valid.
+   Use ALL_SCOPES alone to remove a restriction.
 4. If a name strongly suggests a different scope (for example opacity/*,
    font-size/*, text/*, stroke/* or effect/*), mention that compatible candidate
    in the question, but still ask unless a project policy explicitly decided it.
@@ -2378,6 +2385,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableUpdatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const variableUpdateBatchRoute = variableUpdateBatchPlanRoute(plan);
+      if (variableUpdateBatchRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableUpdateBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

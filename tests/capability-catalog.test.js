@@ -395,6 +395,30 @@ test('Variable Update closes one policy-identical field-rollback non-retrying wr
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Variable Metadata Update Batch closes one policy-identical reverse-rollback write', () => {
+  const json = JSON.stringify([
+    { variable: 'space/md', collection: 'Tokens', description: 'Medium' },
+    { variable: 'space/lg', collection: 'Tokens', hidden: true, scopes: ['GAP'] },
+  ]);
+  const cli = planFigmaCommand(['var', 'update-batch', json], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['var', 'update-batch', '--', json], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'var.update-batch');
+  for (const argv of [
+    ['var', 'update-batch', '[]'],
+    ['var', 'update-batch', '[{"variable":"x"}]'],
+    ['var', 'update-batch', '[{"variable":"x","hidden":"true"}]'],
+    ['var', 'update-batch', '[{"variable":"x","description":"a"},{"variable":"x","description":"b"}]'],
+    ['var', 'update-batch', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Variable Deletion closes exact scoped batches as policy-identical non-retrying writes', () => {
   const cli = planFigmaCommand([
     'var', 'delete', '-cPrimitives', 'space/md', 'space/lg',

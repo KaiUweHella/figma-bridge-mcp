@@ -188,6 +188,11 @@ import {
   variableUpdateArgvFromRequest,
 } from '../engine/src/application/variable-update-request.js';
 import {
+  acceptsVariableUpdateBatchArgv,
+  parseVariableUpdateBatchRequest,
+  variableUpdateBatchArgvFromRequest,
+} from '../engine/src/application/variable-update-batch-request.js';
+import {
   acceptsVariableDeleteArgv,
   parseVariableDeleteRequest,
   variableDeleteArgvFromRequest,
@@ -395,6 +400,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'var.set-value',
   'var.code-syntax',
   'var.update',
+  'var.update-batch',
   'var.delete',
   'col.list', 'col.show',
   'var.publish-status', 'col.publish-status',
@@ -600,6 +606,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'var' && sub === 'set-value') pathPolicy = 'variable-set-value-input';
   if (name === 'var' && sub === 'code-syntax') pathPolicy = 'variable-code-syntax-input';
   if (name === 'var' && sub === 'update') pathPolicy = 'variable-update-input';
+  if (name === 'var' && sub === 'update-batch') pathPolicy = 'variable-update-batch-input';
   if (name === 'var' && sub === 'delete') pathPolicy = 'variable-delete-input';
   if (name === 'var' && sub === 'resolve') {
     retry = 'safe-read';
@@ -776,6 +783,10 @@ function commandCapability(args) {
   }
   if (name === 'var' && args[1] === 'update'
     && !action.help && !acceptsVariableUpdateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'var' && args[1] === 'update-batch'
+    && !action.help && !acceptsVariableUpdateBatchArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'delete'
@@ -1489,6 +1500,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'variable-update-input': {
       args.splice(0, args.length,
         ...variableUpdateArgvFromRequest(parseVariableUpdateRequest(args)));
+      break;
+    }
+    case 'variable-update-batch-input': {
+      args.splice(0, args.length,
+        ...variableUpdateBatchArgvFromRequest(parseVariableUpdateBatchRequest(args)));
       break;
     }
     case 'variable-delete-input': {

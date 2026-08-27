@@ -38,6 +38,8 @@ finished component.
 ## Build foundations first
 
 - Reuse or sync existing variables and styles before creating components.
+- Collect known metadata changes for several Variables into one `var
+update-batch` call; keep `var update` for one target.
   Prefer DTCG/CSS token sync for maintained code tokens and use a dry-run plan
   before applying writes.
 - Alias semantic variables to primitives instead of duplicating raw values.

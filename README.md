@@ -1309,6 +1309,7 @@ not own:
 ```
 figma_run ["var", "show", "space/md", "--collection", "Primitives"]
 figma_run ["var", "update", "space/md", "--description", "Medium spacing", "--scopes", "GAP"]
+figma_run ["var", "update-batch", "[{\"variable\":\"space/md\",\"collection\":\"Primitives\",\"description\":\"Medium spacing\",\"scopes\":[\"GAP\"]},{\"variable\":\"space/lg\",\"collection\":\"Primitives\",\"hidden\":false}]"]
 figma_run ["var", "set-value", "space/md", "12", "--mode", "Light"]
 figma_run ["var", "set-value", "space/card", "--alias", "space/md", "--mode", "Light"]
 figma_run ["var", "code-syntax", "space/md", "WEB", "var(--space-md)"]
@@ -1322,8 +1323,12 @@ figma_run ["col", "extend", "Primitives", "Brand"]
 Application from CLI and MCP: values by mode, alias ids, scopes, code syntax,
 collection/mode identity and publish status. Variable and collection names must
 resolve uniquely; `--collection` is the explicit way to disambiguate duplicate
-variable names. URL-shaped names remain payload and cannot retarget the
-command. `var resolve` deliberately requires a consumer node because aliases
+variable names. When metadata edits for several known local Variables are
+already available, collect them into one `var update-batch` JSON array instead
+of emitting one `var update` call per Variable. The batch preflights every
+identity before its first write and owns reverse rollback under one confirmation;
+keep `var update` for a single target. URL-shaped names remain payload and cannot
+retarget the command. `var resolve` deliberately requires a consumer node because aliases
 can resolve differently under that node's selected modes. Collection
 `show`, `update`, `mode-add`, `mode-rename`, `mode-remove` and
 `publish-status` follow the same ID/exact-name/unique-substring lookup policy.

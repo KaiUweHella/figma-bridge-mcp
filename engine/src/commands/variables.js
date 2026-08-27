@@ -36,6 +36,10 @@ import {
   variableUpdatePlanningArgvFromRequest,
 } from '../application/variable-update-command.js';
 import {
+  executeVariableUpdateBatchPlan,
+  variableUpdateBatchPlanningArgvFromRequest,
+} from '../application/variable-update-batch-command.js';
+import {
   executeVariableResolutionPlan,
   variableResolutionPlanningArgvFromRequest,
 } from '../application/variable-resolution-command.js';
@@ -189,6 +193,31 @@ variables.command('update <variable>')
         async ({ fileKey, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableUpdatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      handleEvalError(error);
+      process.exitCode = 1;
+    }
+  });
+
+variables.command('update-batch <json>')
+  .description('Update metadata on multiple explicitly named local variables in one operation')
+  .allowExcessArguments(false)
+  .action(async (json) => {
+    try {
+      const plan = planFigmaCommand(variableUpdateBatchPlanningArgvFromRequest({
+        items: JSON.parse(json),
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeVariableUpdateBatchPlan(plan, {
             evaluate: (code) => daemonExec('eval', {
               code,
               ...(fileKey ? { fileKey } : {}),

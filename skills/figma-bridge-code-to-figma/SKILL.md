@@ -53,7 +53,9 @@ contract. Preserve all three instead of drawing a flattened approximation.
 1. Match the real viewport or reference-frame dimensions before rendering.
 2. Import or sync tokens first. Reuse variables and styles, preserve authored
    CSS variable names, and handle every `SCOPE DECISION REQUIRED` result before
-   continuing. Bind supported properties instead of freezing raw values.
+   continuing. When metadata edits are known for several Variables, collect
+   them into one `var update-batch` call instead of emitting repeated `var
+update` calls. Bind supported properties instead of freezing raw values.
 3. Reuse existing component instances. When a missing reusable component must
    be created, follow `figma-bridge-component-library` before composing it into
    the screen.

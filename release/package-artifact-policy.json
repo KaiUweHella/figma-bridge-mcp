@@ -44,6 +44,8 @@
     "engine/src/application/variable-mutation-runtime.js",
     "engine/src/application/variable-update-command.js",
     "engine/src/application/variable-update-request.js",
+    "engine/src/application/variable-update-batch-command.js",
+    "engine/src/application/variable-update-batch-request.js",
     "engine/src/application/variable-delete-command.js",
     "engine/src/application/variable-delete-request.js",
     "engine/src/application/collection-catalog-command.js",

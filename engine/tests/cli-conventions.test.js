@@ -720,6 +720,23 @@ test('var update delegates one Plan-bound field-rollback non-retrying Applicatio
     'Commander must not retain Variable Update execution or formatting logic');
 });
 
+test('var update-batch delegates one Plan-bound reverse-rollback non-retrying Application', () => {
+  const adapter = sources.get('variables.js');
+  assert.ok(adapter, 'variables.js exists');
+  const start = adapter.indexOf("variables.command('update-batch <json>')");
+  const end = adapter.indexOf("variables.command('set-value <variable> [value]')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /variableUpdateBatchPlanningArgvFromRequest/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeVariableUpdateBatchPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|variableUpdateBatchCommandCode\(/,
+    'Commander must not retain Variable Metadata Update Batch execution or formatting logic');
+});
+
 test('var delete delegates one Plan-bound exact irreversible Application', () => {
   const adapter = sources.get('variables.js');
   const start = adapter.indexOf(".command('delete <names...>')");
