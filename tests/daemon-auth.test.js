@@ -812,7 +812,7 @@ function postExec(payload, { signal } = {}) {
   });
 }
 
-test('/exec binds revision metadata to the authenticated daemon connection', async () => {
+test('/exec binds page revision metadata to the authenticated daemon connection', async () => {
   await withAuthedWs(async (ws) => {
     await pushSelection(ws, { fileKey: 'REV_FILE' });
     const command = new Promise((resolve, reject) => {
@@ -823,6 +823,7 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
         clearTimeout(timer);
         assert.equal(msg.requireDocumentRevision, true,
           'the authenticated daemon must preserve the explicit revision-proof request');
+        assert.deepEqual(msg.revisionObservation, { scope: 'page', nodeId: '1:2' });
         ws.send(JSON.stringify({
           type: 'selection',
           selection: {
@@ -834,8 +835,11 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
           result: { captured: true },
           metadata: {
             connectionId: 'FORGED_BY_PLUGIN',
-            documentRevisionBefore: 9,
-            documentRevisionAfter: 9,
+            documentRevisionBefore: null,
+            documentRevisionAfter: null,
+            revisionObservation: {
+              scope: 'page', pageId: '0:1', revisionBefore: 9, revisionAfter: 9,
+            },
             executionTiming: {
               schema: 'figma-bridge/plugin-execution-timing',
               version: 1,
@@ -849,7 +853,9 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
       });
     });
     const body = JSON.stringify({
-      action: 'eval', code: 'capture()', fileKey: 'REV_FILE', expectedEditor: 'figma', requireDocumentRevision: true,
+      action: 'eval', code: 'capture()', fileKey: 'REV_FILE', expectedEditor: 'figma',
+      requireDocumentRevision: true,
+      revisionObservation: { scope: 'page', nodeId: '1:2' },
     });
     const responsePromise = fetch(`http://127.0.0.1:${PORT}/exec`, {
       method: 'POST',
@@ -865,8 +871,11 @@ test('/exec binds revision metadata to the authenticated daemon connection', asy
     assert.notEqual(payload.metadata.connectionId, 'FORGED_BY_PLUGIN');
     assert.equal(payload.metadata.fileKey, 'REV_FILE');
     assert.equal(payload.metadata.pluginVersion, PLUGIN_BUILD_VERSION);
-    assert.equal(payload.metadata.documentRevisionBefore, 9);
-    assert.equal(payload.metadata.documentRevisionAfter, 9);
+    assert.equal(payload.metadata.documentRevisionBefore, null);
+    assert.equal(payload.metadata.documentRevisionAfter, null);
+    assert.deepEqual(payload.metadata.revisionObservation, {
+      scope: 'page', pageId: '0:1', revisionBefore: 9, revisionAfter: 9,
+    });
     assert.deepEqual(payload.metadata.pluginExecutionTiming, {
       schema: 'figma-bridge/plugin-execution-timing',
       version: 1,

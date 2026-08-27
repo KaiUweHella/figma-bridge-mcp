@@ -1,8 +1,13 @@
-// Stable Figma document revision Interface for multi-roundtrip read Commands.
+// Stable Figma Revision Observation Interface for multi-roundtrip read Commands.
 //
 // Metadata is supplied by the authenticated daemon, not by evaluated code.
 // A Command pins the first connection/file/revision and rejects any drift
-// before local publication can combine facts from different document states.
+// before local publication can combine facts from different observed states.
+
+/** @typedef {{scope:'document'}|{scope:'page', nodeId:string}} RevisionObservationRequest */
+/** @typedef {{expectedFileKey?:string|null, revisionObservation?:RevisionObservationRequest, revisionRequiredFromPluginVersion?:string, pageRevisionRequiredFromPluginVersion?:string}} RevisionContextOptions */
+/** @type {Readonly<RevisionObservationRequest>} */
+const DEFAULT_REVISION_OBSERVATION = Object.freeze({ scope: 'document' });
 
 export function stableDocumentRevision(metadata) {
   return Boolean(
@@ -21,6 +26,23 @@ export function sameDocumentRevision(left, right) {
     && left.connectionId === right.connectionId
     && (left.fileKey || null) === (right.fileKey || null)
     && left.documentRevisionAfter === right.documentRevisionAfter;
+}
+
+export function stablePageRevision(metadata) {
+  const observation = metadata?.revisionObservation;
+  return Boolean(
+    observation
+    && observation.scope === 'page'
+    && typeof observation.pageId === 'string'
+    && observation.pageId
+    && Number.isSafeInteger(observation.revisionBefore)
+    && observation.revisionBefore >= 0
+    && observation.revisionBefore === observation.revisionAfter
+  );
+}
+
+export function stableObservedRevision(metadata) {
+  return stablePageRevision(metadata) || stableDocumentRevision(metadata);
 }
 
 function contextError(message) {
@@ -57,21 +79,48 @@ function sameConnection(left, right) {
     && (left.fileKey || null) === (right.fileKey || null);
 }
 
+export function sameObservedRevision(left, right) {
+  if (!sameConnection(left, right)) return false;
+  if (stablePageRevision(left) || stablePageRevision(right)) {
+    return stablePageRevision(left) && stablePageRevision(right)
+      && left.revisionObservation.pageId === right.revisionObservation.pageId
+      && left.revisionObservation.revisionAfter === right.revisionObservation.revisionAfter;
+  }
+  return sameDocumentRevision(left, right);
+}
+
 /** Pin and validate the source of a sequence of authenticated read evals. */
+/** @param {RevisionContextOptions} [options] */
 export function createRevisionContext({
   expectedFileKey = null,
+  revisionObservation = DEFAULT_REVISION_OBSERVATION,
   revisionRequiredFromPluginVersion = '3.3.6',
+  pageRevisionRequiredFromPluginVersion = '3.3.26',
 } = {}) {
+  if (!revisionObservation || typeof revisionObservation !== 'object'
+    || !['document', 'page'].includes(revisionObservation.scope)
+    || (revisionObservation.scope === 'page'
+      && (typeof revisionObservation.nodeId !== 'string' || !revisionObservation.nodeId))) {
+    throw new TypeError('Revision Context requires a document scope or page scope with an explicit nodeId.');
+  }
+  const requestedObservation = Object.freeze(revisionObservation.scope === 'page'
+    ? { scope: 'page', nodeId: revisionObservation.nodeId }
+    : { scope: 'document' });
   let pinned = null;
 
   return Object.freeze({
     accept(metadata, role = 'Figma read') {
-      const changed = Number.isSafeInteger(metadata?.documentRevisionBefore)
+      const documentChanged = Number.isSafeInteger(metadata?.documentRevisionBefore)
         && Number.isSafeInteger(metadata?.documentRevisionAfter)
         && metadata.documentRevisionBefore !== metadata.documentRevisionAfter;
-      if (changed) {
+      const pageChanged = metadata?.revisionObservation?.scope === 'page'
+        && Number.isSafeInteger(metadata.revisionObservation.revisionBefore)
+        && Number.isSafeInteger(metadata.revisionObservation.revisionAfter)
+        && metadata.revisionObservation.revisionBefore
+          !== metadata.revisionObservation.revisionAfter;
+      if (documentChanged || pageChanged) {
         throw contextError(
-          `Figma document changed during ${role}; the existing workspace output was left unchanged. Retry from the new revision.`,
+          `The observed Figma ${pageChanged ? 'page' : 'document'} changed during ${role}; the existing workspace output was left unchanged. Retry from the new revision.`,
         );
       }
       if (!stableConnection(metadata)) {
@@ -85,21 +134,36 @@ export function createRevisionContext({
         );
       }
       const revisionStable = stableDocumentRevision(metadata);
+      const pageRevisionStable = stablePageRevision(metadata);
       const versionComparison = compareVersions(
         metadata.pluginVersion,
         revisionRequiredFromPluginVersion,
       );
+      const pageVersionComparison = compareVersions(
+        metadata.pluginVersion,
+        pageRevisionRequiredFromPluginVersion,
+      );
+      const pageRequested = requestedObservation.scope === 'page';
+      const pageProofRequired = pageRequested
+        && (pageVersionComparison === null || pageVersionComparison >= 0);
+      const acceptedRevision = pageRequested
+        ? (pageRevisionStable || (!pageProofRequired && revisionStable))
+        : revisionStable;
       // Compatibility is intentionally closed: only a syntactically valid,
-      // provably older plugin may use the bounded connection-only proof.
-      if (!revisionStable && !(versionComparison !== null && versionComparison < 0)) {
+      // provably older plugin may use the document or connection-only proof.
+      if (!acceptedRevision && !(versionComparison !== null && versionComparison < 0)) {
         throw contextError(
-          `Figma Bridge plugin ${metadata.pluginVersion || '(unknown)'} did not provide the required document revision during ${role}; reconnect or re-import the plugin, then retry.`,
+          `Figma Bridge plugin ${metadata.pluginVersion || '(unknown)'} did not provide the required ${pageRequested ? 'page' : 'document'} revision during ${role}; reconnect or re-import the plugin, then retry.`,
         );
       }
+      const currentProof = pageRevisionStable
+        ? 'page-revision'
+        : revisionStable ? 'document-revision' : 'connection-only';
       if (pinned && (!sameConnection(pinned, metadata)
-        || (pinned.proof === 'document-revision' && !sameDocumentRevision(pinned, metadata)))) {
+        || (pinned.proof !== 'connection-only'
+          && (pinned.proof !== currentProof || !sameObservedRevision(pinned, metadata))))) {
         throw contextError(
-          `Figma connection or document revision changed during ${role}; the existing workspace output was left unchanged. Retry the export.`,
+          `Figma connection or observed revision changed during ${role}; the existing workspace output was left unchanged. Retry the export.`,
         );
       }
       if (!pinned) {
@@ -107,9 +171,12 @@ export function createRevisionContext({
           connectionId: metadata.connectionId,
           fileKey: metadata.fileKey || null,
           pluginVersion: metadata.pluginVersion || null,
-          proof: revisionStable ? 'document-revision' : 'connection-only',
+          proof: currentProof,
           documentRevisionBefore: revisionStable ? metadata.documentRevisionBefore : null,
           documentRevisionAfter: revisionStable ? metadata.documentRevisionAfter : null,
+          ...(pageRevisionStable ? {
+            revisionObservation: Object.freeze({ ...metadata.revisionObservation }),
+          } : {}),
         });
       }
       return pinned;
@@ -121,6 +188,10 @@ export function createRevisionContext({
 
     source() {
       return pinned;
+    },
+
+    observation() {
+      return requestedObservation;
     },
   });
 }

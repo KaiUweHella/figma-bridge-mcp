@@ -182,6 +182,7 @@ async function evaluateJson(evaluate, code, role, remainingMs, revisionContext =
     ...(revisionContext?.targetFileKey()
       ? { fileKey: revisionContext.targetFileKey() }
       : {}),
+    ...(revisionContext ? { revisionObservation: revisionContext.observation() } : {}),
   });
   if (!revisionContext) return parseEvaluation(response, role);
   if (!response || typeof response !== 'object' || !Object.hasOwn(response, 'value')) {
@@ -328,7 +329,10 @@ export async function executeAssetExport(request, adapters = {}) {
   let warning = targetAwareNodeWarning(normalized, adapters.target);
   const outputDir = request.outputDir;
   const revisionContext = adapters.requireStableRevision
-    ? createRevisionContext({ expectedFileKey: adapters.target?.fileKey || null })
+    ? createRevisionContext({
+        expectedFileKey: adapters.target?.fileKey || null,
+        revisionObservation: { scope: 'page', nodeId },
+      })
     : null;
   let found;
   try {

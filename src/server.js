@@ -1532,6 +1532,7 @@ async function runAssetExport(plan, label, { force = false } = {}) {
           fileKey: context.fileKey || fileKey,
           expectedEditor,
           timeoutMs: Math.max(1, context.remainingMs ?? remainingMs()),
+          revisionObservation: context.revisionObservation,
         }),
       });
       return { stdout: formatAssetExportResult(result), stderr: "", code: 0 };

@@ -311,11 +311,12 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.25';
+    const PLUGIN_VERSION = '3.3.27';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'dispatch-receipt-v1',
       'eval-v1',
       'execution-deadline-v1',
+      'page-revision-v1',
       'read-lane-v1',
       'reload-ui-v1',
       'render-plan-batch-v1',
@@ -1228,6 +1229,7 @@
           timeoutMs: msg.timeoutMs,
           deadlineAt: msg.deadlineAt,
           requireDocumentRevision: msg.requireDocumentRevision === true,
+          revisionObservation: msg.revisionObservation || null,
           dispatchReceipt: msg.dispatchReceipt,
         } }, '*');
       }

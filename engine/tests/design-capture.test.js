@@ -56,6 +56,37 @@ test('document revision and plugin connection changes invalidate immediately', a
   assert.equal(adapter.state.probes, 2);
 });
 
+test('page revision reuses a Capture across unrelated-page changes and invalidates its own page', async () => {
+  const module = createDesignCaptureModule();
+  const state = { targetRevision: 4, unrelatedRevision: 9, walks: 0, probes: 0 };
+  const adapter = {
+    async evaluateWithMetadata(code) {
+      const probe = code.includes('(async () => null)()');
+      if (probe) state.probes++;
+      else state.walks++;
+      return {
+        value: probe ? null : JSON.stringify(walkerResult()),
+        metadata: {
+          connectionId: 'CONN_A', fileKey: 'FILE_A', pluginVersion: '3.3.26',
+          documentRevisionBefore: null, documentRevisionAfter: null,
+          revisionObservation: {
+            scope: 'page', pageId: '0:1',
+            revisionBefore: state.targetRevision,
+            revisionAfter: state.targetRevision,
+          },
+        },
+      };
+    },
+  };
+  assert.equal((await module.capture(request, adapter)).cache, 'miss');
+  state.unrelatedRevision++;
+  assert.equal((await module.capture(request, adapter)).cache, 'hit');
+  state.targetRevision++;
+  assert.equal((await module.capture(request, adapter)).cache, 'miss');
+  assert.equal(state.walks, 2);
+  assert.equal(state.probes, 2);
+});
+
 test('unstable or absent revisions are never cached', async () => {
   const unstableModule = createDesignCaptureModule();
   const unstable = revisionAdapter();

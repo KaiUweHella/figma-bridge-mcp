@@ -3,11 +3,11 @@
 // The Interface returns one canonical, information-rich walker Capture.
 // Structure/style, deduplication and output formats are projections and never
 // participate in the cache key. A Capture is reused only after the plugin has
-// proved that the same connection is still on the same document revision.
+// proved that the same connection is still on the same observed revision.
 import { nodeWalkerCode } from '../design-extract.js';
 import {
-  sameDocumentRevision,
-  stableDocumentRevision,
+  sameObservedRevision,
+  stableObservedRevision,
 } from '../lib/revision-context.js';
 
 // Bump whenever the canonical walker payload changes. Version 6 adds the
@@ -130,7 +130,7 @@ export function createDesignCaptureModule({
   };
 
   const remember = (key, capture) => {
-    if (maxEntries <= 0 || maxBytes <= 0 || !stableDocumentRevision(capture.source)) return false;
+    if (maxEntries <= 0 || maxBytes <= 0 || !stableObservedRevision(capture.source)) return false;
     const bytes = Buffer.byteLength(JSON.stringify(capture.result));
     if (bytes > maxBytes) return false;
     remove(key);
@@ -181,7 +181,7 @@ export function createDesignCaptureModule({
 
       if (cached && typeof adapters.evaluateWithMetadata === 'function') {
         const probe = await adapters.evaluateWithMetadata(PROBE_CODE);
-        if (sameDocumentRevision(cached.capture.source, probe?.metadata)) {
+        if (sameObservedRevision(cached.capture.source, probe?.metadata)) {
           // Map insertion order is the LRU order.
           entries.delete(key);
           entries.set(key, cached);

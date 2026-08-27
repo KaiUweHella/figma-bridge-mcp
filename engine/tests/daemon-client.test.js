@@ -40,7 +40,7 @@ test('daemon client concentrates signed execution and explicit file targeting', 
   assert.doesNotMatch(JSON.stringify(calls[0]), /secret-token/);
 });
 
-test('metadata-aware eval preserves daemon-owned Capture freshness facts', async () => {
+test('metadata-aware eval preserves daemon-owned scoped freshness facts', async () => {
   const bodies = [];
   const metadata = {
     connectionId: 'CONN_A', fileKey: 'FILE_A',
@@ -56,10 +56,17 @@ test('metadata-aware eval preserves daemon-owned Capture freshness facts', async
   assert.deepEqual(await client.evaluateWithMetadata('capture()', FIGMA), {
     value: { ok: true }, metadata,
   });
+  assert.deepEqual(await client.evaluateWithMetadata('capture-page()', {
+    ...FIGMA, revisionObservation: { scope: 'page', nodeId: '1:2' },
+  }), { value: { ok: true }, metadata });
   assert.deepEqual(await client.evaluate('capture()', FIGMA), { ok: true }, 'value-only Adapter stays compatible');
   assert.equal(bodies[0].requireDocumentRevision, true,
     'metadata-aware reads explicitly pay for the document-wide revision proof');
-  assert.equal(Object.hasOwn(bodies[1], 'requireDocumentRevision'), false,
+  assert.deepEqual(bodies[0].revisionObservation, { scope: 'document' });
+  assert.deepEqual(bodies[1].revisionObservation, { scope: 'page', nodeId: '1:2' });
+  assert.equal(bodies[1].requireDocumentRevision, true,
+    'the compatibility flag keeps older plugins on their bounded document proof');
+  assert.equal(Object.hasOwn(bodies[2], 'requireDocumentRevision'), false,
     'ordinary eval retains Figma dynamic-page loading');
 });
 

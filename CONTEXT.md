@@ -34,8 +34,12 @@ The immutable decision produced for one **Figma Command** after path normalizati
 _Avoid_: prepared arguments, execution options, mutable command context
 
 **Design Capture**:
-The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and document revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
+The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and observed page revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
 _Avoid_: walker output, cache entry
+
+**Revision Observation**:
+The explicit scope and authenticated freshness proof for a multi-roundtrip Figma Command. A one-root Command observes the root's containing Page through its granular `nodechange` stream and pins connection, file, Page identity and Page revision. A genuinely multi-page Command explicitly observes the Document and pays for full-page loading. Ordinary commands request neither scope. Known older Plugins may retain their version-bounded Document proof, while a Plugin advertising Page observation fails closed if Page facts are absent.
+_Avoid_: implicit full-document load, connection-only freshness claim, unscoped revision counter
 
 **Node Binding Facts**:
 The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. Local identities resolve from one bounded Variable and Collection catalog before any exact remote lookup; an unavailable remote identity remains explicit and unresolved. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.

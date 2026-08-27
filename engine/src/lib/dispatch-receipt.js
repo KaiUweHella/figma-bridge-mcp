@@ -18,6 +18,7 @@ export const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
   DISPATCH_RECEIPT_CAPABILITY,
   'eval-v1',
   'execution-deadline-v1',
+  'page-revision-v1',
   PLUGIN_READ_LANE_CAPABILITY,
   'reload-ui-v1',
   'render-plan-batch-v1',

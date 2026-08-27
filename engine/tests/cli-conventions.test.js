@@ -195,6 +195,8 @@ test('Variable Snapshot extraction pins every catalog and chunk read to one revi
   assert.ok(adapter, 'extract.js exists');
   assert.match(adapter, /createRevisionContext\(/);
   assert.match(adapter, /daemonExecWithMetadata\('eval'/);
+  assert.match(cliCoreSource, /revisionObservation: data\.revisionObservation \|\| \{ scope: 'document' \}/,
+    'multi-page metadata reads must select Document observation explicitly');
   assert.match(adapter, /revisionContext\.accept\(response\.metadata/);
   assert.match(adapter, /parseEvalResult\(response\.value\)/,
     'revisioned capture must consume the Daemon Client value field');

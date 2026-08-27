@@ -187,7 +187,10 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
 async function daemonExecWithMetadata(action, data = {}, timeoutMs = 90000) {
   return daemonClient().executeWithMetadata(action, {
     ...data,
-    ...(action === 'eval' ? { requireDocumentRevision: true } : {}),
+    ...(action === 'eval' ? {
+      requireDocumentRevision: true,
+      revisionObservation: data.revisionObservation || { scope: 'document' },
+    } : {}),
   }, {
     timeoutMs,
     expectedEditor: expectedEditorForCommand(),

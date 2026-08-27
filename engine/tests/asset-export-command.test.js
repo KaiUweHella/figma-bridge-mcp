@@ -59,8 +59,12 @@ function evaluator(found = collector(), overrides = {}) {
 function metadataEvaluator(found = collector(), overrides = {}, metadataForCall = () => ({
   connectionId: 'CONNECTION_A',
   fileKey: 'FILE_A',
-  documentRevisionBefore: 7,
-  documentRevisionAfter: 7,
+  pluginVersion: '3.3.26',
+  documentRevisionBefore: null,
+  documentRevisionAfter: null,
+  revisionObservation: {
+    scope: 'page', pageId: '0:1', revisionBefore: 7, revisionAfter: 7,
+  },
 })) {
   const evaluate = evaluator(found, overrides);
   let calls = 0;
@@ -362,7 +366,7 @@ test('structured transport failures abort instead of becoming partial asset fail
   assert.equal(io.exists(join(root, 'assets', 'assets.json'), { role: 'asset-manifest' }), false);
 });
 
-test('planned Asset Export pins one connection, file and document revision before publication', async (t) => {
+test('planned Asset Export pins one connection, file, page and page revision before publication', async (t) => {
   const { root, io } = workspace(t, 'asset-export-revision-');
   const outputDir = join(root, 'assets');
   const plan = planFigmaCommand(['export', 'assets', '1:1', '-o', outputDir], {
@@ -371,8 +375,14 @@ test('planned Asset Export pins one connection, file and document revision befor
   const evaluate = metadataEvaluator(collector(), {}, (call) => ({
     connectionId: 'CONNECTION_A',
     fileKey: 'FILE_A',
-    documentRevisionBefore: call < 2 ? 7 : 8,
-    documentRevisionAfter: call < 2 ? 7 : 8,
+    pluginVersion: '3.3.26',
+    documentRevisionBefore: null,
+    documentRevisionAfter: null,
+    revisionObservation: {
+      scope: 'page', pageId: '0:1',
+      revisionBefore: call < 2 ? 7 : 8,
+      revisionAfter: call < 2 ? 7 : 8,
+    },
   }));
 
   await assert.rejects(
@@ -391,8 +401,12 @@ test('planned Asset Export pins one connection, file and document revision befor
       evaluate: metadataEvaluator(collector(), {}, () => ({
         connectionId: 'CONNECTION_A',
         fileKey: 'FILE_B',
-        documentRevisionBefore: 7,
-        documentRevisionAfter: 7,
+        pluginVersion: '3.3.26',
+        documentRevisionBefore: null,
+        documentRevisionAfter: null,
+        revisionObservation: {
+          scope: 'page', pageId: '0:1', revisionBefore: 7, revisionAfter: 7,
+        },
       })),
       workspaceIO: io,
     }),
@@ -404,16 +418,20 @@ test('planned Asset Export pins one connection, file and document revision befor
       evaluate: metadataEvaluator(collector(), {}, (call) => ({
         connectionId: call === 0 ? 'CONNECTION_A' : 'CONNECTION_B',
         fileKey: 'FILE_A',
-        documentRevisionBefore: 7,
-        documentRevisionAfter: 7,
+        pluginVersion: '3.3.26',
+        documentRevisionBefore: null,
+        documentRevisionAfter: null,
+        revisionObservation: {
+          scope: 'page', pageId: '0:1', revisionBefore: 7, revisionAfter: 7,
+        },
       })),
       workspaceIO: io,
     }),
-    (error) => error.kind === 'document-drift' && /connection or document revision changed/i.test(error.message),
+    (error) => error.kind === 'document-drift' && /connection or observed revision changed/i.test(error.message),
   );
 });
 
-test('only a known plugin older than 3.3.6 keeps the connection-only transition', async (t) => {
+test('page revision compatibility is version-bounded and new plugins fail closed', async (t) => {
   const { root, io } = workspace(t, 'asset-export-revision-transition-');
   const legacyOutput = join(root, 'legacy-assets');
   const legacyPlan = planFigmaCommand(['export', 'assets', '1:1', '-o', legacyOutput], {
@@ -429,6 +447,19 @@ test('only a known plugin older than 3.3.6 keeps the connection-only transition'
   assert.equal(legacy.source.proof, 'connection-only');
   assert.match(legacy.warning, /cannot prove Document Revision/);
 
+  const compatibleOutput = join(root, 'compatible-assets');
+  const compatiblePlan = planFigmaCommand(['export', 'assets', '1:1', '-o', compatibleOutput], {
+    adapter: 'mcp', workspaceDir: root, fileKey: 'FILE_A', workspaceIO: io,
+  });
+  const compatible = await executeAssetExportPlan(compatiblePlan, {
+    workspaceIO: io,
+    evaluate: metadataEvaluator(collector({ images: false }), {}, () => ({
+      connectionId: 'CONNECTION_A', fileKey: 'FILE_A', pluginVersion: '3.3.25',
+      documentRevisionBefore: 7, documentRevisionAfter: 7,
+    })),
+  });
+  assert.equal(compatible.source.proof, 'document-revision');
+
   const currentOutput = join(root, 'current-assets');
   const currentPlan = planFigmaCommand(['export', 'assets', '1:1', '-o', currentOutput], {
     adapter: 'mcp', workspaceDir: root, fileKey: 'FILE_A', workspaceIO: io,
@@ -441,7 +472,7 @@ test('only a known plugin older than 3.3.6 keeps the connection-only transition'
         documentRevisionBefore: null, documentRevisionAfter: null,
       })),
     }),
-    (error) => error.kind === 'document-drift' && /did not provide the required document revision/.test(error.message),
+    (error) => error.kind === 'document-drift' && /did not provide the required page revision/.test(error.message),
   );
   assert.equal(io.exists(join(currentOutput, 'assets.json'), { role: 'asset-manifest' }), false);
 
@@ -455,10 +486,22 @@ test('only a known plugin older than 3.3.6 keeps the connection-only transition'
         })),
       }),
       (error) => error.kind === 'document-drift'
-        && /did not provide the required document revision/.test(error.message),
+        && /did not provide the required page revision/.test(error.message),
       `pluginVersion=${String(pluginVersion)} must fail closed`,
     );
   }
+
+  await assert.rejects(
+    executeAssetExportPlan(currentPlan, {
+      workspaceIO: io,
+      evaluate: metadataEvaluator(collector({ images: false }), {}, () => ({
+        connectionId: 'CONNECTION_A', fileKey: 'FILE_A', pluginVersion: '3.3.26',
+        documentRevisionBefore: 7, documentRevisionAfter: 7,
+      })),
+    }),
+    (error) => error.kind === 'document-drift'
+      && /did not provide the required page revision/.test(error.message),
+  );
 });
 
 test('a queued export rechecks its pinned revision after acquiring the output lock', async (t) => {
@@ -480,10 +523,12 @@ test('a queued export rechecks its pinned revision after acquiring the output lo
   const evaluateValue = evaluator(found);
   const phases = [];
   const fileKeys = [];
+  const observations = [];
   const evaluate = async (code, options = {}) => {
     const currentCall = call++;
     phases.push(options.phase);
     fileKeys.push(options.fileKey);
+    observations.push(options.revisionObservation);
     const value = await evaluateValue(code);
     if (currentCall === 1) announceBytesRead();
     const revision = currentCall < 2 ? 7 : 8;
@@ -492,8 +537,12 @@ test('a queued export rechecks its pinned revision after acquiring the output lo
       metadata: {
         connectionId: 'CONNECTION_A',
         fileKey: 'FILE_A',
-        documentRevisionBefore: revision,
-        documentRevisionAfter: revision,
+        pluginVersion: '3.3.26',
+        documentRevisionBefore: null,
+        documentRevisionAfter: null,
+        revisionObservation: {
+          scope: 'page', pageId: '0:1', revisionBefore: revision, revisionAfter: revision,
+        },
       },
     };
   };
@@ -503,7 +552,7 @@ test('a queued export rechecks its pinned revision after acquiring the output lo
   const rejected = assert.rejects(
     executeAssetExportPlan(plan, { evaluate, workspaceIO: io }),
     (error) => error.kind === 'document-drift'
-      && /connection or document revision changed during asset revision fence/i.test(error.message),
+      && /connection or observed revision changed during asset revision fence/i.test(error.message),
   );
   await bytesRead;
   await new Promise((resolve) => setImmediate(resolve));
@@ -513,6 +562,9 @@ test('a queued export rechecks its pinned revision after acquiring the output lo
 
   assert.deepEqual(phases, ['asset collector', 'SVG bytes', 'asset revision fence']);
   assert.deepEqual(fileKeys, ['FILE_A', 'FILE_A', 'FILE_A']);
+  assert.deepEqual(observations, Array(3).fill(null).map(() => ({
+    scope: 'page', nodeId: '1:1',
+  })));
   assert.equal(io.exists(join(outputDir, 'assets.json'), { role: 'asset-manifest' }), false);
   assert.equal(io.exists(join(outputDir, 'brand-mark.svg'), { role: 'exported-asset' }), false);
 });

@@ -570,11 +570,13 @@ export async function evaluateFigmaWithMetadata(code, {
   fileKey,
   expectedEditor,
   timeoutMs = EXEC_TIMEOUT_MS,
+  revisionObservation,
 } = {}) {
   return daemonClient().evaluateWithMetadata(code, {
     fileKey: targetFileKey(target) || resolveFileTarget(fileKey, []),
     expectedEditor,
     timeoutMs,
+    ...(revisionObservation ? { revisionObservation } : {}),
   });
 }
 
@@ -645,6 +647,7 @@ export function captureFigmaDesign(request, {
       fileKey: target,
       expectedEditor,
       timeoutMs: remaining(),
+      revisionObservation: { scope: 'page', nodeId: request.nodeId },
     }),
   });
 }

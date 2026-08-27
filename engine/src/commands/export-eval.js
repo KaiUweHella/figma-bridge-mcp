@@ -295,6 +295,9 @@ async function runAssetExportCommand(request) {
         evaluate: (code, context = {}) => daemonExecWithMetadata('eval', {
           code,
           ...(context.fileKey || fileKey ? { fileKey: context.fileKey || fileKey } : {}),
+          ...(context.revisionObservation ? {
+            revisionObservation: context.revisionObservation,
+          } : {}),
         }, Math.max(1, context.remainingMs ?? remainingMs())),
       });
       return { stdout: formatAssetExportResult(domainResult), stderr: '', code: 0 };

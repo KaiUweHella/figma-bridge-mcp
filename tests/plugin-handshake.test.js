@@ -189,6 +189,7 @@ test('plugin advertises structured rendering only after the authenticated hello'
     'dispatch-receipt-v1',
     'eval-v1',
     'execution-deadline-v1',
+    'page-revision-v1',
     'read-lane-v1',
     'reload-ui-v1',
     'render-plan-batch-v1',
@@ -419,11 +420,15 @@ test('Capture revision metadata crosses both plugin threads', () => {
   assert.match(PLUGIN_CODE, /figma\.on\('documentchange'/);
   assert.match(PLUGIN_CODE, /await figma\.loadAllPagesAsync\(\)/,
     'dynamic-page plugins must load all pages before documentchange subscription');
-  assert.match(PLUGIN_CODE, /if \(requireDocumentRevision === true\) await ensureDocumentRevisionReady\(\)/,
-    'only freshness-sensitive reads pay for document-wide revision tracking');
+  assert.match(PLUGIN_CODE, /ensurePageRevisionReady\(revisionObservation\.nodeId\)/,
+    'one-root freshness-sensitive reads use page revision tracking');
+  assert.match(PLUGIN_CODE, /if \(!pageRevisionObserver && requireDocumentRevision === true\)/,
+    'document revision tracking remains an explicit compatibility fallback');
   assert.match(PLUGIN_CODE, /documentRevisionBefore/);
   assert.match(PLUGIN_CODE, /documentRevisionAfter/);
+  assert.match(PLUGIN_CODE, /scope: 'document'/);
   assert.match(UI, /requireDocumentRevision: msg\.requireDocumentRevision === true/);
+  assert.match(UI, /revisionObservation: msg\.revisionObservation \|\| null/);
   assert.match(UI, /metadata: msg\.metadata/);
   assert.match(PLUGIN_CODE, /createPluginExecutionTiming\(\{ queuedAt, startedAt, finishedAt: Date\.now\(\) \}\)/,
     'successful eval and structured render responses carry content-free Plugin timing evidence');

@@ -293,7 +293,12 @@ export function createDaemonClient({
       return execute('eval', { code }, options);
     },
     evaluateWithMetadata(code, options) {
-      return executeWithMetadata('eval', { code, requireDocumentRevision: true }, options);
+      const { revisionObservation, ...executionOptions } = options || {};
+      return executeWithMetadata('eval', {
+        code,
+        requireDocumentRevision: true,
+        revisionObservation: revisionObservation || { scope: 'document' },
+      }, executionOptions);
     },
     typedRead,
     typedReadWithFallback,

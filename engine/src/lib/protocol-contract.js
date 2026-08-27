@@ -52,6 +52,25 @@ function stringLimitError(label, value, limit, displayLimit = `${limit} bytes`) 
   return byteLength(value) > limit ? `${label} exceeds the ${displayLimit} limit` : null;
 }
 
+function revisionObservationError(value) {
+  if (!isRecord(value)) return 'revisionObservation must be an object';
+  if (!['document', 'page'].includes(value.scope)) {
+    return 'revisionObservation scope must be "document" or "page"';
+  }
+  const keys = Object.keys(value).sort();
+  const expected = value.scope === 'page' ? ['nodeId', 'scope'] : ['scope'];
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    return `revisionObservation ${value.scope} scope contains unknown or missing fields`;
+  }
+  if (value.scope === 'page'
+    && (typeof value.nodeId !== 'string'
+      || !/^I?\d+:\d+(;\d+:\d+)*$/.test(value.nodeId)
+      || byteLength(value.nodeId) > 1024)) {
+    return 'revisionObservation page nodeId must be a canonical bounded Figma node id';
+  }
+  return null;
+}
+
 /**
  * Prove that one eval source fits both authenticated transport envelopes after
  * JSON escaping. The placeholders use the largest accepted scalar identities,
@@ -67,6 +86,7 @@ export function evalTransportEnvelopeError(code) {
   const common = {
     code,
     requireDocumentRevision: true,
+    revisionObservation: { scope: 'page', nodeId: '1:2' },
     timeoutMs: Number.MAX_SAFE_INTEGER,
     deadlineAt: Number.MAX_SAFE_INTEGER,
   };
@@ -211,6 +231,14 @@ export function validateExecPayload(value) {
   if (value.requireDocumentRevision != null
     && (value.action !== 'eval' || typeof value.requireDocumentRevision !== 'boolean')) {
     return 'requireDocumentRevision must be a boolean on eval requests';
+  }
+  if (value.revisionObservation != null) {
+    if (value.action !== 'eval') return 'revisionObservation is supported only on eval requests';
+    const error = revisionObservationError(value.revisionObservation);
+    if (error) return error;
+    if (value.requireDocumentRevision !== true) {
+      return 'revisionObservation requires the compatibility document-revision flag';
+    }
   }
   if (value.timeoutMs != null && (!Number.isFinite(Number(value.timeoutMs)) || Number(value.timeoutMs) <= 0)) {
     return 'timeoutMs must be a positive finite number';

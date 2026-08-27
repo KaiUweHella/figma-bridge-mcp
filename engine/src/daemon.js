@@ -512,6 +512,31 @@ function resultMetadata(pending, raw) {
     ? raw.documentRevisionBefore : null;
   const after = Number.isSafeInteger(raw?.documentRevisionAfter) && raw.documentRevisionAfter >= 0
     ? raw.documentRevisionAfter : null;
+  const observation = raw?.revisionObservation;
+  const pageObservation = observation?.scope === 'page'
+    && typeof observation.pageId === 'string' && observation.pageId.length > 0
+    && observation.pageId.length <= 1024
+    && Number.isSafeInteger(observation.revisionBefore) && observation.revisionBefore >= 0
+    && Number.isSafeInteger(observation.revisionAfter) && observation.revisionAfter >= 0
+    && Object.keys(observation).sort().join(',') === 'pageId,revisionAfter,revisionBefore,scope'
+    ? Object.freeze({
+        scope: 'page',
+        pageId: observation.pageId,
+        revisionBefore: observation.revisionBefore,
+        revisionAfter: observation.revisionAfter,
+      })
+    : null;
+  const documentObservation = observation?.scope === 'document'
+    && Number.isSafeInteger(observation.revisionBefore) && observation.revisionBefore >= 0
+    && Number.isSafeInteger(observation.revisionAfter) && observation.revisionAfter >= 0
+    && Object.keys(observation).sort().join(',') === 'revisionAfter,revisionBefore,scope'
+    ? Object.freeze({
+        scope: 'document',
+        revisionBefore: observation.revisionBefore,
+        revisionAfter: observation.revisionAfter,
+      })
+    : null;
+  const revisionObservation = pageObservation || documentObservation;
   return {
     connectionId: pending?.metadata?.connectionId || null,
     fileKey: pending?.metadata?.fileKey || null,
@@ -519,6 +544,7 @@ function resultMetadata(pending, raw) {
     dispatchState: 'completed',
     documentRevisionBefore: before,
     documentRevisionAfter: after,
+    ...(revisionObservation ? { revisionObservation } : {}),
     pluginExecutionTiming: parsePluginExecutionTiming(raw?.executionTiming),
   };
 }
@@ -889,7 +915,7 @@ function handleExec(req, res) {
     try {
       const {
         action, code, plan, plans, options, timeoutMs, deadlineAt, fileKey, expectedEditor,
-        requireDocumentRevision,
+        requireDocumentRevision, revisionObservation,
       } = payload;
       let result;
       let metadata = null;
@@ -933,6 +959,7 @@ function handleExec(req, res) {
             data = {
               code,
               ...(requireDocumentRevision === true ? { requireDocumentRevision: true } : {}),
+              ...(revisionObservation ? { revisionObservation } : {}),
               ...common,
             };
           } else if (action === 'typed-read') {

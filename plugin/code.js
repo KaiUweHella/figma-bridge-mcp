@@ -46,10 +46,57 @@ function ensureDocumentRevisionReady() {
   return documentRevisionReady;
 }
 
+const MAX_PAGE_REVISION_OBSERVERS = 512;
+const pageRevisionObservers = new Map();
+async function ensurePageRevisionReady(nodeId) {
+  let node = await figma.getNodeByIdAsync(nodeId);
+  if (!node) throw new Error('Revision observation target was not found.');
+  while (node && node.type !== 'PAGE') node = node.parent;
+  if (!node || node.type !== 'PAGE') {
+    throw new Error('Revision observation target is not attached to a Figma page.');
+  }
+  let observer = pageRevisionObservers.get(node.id);
+  if (!observer) {
+    if (pageRevisionObservers.size >= MAX_PAGE_REVISION_OBSERVERS) {
+      throw new Error('Page revision observer limit exceeded. Reopen the plugin, then retry.');
+    }
+    observer = { page: node, pageId: node.id, revision: 0 };
+    node.on('nodechange', () => {
+      if (observer.revision < Number.MAX_SAFE_INTEGER) observer.revision++;
+      else observer.revision = null;
+    });
+    pageRevisionObservers.set(node.id, observer);
+  }
+  if (!Number.isSafeInteger(observer.revision)) {
+    throw new Error('Page revision observation is no longer available. Reopen the plugin, then retry.');
+  }
+  return observer;
+}
+
 function revisionMetadata(before, executionTiming = null) {
+  const after = documentRevisionAvailable ? documentRevision : null;
   return {
     documentRevisionBefore: before,
-    documentRevisionAfter: documentRevisionAvailable ? documentRevision : null,
+    documentRevisionAfter: after,
+    revisionObservation: {
+      scope: 'document',
+      revisionBefore: before,
+      revisionAfter: after,
+    },
+    ...(executionTiming ? { executionTiming } : {}),
+  };
+}
+
+function pageRevisionMetadata(observer, before, executionTiming = null) {
+  return {
+    documentRevisionBefore: null,
+    documentRevisionAfter: null,
+    revisionObservation: {
+      scope: 'page',
+      pageId: observer.pageId,
+      revisionBefore: before,
+      revisionAfter: Number.isSafeInteger(observer.revision) ? observer.revision : null,
+    },
     ...(executionTiming ? { executionTiming } : {}),
   };
 }
@@ -145,6 +192,7 @@ const KNOWN_PLUGIN_CAPABILITIES = Object.freeze([
   DISPATCH_RECEIPT_CAPABILITY,
   'eval-v1',
   'execution-deadline-v1',
+  'page-revision-v1',
   PLUGIN_READ_LANE_CAPABILITY,
   'reload-ui-v1',
   'render-plan-batch-v1',
@@ -3710,18 +3758,30 @@ figma.ui.onmessage = async (msg) => {
   // points and mutate shared document state mid-flight. The daemon currently
   // sends strictly serially, but the plugin must not depend on that.
   if (msg.type === 'eval') {
-    const { code, requireDocumentRevision, timeoutMs, deadlineAt } = msg;
+    const { code, requireDocumentRevision, revisionObservation, timeoutMs, deadlineAt } = msg;
     const queuedAt = Date.now();
     evalChain = evalChain.then(async () => {
       if (!preflightPluginDispatch(msg, 'eval')) return;
-      if (requireDocumentRevision === true) await ensureDocumentRevisionReady();
-      const revisionBefore = documentRevisionAvailable ? documentRevision : null;
-      const startedAt = Date.now();
-      const timedMetadata = () => revisionMetadata(
-        revisionBefore,
-        createPluginExecutionTiming({ queuedAt, startedAt, finishedAt: Date.now() }),
-      );
+      let pageRevisionObserver = null;
+      let revisionBefore = null;
+      let startedAt = Date.now();
+      const timedMetadata = () => {
+        const timing = createPluginExecutionTiming({ queuedAt, startedAt, finishedAt: Date.now() });
+        return pageRevisionObserver
+          ? pageRevisionMetadata(pageRevisionObserver, revisionBefore, timing)
+          : revisionMetadata(revisionBefore, timing);
+      };
       try {
+        pageRevisionObserver = revisionObservation?.scope === 'page'
+          ? await ensurePageRevisionReady(revisionObservation.nodeId)
+          : null;
+        if (!pageRevisionObserver && requireDocumentRevision === true) {
+          await ensureDocumentRevisionReady();
+        }
+        revisionBefore = pageRevisionObserver
+          ? pageRevisionObserver.revision
+          : documentRevisionAvailable ? documentRevision : null;
+        startedAt = Date.now();
         const remainingMs = remainingExecutionBudget(timeoutMs, queuedAt, deadlineAt);
         if (remainingMs <= 0) {
           postDispatchResult(msg, 'not-dispatched', 'deadline-elapsed', {

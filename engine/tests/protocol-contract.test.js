@@ -29,6 +29,10 @@ const FAILED_RECEIPT = terminalDispatchReceipt(PREPARED_RECEIPT, 'failed', 'exec
 test('execution protocol accepts bounded eval and Semantic Render Plan shapes', () => {
   const plan = new FigmaClient().planJSX('<Frame name="Card"><Text>Hello</Text></Frame>');
   assert.equal(validateExecPayload({ action: 'eval', code: '1+1', expectedEditor: 'figma', timeoutMs: 1000, deadlineAt: Date.now() + 1000, fileKey: 'FILE', requireDocumentRevision: true }), null);
+  assert.equal(validateExecPayload({
+    action: 'eval', code: 'capture()', expectedEditor: 'figma', requireDocumentRevision: true,
+    revisionObservation: { scope: 'page', nodeId: 'I12:34;56:78' },
+  }), null);
   assert.equal(validateExecPayload({ action: 'typed-read', operation: 'style-consumers-v1', request: {
     style: 'Surface', type: 'PAINT', limit: 100, after: null,
   }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
@@ -62,6 +66,23 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', deadlineAt: Infinity }), /timestamp/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', requireDocumentRevision: 'yes' }), /boolean/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, expectedEditor: 'figma', requireDocumentRevision: true }), /eval requests/);
+  assert.match(validateExecPayload({
+    action: 'eval', code: 'x', expectedEditor: 'figma',
+    revisionObservation: { scope: 'page', nodeId: '1:2' },
+  }), /compatibility document-revision flag/);
+  assert.match(validateExecPayload({
+    action: 'eval', code: 'x', expectedEditor: 'figma', requireDocumentRevision: true,
+    revisionObservation: { scope: 'page', nodeId: 'not-a-node' },
+  }), /canonical bounded Figma node id/);
+  assert.match(validateExecPayload({
+    action: 'eval', code: 'x', expectedEditor: 'figma', requireDocumentRevision: true,
+    revisionObservation: { scope: 'document', nodeId: '1:2' },
+  }), /unknown or missing fields/);
+  assert.match(validateExecPayload({
+    action: 'typed-read', operation: 'token-overlap-v1',
+    request: { queries: ['Alpha', 'Beta'], limit: 1 }, expectedEditor: 'figma',
+    revisionObservation: { scope: 'document' },
+  }), /only on eval requests/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'unknown' }), /expectedEditor/);
 });
 
