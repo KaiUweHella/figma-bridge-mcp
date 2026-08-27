@@ -177,6 +177,17 @@ _Avoid_: generated font binding eval, setter-result success, retryable binding, 
 The bounded, non-retrying placement of one explicit canvas node at an absolute-canvas X/Y coordinate, with optional top-level Page reparenting. Its closed request distinguishes signed numeric positionals from unknown options before readiness, shares the coordinate validator used by Node Property mutation, and preserves Figma URL targeting independently of option order. Success is claimed only after a fresh absolute-position readback matches the requested coordinates; CLI and MCP execute the same Command Plan and Application without re-entering Commander.
 _Avoid_: Commander move handler, parent-relative placement claim, setter-only success, implicit page selection
 
+**Node Deletion**:
+The bounded, non-retrying removal of one or more exact Node References. Its
+closed request rejects duplicates and cross-file identity before confirmation
+or readiness. Direct handle availability is not attachment: a Node is attached
+only when every bounded parent membership reaches the DOCUMENT root. Nested
+targets are removed deepest-first, and success is claimed per target only
+after its former parent no longer contains it. Missing and already-detached
+targets remain explicit outcomes; repeating cleanup never becomes a second
+removal claim.
+_Avoid_: delete counter, null direct-handle proof, repeated remove, Commander delete handler
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

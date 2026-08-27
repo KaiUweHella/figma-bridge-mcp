@@ -289,6 +289,26 @@ test('node tree delegates one Plan-bound bounded-read Command Application', () =
     'Commander must not retain Node Tree readiness, traversal, or execution logic');
 });
 
+test('node delete delegates one Plan-bound hierarchy-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'node-delete-command.js'), 'utf8');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('delete <nodeIds...>')");
+  const end = adapter.indexOf('// ============ BIND', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /planFigmaCommand\(nodeDeletePlanningArgvFromRequest\(\{ nodeIds \}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeDeletePlan\(plan/);
+  assert.match(action, /formatNodeDeleteResult\(domainResult\)/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|getNodeByIdAsync|\.remove\(\)/,
+    'Commander must not retain Node Delete resolution, mutation, or verification logic');
+  assert.match(application, /former parent still contains the target/,
+    'success must depend on fresh former-parent membership');
+});
+
 test('node bindings delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('node-ops.js');
   assert.ok(adapter, 'node-ops.js exists');

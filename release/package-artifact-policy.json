@@ -110,6 +110,8 @@
     "engine/src/application/layout-grid-facts-command.js",
     "engine/src/application/layout-grid-facts-request.js",
     "engine/src/application/node-coordinate.js",
+    "engine/src/application/node-delete-command.js",
+    "engine/src/application/node-delete-request.js",
     "engine/src/application/node-move-command.js",
     "engine/src/application/node-move-request.js",
     "engine/src/application/node-text-command.js",

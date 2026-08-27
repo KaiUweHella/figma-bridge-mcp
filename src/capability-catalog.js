@@ -45,6 +45,12 @@ import {
   parseNodeMoveRequest,
 } from '../engine/src/application/node-move-request.js';
 import {
+  acceptsNodeDeleteArgv,
+  nodeDeleteArgvFromRequest,
+  nodeDeleteFigmaUrlFileKeyFromArgv,
+  parseNodeDeleteRequest,
+} from '../engine/src/application/node-delete-request.js';
+import {
   acceptsNodeCssArgv,
   nodeCssArgvFromRequest,
   nodeCssFigmaUrlFileKeyFromArgv,
@@ -425,7 +431,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.move', 'node.set-text', 'node.tree', 'find',
+  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.move', 'node.set-text', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
@@ -770,6 +776,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'move' && !action.help && !acceptsNodeMoveArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'tree' && !action.help && !acceptsNodeTreeArgv(args)) {
@@ -1539,6 +1548,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         const closedNodeMoveFileKey = nodeMoveFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeMoveFileKey;
         args.splice(0, args.length, ...nodeMoveArgvFromRequest(parseNodeMoveRequest(args)));
+      } else if (args[1] === 'delete') {
+        const closedNodeDeleteFileKey = nodeDeleteFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeDeleteFileKey;
+        args.splice(0, args.length, ...nodeDeleteArgvFromRequest(parseNodeDeleteRequest(args)));
       } else if (args[1] === 'set-image') {
         const imageIndex = positionalIndexes(args, 2)[1];
         if (typeof args[imageIndex] === 'string') {

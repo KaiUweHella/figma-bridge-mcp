@@ -33,6 +33,11 @@ import {
   formatNodeMoveResult,
   nodeMoveRequestFromArgv,
 } from '../application/node-move-command.js';
+import {
+  executeNodeDeletePlan,
+  formatNodeDeleteResult,
+  nodeDeletePlanningArgvFromRequest,
+} from '../application/node-delete-command.js';
 import { finiteNodeCoordinate } from '../application/node-coordinate.js';
 import {
   executeNodeTreePlan,
@@ -656,23 +661,25 @@ node
   .command('delete <nodeIds...>')
   .description('Delete nodes by ID')
   .action(async (nodeIds) => {
-    await checkConnection();
-
-    // Plugin bridge is the only execution path in the Safe-Mode build.
-    const code = `(async () => {
-      const ids = ${JSON.stringify(nodeIds)};
-      let deleted = 0;
-      for (const id of ids) {
-        const node = await figma.getNodeByIdAsync(id);
-        if (node) { node.remove(); deleted++; }
-      }
-      return deleted;
-    })()`;
     try {
-      const result = await fastEval(code);
-      console.log(chalk.green(`✓ Deleted ${result} node(s)`));
-    } catch (e) {
-      console.log(chalk.red('✗ Delete failed: ' + e.message));
+      const plan = planFigmaCommand(nodeDeletePlanningArgvFromRequest({ nodeIds }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          const domainResult = await executeNodeDeletePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+          return { stdout: formatNodeDeleteResult(domainResult), stderr: '', code: 0 };
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Delete failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

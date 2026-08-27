@@ -1002,6 +1002,29 @@ test('Node Text closes and canonicalizes one policy-identical CLI/MCP request', 
   }
 });
 
+test('Node Delete closes one policy-identical non-retrying batch without losing URL targeting', () => {
+  const url = 'https://www.figma.com/design/FILEA/Delete-Lab?node-id=12-34';
+  const mcp = planFigmaCommand(['node', 'delete', url, '56-78'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(['node', 'delete', url, '56:78'], { adapter: 'cli' });
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(mcp.argv, ['node', 'delete', '12:34', '56:78']);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.target, mcp.target);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.delete');
+  for (const args of [
+    ['node', 'delete'],
+    ['node', 'delete', '1:2', '1-2'],
+    ['node', 'delete', '--future'],
+    ['node', 'delete', 'not-a-node'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
 test('Inspect closes one policy-identical CLI/MCP read without losing formats or URL targets', () => {
   const url = 'https://www.figma.com/design/FILEA/Inspect-Lab?node-id=12-34';
   for (const input of [

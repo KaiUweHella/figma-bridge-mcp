@@ -18,6 +18,7 @@ const NODE_TREE_APPLICATION_ID = 'node.tree';
 // result carries JSON framing.
 export const MAX_NODE_TREE_LINES = 1500;
 export const MAX_NODE_TREE_LINE_CODE_UNITS = 512;
+export const MAX_NODE_TREE_ANCESTOR_DEPTH = 512;
 
 function normalizedRequest(request) {
   return parseNodeTreeRequest(nodeTreeArgvFromRequest(request));
@@ -33,6 +34,26 @@ export function nodeTreeCode(request) {
     const targetId = ${input.nodeId ? JSON.stringify(input.nodeId) : 'null'};
     const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
     if (!root) throw new Error('Node not found in the targeted Figma document: ' + targetId);
+    if (targetId && root.type !== 'DOCUMENT') {
+      let attached = false;
+      try {
+        const seen = new Set();
+        let current = root;
+        for (let depth = 0; depth <= ${MAX_NODE_TREE_ANCESTOR_DEPTH}; depth++) {
+          if (!current || seen.has(current)) break;
+          seen.add(current);
+          if (current.type === 'DOCUMENT') { attached = true; break; }
+          const parent = current.parent;
+          if (!parent || !Array.isArray(parent.children)
+            || !parent.children.some((child) => child && child.id === current.id)) break;
+          current = parent;
+        }
+      } catch {}
+      if (!attached) {
+        throw new Error('Node is detached from the targeted Figma document hierarchy: ' + targetId
+          + '. Direct handle availability is not canvas membership.');
+      }
+    }
     if (root.type === 'DOCUMENT') await figma.loadAllPagesAsync();
     else if (typeof root.loadAsync === 'function') await root.loadAsync();
 

@@ -411,6 +411,13 @@ you actually have open — see [Several files at once](#several-files-at-once)).
 `figma_run` with `["node","tree",...]` is a fast bounded outline for discovery
 and follow-up node ids. It reports depth/output truncation explicitly; use
 `figma_spec` plus a screenshot for exact Figma-to-code implementation facts.
+An explicit detached node handle is rejected by `node tree`: Figma can retain
+direct-id handles after a node leaves the canvas, so handle availability is not
+present-tense hierarchy evidence. `figma_run` with
+`["node","delete","12:34",...]` reports `removed`, `already-detached`, or
+`not-found` per target and verifies every removal against the target's former
+parent after first proving a complete parent-membership chain to the DOCUMENT
+root. Nested deletion batches remain supported and execute deepest-first.
 If Figma returns a 1-pixel PNG axis for a node whose scaled geometry is larger,
 the Screenshot Command rejects the image before saving it and reports both the
 actual raster and logical geometry. Refresh the identity with

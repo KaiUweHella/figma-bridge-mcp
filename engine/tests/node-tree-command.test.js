@@ -116,6 +116,46 @@ test('Node Tree not-found failure is target-neutral and never reflects a documen
   );
 });
 
+test('Node Tree refuses directly readable roots that are detached from the canvas hierarchy', async () => {
+  let removals = 0;
+  const detached = {
+    id: '1:2', type: 'FRAME', name: 'Retained handle', width: 20, height: 10,
+    parent: null, children: [],
+    remove() { removals += 1; },
+  };
+  const staleParent = { id: '0:1', type: 'PAGE', children: [] };
+  const stale = {
+    id: '1:3', type: 'FRAME', name: 'Stale parent handle', width: 20, height: 10,
+    parent: staleParent, children: [],
+  };
+  const retainedSet = {
+    id: '1:4', type: 'COMPONENT_SET', name: 'Detached set', parent: null, children: [],
+  };
+  const retainedVariant = {
+    id: '1:5', type: 'COMPONENT', name: 'Retained variant', width: 20, height: 10,
+    parent: retainedSet, children: [],
+  };
+  retainedSet.children.push(retainedVariant);
+  const figma = {
+    currentPage: staleParent,
+    getNodeByIdAsync: async (id) => new Map([
+      [detached.id, detached], [stale.id, stale], [retainedVariant.id, retainedVariant],
+    ]).get(id),
+  };
+
+  for (const nodeId of [detached.id, stale.id, retainedVariant.id]) {
+    await assert.rejects(
+      () => new Function('figma', `return ${nodeTreeCode({ nodeId, depth: 0 })};`)(figma),
+      (error) => {
+        assert.match(error.message, /detached from the targeted Figma document hierarchy/);
+        assert.match(error.message, /Direct handle availability is not canvas membership/);
+        return true;
+      },
+    );
+  }
+  assert.equal(removals, 0, 'a read must never try to clean up a detached handle');
+});
+
 test('Node Tree Plan route accepts only its authentic policy-owned Plan', async () => {
   const plan = planFigmaCommand(['node', 'tree', '1-2', '--ids'], { adapter: 'cli' });
   assert.equal(plan.allowed, true);

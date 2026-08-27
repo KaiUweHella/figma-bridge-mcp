@@ -86,6 +86,11 @@ import {
   nodeMoveRequestFromArgv,
 } from "../engine/src/application/node-move-command.js";
 import {
+  executeNodeDeletePlan,
+  formatNodeDeleteResult,
+  nodeDeletePlanRoute,
+} from "../engine/src/application/node-delete-command.js";
+import {
   executeNodeCssPlan,
   nodeCssPlanRoute,
 } from "../engine/src/application/node-css-command.js";
@@ -2117,6 +2122,24 @@ export async function handleTool(name, rawArgs) {
             }),
           });
           return { stdout: formatNodeMoveResult(result), stderr: "", code: 0 };
+        });
+        return resultFromCli(res);
+      }
+      const nodeDeleteRoute = nodeDeletePlanRoute(plan);
+      if (nodeDeleteRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          const result = await executeNodeDeletePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+          return { stdout: formatNodeDeleteResult(result), stderr: "", code: 0 };
         });
         return resultFromCli(res);
       }
