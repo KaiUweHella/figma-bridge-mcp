@@ -25,6 +25,8 @@
     "engine/src/application/component-create-request.js",
     "engine/src/application/component-detach-command.js",
     "engine/src/application/component-detach-request.js",
+    "engine/src/application/component-overrides-command.js",
+    "engine/src/application/component-overrides-request.js",
     "engine/src/application/component-inventory-command.js",
     "engine/src/application/component-inventory-request.js",
     "engine/src/application/component-main-command.js",

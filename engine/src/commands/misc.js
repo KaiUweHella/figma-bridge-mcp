@@ -62,6 +62,10 @@ import {
   executeComponentDetachPlan,
 } from '../application/component-detach-command.js';
 import {
+  componentOverridesPlanningArgvFromRequest,
+  executeComponentOverridesPlan,
+} from '../application/component-overrides-command.js';
+import {
   componentInventoryPlanningArgvFromRequest,
   executeComponentInventoryPlan,
 } from '../application/component-inventory-command.js';
@@ -809,25 +813,36 @@ componentCmd
 
 componentCmd
   .command('overrides <instanceId> <action>')
-  .description('Reset instance overrides or remove overrides that match the main component (action: reset | remove)')
+  .description('Remove all direct instance overrides (compatible action aliases: reset | remove)')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (instanceId, action, options) => {
     try {
-      const instance = normalizeNodeId(String(instanceId)).id;
-      const normalizedAction = String(action).toLowerCase();
-      if (!['reset', 'remove'].includes(normalizedAction)) throw new Error('Action must be reset or remove');
-      await checkConnection();
-      const method = normalizedAction === 'reset' ? 'resetOverrides' : 'removeOverrides';
-      const result = await daemonExec('eval', { code: `(async () => {
-const instance = await figma.getNodeByIdAsync(${JSON.stringify(instance)});
-if (!instance || instance.type !== 'INSTANCE') throw new Error('Expected INSTANCE: ' + ${JSON.stringify(instance)});
-const before = instance.overrides.length;
-instance[${JSON.stringify(method)}]();
-return { id: instance.id, name: instance.name, action: ${JSON.stringify(normalizedAction)}, before, after: instance.overrides.length };
-})()` });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `${result.action === 'reset' ? 'Reset' : 'Removed matching'} overrides on "${result.name}" (${result.before} → ${result.after})`);
-    } catch (error) { handleEvalError(error); }
+      const argv = componentOverridesPlanningArgvFromRequest({
+        instanceId,
+        action,
+        json: options.json === true,
+      });
+      const plan = planFigmaCommand(argv, {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentOverridesPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Overrides failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 const propCmd = componentCmd

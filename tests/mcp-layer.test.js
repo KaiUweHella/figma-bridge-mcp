@@ -1623,6 +1623,35 @@ test('figma_run routes Component Detach through the irreversible verified Applic
     'Component Detach must not re-enter Commander');
 });
 
+test('figma_run routes Component Overrides through the one-shot verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentOverridesRoute = componentOverridesPlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentOverridesPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Overrides must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Component Overrides before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['component', 'overrides'],
+    ['component', 'overrides', 'bad', 'reset'],
+    ['component', 'overrides', '3:1'],
+    ['component', 'overrides', '3:1', 'clear'],
+    ['component', 'overrides', '3:1', 'remove', 'extra'],
+    ['component', 'overrides', '3:1', 'remove', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+  }
+});
+
 test('figma_run rejects malformed Component Detach before confirmation or readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

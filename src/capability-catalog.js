@@ -186,6 +186,12 @@ import {
   parseComponentDetachRequest,
 } from '../engine/src/application/component-detach-request.js';
 import {
+  acceptsComponentOverridesArgv,
+  componentOverridesArgvFromRequest,
+  componentOverridesFigmaUrlFileKeyFromArgv,
+  parseComponentOverridesRequest,
+} from '../engine/src/application/component-overrides-request.js';
+import {
   acceptsComponentInventoryArgv,
   componentInventoryArgvFromRequest,
   parseComponentInventoryRequest,
@@ -517,7 +523,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.delete',
   'col.extend',
   'component.main', 'component.combine', 'component.add-variant', 'component.create',
-  'component.swap', 'component.detach',
+  'component.swap', 'component.detach', 'component.overrides',
   'component.list',
   'component.instantiate',
   'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
@@ -772,6 +778,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'detach') {
     pathPolicy = 'component-detach-input';
   }
+  if (name === 'component' && sub === 'overrides') {
+    pathPolicy = 'component-overrides-input';
+  }
   if (name === 'component' && sub === 'list') {
     retry = 'safe-read';
     if (args.includes('--all-pages')) timeoutClass = 'long';
@@ -906,6 +915,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'detach'
     && !action.help && !acceptsComponentDetachArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'overrides'
+    && !action.help && !acceptsComponentOverridesArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'list'
@@ -1745,6 +1758,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentDetachArgvFromRequest(
         parseComponentDetachRequest(args)));
+      break;
+    }
+    case 'component-overrides-input': {
+      const closedFileKey = componentOverridesFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentOverridesArgvFromRequest(
+        parseComponentOverridesRequest(args)));
       break;
     }
     case 'component-inventory-input':
