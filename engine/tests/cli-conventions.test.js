@@ -1432,6 +1432,17 @@ test('component prop add delegates one rollback-owned non-retrying Application',
     'Commander must not retain Component Property Add readiness or mutation logic');
 });
 
+test('component prop list delegates one bounded safe-read Application', () => {
+  const src = sources.get('misc.js');
+  const start = src.indexOf(".command('list [componentId]')");
+  const end = src.indexOf(".command('set <instanceId> <name> <value>')", start);
+  const propList = src.slice(start, end);
+  assert.match(propList, /runComponentPropertyListCommand/);
+  assert.match(propList, /process\.exitCode = 1/);
+  assert.doesNotMatch(propList, /componentPropertyDefinitions|daemonExec\(|checkConnection\(/,
+    'Commander must not retain Component Property List readiness or capture logic');
+});
+
 test('component prop delete delegates one exact irreversible non-retrying Application', () => {
   const src = sources.get('misc.js');
   const start = src.indexOf(".command('delete <componentId> <propName>')");

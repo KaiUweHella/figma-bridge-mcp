@@ -156,6 +156,12 @@ import {
   parseComponentPropertyDeleteRequest,
 } from '../engine/src/application/component-property-delete-request.js';
 import {
+  acceptsComponentPropertyListArgv,
+  componentPropertyListArgvFromRequest,
+  componentPropertyListFigmaUrlFileKeyFromArgv,
+  parseComponentPropertyListRequest,
+} from '../engine/src/application/component-property-list-request.js';
+import {
   acceptsPageStructureArgv,
   pageStructureArgvFromRequest,
   parsePageStructureRequest,
@@ -482,7 +488,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.delete',
   'col.extend',
   'component.main', 'component.combine', 'component.add-variant',
-  'component.prop.add', 'component.prop.delete', 'component.prop.set',
+  'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
   'style.list',
   'style.create',
   'style.update',
@@ -731,6 +737,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'prop' && args[2] === 'delete') {
     pathPolicy = 'component-property-delete-input';
   }
+  if (name === 'component' && sub === 'prop' && args[2] === 'list') {
+    pathPolicy = 'component-property-list-input';
+  }
   if (name === 'style' && sub === 'show') {
     retry = 'safe-read';
     pathPolicy = 'style-facts-input';
@@ -844,6 +853,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'delete'
     && !action.help && !acceptsComponentPropertyDeleteArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'prop' && args[2] === 'list'
+    && !action.help && !acceptsComponentPropertyListArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
@@ -1656,6 +1669,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentPropertyDeleteArgvFromRequest(
         parseComponentPropertyDeleteRequest(args)));
+      break;
+    }
+    case 'component-property-list-input': {
+      const closedFileKey = componentPropertyListFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentPropertyListArgvFromRequest(
+        parseComponentPropertyListRequest(args)));
       break;
     }
     case 'style-facts-input': {

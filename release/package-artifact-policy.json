@@ -27,6 +27,8 @@
     "engine/src/application/component-property-add-request.js",
     "engine/src/application/component-property-delete-command.js",
     "engine/src/application/component-property-delete-request.js",
+    "engine/src/application/component-property-list-command.js",
+    "engine/src/application/component-property-list-request.js",
     "engine/src/application/component-property-set-command.js",
     "engine/src/application/component-property-set-request.js",
     "engine/src/application/component-set-reference-request.js",

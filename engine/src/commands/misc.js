@@ -39,6 +39,10 @@ import {
   executeComponentPropertyDeletePlan,
 } from '../application/component-property-delete-command.js';
 import {
+  componentPropertyListPlanningArgvFromRequest,
+  executeComponentPropertyListPlan,
+} from '../application/component-property-list-command.js';
+import {
   componentPropertySetPlanningArgvFromRequest,
   executeComponentPropertySetPlan,
 } from '../application/component-property-set-command.js';
@@ -569,6 +573,24 @@ async function runComponentPropertyDeleteCommand(request) {
     });
 }
 
+async function runComponentPropertyListCommand(request) {
+  const argv = componentPropertyListPlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentPropertyListPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('instantiate <componentId>')
   .description('Create an instance from an explicit main component')
@@ -775,33 +797,18 @@ propCmd
 propCmd
   .command('list [componentId]')
   .description('List component properties on a component (or current selection)')
-  .action(async (componentId) => {
-    await checkConnection();
-    const target = componentId
-      ? `await figma.getNodeByIdAsync(${JSON.stringify(componentId)})`
-      : `figma.currentPage.selection[0]`;
-    const code = `(async () => {
-      const n = ${target};
-      if (!n) throw new Error('No node found');
-      if (!('componentPropertyDefinitions' in n)) throw new Error('Node has no component properties');
-      return { id: n.id, name: n.name, props: n.componentPropertyDefinitions };
-    })()`;
+  .option('--json', 'Output as JSON')
+  .action(async (componentId, options) => {
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.bold(`${r.name} (${r.id})`));
-      const entries = Object.entries(r.props || {});
-      if (entries.length === 0) {
-        console.log(chalk.gray('  (no component properties)'));
-        return;
-      }
-      entries.forEach(([propName, def]) => {
-        const tail = def.type === 'VARIANT' && Array.isArray(def.variantOptions)
-          ? ` [${def.variantOptions.join(', ')}]`
-          : '';
-        console.log(`  ${propName}  ${chalk.gray(def.type)}  default=${JSON.stringify(def.defaultValue)}${tail}`);
+      const result = await runComponentPropertyListCommand({
+        componentId: componentId ?? null,
+        json: options.json === true,
       });
-    } catch (e) {
-      handleEvalError(e);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Property List failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
