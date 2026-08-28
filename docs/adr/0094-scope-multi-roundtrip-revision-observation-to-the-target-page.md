@@ -33,6 +33,9 @@ proved that an unrelated-Page mutation kept the target proof stable, a
 target-Page mutation advanced it, a stale publication fence was rejected, a
 repeated Design Capture hit its cache and an Asset Export reached manifest-last
 publication with a Page proof. A true unloaded-process latency comparison
-remains a separate human-assisted acceptance because prior tests had already
-loaded every Page in the active Figma document; warm timings are not relabeled
-as cold evidence.
+is human-assisted because Figma must restart between scopes; warm timings are
+never relabeled as cold evidence. The accepted large-document pair on Plugin
+3.3.30 measured Page scope at 29.882 ms and Document scope at 328.544 ms for a
+33-Page, 30,534-node first-party fixture. EFF-02 now keeps a generous 250 ms
+absolute Page ceiling plus a 0.5 Page-to-Document ratio ceiling so a future
+full-document regression fails without treating one workstation as universal.

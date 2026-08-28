@@ -51,3 +51,18 @@ rather than hard compatibility limits for every user machine.
 
 The corpus does not infer a traversal budget for Figma's non-interruptible
 `getStyleConsumersAsync()` API.
+
+## Revision Observation cold budget
+
+Page-scoped Revision Observation has a paired human-assisted cold-start budget
+for a qualified large Figma document. The same Plugin build and document must
+be measured after two separate fresh Figma process starts: once with Page scope
+and once with explicit Document scope. The fixture must contain at least 25
+Pages and 25,000 nodes, and both revision proofs must be stable.
+
+The Page sample must complete within 250 ms and at no more than half of the
+paired Document sample. The generous absolute ceiling tolerates desktop and
+document variance; the relative ceiling detects accidental reintroduction of
+full-document loading. This is live acceptance evidence rather than a CI Figma
+dependency. The machine-readable policy and negative regression tests live in
+`scripts/lib/revision-observation-budget.js`.
