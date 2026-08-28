@@ -336,6 +336,18 @@ byte or structure budget used by its reader. Source Figma ids and publish keys
 are evidence only; they never become target identity in another file.
 _Avoid_: name-keyed variable map, first mode, alias by display name, silent partial capture, source id as mutation target
 
+**Token Export**:
+The exact bounded projection of Figma Variables into neutral CSS custom
+properties or DTCG JSON. An explicit node captures only visible-subtree,
+Style and paint bindings plus their complete Alias chains, including library
+Variables. A file-wide request captures every local Collection and Variable in
+bounded chunks pinned to one authenticated document revision. All modes,
+Collection defaults, metadata and aliases reach one host formatter; scoped
+emptiness, traversal limits, missing identities, catalog drift and oversized
+output fail explicitly. Commander and MCP adapt the same Command Plan and
+Command Application, while only DTCG may name a Workspace output.
+_Avoid_: Commander token eval, whole-file fallback for an empty subtree, first mode, silent 2,000-token cutoff, unpinned chunk merge
+
 **Safe Variable Export Degradation**:
 The deterministic publication fallback used only when a normal DESIGN.md would
 exceed Workspace import authority because Variable values are duplicated in

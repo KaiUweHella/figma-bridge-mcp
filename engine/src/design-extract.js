@@ -120,15 +120,18 @@ export function variablesCode() {
  * the command then fetches values in bounded chunks (variableChunkCode) so a
  * 10k-variable library never lands in one oversized/timing-out eval.
  */
-export function variableCollectionsCode() {
+export function variableCollectionsCode({ withFile = false } = {}) {
   return `(async () => {
     const cols = await figma.variables.getLocalVariableCollectionsAsync();
-    return JSON.stringify(cols.map(c => ({
+    const catalog = cols.map(c => ({
       id: c.id, key: c.key, name: c.name, defaultModeId: c.defaultModeId,
       hiddenFromPublishing: c.hiddenFromPublishing,
       modes: c.modes.map(m => ({ id: m.modeId, name: m.name })),
       variableIds: c.variableIds,
-    })));
+    }));
+    return JSON.stringify(${withFile === true
+      ? `{ file: figma.root.name, catalog }`
+      : 'catalog'});
   })()`;
 }
 
@@ -1648,12 +1651,20 @@ export function assetCollectorCode(nodeId) {
  */
 export function usedVariablesCode(nodeId) {
   return `(async () => {
+    const MAX_VISITED_NODES = 100000;
+    const MAX_REFERENCED_VARIABLES = 10000;
+    const MAX_STYLES = 10000;
+    const MAX_ALIAS_DEPTH = 256;
     const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop.' });
     const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('') + (c.a != null && c.a < 1 ? Math.round(c.a * 255).toString(16).padStart(2, '0') : '');
     const ids = [];
     const idSet = new Set();
-    const add = (id) => { if (id && !idSet.has(id)) { idSet.add(id); ids.push(id); } };
+    const add = (id) => {
+      if (!id || idSet.has(id)) return;
+      if (ids.length >= MAX_REFERENCED_VARIABLES) throw new Error('Scoped token export exceeds the referenced Variable limit.');
+      idSet.add(id); ids.push(id);
+    };
     const addBV = (bv) => {
       if (!bv) return;
       for (const key of Object.keys(bv)) {
@@ -1663,20 +1674,39 @@ export function usedVariablesCode(nodeId) {
       }
     };
     const styleIds = new Set();
-    const walk = (n) => {
-      if (n.visible === false) return;
-      try { addBV(n.boundVariables); } catch (e) {}
+    const stack = [root];
+    let visitedNodes = 0;
+    while (stack.length) {
+      const n = stack.pop();
+      if (!n || n.visible === false) continue;
+      visitedNodes++;
+      if (visitedNodes > MAX_VISITED_NODES) throw new Error('Scoped token export exceeds the node traversal limit.');
+      try { addBV(n.boundVariables); } catch (e) { if (/Scoped token export/.test(e.message)) throw e; }
       for (const k of ['textStyleId', 'fillStyleId', 'strokeStyleId', 'effectStyleId']) {
-        try { const v = n[k]; if (typeof v === 'string' && v) styleIds.add(v); } catch (e) {}
+        try {
+          const v = n[k];
+          if (typeof v === 'string' && v) {
+            if (!styleIds.has(v) && styleIds.size >= MAX_STYLES) throw new Error('Scoped token export exceeds the Style limit.');
+            styleIds.add(v);
+          }
+        } catch (e) { if (/Scoped token export/.test(e.message)) throw e; }
       }
       /* paint-level bindings (a gradient stop bound to a color token) */
-      try { for (const p of (Array.isArray(n.fills) ? n.fills : [])) addBV(p.boundVariables); } catch (e) {}
-      try { for (const p of (Array.isArray(n.strokes) ? n.strokes : [])) addBV(p.boundVariables); } catch (e) {}
-      if ('children' in n) for (const c of n.children) walk(c);
-    };
-    walk(root);
+      try { for (const p of (Array.isArray(n.fills) ? n.fills : [])) addBV(p.boundVariables); }
+      catch (e) { if (/Scoped token export/.test(e.message)) throw e; }
+      try { for (const p of (Array.isArray(n.strokes) ? n.strokes : [])) addBV(p.boundVariables); }
+      catch (e) { if (/Scoped token export/.test(e.message)) throw e; }
+      if ('children' in n) {
+        if (!Array.isArray(n.children)) throw new Error('Scoped token export encountered invalid child topology.');
+        for (let index = n.children.length - 1; index >= 0; index--) stack.push(n.children[index]);
+      }
+    }
     for (const sid of styleIds) {
-      try { const st = await figma.getStyleByIdAsync(sid); if (st) addBV(st.boundVariables); } catch (e) {}
+      let st = null;
+      try { st = await figma.getStyleByIdAsync(sid); }
+      catch (e) { throw new Error('Scoped token export could not resolve an applied Style.'); }
+      if (!st) throw new Error('Scoped token export could not resolve an applied Style.');
+      addBV(st.boundVariables);
     }
     const colInfo = new Map();
     const collectionInfo = async (cid) => {
@@ -1690,18 +1720,19 @@ export function usedVariablesCode(nodeId) {
           modes: Array.from(c.modes || [], (mode) => ({ modeId: mode.modeId, name: mode.name })),
         };
       } catch (e) {}
+      if (!info) throw new Error('Scoped token export could not resolve a Variable Collection.');
       colInfo.set(cid, info);
       return info;
     };
     const out = [];
     const seen = new Set();
-    for (let i = 0; i < ids.length && i < 2000; i++) {
+    for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
       if (seen.has(id)) continue;
       seen.add(id);
       let v = null;
       try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) {}
-      if (!v) continue;
+      if (!v) throw new Error('Scoped token export could not resolve a referenced Variable.');
       const collection = await collectionInfo(v.variableCollectionId);
       const modes = collection?.modes?.length
         ? collection.modes
@@ -1712,15 +1743,17 @@ export function usedVariablesCode(nodeId) {
         let currentMode = mode;
         let val = current.valuesByMode?.[currentMode.modeId];
         let ref = null;
-        let guard = 10;
+        let refId = null;
+        let guard = MAX_ALIAS_DEPTH;
         const chain = new Set([current.id]);
         while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
           add(val.id); /* alias target exports as a token of its own */
           let target = null;
           try { target = await figma.variables.getVariableByIdAsync(val.id); } catch (e) {}
-          if (!target || chain.has(target.id)) { val = null; break; }
+          if (!target) throw new Error('Scoped token export could not resolve an Alias target.');
+          if (chain.has(target.id)) throw new Error('Scoped token export encountered an Alias cycle.');
           chain.add(target.id);
-          if (!ref) ref = target.name;
+          if (!ref) { ref = target.name; refId = target.id; }
           const targetCollection = await collectionInfo(target.variableCollectionId);
           const targetModes = targetCollection?.modes || [];
           const sameId = Object.prototype.hasOwnProperty.call(target.valuesByMode || {}, currentMode.modeId);
@@ -1733,18 +1766,21 @@ export function usedVariablesCode(nodeId) {
           currentMode = targetMode || { modeId: Object.keys(target.valuesByMode || {})[0], name: currentMode.name };
           val = current.valuesByMode?.[currentMode.modeId];
         }
+        if (guard < 0) throw new Error('Scoped token export exceeds the Alias depth limit.');
         if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
         if (val && typeof val === 'object') val = null; /* unresolvable */
-        valuesByMode[mode.modeId] = { value: val === undefined ? null : val, ref };
+        valuesByMode[mode.modeId] = { value: val === undefined ? null : val, ref, refId };
       }
       const defaultModeId = collection?.defaultModeId || modes[0]?.modeId;
-      const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId] || { value: null, ref: null };
+      const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId]
+        || { value: null, ref: null, refId: null };
       out.push({
         id: v.id,
         name: v.name,
         type: v.resolvedType,
         value: selected.value,
         ref: selected.ref,
+        refId: selected.refId,
         valuesByMode,
         modes,
         defaultModeId,
@@ -1754,7 +1790,12 @@ export function usedVariablesCode(nodeId) {
         codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : undefined,
       });
     }
-    return JSON.stringify({ file: figma.root.name, node: root.name, id: root.id, vars: out });
+    return JSON.stringify({
+      schemaVersion: 1, scope: 'subtree', complete: true,
+      file: figma.root.name, node: root.name, id: root.id,
+      visitedNodes, referencedVariables: ids.length, returnedVariables: out.length,
+      vars: out,
+    });
   })()`;
 }
 

@@ -21,6 +21,12 @@ import {
   parseCodeSpecRequest,
 } from '../engine/src/application/code-spec-request.js';
 import {
+  acceptsTokenExportArgv,
+  parseTokenExportRequest,
+  tokenExportArgvFromRequest,
+  tokenExportFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/token-export-request.js';
+import {
   acceptsInspectArgv,
   inspectArgvFromRequest,
   inspectFigmaUrlFileKeyFromArgv,
@@ -429,7 +435,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
-  'export.assets', 'export.code-spec',
+  'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.move', 'node.set-text', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
@@ -600,8 +606,10 @@ function specializedPolicy(name, entry, args, actionId) {
     } else if (sub === 'code-spec') {
       retry = 'safe-read';
       pathPolicy = 'code-spec-input';
-    } else if (sub === 'dtcg') {
-      pathPolicy = 'dtcg-output';
+    } else if (sub === 'css' || sub === 'dtcg') {
+      retry = 'safe-read';
+      timeoutClass = 'long';
+      pathPolicy = 'token-export-input';
     } else if (sub === 'node-json') {
       pathPolicy = 'node-json-output';
     }
@@ -770,6 +778,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'export' && args[1] === 'code-spec' && !action.help && !acceptsCodeSpecArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'export' && ['css', 'dtcg'].includes(args[1])
+    && !action.help && !acceptsTokenExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1364,12 +1376,15 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       markWrite(outputPath, 'video-output');
       break;
     }
-    case 'dtcg-output': {
-      const value = args[2];
-      const nodeReference = typeof value === 'string' && /^(\d+[:-]\d+$|I\d|https?:\/\/)/.test(value);
-      if (typeof value === 'string' && !nodeReference) {
-        args[2] = absolute(baseDir, value);
-        markWrite(args[2], 'dtcg-output');
+    case 'token-export-input': {
+      const closedFileKey = tokenExportFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      const request = parseTokenExportRequest(args);
+      const output = request.output ? absolute(baseDir, request.output) : null;
+      args.splice(0, args.length, ...tokenExportArgvFromRequest({ ...request, output }));
+      if (output) {
+        outputRole = 'dtcg-output';
+        markWrite(output, 'dtcg-output');
       }
       break;
     }

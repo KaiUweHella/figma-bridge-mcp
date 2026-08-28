@@ -348,6 +348,41 @@ test('Token Overlap closes one long policy-identical bounded safe read', () => {
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('CSS and DTCG close one long policy-identical exact Token Export read', () => {
+  const cssCli = planFigmaCommand(['export', 'css', '12-34'], { adapter: 'cli' });
+  const cssMcp = planFigmaCommand(['export', 'css', '12:34'], { adapter: 'mcp' });
+  assert.equal(cssCli.allowed, true); assert.equal(cssMcp.allowed, true);
+  assert.deepEqual(cssCli.argv, cssMcp.argv); assert.deepEqual(cssCli.effects, cssMcp.effects);
+  assert.equal(cssCli.effects.figma, 'read'); assert.equal(cssCli.effects.workspace, 'none');
+  assert.equal(cssCli.execution.retry, 'safe-read'); assert.equal(cssCli.execution.timeout, 'long');
+  assert.equal(cssCli.confirmation, 'none'); assert.equal(cssCli.audit.capability, 'export.css');
+
+  const workspaceDir = resolve('work', 'project');
+  const output = join(workspaceDir, 'tokens.json');
+  const dtcgCli = planFigmaCommand([
+    'export', 'dtcg', 'tokens.json', '12-34', '--dialect=2025',
+  ], { adapter: 'cli', workspaceDir });
+  const dtcgMcp = planFigmaCommand([
+    'export', 'dtcg', '--dialect', '2025', 'tokens.json', '12:34',
+  ], { adapter: 'mcp', workspaceDir });
+  assert.equal(dtcgCli.allowed, true); assert.equal(dtcgMcp.allowed, true);
+  assert.deepEqual(dtcgCli.argv, dtcgMcp.argv); assert.deepEqual(dtcgCli.effects, dtcgMcp.effects);
+  assert.deepEqual(dtcgCli.outputs, [{ role: 'dtcg-output', path: output }]);
+  assert.equal(dtcgCli.effects.workspace, 'write'); assert.equal(dtcgCli.execution.retry, 'safe-read');
+  assert.equal(dtcgCli.audit.capability, 'export.dtcg');
+
+  const url = 'https://www.figma.com/design/FILE123/Test?node-id=12-34';
+  assert.equal(planFigmaCommand(['export', 'dtcg', '--dialect=2025', url], {
+    adapter: 'mcp',
+  }).target.fileKey, 'FILE123');
+  for (const argv of [
+    ['export', 'css', '1:2', 'extra'],
+    ['export', 'css', '--dialect', '2025'],
+    ['export', 'dtcg', '--dialect', 'future'],
+    ['export', 'dtcg', '--future', 'private-value'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('Token Rebind closes one safe dry-run and one rollback-owned scoped write', () => {
   const dryCli = planFigmaCommand(['tokens', 'rebind', 'Theme', '-n12-34'], { adapter: 'cli' });
   const dryMcp = planFigmaCommand(['tokens', 'rebind', '--node', '12:34', '--', 'Theme'], { adapter: 'mcp' });

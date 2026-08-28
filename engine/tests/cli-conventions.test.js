@@ -1330,10 +1330,19 @@ test('node set-text rejects excess CLI positionals before Plugin readiness', () 
     'request rejection must happen before the readiness Adapter');
 });
 
-test('token export projects valuesByMode centrally instead of selecting the first value', () => {
-  const src = sources.get('export-eval.js');
-  assert.match(src, /projectVariableModes\(/);
-  assert.doesNotMatch(src, /Object\.values\([^\n]*valuesByMode/,
+test('token export delegates one Plan-bound exact Command Application', () => {
+  const adapter = sources.get('export-eval.js');
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'token-export-command.js'), 'utf8');
+  assert.match(adapter, /tokenExportPlanningArgvFromRequest/);
+  assert.match(adapter, /executeTokenExportPlan\(/);
+  assert.match(adapter, /daemonExecWithMetadata\(/);
+  const start = adapter.indexOf("async function runTokenExportCommand");
+  const end = adapter.indexOf('// NOTE: there is deliberately NO `export tailwind`', start);
+  const actions = adapter.slice(start, end) + adapter.slice(adapter.indexOf(".command('dtcg"), adapter.indexOf(".command('code-spec"));
+  assert.doesNotMatch(actions, /checkConnection\(|usedVariablesCode\(|projectVariableModes\(|formatCssTokens\(|buildDtcgTree\(/,
+    'Commander must not retain Token Export readiness, capture, projection, or formatting');
+  assert.match(application, /projectVariableModes\(/);
+  assert.doesNotMatch(application, /Object\.values\([^\n]*valuesByMode/,
     'CSS/DTCG export must never silently select the first collection mode');
 });
 

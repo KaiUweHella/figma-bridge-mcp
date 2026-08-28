@@ -72,8 +72,8 @@ test('scoped collector: bound variables + style bindings + alias targets; hidden
   assert.equal(surface.defaultModeId, 'm1');
   assert.deepEqual(surface.modes, [{ modeId: 'm1', name: 'Light' }, { modeId: 'm2', name: 'Dark' }]);
   assert.deepEqual(surface.valuesByMode, {
-    m1: { value: '#060914', ref: 'palette/navy/900' },
-    m2: { value: '#e6ebf2', ref: 'palette/navy/900' },
+    m1: { value: '#060914', ref: 'palette/navy/900', refId: 'v:navy' },
+    m2: { value: '#e6ebf2', ref: 'palette/navy/900', refId: 'v:navy' },
   });
   assert.ok(!names.includes('color/bg'), 'the plant-care local collection does not leak in');
 });
@@ -144,6 +144,17 @@ test('buildDtcgTree rejects unknown dialects', () => {
   assert.throws(() => buildDtcgTree([], { dialect: 'future' }), /legacy or 2025/);
 });
 
+test('TIMING exports use Figma seconds in CSS and DTCG duration values', () => {
+  const variable = {
+    name: 'motion/duration/fast', type: 'TIMING', value: 0.23999999463558197,
+  };
+  assert.match(formatCssTokens([variable]), /--motion-duration-fast: 0\.24s;/);
+  assert.equal(buildDtcgTree([variable]).motion.duration.fast.$value, '0.24s');
+  assert.deepEqual(buildDtcgTree([variable], { dialect: '2025' }).motion.duration.fast, {
+    $type: 'duration', $value: { value: 0.24, unit: 's' },
+  });
+});
+
 test('multi-mode DTCG preserves every mode value and per-mode alias', () => {
   const tree = buildDtcgTree([{
     id: 'v:surface', name: 'color/surface', type: 'COLOR', collection: 'Theme',
@@ -198,9 +209,40 @@ test('raw local variables resolve aliases by matching collection mode', () => {
     modes: [{ modeId: 'light', name: 'Light' }, { modeId: 'dark', name: 'Dark' }],
   }]);
   assert.deepEqual(projected[0].valuesByMode, {
-    light: { value: '#ffffff', ref: 'palette/surface' },
-    dark: { value: '#1a1a1a', ref: 'palette/surface' },
+    light: { value: '#ffffff', ref: 'palette/surface', refId: 'primitive' },
+    dark: { value: '#1a1a1a', ref: 'palette/surface', refId: 'primitive' },
   });
+});
+
+test('duplicate names across Collections remain distinct in CSS and DTCG', () => {
+  const variables = [
+    { id: 'Variable:a', name: 'radius/sm', collection: 'Primitives', type: 'FLOAT', value: 4 },
+    { id: 'Variable:b', name: 'radius/sm', collection: 'Components', type: 'FLOAT', value: 8 },
+    {
+      id: 'Variable:c', name: 'radius/button', collection: 'Components', type: 'FLOAT', value: 8,
+      ref: 'radius/sm', refId: 'Variable:b',
+    },
+  ];
+  const css = formatCssTokens(variables);
+  assert.match(css, /--figma-primitives-radius-sm: 4px;/);
+  assert.match(css, /--figma-components-radius-sm: 8px;/);
+  assert.match(css, /--radius-button: 8px;/);
+  assert.doesNotMatch(css, /kept .* above/);
+
+  const tree = buildDtcgTree(variables, { dialect: '2025' });
+  assert.deepEqual(
+    tree['figma-collections'].Primitives.radius.sm.$value,
+    { value: 4, unit: 'px' },
+  );
+  assert.deepEqual(
+    tree['figma-collections'].Components.radius.sm.$value,
+    { value: 8, unit: 'px' },
+  );
+  assert.equal(tree.radius.button.$value, '{figma-collections.Components.radius.sm}');
+  assert.equal(
+    tree['figma-collections'].Components.radius.sm.$extensions['figma-bridge-mcp'].sourceName,
+    'radius/sm',
+  );
 });
 
 test('formatCssTokens consumes the scoped list unchanged', () => {

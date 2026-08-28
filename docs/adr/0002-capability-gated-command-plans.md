@@ -103,6 +103,14 @@ budgeting, lossless automatic deduplication and multi-node batching remain
 presentation/orchestration concerns outside the Application; they do not
 select another execution policy or re-enter Commander.
 
+Neutral `export css` and `export dtcg` follow the same rule through one Token
+Export Command Application. An explicit node captures bounded visible-subtree,
+Style and paint bindings plus library Alias chains without whole-file fallback.
+A file-wide request captures all local Variables in exact bounded chunks pinned
+to one authenticated document revision and a stable final catalog. All modes
+and declared defaults reach one host formatter; only DTCG may carry a planned
+Workspace output, and publication follows complete capture and projection.
+
 Verification screenshots follow the same rule. `verify`, `figma_screenshot`
 and `figma_run` share one closed request and Screenshot Command Application.
 Default temporary persistence, explicit workspace persistence and inline

@@ -728,6 +728,36 @@ test('figma_run executes Token Overlap without confirmation and rejects malforme
   }
 });
 
+test('figma_run routes CSS/DTCG through one revision-aware Token Export Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const tokenExportRoute = tokenExportPlanRoute(plan)');
+  const end = source.indexOf('if (tokenPresetRoute === "command-application")', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeTokenExportPlan\(plan/);
+  assert.match(slice, /evaluateFigmaWithMetadata\(/);
+  assert.match(slice, /revisionObservation: context\.revisionObservation/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed CSS/DTCG requests before Plugin readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['export', 'css', '1:2', 'private-value'],
+    ['export', 'css', '--dialect', '2025'],
+    ['export', 'dtcg', '--dialect', 'future'],
+    ['export', 'dtcg', '--future', 'private-value'],
+    ['export', 'dtcg', 'tokens.json', '1:2', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Token Rebind through its shared rollback-owned Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const tokenRebindRoute = tokenRebindPlanRoute(plan)');

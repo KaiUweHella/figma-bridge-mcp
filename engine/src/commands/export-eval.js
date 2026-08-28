@@ -16,11 +16,8 @@ import {
   daemonExecWithMetadata,
   daemonAssetStream,
   fastEval,
-  evalPrint,
   unescapeShell,
 } from '../lib/cli-core.js';
-import { usedVariablesCode } from '../design-extract.js';
-import { formatCssTokens, buildDtcgTree, projectVariableModes } from '../lib/css-tokens.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
 import { nodeRestJsonCode } from '../lib/native-node-data.js';
 import {
@@ -40,6 +37,10 @@ import {
   executeAssetExportPlan,
   formatAssetExportResult,
 } from '../application/asset-export-command.js';
+import {
+  executeTokenExportPlan,
+  tokenExportPlanningArgvFromRequest,
+} from '../application/token-export-command.js';
 
 // Compatibility export for existing tests/callers while the Implementation
 // now lives behind the command application's Interface.
@@ -195,69 +196,48 @@ exp
     }
   });
 
+async function runTokenExportCommand(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(tokenExportPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  let domainResult = null;
+  await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      const remainingMs = () => Math.max(0, deadline - Date.now());
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      domainResult = await executeTokenExportPlan(plan, {
+        workspaceIO: io,
+        remainingMs,
+        evaluate: (code, context = {}) => daemonExecWithMetadata('eval', {
+          code,
+          ...(context.fileKey || fileKey ? { fileKey: context.fileKey || fileKey } : {}),
+          ...(context.revisionObservation ? {
+            revisionObservation: context.revisionObservation,
+          } : {}),
+        }, Math.max(1, context.remainingMs ?? remainingMs())),
+      });
+      return { ...domainResult, code: 0 };
+    });
+  return domainResult;
+}
+
 exp
   .command('css [nodeId]')
   .description('Export design tokens as CSS custom properties. With a node id/URL: only the variables actually BOUND in that subtree (works for library tokens too) — the scoped form every design-to-code run should use. Without: all LOCAL variables of the open file.')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    if (nodeId) {
-      nodeId = normalizedId(nodeId);
-      const parse = (res) => (typeof res === 'string' ? JSON.parse(res) : res);
-      let scoped;
-      try {
-        scoped = parse(await fastEval(usedVariablesCode(nodeId)));
-      } catch (e) {
-        console.error(chalk.red('✗ export css failed: ' + e.message));
-        process.exit(1);
-      }
-      if (scoped?.error) {
-        console.error(chalk.red('✗ ' + scoped.error));
-        process.exit(1);
-      }
-      if (!scoped || !Array.isArray(scoped.vars) || scoped.vars.length === 0) {
-        console.error(chalk.red('✗'), `no variables are bound under node "${scoped?.node || nodeId}" — this design does not use design tokens (or the bindings live outside this subtree).`);
-        console.error('  Falling back silently would deliver the WHOLE file\'s local variables, which may belong to a different design — run `export css` without a node id if you really want that.');
-        process.exit(1);
-      }
-      const collections = [...new Set(scoped.vars.map((v) => v.collection).filter(Boolean))];
-      console.log(`/* source: Figma file "${scoped.file}" — ${scoped.vars.length} token(s) actually bound under "${scoped.node}" (${scoped.id})${collections.length ? `; collections: ${collections.join(', ')}` : ''} */`);
-      console.log(formatCssTokens(scoped.vars));
-      return;
-    }
-    console.error(chalk.yellow('⚠ no node id given — exporting ALL local variables of the open file. If this file contains more than one design system, pass the frame\'s node id/URL to scope the tokens.'));
-    // Plugin side only READS raw values and collection mode definitions.
-    // All formatting (kebab-case names, weight mapping, float rounding,
-    // font-family grouping) happens Node-side in lib/css-tokens.js — pure
-    // and unit-tested, instead of buried in an eval string.
-    const code = `(async () => {
-const vars = await figma.variables.getLocalVariablesAsync();
-const collections = await figma.variables.getLocalVariableCollectionsAsync();
-return JSON.stringify({ file: figma.root.name,
-  variables: vars.map(v => ({ id:v.id, name:v.name, resolvedType:v.resolvedType,
-    variableCollectionId:v.variableCollectionId, valuesByMode:v.valuesByMode,
-    description:v.description, scopes:v.scopes, codeSyntax:v.codeSyntax })),
-  collections: collections.map(c => ({ id:c.id, name:c.name, defaultModeId:c.defaultModeId, modes:c.modes }))
-});
-})()`;
-    const result = await evalPrint(code, { silent: true });
-    let parsed;
     try {
-      parsed = JSON.parse(result);
-    } catch {
-      console.log(result); // error text from the plugin — pass through
-      return;
+      const result = await runTokenExportCommand({ format: 'css', nodeId: nodeId || null });
+      if (result.stderr) console.error(result.stderr);
+      if (result.stdout) console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ export css failed: ' + error.message));
+      process.exitCode = 1;
     }
-    // Name the source file: tokens silently coming from the WRONG open file
-    // (another tab's design system) are indistinguishable without this.
-    const vars = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed.variables)
-        ? projectVariableModes(parsed.variables, parsed.collections || [])
-        : parsed.vars || [];
-    if (!Array.isArray(parsed) && parsed.file) {
-      console.log(`/* source: Figma file "${parsed.file}" — if this is not the design you are building, open the right file in Figma Desktop and re-export */`);
-    }
-    console.log(formatCssTokens(vars));
   });
 
 // NOTE: there is deliberately NO `export tailwind` — the neutral token
@@ -339,87 +319,23 @@ exp
   .command('dtcg [output] [nodeId]')
   .description('Export design tokens as W3C Design Tokens (DTCG) JSON. With a node id/URL (either argument position): only the variables actually BOUND in that subtree, library tokens included. Without: all LOCAL variables of the open file. Import side: figma_run ["import", "tokens.json"]')
   .option('--dialect <dialect>', 'DTCG value dialect: legacy strings or 2025 structured values', 'legacy')
+  .allowExcessArguments(false)
   .action(async (output, nodeId, options) => {
-    await checkConnection();
-    const dialect = String(options.dialect || 'legacy').toLowerCase();
-    if (!['legacy', '2025'].includes(dialect)) {
-      console.error(chalk.red('✗ --dialect must be legacy or 2025.'));
-      process.exit(1);
-    }
-    // Node id in the first slot ("dtcg 34-6455") — output is optional, the
-    // id is recognizable, don't force the user to pass an empty output.
-    if (!nodeId && output && /^(\d+[:-]\d+$|I\d|https?:\/\/)/.test(output)) {
-      nodeId = output;
-      output = undefined;
-    }
-    if (nodeId) {
-      nodeId = normalizedId(nodeId);
-      const parse = (res) => (typeof res === 'string' ? JSON.parse(res) : res);
-      let scoped;
-      try {
-        scoped = parse(await fastEval(usedVariablesCode(nodeId)));
-      } catch (e) {
-        console.error(chalk.red('✗ export dtcg failed: ' + e.message));
-        process.exit(1);
-      }
-      if (scoped?.error) {
-        console.error(chalk.red('✗ ' + scoped.error));
-        process.exit(1);
-      }
-      if (!scoped || !Array.isArray(scoped.vars) || scoped.vars.length === 0) {
-        console.error(chalk.red('✗'), `no variables are bound under node "${scoped?.node || nodeId}" — this design does not use design tokens (or the bindings live outside this subtree).`);
-        console.error('  Run `export dtcg` without a node id only if you really want the whole file\'s local variables.');
-        process.exit(1);
-      }
-      const tokenJson = JSON.stringify(buildDtcgTree(scoped.vars, { dialect }), null, 2);
-      console.error(chalk.gray(`source: Figma file "${scoped.file}" — ${scoped.vars.length} token(s) actually bound under "${scoped.node}" (${scoped.id})`));
-      if (output) {
-        workspaceIO().write(output, tokenJson + '\n', { role: 'dtcg-output', createParents: true });
-        console.log(chalk.green('✓ Wrote DTCG tokens →'), resolve(output));
-      } else {
-        console.log(tokenJson);
-      }
-      return;
-    }
-    console.error(chalk.yellow('⚠ no node id given — exporting ALL local variables of the open file. If this file contains more than one design system, pass the frame\'s node id/URL to scope the tokens.'));
-    const code = `(async () => {
-const vars = await figma.variables.getLocalVariablesAsync();
-const collections = await figma.variables.getLocalVariableCollectionsAsync();
-return JSON.stringify({ __file: figma.root.name,
-  variables: vars.map(v => ({ id:v.id, name:v.name, resolvedType:v.resolvedType,
-    variableCollectionId:v.variableCollectionId, valuesByMode:v.valuesByMode,
-    description:v.description, scopes:v.scopes, codeSyntax:v.codeSyntax })),
-  collections: collections.map(c => ({ id:c.id, name:c.name, defaultModeId:c.defaultModeId, modes:c.modes }))
-});
-})()`;
-    const result = await evalPrint(code, { silent: true });
-    // Unwrap the { __file, tree } envelope; on parse failure (plugin error
-    // text) pass the raw output through unchanged.
-    let tokenJson = result;
-    let sourceFile = null;
     try {
-      const parsed = JSON.parse(result);
-      if (parsed && Array.isArray(parsed.variables)) {
-        const variables = projectVariableModes(parsed.variables, parsed.collections || []);
-        tokenJson = JSON.stringify(buildDtcgTree(variables, { dialect }), null, 2);
-        sourceFile = parsed.__file;
-      }
-      else if (parsed && parsed.tree) { tokenJson = JSON.stringify(parsed.tree, null, 2); sourceFile = parsed.__file; }
-      else tokenJson = JSON.stringify(parsed, null, 2);
-    } catch {}
-    // The source file goes to stderr (JSON stdout must stay parseable): token
-    // exports silently reading another OPEN file were undetectable before.
-    if (sourceFile != null) {
-      console.error(chalk.gray(`source: Figma file "${sourceFile}" — if this is not the design you are building, open the right file in Figma Desktop and re-export`));
-    }
-    if (output) {
-      workspaceIO().write(output, tokenJson.endsWith('\n') ? tokenJson : tokenJson + '\n', {
-        role: 'dtcg-output', createParents: true,
+      // Preserve the useful legacy shorthand: one recognizable node in the
+      // output slot is a scoped stdout export, not a path.
+      const firstIsNode = !nodeId && output && /^(?:I?\d+[:-]\d+|https?:\/\/)/i.test(output);
+      const result = await runTokenExportCommand({
+        format: 'dtcg',
+        output: firstIsNode ? null : output || null,
+        nodeId: firstIsNode ? output : nodeId || null,
+        dialect: options.dialect,
       });
-      console.log(chalk.green('✓ Wrote DTCG tokens →'), resolve(output));
-      if (sourceFile != null) console.log(chalk.gray(`  source: Figma file "${sourceFile}"`));
-    } else {
-      console.log(tokenJson);
+      if (result.stderr) console.error(result.stderr);
+      if (result.stdout) console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ export dtcg failed: ' + error.message));
+      process.exitCode = 1;
     }
   });
 

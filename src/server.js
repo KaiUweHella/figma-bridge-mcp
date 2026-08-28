@@ -155,6 +155,10 @@ import {
   tokenOverlapPlanRoute,
 } from "../engine/src/application/token-overlap-command.js";
 import {
+  executeTokenExportPlan,
+  tokenExportPlanRoute,
+} from "../engine/src/application/token-export-command.js";
+import {
   executeTokenRebindPlan,
   tokenRebindPlanRoute,
 } from "../engine/src/application/token-rebind-command.js";
@@ -2243,6 +2247,27 @@ export async function handleTool(name, rawArgs) {
         return resultFromCli(res);
       }
       const tokenPresetRoute = tokenPresetPlanRoute(plan);
+      const tokenExportRoute = tokenExportPlanRoute(plan);
+      if (tokenExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeTokenExportPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            remainingMs,
+            evaluate: (code, context = {}) => evaluateFigmaWithMetadata(code, {
+              fileKey: context.fileKey || fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, context.remainingMs ?? remainingMs()),
+              revisionObservation: context.revisionObservation,
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       if (tokenPresetRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,

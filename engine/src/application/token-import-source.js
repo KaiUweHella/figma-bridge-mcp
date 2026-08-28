@@ -26,7 +26,8 @@ function tokenName(parts) {
 
 function mappedType(value, declared) {
   const raw = declared == null ? null : String(declared).trim().toUpperCase();
-  const mapped = raw === 'NUMBER' || raw === 'DIMENSION' ? 'FLOAT' : raw;
+  const mapped = raw === 'NUMBER' || raw === 'DIMENSION' ? 'FLOAT'
+    : raw === 'DURATION' ? 'TIMING' : raw;
   if (mapped) {
     try { return parseVariableType(mapped); } catch { throw sourceError(`unsupported token type ${declared}`); }
   }
@@ -51,8 +52,25 @@ function dimensionValue(value) {
   return Number(match[1]);
 }
 
+function durationValue(value) {
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).every((key) => ['value', 'unit'].includes(key))
+    && typeof value.value === 'number' && Number.isFinite(value.value)) {
+    if (String(value.unit).toLowerCase() === 's') return value.value;
+    if (String(value.unit).toLowerCase() === 'ms') return value.value / 1_000;
+    throw sourceError('duration object unit must be s or ms');
+  }
+  const match = typeof value === 'string'
+    && value.trim().match(/^(-?(?:\d+\.?\d*|\.\d+))(ms|s)$/i);
+  if (!match) throw sourceError('duration values must be finite seconds or milliseconds');
+  return Number(match[1]) / (match[2].toLowerCase() === 'ms' ? 1_000 : 1);
+}
+
 function normalizedValue(value, type, declared) {
-  let candidate = String(declared || '').toLowerCase() === 'dimension' ? dimensionValue(value) : value;
+  const declaredType = String(declared || '').toLowerCase();
+  let candidate = declaredType === 'dimension' ? dimensionValue(value)
+    : declaredType === 'duration' ? durationValue(value) : value;
   if (type === 'COLOR' && typeof candidate === 'object' && candidate && !Array.isArray(candidate)
     && Array.isArray(candidate.components) && candidate.components.length === 3) {
     if (String(candidate.colorSpace || '').toLowerCase() !== 'srgb') {

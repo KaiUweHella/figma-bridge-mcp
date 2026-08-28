@@ -54,7 +54,7 @@ export function fontSource(family) {
   return null;
 }
 
-const round2 = (n) => Math.round(n * 100) / 100;
+const cleanNumber = (n) => Math.round(Number(n) * 1_000_000) / 1_000_000;
 
 const figmaColorToHex = (color) => {
   const byte = (value) => Math.round(value * 255).toString(16).padStart(2, '0');
@@ -67,12 +67,12 @@ export function projectVariableModes(variables, collections) {
   const byId = new Map((variables || []).map((variable) => [variable.id, variable]));
   const collectionsById = new Map((collections || []).map((collection) => [collection.id, collection]));
   const resolve = (variable, mode, chain = new Set()) => {
-    if (!variable || chain.has(variable.id)) return { value: null, ref: null };
+    if (!variable || chain.has(variable.id)) return { value: null, ref: null, refId: null };
     const nextChain = new Set(chain).add(variable.id);
     let value = variable.valuesByMode?.[mode.modeId];
     if (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS') {
       const target = byId.get(value.id);
-      if (!target) return { value: null, ref: null };
+      if (!target) return { value: null, ref: null, refId: null };
       const targetCollection = collectionsById.get(target.variableCollectionId);
       const targetModes = targetCollection?.modes || [];
       const targetMode = Object.prototype.hasOwnProperty.call(target.valuesByMode || {}, mode.modeId)
@@ -81,13 +81,13 @@ export function projectVariableModes(variables, collections) {
           || targetModes.find((candidate) => candidate.modeId === targetCollection?.defaultModeId)
           || targetModes[0];
       const resolved = resolve(target, targetMode || mode, nextChain);
-      return { value: resolved.value, ref: target.name };
+      return { value: resolved.value, ref: target.name, refId: target.id };
     }
     if (variable.resolvedType === 'COLOR' && value && typeof value === 'object' && 'r' in value) {
       value = figmaColorToHex(value);
     }
     if (value && typeof value === 'object') value = null;
-    return { value: value === undefined ? null : value, ref: null };
+    return { value: value === undefined ? null : value, ref: null, refId: null };
   };
 
   return (variables || []).map((variable) => {
@@ -97,13 +97,15 @@ export function projectVariableModes(variables, collections) {
       : Object.keys(variable.valuesByMode || {}).map((modeId) => ({ modeId, name: modeId }));
     const defaultModeId = collection?.defaultModeId || modes[0]?.modeId;
     const valuesByMode = Object.fromEntries(modes.map((mode) => [mode.modeId, resolve(variable, mode)]));
-    const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId] || { value: null, ref: null };
+    const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId]
+      || { value: null, ref: null, refId: null };
     return {
       id: variable.id,
       name: variable.name,
       type: variable.resolvedType,
       value: selected.value,
       ref: selected.ref,
+      refId: selected.refId,
       valuesByMode,
       modes,
       defaultModeId,
@@ -145,7 +147,14 @@ function color2025(value) {
 function modeEntries(variable) {
   const modes = Array.isArray(variable.modes) ? variable.modes : [];
   if (!variable.valuesByMode || !modes.length) {
-    return [{ modeId: null, modeName: null, value: variable.value, ref: variable.ref || null, isDefault: true }];
+    return [{
+      modeId: null,
+      modeName: null,
+      value: variable.value,
+      ref: variable.ref || null,
+      refId: variable.refId || null,
+      isDefault: true,
+    }];
   }
   const defaultModeId = variable.defaultModeId || modes[0]?.modeId;
   return modes.map((mode) => {
@@ -158,27 +167,35 @@ function modeEntries(variable) {
       modeName: mode.name,
       value: record.value,
       ref: record.ref || null,
+      refId: record.refId || null,
       isDefault: mode.modeId === defaultModeId,
     };
   });
 }
 
-function dtcgValue(variable, value, ref, dialect) {
+function dtcgValue(variable, value, ref, refId, dialect, resolveReference = null) {
   const dot = (name) => String(name).replace(/\//g, '.');
-  if (ref) return '{' + dot(ref) + '}';
+  if (ref) {
+    const resolved = resolveReference ? resolveReference(ref, refId) : ref;
+    return '{' + dot(resolved) + '}';
+  }
   if (value === null || value === undefined) return null;
   if (variable.type === 'COLOR') return dialect === '2025' ? color2025(value) : value;
   if (variable.type === 'FLOAT') return dialect === '2025'
-    ? { value: Number(value), unit: 'px' }
-    : value + 'px';
+    ? { value: cleanNumber(value), unit: 'px' }
+    : cleanNumber(value) + 'px';
+  if (variable.type === 'TIMING') return dialect === '2025'
+    ? { value: cleanNumber(value), unit: 's' }
+    : cleanNumber(value) + 's';
   if (variable.type === 'BOOLEAN') return value;
   return String(value);
 }
 
-function bridgeExtension(variable, dialect) {
+function bridgeExtension(variable, dialect, { outputPath = variable.name, resolveReference = null } = {}) {
   const metadata = {
     ...(variable.id ? { variableId: variable.id } : {}),
     ...(variable.collection ? { collection: variable.collection } : {}),
+    ...(outputPath !== variable.name ? { sourceName: variable.name } : {}),
     ...(Array.isArray(variable.scopes) ? { scopes: [...new Set(variable.scopes.map(String))].sort() } : {}),
     ...(variable.codeSyntax && typeof variable.codeSyntax === 'object'
       ? { codeSyntax: Object.fromEntries(Object.entries(variable.codeSyntax).sort(([a], [b]) => a.localeCompare(b))) }
@@ -190,16 +207,88 @@ function bridgeExtension(variable, dialect) {
     metadata.modes = entries.map((entry) => ({ modeId: entry.modeId, name: entry.modeName }));
     metadata.valuesByMode = Object.fromEntries(entries.map((entry) => [entry.modeId, {
       modeName: entry.modeName,
-      value: dtcgValue(variable, entry.value, entry.ref, dialect),
+      value: dtcgValue(
+        variable,
+        entry.value,
+        entry.ref,
+        entry.refId,
+        dialect,
+        resolveReference,
+      ),
     }]));
   }
   return Object.keys(metadata).length ? { [DTCG_BRIDGE_EXTENSION]: metadata } : null;
 }
 
+function stableIdentitySuffix(variable) {
+  const input = `${variable.id || ''}\u0000${variable.collection || ''}\u0000${variable.name || ''}`;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+function collisionAwareDtcgPaths(vars) {
+  const nameCounts = new Map();
+  for (const variable of vars) {
+    nameCounts.set(variable.name, (nameCounts.get(variable.name) || 0) + 1);
+  }
+  const candidates = vars.map((variable) => nameCounts.get(variable.name) > 1
+    ? `figma-collections/${variable.collection || 'Uncollected'}/${variable.name}`
+    : variable.name);
+  const candidateCounts = new Map();
+  for (const path of candidates) candidateCounts.set(path, (candidateCounts.get(path) || 0) + 1);
+  const paths = candidates.map((path, index) => candidateCounts.get(path) > 1
+    ? `${path}~${stableIdentitySuffix(vars[index])}`
+    : path);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error('DTCG token identities cannot be disambiguated without losing data.');
+  }
+  return paths;
+}
+
+function collisionAwareCssProperties(vars) {
+  const base = vars.map((variable) => cssName(variable.name));
+  const baseCounts = new Map();
+  for (const property of base) baseCounts.set(property, (baseCounts.get(property) || 0) + 1);
+  const candidates = vars.map((variable, index) => baseCounts.get(base[index]) > 1
+    ? cssName(`figma/${variable.collection || 'uncollected'}/${variable.name}`)
+    : base[index]);
+  const candidateCounts = new Map();
+  for (const property of candidates) {
+    candidateCounts.set(property, (candidateCounts.get(property) || 0) + 1);
+  }
+  const properties = candidates.map((property, index) => candidateCounts.get(property) > 1
+    ? `${property}-${stableIdentitySuffix(vars[index])}`
+    : property);
+  if (new Set(properties).size !== properties.length) {
+    throw new Error('CSS token identities cannot be disambiguated without losing data.');
+  }
+  return properties;
+}
+
 export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
   if (!DTCG_DIALECTS.has(dialect)) throw new Error(`Unsupported DTCG dialect "${dialect}". Use legacy or 2025.`);
   const tree = {};
-  const dot = (n) => String(n).replace(/\//g, '.');
+  const paths = collisionAwareDtcgPaths(vars);
+  const pathById = new Map();
+  const pathsByName = new Map();
+  vars.forEach((variable, index) => {
+    if (variable.id) pathById.set(variable.id, paths[index]);
+    if (!pathsByName.has(variable.name)) pathsByName.set(variable.name, []);
+    pathsByName.get(variable.name).push(paths[index]);
+  });
+  const resolveReference = (name, id) => {
+    if (id && pathById.has(id)) return pathById.get(id);
+    const matches = pathsByName.get(name) || [];
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+      throw new Error(`Ambiguous DTCG alias target ${name}; exact Variable identity is required.`);
+    }
+    return name;
+  };
   const setPath = (path, token) => {
     const p = String(path).split('/');
     let cur = tree;
@@ -225,15 +314,30 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
     } else if (existing !== undefined) throw new Error(`Duplicate DTCG token path ${path}.`);
     else cur[leaf] = token;
   };
-  for (const v of vars) {
-    const dtype = v.type === 'COLOR' ? 'color' : v.type === 'FLOAT' ? 'dimension' : v.type === 'BOOLEAN' ? 'boolean' : 'string';
+  for (let index = 0; index < vars.length; index += 1) {
+    const v = vars[index];
+    const outputPath = paths[index];
+    const dtype = v.type === 'COLOR' ? 'color'
+      : v.type === 'FLOAT' ? 'dimension'
+        : v.type === 'TIMING' ? 'duration'
+          : v.type === 'BOOLEAN' ? 'boolean' : 'string';
     const entries = modeEntries(v);
     const selected = entries.find((entry) => entry.isDefault) || entries[0];
-    const token = { $type: dtype, $value: dtcgValue(v, selected?.value, selected?.ref, dialect) };
+    const token = {
+      $type: dtype,
+      $value: dtcgValue(
+        v,
+        selected?.value,
+        selected?.ref,
+        selected?.refId,
+        dialect,
+        resolveReference,
+      ),
+    };
     if (v.description) token.$description = v.description;
-    const extension = bridgeExtension(v, dialect);
+    const extension = bridgeExtension(v, dialect, { outputPath, resolveReference });
     if (extension) token.$extensions = extension;
-    setPath(v.name, token);
+    setPath(outputPath, token);
   }
   return tree;
 }
@@ -244,35 +348,44 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
  * under a comment (they need a loading strategy, not just a value).
  */
 export function formatCssTokens(vars) {
+  const properties = collisionAwareCssProperties(vars);
   const defaultVars = [];
   const modeVars = new Map();
-  for (const variable of vars) {
+  for (let index = 0; index < vars.length; index += 1) {
+    const variable = vars[index];
     const entries = modeEntries(variable);
     const selected = entries.find((entry) => entry.isDefault) || entries[0];
-    defaultVars.push({ ...variable, value: selected?.value, ref: selected?.ref });
+    defaultVars.push({
+      ...variable,
+      value: selected?.value,
+      ref: selected?.ref,
+      refId: selected?.refId,
+      exportProperty: properties[index],
+    });
     for (const entry of entries) {
       if (entry === selected || !entry.modeName) continue;
       if (!modeVars.has(entry.modeName)) modeVars.set(entry.modeName, []);
-      modeVars.get(entry.modeName).push({ ...variable, value: entry.value, ref: entry.ref });
+      modeVars.get(entry.modeName).push({
+        ...variable,
+        value: entry.value,
+        ref: entry.ref,
+        refId: entry.refId,
+        exportProperty: properties[index],
+      });
     }
   }
 
   const renderScope = (scopeVars, selector, includeFontGuide) => {
   const rules = [];
   const fontFamilies = [];
-  // Same-named variables across collections (a primitive and a semantic
-  // `spacing/2xs`) collapse to one CSS custom property: identical values
-  // dedupe silently, conflicting values keep the first and flag the clash.
-  const seenProps = new Map(); // prop → first value
-
   for (const v of scopeVars) {
-    const prop = cssName(v.name);
-    if (seenProps.has(prop)) {
-      const prior = seenProps.get(prop);
-      if (prior !== v.value) rules.push(`  /* ${prop}: ${v.value} — name collision across collections; kept ${prior} above */`);
-      continue;
+    const prop = v.exportProperty;
+    if (includeFontGuide && prop !== cssName(v.name)) {
+      const sourceName = String(v.name).replace(/\*\//g, '* /').replace(/[\r\n]+/g, ' ');
+      const sourceCollection = String(v.collection || 'Uncollected')
+        .replace(/\*\//g, '* /').replace(/[\r\n]+/g, ' ');
+      rules.push(`  /* Figma token "${sourceName}" in collection "${sourceCollection}" */`);
     }
-    seenProps.set(prop, v.value);
     if (v.value === null || v.value === undefined) {
       rules.push(`  /* ${prop}: unresolved alias (target outside this file) */`);
       continue;
@@ -280,7 +393,9 @@ export function formatCssTokens(vars) {
     if (v.type === 'COLOR') {
       rules.push(`  ${prop}: ${v.value};`);
     } else if (v.type === 'FLOAT') {
-      rules.push(`  ${prop}: ${round2(Number(v.value))}px;`);
+      rules.push(`  ${prop}: ${cleanNumber(v.value)}px;`);
+    } else if (v.type === 'TIMING') {
+      rules.push(`  ${prop}: ${cleanNumber(v.value)}s;`);
     } else if (isWeightName(v.name)) {
       rules.push(`  ${prop}: ${mapFontWeight(v.value)};`);
     } else if (isFontFamilyName(v.name, v.value)) {
