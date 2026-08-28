@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -36,7 +37,9 @@ function reservePort() {
 }
 
 const port = await reservePort();
-const scratch = mkdtempSync(join(tmpdir(), "figma-bridge-installed-smoke-"));
+const scratch = realpathSync.native(
+  mkdtempSync(join(tmpdir(), "figma-bridge-installed-smoke-"))
+);
 const stateDir = join(scratch, ".figma-bridge-mcp");
 const smokeEnv = {
   ...process.env,

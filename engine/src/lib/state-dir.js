@@ -9,8 +9,21 @@ import fs from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const NEW_DIR = join(homedir(), '.figma-bridge-mcp');
-const OLD_DIR = join(homedir(), '.figma-safe-mcp');
+function canonicalHomeDir() {
+  const home = homedir();
+  try {
+    return fs.realpathSync.native(home);
+  } catch {
+    // A normal account home already exists. Keep the platform value only for
+    // unusual bootstrap environments; the private-state policy will still
+    // reject a non-canonical or unsafe Bridge root before using credentials.
+    return home;
+  }
+}
+
+const HOME_DIR = canonicalHomeDir();
+const NEW_DIR = join(HOME_DIR, '.figma-bridge-mcp');
+const OLD_DIR = join(HOME_DIR, '.figma-safe-mcp');
 
 /**
  * Migrate ~/.figma-safe-mcp → ~/.figma-bridge-mcp exactly once: only when the

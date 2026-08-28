@@ -640,7 +640,10 @@ State or Verification Artifact tree. POSIX proves `0700` directories and
 `0600` files. Windows proves a protected, recursively repaired DACL granting
 Full Control only to the current account, LocalSystem and built-in
 Administrators. It rejects links, bounds traversal and never derives authority
-over a parent, Workspace path or general temporary directory.
+over a parent, Workspace path or general temporary directory. The existing
+account home is canonicalized before joining the exact Shared-State root so an
+OS-managed ancestor alias cannot make one inode appear as two authorities; the
+Bridge root itself must still be a real directory.
 _Avoid_: chmod-on-Windows claim, inherited-profile assumption, common-parent repair
 
 **Structural Snapshot Store**:

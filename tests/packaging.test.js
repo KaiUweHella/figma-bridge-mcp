@@ -4,7 +4,7 @@
 // state-dir migration must preserve existing pairings across the rename.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -237,12 +237,30 @@ test("plugin dir ships every adapter connect installs", () => {
 // The migration lives at module load of engine/src/lib/state-dir.js and keys
 // off homedir() — run it in a child process with a scratch home on Unix and Windows.
 function runMigration(home) {
-  execFileSync(
+  return execFileSync(
     process.execPath,
     ["-e", "import('./engine/src/lib/state-dir.js').then(m => console.log(m.STATE_DIR))"],
     { cwd: ROOT, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" },
-  );
+  ).trim();
 }
+
+test("state-dir canonicalizes a home reached through a POSIX ancestor link", {
+  skip: process.platform === "win32",
+}, () => {
+  const parent = mkdtempSync(join(tmpdir(), "figma-bridge-home-alias-"));
+  const home = join(parent, "canonical-home");
+  const alias = join(parent, "home-alias");
+  mkdirSync(home);
+  symlinkSync(home, alias, "dir");
+  try {
+    assert.equal(
+      runMigration(alias),
+      join(realpathSync.native(home), ".figma-bridge-mcp"),
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 
 test("state-dir migration: old dir is renamed once, pairing files survive", () => {
   const home = mkdtempSync(join(tmpdir(), "figma-bridge-home-"));

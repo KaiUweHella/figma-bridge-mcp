@@ -31,3 +31,12 @@ Full-Control entries; existing descendants receive direct repaired evidence on
 the next enforcement. Failure returns bounded recovery guidance without a host
 path, user SID or PowerShell output. Correctly configured profiles add no
 prompt, configuration or reduced Figma-to-code/Code-to-Figma capability.
+
+The State Directory derives from the canonical existing account home before a
+Bridge path is joined. This preserves the exact-root and inode checks when an
+operating system exposes a trusted home through an ancestor alias, such as
+macOS `/var` resolving to `/private/var`; the Bridge root itself still cannot
+be a symbolic link. Isolated release smokes canonicalize their newly created
+home before configuring every state artifact, so test overrides exercise the
+same closed ownership boundary instead of bypassing it through two lexical
+spellings of one directory.
