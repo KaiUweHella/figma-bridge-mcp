@@ -188,6 +188,25 @@ test('Component Instantiate closes one policy-identical rollback-owned write', (
   assert.equal(cli.execution.retry, 'never');
 });
 
+test('Component Create closes one policy-identical rollback-owned write', () => {
+  const args = [
+    'component', 'create', 'Preview',
+    '--parent', 'https://www.figma.com/design/FILEA/Test?node-id=2-2',
+    '--index', '1', '-w', '240', '-h', '120', '-x', '-12', '-y', '24', '--json',
+  ];
+  const cli = planFigmaCommand(args, { adapter: 'cli' });
+  const mcp = planFigmaCommand(args, { adapter: 'mcp' });
+  assert.equal(cli.id, 'component.create');
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.target, mcp.target);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.target.fileKey, 'FILEA');
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured');
+});
+
 test('Style Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['style', 'show', 'Type/Body'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['style', 'show', '--', 'Type/Body'], { adapter: 'mcp' });

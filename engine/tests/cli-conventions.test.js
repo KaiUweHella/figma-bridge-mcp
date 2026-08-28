@@ -437,6 +437,25 @@ test('component instantiate delegates one rollback-owned non-retrying Command Ap
     'Commander must not retain Component Instantiate preflight, mutation, or formatting logic');
 });
 
+test('component create delegates one rollback-owned non-retrying Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const helperStart = adapter.indexOf('async function runComponentCreateCommand');
+  const commandStart = adapter.indexOf(".command('create [name]')", helperStart);
+  const commandEnd = adapter.indexOf('async function runComponentAddVariantCommand', commandStart);
+  const action = adapter.slice(helperStart, commandEnd);
+
+  assert.match(action, /componentCreatePlanningArgvFromRequest\(request\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeComponentCreatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /\.option\('-h, --height <n>'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.createComponent\(/,
+    'Commander must not retain Component Create preflight, mutation, or formatting logic');
+});
+
 test('style show delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');

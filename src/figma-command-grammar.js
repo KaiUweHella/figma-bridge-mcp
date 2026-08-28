@@ -6,6 +6,11 @@
 // paths never become action identity.
 
 const HELP_TOKENS = new Set(['--help', '-h']);
+const ACTION_VALUE_HELP_TOKENS = Object.freeze({
+  // Commander already assigns -h to --height for this concrete action.
+  // Treating it as help would erase a real write from Capability policy.
+  'component.create': new Set(['-h']),
+});
 
 const EMPTY_OPTION_FACTS = Object.freeze({
   terminatorIndex: null,
@@ -190,10 +195,11 @@ function optionFacts(args, actionId = null) {
   return Object.freeze({ terminatorIndex, entries: Object.freeze(entries) });
 }
 
-function hasHelpBeforeOptionTerminator(args, startIndex) {
+function hasHelpBeforeOptionTerminator(args, startIndex, actionId = null) {
+  const valueTokens = ACTION_VALUE_HELP_TOKENS[actionId] || new Set();
   for (let index = startIndex; index < args.length; index++) {
     if (args[index] === '--') return false;
-    if (HELP_TOKENS.has(args[index])) return true;
+    if (HELP_TOKENS.has(args[index]) && !valueTokens.has(args[index])) return true;
   }
   return false;
 }
@@ -391,7 +397,7 @@ export function resolveFigmaCommandAction(args) {
   }
 
   return resolved(path.join('.'), {
-    help: hasHelpBeforeOptionTerminator(args, index),
+    help: hasHelpBeforeOptionTerminator(args, index, path.join('.')),
     args,
   });
 }

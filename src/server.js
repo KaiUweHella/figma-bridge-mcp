@@ -267,6 +267,10 @@ import {
   executeComponentInstantiatePlan,
 } from "../engine/src/application/component-instantiate-command.js";
 import {
+  componentCreatePlanRoute,
+  executeComponentCreatePlan,
+} from "../engine/src/application/component-create-command.js";
+import {
   componentPropertySetPlanRoute,
   executeComponentPropertySetPlan,
 } from "../engine/src/application/component-property-set-command.js";
@@ -2947,6 +2951,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeComponentInstantiatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentCreateRoute = componentCreatePlanRoute(plan);
+      if (componentCreateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentCreatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

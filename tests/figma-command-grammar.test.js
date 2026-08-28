@@ -96,6 +96,27 @@ test('bare groups and help forms stay discoverable without becoming writes', () 
   }
 });
 
+test('Component Create keeps the documented -h height option distinct from --help', () => {
+  const height = resolveFigmaCommandAction([
+    'component', 'create', 'Card', '-w', '240', '-h', '120',
+  ]);
+  assert.equal(height.accepted, true);
+  assert.equal(height.help, false);
+  assert.equal(height.actionId, 'component.create');
+
+  const plan = planFigmaCommand([
+    'component', 'create', 'Card', '-w', '240', '-h', '120',
+  ]);
+  assert.equal(plan.allowed, true);
+  assert.equal(plan.id, 'component.create');
+  assert.equal(plan.effects.figma, 'write');
+
+  const help = resolveFigmaCommandAction(['component', 'create', '--help']);
+  assert.equal(help.accepted, true);
+  assert.equal(help.help, true);
+  assert.equal(help.actionId, 'component.create.help');
+});
+
 test('the option terminator keeps later help tokens in the command payload', () => {
   for (const [args, actionId] of [
     [['node', 'set-text', '1:2', '--', '--help'], 'node.set-text'],

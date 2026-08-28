@@ -168,6 +168,12 @@ import {
   parseComponentInstantiateRequest,
 } from '../engine/src/application/component-instantiate-request.js';
 import {
+  acceptsComponentCreateArgv,
+  componentCreateArgvFromRequest,
+  componentCreateFigmaUrlFileKeyFromArgv,
+  parseComponentCreateRequest,
+} from '../engine/src/application/component-create-request.js';
+import {
   acceptsPageStructureArgv,
   pageStructureArgvFromRequest,
   parsePageStructureRequest,
@@ -493,7 +499,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
   'col.extend',
-  'component.main', 'component.combine', 'component.add-variant',
+  'component.main', 'component.combine', 'component.add-variant', 'component.create',
   'component.instantiate',
   'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
   'style.list',
@@ -735,6 +741,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'add-variant') {
     pathPolicy = 'component-set-reference-input';
   }
+  if (name === 'component' && sub === 'create') {
+    pathPolicy = 'component-create-input';
+  }
   if (name === 'component' && sub === 'instantiate') {
     pathPolicy = 'component-instantiate-input';
   }
@@ -851,6 +860,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'add-variant'
     && !action.help && !acceptsComponentSetReferenceArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'create'
+    && !action.help && !acceptsComponentCreateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'instantiate'
@@ -1669,6 +1682,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentInstantiateArgvFromRequest(
         parseComponentInstantiateRequest(args)));
+      break;
+    }
+    case 'component-create-input': {
+      const closedFileKey = componentCreateFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentCreateArgvFromRequest(
+        parseComponentCreateRequest(args)));
       break;
     }
     case 'component-property-set-input': {

@@ -51,6 +51,10 @@ import {
   executeComponentInstantiatePlan,
 } from '../application/component-instantiate-command.js';
 import {
+  componentCreatePlanningArgvFromRequest,
+  executeComponentCreatePlan,
+} from '../application/component-create-command.js';
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
@@ -471,6 +475,24 @@ const componentCmd = program
   .command('component')
   .description('Manage component properties and variants');
 
+async function runComponentCreateCommand(request) {
+  const argv = componentCreatePlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentCreatePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('create [name]')
   .description('Create an empty component with explicit geometry')
@@ -483,26 +505,22 @@ componentCmd
   .option('--json', 'Output as JSON')
   .action(async (name, options) => {
     try {
-      const width = Number(options.width), height = Number(options.height), x = Number(options.x), y = Number(options.y);
-      if (![width, height, x, y].every(Number.isFinite) || width <= 0 || height <= 0) throw new Error('Width and height must be positive numbers; x and y must be numbers');
-      const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
-      const index = options.index === undefined ? null : Number(options.index);
-      if (index !== null && (!Number.isInteger(index) || index < 0)) throw new Error('--index must be a non-negative integer');
-      await checkConnection();
-      const result = await daemonExec('eval', { code: `(async () => {
-let parent = figma.currentPage;
-${parentId ? `parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)}); if (!parent || typeof parent.appendChild !== 'function') throw new Error('Target parent cannot contain children');` : ''}
-${index === null ? '' : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});`}
-const component = figma.createComponent();
-component.name = ${JSON.stringify(name || 'Component')};
-component.resize(${width}, ${height});
-component.x = ${x}; component.y = ${y};
-${parentId ? (index === null ? 'parent.appendChild(component);' : `parent.insertChild(${index}, component);`) : ''}
-return { id: component.id, name: component.name, type: component.type, parentId: component.parent ? component.parent.id : null };
-})()` });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Created component "${result.name}" (${result.id})`);
-    } catch (error) { handleEvalError(error); }
+      const result = await runComponentCreateCommand({
+        name: name ?? 'Component',
+        width: options.width,
+        height: options.height,
+        x: options.x,
+        y: options.y,
+        parentId: options.parent ?? null,
+        index: options.index ?? null,
+        json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Create failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 async function runComponentAddVariantCommand(argv) {
