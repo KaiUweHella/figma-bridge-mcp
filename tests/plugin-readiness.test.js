@@ -176,3 +176,63 @@ test('plugin readiness replaces a stale daemon before accepting its Plugin socke
   assert.equal(restartCalls, 1);
   assert.equal(healthCalls, 2);
 });
+
+test('plugin readiness binds an explicit target and editor to one responsive connection', async () => {
+  const healthOptions = [];
+  const result = await ensurePluginReadiness({
+    deadline: 1_000,
+    fileKey: 'https://www.figma.com/design/TARGETPLACEHOLDERKEY/FILE_NAME',
+    expectedEditor: 'figma',
+    adapters: {
+      now: () => 0,
+      health: async (options) => {
+        healthOptions.push(options);
+        return {
+          ok: true,
+          plugin: true,
+          raw: {
+            ...CURRENT_DAEMON,
+            pluginResponsive: true,
+            connections: [
+              { fileKey: 'OTHERPLACEHOLDERKEY', editorType: 'figma', responsiveness: 'responsive' },
+              { fileKey: 'TARGETPLACEHOLDERKEY', editorType: 'figma', responsiveness: 'responsive' },
+            ],
+          },
+        };
+      },
+      hasPriorSetup: () => true,
+      restart: async () => assert.fail('a current daemon must not restart'),
+      wait: async () => assert.fail('the exact responsive target must be accepted immediately'),
+    },
+  });
+
+  assert.deepEqual(result, { restarted: false });
+  assert.deepEqual(healthOptions, [{ timeoutMs: 1000, fileKey: 'TARGETPLACEHOLDERKEY', probe: true }]);
+});
+
+test('plugin readiness does not accept a different responsive window for the explicit target', async () => {
+  let currentTime = 0;
+  await assert.rejects(ensurePluginReadiness({
+    deadline: 250,
+    fileKey: 'TARGETPLACEHOLDERKEY',
+    expectedEditor: 'figma',
+    adapters: {
+      now: () => currentTime,
+      health: async () => ({
+        ok: true,
+        plugin: true,
+        raw: {
+          ...CURRENT_DAEMON,
+          pluginResponsive: false,
+          connections: [
+            { fileKey: 'OTHERPLACEHOLDERKEY', editorType: 'figma', responsiveness: 'responsive' },
+          ],
+        },
+      }),
+      hasPriorSetup: () => true,
+      restart: async () => assert.fail('a current daemon must not restart'),
+      wait: async (delayMs) => { currentTime += delayMs; },
+    },
+  }), { kind: 'plugin-unavailable', phase: 'target-resolution', outcome: 'not-dispatched' });
+  assert.equal(currentTime, 250);
+});

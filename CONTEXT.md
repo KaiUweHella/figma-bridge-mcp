@@ -637,6 +637,14 @@ _Avoid_: backend, proxy
 The sole local interface to the **Bridge Daemon**, owning request signing, file targeting, timeouts, health and transport-error semantics.
 _Avoid_: fetch helper, daemon wrapper
 
+**Legacy Eval Compatibility**:
+The CLI-only arbitrary Plugin evaluation retained for direct maintainer use. An
+explicit file target is resolved once, then binds the responsive Plugin probe,
+execution dispatch, expected editor and decreasing deadline. It remains
+outside the MCP Capability Catalog; several connected files without an
+explicit target remain an ambiguity failure.
+_Avoid_: MCP eval, untargeted readiness, fresh execution timeout, active-window fallback
+
 **Bridge Daemon Error**:
 The bounded, versioned failure facts produced where a **Figma Command** fails across the Bridge Daemon seam. Its kind, phase and execution outcome distinguish work that was not dispatched from work whose result is unknown after dispatch; user-facing prose never authorizes retry or recovery.
 _Avoid_: error string, HTTP failure, retry hint

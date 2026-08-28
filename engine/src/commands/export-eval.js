@@ -15,7 +15,9 @@ import {
   daemonExec,
   daemonExecWithMetadata,
   daemonAssetStream,
+  expectedEditorForCommand,
   fastEval,
+  targetFileKey,
   unescapeShell,
 } from '../lib/cli-core.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
@@ -438,12 +440,29 @@ program
 
 // ============ EVAL ============
 
+const LEGACY_EVAL_TIMEOUT_MS = 90_000;
+
+async function executeLegacyEval(jsCode) {
+  const fileKey = targetFileKey();
+  const expectedEditor = expectedEditorForCommand();
+  const deadline = Date.now() + LEGACY_EVAL_TIMEOUT_MS;
+  await ensurePluginReadiness({
+    deadline,
+    maxWaitMs: 8000,
+    fileKey,
+    expectedEditor,
+  });
+  return daemonExec('eval', {
+    code: jsCode,
+    ...(fileKey ? { fileKey } : {}),
+  }, Math.max(1, deadline - Date.now()));
+}
+
 program
   .command('eval [code]')
   .description('Execute JavaScript in Figma plugin context')
   .option('-f, --file <path>', 'Run code from file instead of argument')
   .action(async (code, options) => {
-    await checkConnection();
     let jsCode = code ? unescapeShell(code) : code;
 
     // If --file option provided, read code from file
@@ -460,7 +479,7 @@ program
       return;
     }
 
-    const result = await daemonExec('eval', { code: jsCode });
+    const result = await executeLegacyEval(jsCode);
     if (result !== undefined && result !== null) {
       console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
     }
@@ -471,14 +490,13 @@ program
   .command('run <file>')
   .description('Run JavaScript file in Figma (alias for eval --file)')
   .action(async (file) => {
-    await checkConnection();
     if (!existsSync(file)) {
       console.log(chalk.red('✗ File not found: ' + file));
       return;
     }
     const code = readFileSync(file, 'utf8');
     try {
-      const result = await daemonExec('eval', { code });
+      const result = await executeLegacyEval(code);
       if (result !== undefined) {
         console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
       }

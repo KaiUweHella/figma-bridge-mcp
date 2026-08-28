@@ -131,14 +131,31 @@ test('token commands report failures without abruptly terminating active transpo
 test('eval uses the one Daemon Client path and lets execution errors reject', () => {
   const src = sources.get('export-eval.js');
   assert.ok(src, 'export-eval.js exists');
+  const helperStart = src.indexOf('async function executeLegacyEval');
   const start = src.indexOf(".command('eval [code]')");
   const end = src.indexOf('// Run command - alias for eval', start);
+  const helper = src.slice(helperStart, start);
   const evalCommand = src.slice(start, end);
 
-  assert.match(evalCommand, /await daemonExec\('eval', \{ code: jsCode \}\)/,
-    'eval must use the shared Daemon Client Implementation');
+  assert.match(helper, /const fileKey = targetFileKey\(\)/);
+  assert.match(helper, /const expectedEditor = expectedEditorForCommand\(\)/);
+  assert.match(helper, /const deadline = Date\.now\(\) \+ LEGACY_EVAL_TIMEOUT_MS/);
+  assert.match(helper, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor,/);
+  assert.match(helper, /daemonExec\('eval',[\s\S]*fileKey[\s\S]*deadline - Date\.now\(\)/,
+    'eval readiness and dispatch must share one explicit target and decreasing deadline');
+  assert.match(evalCommand, /executeLegacyEval\(jsCode\)/,
+    'eval must use the shared target-bound Legacy Eval Implementation');
   assert.doesNotMatch(evalCommand, /catch\s*\(|figmaEvalSync|sync path|ECONNREFUSED|fetch failed/,
     'eval must not classify transport errors or select another path itself');
+});
+
+test('run alias uses the same target-bound Legacy Eval Implementation', () => {
+  const src = sources.get('export-eval.js');
+  const start = src.indexOf(".command('run <file>')");
+  const end = src.indexOf('// (The `raw` passthrough command was removed', start);
+  const runCommand = src.slice(start, end);
+  assert.match(runCommand, /executeLegacyEval\(code\)/);
+  assert.doesNotMatch(runCommand, /checkConnection\(|daemonExec\(/);
 });
 
 test('supported Figma Commands never implement or spawn a daemon transport', () => {

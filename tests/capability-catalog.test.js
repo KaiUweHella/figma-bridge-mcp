@@ -21,6 +21,7 @@ test('catalog denies and gates unknown commands with safe defaults', () => {
   const names = listFigmaCapabilities().map(({ name }) => name);
   assert.equal(names.includes('connect'), false);
   assert.equal(names.includes('eval'), false);
+  assert.equal(planFigmaCommand(['eval', 'figma.currentPage.id'], { adapter: 'mcp' }).allowed, false);
   assert.equal(names.includes('render'), true);
   assert.equal(planFigmaCommand(['--help']).allowed, true);
   assert.equal(planFigmaCommand(['--help']).target.kind, 'none');

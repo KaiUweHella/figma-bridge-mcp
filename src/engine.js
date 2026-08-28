@@ -419,9 +419,11 @@ const PLUGIN_READINESS_WAIT_MS = 8000;
  * @param {{
  *   deadline: number,
  *   maxWaitMs?: number,
+ *   fileKey?: string|null,
+ *   expectedEditor?: 'figma'|'figjam'|'slides'|'dev',
  *   adapters?: {
  *     now?: () => number,
- *     health?: (options: {timeoutMs: number}) => Promise<{ok?: boolean, plugin?: boolean, raw?: object|null}>,
+ *     health?: (options: {timeoutMs: number,fileKey?: string|null,probe?: boolean}) => Promise<{ok?: boolean, plugin?: boolean, raw?: object|null}>,
  *     hasPriorSetup?: () => boolean,
  *     restart?: (options: {timeoutMs: number}) => Promise<unknown>,
  *     wait?: (delayMs: number) => Promise<void>,
@@ -432,8 +434,13 @@ const PLUGIN_READINESS_WAIT_MS = 8000;
 export async function ensurePluginReadiness({
   deadline,
   maxWaitMs = PLUGIN_READINESS_WAIT_MS,
+  fileKey = null,
+  expectedEditor = "figma",
   adapters = {},
 } = {}) {
+  if (!["figma", "figjam", "slides", "dev"].includes(expectedEditor)) {
+    throw new TypeError("Plugin readiness requires one supported expected editor.");
+  }
   const now = adapters.now || (() => Date.now());
   const inspectHealth = adapters.health || ((options) => health(options));
   const hasPriorSetup = adapters.hasPriorSetup || (() => fs.existsSync(DAEMON_PID_FILE));
@@ -446,18 +453,34 @@ export async function ensurePluginReadiness({
     : PLUGIN_READINESS_WAIT_MS;
   const planDeadline = Number.isFinite(Number(deadline)) ? Number(deadline) : startedAt;
   const stopAt = Math.min(planDeadline, startedAt + boundedWait);
+  const resolvedFileKey = resolveFileTarget(fileKey, []);
   let restartAttempted = false;
 
   while (now() < stopAt) {
     const probeBudget = Math.max(1, Math.min(1000, stopAt - now()));
     let current;
     try {
-      current = await inspectHealth({ timeoutMs: probeBudget });
+      current = await inspectHealth({
+        timeoutMs: probeBudget,
+        ...(resolvedFileKey ? { fileKey: resolvedFileKey, probe: true } : {}),
+      });
     } catch {
       current = { ok: false, plugin: false, raw: null };
     }
     const daemonBuildCurrent = current?.raw?.bridgeBuildVersion === PLUGIN_BUILD_VERSION;
-    if (current?.ok && current.plugin && daemonBuildCurrent) return { restarted: restartAttempted };
+    const connections = Array.isArray(current?.raw?.connections)
+      ? current.raw.connections : [];
+    const targetConnection = resolvedFileKey
+      ? connections.find((connection) => connection.fileKey === resolvedFileKey)
+      : null;
+    const targetReady = !resolvedFileKey || (
+      current?.raw?.pluginResponsive === true
+      && targetConnection?.responsiveness === "responsive"
+      && targetConnection?.editorType === expectedEditor
+    );
+    if (current?.ok && current.plugin && daemonBuildCurrent && targetReady) {
+      return { restarted: restartAttempted };
+    }
     const remainingAfterProbe = stopAt - now();
     if (remainingAfterProbe <= 0) break;
 

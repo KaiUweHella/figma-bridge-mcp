@@ -601,6 +601,7 @@ export {
   fastEval,
   safeReadEval,
   evalPrint,
+  expectedEditorForCommand,
   progress,
   spinnerSucceed,
   selectNode,
@@ -622,6 +623,7 @@ export {
   startDaemon,
   getPluginKeyFile,
   stopDaemon,
+  targetFileKey,
   unescapeShell,
   waitForPluginConnection,
   varLoadingCode
