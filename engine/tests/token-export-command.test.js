@@ -225,6 +225,40 @@ test('DTCG TIMING core duration normalizes back to Figma seconds', async () => {
   })), [{ name: 'motion/duration/fast', type: 'TIMING', value: 0.24 }]);
 });
 
+test('scoped EASING capture preserves native Motion values and rejects malformed composites', async () => {
+  const easing = {
+    type: 'CUSTOM_CUBIC_BEZIER',
+    easingFunctionCubicBezier: { x1: 0.2, y1: -0.1, x2: 0.8, y2: 1.1 },
+  };
+  const capture = scopedCapture({
+    referencedVariables: 1,
+    returnedVariables: 1,
+    vars: [{
+      id: 'Variable:easing', name: 'motion/emphasis', type: 'EASING',
+      value: easing, ref: null, refId: null,
+      valuesByMode: {
+        'Mode:light': { value: easing, ref: null, refId: null },
+      },
+      modes: [{ modeId: 'Mode:light', name: 'Light' }],
+      defaultModeId: 'Mode:light', collection: 'Motion',
+      scopes: ['ALL_SCOPES'], codeSyntax: {},
+    }],
+  });
+  const evaluate = async () => ({ value: JSON.stringify(capture), metadata: {} });
+  const css = await executeTokenExport({ format: 'css', nodeId: '1:2' }, { evaluate });
+  assert.match(css.stdout, /--motion-emphasis: cubic-bezier\(0\.2, -0\.1, 0\.8, 1\.1\)/);
+  const dtcg = await executeTokenExport({
+    format: 'dtcg', nodeId: '1:2', dialect: '2025',
+  }, { evaluate });
+  assert.deepEqual(JSON.parse(dtcg.stdout).motion.emphasis.$value, [0.2, -0.1, 0.8, 1.1]);
+
+  capture.vars[0].value = { type: 'CUSTOM_SPRING', easingFunctionSpring: { bounce: 2 } };
+  capture.vars[0].valuesByMode['Mode:light'].value = capture.vars[0].value;
+  await assert.rejects(executeTokenExport({ format: 'css', nodeId: '1:2' }, {
+    evaluate: async () => ({ value: JSON.stringify(capture), metadata: {} }),
+  }), /invalid or incomplete/);
+});
+
 test('Token Export Plan is authoritative for CLI/MCP routing and output', async () => {
   const output = '/workspace/tokens.json';
   const cli = planFigmaCommand(['export', 'dtcg', output, '1:2'], { adapter: 'cli' });

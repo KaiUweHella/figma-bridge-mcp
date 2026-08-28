@@ -1768,7 +1768,22 @@ export function usedVariablesCode(nodeId) {
         }
         if (guard < 0) throw new Error('Scoped token export exceeds the Alias depth limit.');
         if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
-        if (val && typeof val === 'object') val = null; /* unresolvable */
+        else if (v.resolvedType === 'EASING' && val && typeof val === 'object') {
+          val = {
+            type: val.type,
+            ...(val.easingFunctionCubicBezier ? {
+              easingFunctionCubicBezier: {
+                x1: val.easingFunctionCubicBezier.x1,
+                y1: val.easingFunctionCubicBezier.y1,
+                x2: val.easingFunctionCubicBezier.x2,
+                y2: val.easingFunctionCubicBezier.y2,
+              },
+            } : {}),
+            ...(val.easingFunctionSpring ? {
+              easingFunctionSpring: { bounce: val.easingFunctionSpring.bounce },
+            } : {}),
+          };
+        } else if (val && typeof val === 'object') val = null; /* unresolvable */
         valuesByMode[mode.modeId] = { value: val === undefined ? null : val, ref, refId };
       }
       const defaultModeId = collection?.defaultModeId || modes[0]?.modeId;

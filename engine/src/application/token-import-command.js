@@ -3,6 +3,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { variableScopeDecision, variableScopesForToken } from '../lib/variable-scope-policy.js';
+import { MOTION_EASING_NUMBER_SCALE } from '../lib/motion-easing.js';
 import {
   parseTokenImportRequest,
   tokenImportArgvFromRequest,
@@ -82,6 +83,19 @@ export function tokenImportCommandCode(prepared) {
       return a.length === b.length && a.every((key, index) => key === b[index]
         && equivalent(actual[key], expected[key]));
     };
+    const easingEquivalent = (actual, expected) => {
+      if (typeof actual === 'number' && typeof expected === 'number') {
+        return equivalent(actual, expected)
+          || Math.round(actual * ${MOTION_EASING_NUMBER_SCALE})
+            === Math.round(expected * ${MOTION_EASING_NUMBER_SCALE});
+      }
+      if (actual === null || expected === null || typeof actual !== 'object'
+        || typeof expected !== 'object') return Object.is(actual, expected);
+      if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+      const a = Object.keys(actual).sort(); const b = Object.keys(expected).sort();
+      return a.length === b.length && a.every((key, index) => key === b[index]
+        && easingEquivalent(actual[key], expected[key]));
+    };
     const valueEquivalent = (actual, expected, type) => {
       if (type === 'EASING') {
         if (!actual || !expected || typeof actual !== 'object' || typeof expected !== 'object'
@@ -89,10 +103,10 @@ export function tokenImportCommandCode(prepared) {
           || Object.keys(actual).some((key) => !['type', 'easingFunctionCubicBezier',
             'easingFunctionSpring'].includes(key))) return false;
         if (Object.hasOwn(expected, 'easingFunctionCubicBezier')) {
-          return equivalent(actual.easingFunctionCubicBezier, expected.easingFunctionCubicBezier);
+          return easingEquivalent(actual.easingFunctionCubicBezier, expected.easingFunctionCubicBezier);
         }
         if (Object.hasOwn(expected, 'easingFunctionSpring')) {
-          return equivalent(actual.easingFunctionSpring, expected.easingFunctionSpring);
+          return easingEquivalent(actual.easingFunctionSpring, expected.easingFunctionSpring);
         }
         return true;
       }

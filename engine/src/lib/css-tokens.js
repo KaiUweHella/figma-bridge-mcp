@@ -10,6 +10,8 @@
  */
 
 /** Figma variable name → valid CSS custom-property name. */
+import { canonicalMotionEasing, motionEasingProjection } from './motion-easing.js';
+
 export function cssName(name) {
   return '--' + String(name)
     .replace(/[\s/]+/g, '-')
@@ -85,8 +87,9 @@ export function projectVariableModes(variables, collections) {
     }
     if (variable.resolvedType === 'COLOR' && value && typeof value === 'object' && 'r' in value) {
       value = figmaColorToHex(value);
-    }
-    if (value && typeof value === 'object') value = null;
+    } else if (variable.resolvedType === 'EASING' && value && typeof value === 'object') {
+      try { value = canonicalMotionEasing(value); } catch { value = null; }
+    } else if (value && typeof value === 'object') value = null;
     return { value: value === undefined ? null : value, ref: null, refId: null };
   };
 
@@ -187,21 +190,38 @@ function dtcgValue(variable, value, ref, refId, dialect, resolveReference = null
   if (variable.type === 'TIMING') return dialect === '2025'
     ? { value: cleanNumber(value), unit: 's' }
     : cleanNumber(value) + 's';
+  if (variable.type === 'EASING') return motionEasingProjection(value).dtcgValue;
   if (variable.type === 'BOOLEAN') return value;
   return String(value);
 }
 
 function bridgeExtension(variable, dialect, { outputPath = variable.name, resolveReference = null } = {}) {
+  const entries = modeEntries(variable);
+  const selected = entries.find((entry) => entry.isDefault) || entries[0];
   const metadata = {
     ...(variable.id ? { variableId: variable.id } : {}),
     ...(variable.collection ? { collection: variable.collection } : {}),
     ...(outputPath !== variable.name ? { sourceName: variable.name } : {}),
+    ...(variable.type === 'EASING' ? {
+      resolvedType: 'EASING',
+      easing: {
+        schemaVersion: 1,
+        value: canonicalMotionEasing(selected?.value),
+        ...(variable.valuesByMode ? {
+          valuesByMode: Object.fromEntries(entries.map((entry) => [entry.modeId, {
+            modeName: entry.modeName,
+            value: canonicalMotionEasing(entry.value),
+            ...(entry.ref ? { alias: entry.ref } : {}),
+            ...(entry.refId ? { aliasVariableId: entry.refId } : {}),
+          }])),
+        } : {}),
+      },
+    } : {}),
     ...(Array.isArray(variable.scopes) ? { scopes: [...new Set(variable.scopes.map(String))].sort() } : {}),
     ...(variable.codeSyntax && typeof variable.codeSyntax === 'object'
       ? { codeSyntax: Object.fromEntries(Object.entries(variable.codeSyntax).sort(([a], [b]) => a.localeCompare(b))) }
       : {}),
   };
-  const entries = modeEntries(variable);
   if (variable.valuesByMode && entries.some((entry) => entry.modeId)) {
     metadata.defaultModeId = variable.defaultModeId || entries[0]?.modeId;
     metadata.modes = entries.map((entry) => ({ modeId: entry.modeId, name: entry.modeName }));
@@ -317,12 +337,13 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
   for (let index = 0; index < vars.length; index += 1) {
     const v = vars[index];
     const outputPath = paths[index];
+    const entries = modeEntries(v);
+    const selected = entries.find((entry) => entry.isDefault) || entries[0];
     const dtype = v.type === 'COLOR' ? 'color'
       : v.type === 'FLOAT' ? 'dimension'
         : v.type === 'TIMING' ? 'duration'
+          : v.type === 'EASING' ? motionEasingProjection(selected?.value).dtcgType
           : v.type === 'BOOLEAN' ? 'boolean' : 'string';
-    const entries = modeEntries(v);
-    const selected = entries.find((entry) => entry.isDefault) || entries[0];
     const token = {
       $type: dtype,
       $value: dtcgValue(
@@ -396,6 +417,16 @@ export function formatCssTokens(vars) {
       rules.push(`  ${prop}: ${cleanNumber(v.value)}px;`);
     } else if (v.type === 'TIMING') {
       rules.push(`  ${prop}: ${cleanNumber(v.value)}s;`);
+    } else if (v.type === 'EASING') {
+      const easing = motionEasingProjection(v.value);
+      if (easing.css) rules.push(`  ${prop}: ${easing.css};`);
+      else {
+        rules.push(
+          `  /* ${prop}: Figma EASING ${easing.native.type} `
+          + `(spring bounce ${easing.native.easingFunctionSpring.bounce}) has no exact CSS timing function; `
+          + 'preserved in DTCG Bridge extension */',
+        );
+      }
     } else if (isWeightName(v.name)) {
       rules.push(`  ${prop}: ${mapFontWeight(v.value)};`);
     } else if (isFontFamilyName(v.name, v.value)) {

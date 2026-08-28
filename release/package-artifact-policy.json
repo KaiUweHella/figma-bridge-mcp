@@ -254,6 +254,7 @@
     "engine/src/lib/library-management.js",
     "engine/src/lib/measurement-management.js",
     "engine/src/lib/motion-core.js",
+    "engine/src/lib/motion-easing.js",
     "engine/src/lib/multi-screen-reuse-plan.js",
     "engine/src/lib/native-node-data.js",
     "engine/src/lib/node-id.js",

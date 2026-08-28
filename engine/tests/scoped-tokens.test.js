@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { usedVariablesCode } from '../src/design-extract.js';
 import { normalizeTokenImportSource } from '../src/application/token-import-source.js';
 import { buildDtcgTree, formatCssTokens, projectVariableModes } from '../src/lib/css-tokens.js';
+import { canonicalMotionEasing } from '../src/lib/motion-easing.js';
 
 // Variable registry stub: DLS tokens (as if from a library) + an unrelated
 // local plant-care collection that must NOT leak into the scoped export.
@@ -153,6 +154,90 @@ test('TIMING exports use Figma seconds in CSS and DTCG duration values', () => {
   assert.deepEqual(buildDtcgTree([variable], { dialect: '2025' }).motion.duration.fast, {
     $type: 'duration', $value: { value: 0.24, unit: 's' },
   });
+});
+
+test('EASING exports exact CSS where representable and native DTCG extensions everywhere', () => {
+  const variables = [
+    { id: 'ease-in', name: 'motion/ease-in', type: 'EASING', value: { type: 'EASE_IN' } },
+    {
+      id: 'custom-cubic', name: 'motion/custom-cubic', type: 'EASING',
+      value: {
+        type: 'CUSTOM_CUBIC_BEZIER',
+        easingFunctionCubicBezier: { x1: 0.1, y1: -0.2, x2: 0.7, y2: 1.2 },
+      },
+    },
+    { id: 'gentle', name: 'motion/gentle', type: 'EASING', value: { type: 'GENTLE' } },
+    {
+      id: 'spring', name: 'motion/spring', type: 'EASING',
+      value: { type: 'CUSTOM_SPRING', easingFunctionSpring: { bounce: 0.4 } },
+    },
+    { id: 'hold', name: 'motion/hold', type: 'EASING', value: { type: 'HOLD' } },
+  ];
+  const css = formatCssTokens(variables);
+  assert.match(css, /--motion-ease-in: ease-in;/);
+  assert.match(css, /--motion-custom-cubic: cubic-bezier\(0\.1, -0\.2, 0\.7, 1\.2\);/);
+  assert.match(css, /--motion-hold: steps\(1, jump-end\);/);
+  assert.match(css, /--motion-gentle: Figma EASING GENTLE \(spring bounce 0\.25\) has no exact CSS/);
+  assert.match(css, /--motion-spring: Figma EASING CUSTOM_SPRING \(spring bounce 0\.4\) has no exact CSS/);
+  assert.doesNotMatch(css, /\[object Object\]/);
+
+  const tree = buildDtcgTree(variables, { dialect: '2025' });
+  assert.equal(tree.motion['ease-in'].$type, 'cubicBezier');
+  assert.deepEqual(tree.motion['ease-in'].$value, [0.42, 0, 1, 1]);
+  assert.equal(tree.motion.gentle.$type, 'string');
+  assert.equal(tree.motion.gentle.$value, 'GENTLE');
+  assert.equal(tree.motion.hold.$value, 'HOLD');
+  assert.deepEqual(
+    tree.motion.spring.$extensions['figma-bridge-mcp'].easing.value,
+    { type: 'CUSTOM_SPRING', easingFunctionSpring: { bounce: 0.4 } },
+  );
+});
+
+test('named spring canonicalization is stable across Figma float readback and repeated projection', () => {
+  for (const value of [
+    { type: 'GENTLE', easingFunctionSpring: { bounce: 0.25 } },
+    { type: 'QUICK', easingFunctionSpring: { bounce: 0.42264973081037427 } },
+    { type: 'BOUNCY', easingFunctionSpring: { bounce: 0.6938137821521027 } },
+    { type: 'SLOW', easingFunctionSpring: { bounce: 0 } },
+  ]) {
+    const canonical = canonicalMotionEasing(value);
+    assert.deepEqual(canonicalMotionEasing(canonical), canonical);
+  }
+});
+
+test('single-mode DTCG EASING export imports its original native type and Alias', () => {
+  const tree = buildDtcgTree([
+    { id: 'base', name: 'motion/base', type: 'EASING', value: { type: 'EASE_IN_BACK' } },
+    {
+      id: 'semantic', name: 'motion/semantic', type: 'EASING',
+      value: { type: 'EASE_IN_BACK' }, ref: 'motion/base', refId: 'base',
+    },
+  ], { dialect: '2025' });
+  const items = normalizeTokenImportSource(tree);
+  assert.deepEqual(items[0], {
+    name: 'motion/base', type: 'EASING',
+    value: {
+      type: 'EASE_IN_BACK',
+      easingFunctionCubicBezier: { x1: 0.3, y1: -0.05, x2: 0.7, y2: -0.5 },
+    },
+  });
+  assert.deepEqual(items[1], {
+    name: 'motion/semantic', type: 'EASING', alias: 'motion/base',
+  });
+});
+
+test('standard DTCG cubicBezier imports as a native custom Figma EASING', () => {
+  assert.deepEqual(normalizeTokenImportSource({
+    motion: {
+      emphasis: { $type: 'cubicBezier', $value: [0.2, -0.1, 0.8, 1.1] },
+    },
+  }), [{
+    name: 'motion/emphasis', type: 'EASING',
+    value: {
+      type: 'CUSTOM_CUBIC_BEZIER',
+      easingFunctionCubicBezier: { x1: 0.2, y1: -0.1, x2: 0.8, y2: 1.1 },
+    },
+  }]);
 });
 
 test('multi-mode DTCG preserves every mode value and per-mode alias', () => {

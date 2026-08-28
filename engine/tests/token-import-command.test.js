@@ -49,10 +49,18 @@ function fixture({ existing = [], failOn = null, duplicateCollection = false,
       id, name, resolvedType: type, remote: false, variableCollectionId: collection.id,
       description: '', scopes: ['ALL_SCOPES'], codeSyntax: {}, valuesByMode: {},
       setValueForMode(modeId, nextValue) {
+        const namedSprings = {
+          GENTLE: 0.25,
+          QUICK: 0.42264973081037427,
+          BOUNCY: 0.6938137821521027,
+          SLOW: 0,
+        };
         this.valuesByMode[modeId] = this.resolvedType === 'EASING'
           && nextValue?.type === 'LINEAR' && Object.keys(nextValue).length === 1
           ? { type: 'LINEAR', easingFunctionCubicBezier: { x1: 0, y1: 0, x2: 1, y2: 1 } }
-          : nextValue;
+          : this.resolvedType === 'EASING' && Object.hasOwn(namedSprings, nextValue?.type)
+            ? { type: nextValue.type, easingFunctionSpring: { bounce: namedSprings[nextValue.type] } }
+            : nextValue;
         if (failOn === name) throw new Error('injected setter failure after mutation');
       },
       setVariableCodeSyntax(platform, value) { this.codeSyntax[platform] = value; },
@@ -323,6 +331,27 @@ test('new import uses declared default mode, all six native types, metadata and 
   const alias = [...live.variables.values()].find((item) => item.name === 'color/alias');
   const base = [...live.variables.values()].find((item) => item.name === 'color/base');
   assert.deepEqual(alias.valuesByMode[collection.defaultModeId], { type: 'VARIABLE_ALIAS', id: base.id });
+});
+
+test('named EASING springs verify against Figma native float readback', async () => {
+  const live = fixture();
+  const source = prepared({ motion: { quick: {
+    $type: 'string',
+    $value: 'QUICK',
+    $extensions: {
+      'figma-bridge-mcp': {
+        resolvedType: 'EASING',
+        easing: {
+          schemaVersion: 1,
+          value: { type: 'QUICK', easingFunctionSpring: { bounce: 0.42265 } },
+        },
+      },
+    },
+  } } });
+  const result = await executeTokenImport(source, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.status, 'complete');
+  assert.equal(result.result.created.total, 1);
+  assert.equal([...live.variables.values()][0].resolvedType, 'EASING');
 });
 
 test('explicit DTCG descriptions are created, verified and exact on existing Variables', async () => {

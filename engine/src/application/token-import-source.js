@@ -3,6 +3,7 @@
 import { parseBoundedJson } from '../lib/workspace-io.js';
 import { normalizeVariableValue, parseVariableType } from '../lib/variable-management.js';
 import { VARIABLE_SCOPES_BY_TYPE } from '../lib/variable-scope-policy.js';
+import { canonicalMotionEasing } from '../lib/motion-easing.js';
 
 export const MAX_TOKEN_IMPORT_ITEMS = 10_000;
 export const MAX_TOKEN_IMPORT_NAME_CODE_UNITS = 512;
@@ -24,10 +25,12 @@ function tokenName(parts) {
   return name;
 }
 
-function mappedType(value, declared) {
+function mappedType(value, declared, bridgeEasing = null) {
+  if (bridgeEasing) return 'EASING';
   const raw = declared == null ? null : String(declared).trim().toUpperCase();
   const mapped = raw === 'NUMBER' || raw === 'DIMENSION' ? 'FLOAT'
-    : raw === 'DURATION' ? 'TIMING' : raw;
+    : raw === 'DURATION' ? 'TIMING'
+      : raw === 'CUBICBEZIER' ? 'EASING' : raw;
   if (mapped) {
     try { return parseVariableType(mapped); } catch { throw sourceError(`unsupported token type ${declared}`); }
   }
@@ -67,10 +70,18 @@ function durationValue(value) {
   return Number(match[1]) / (match[2].toLowerCase() === 'ms' ? 1_000 : 1);
 }
 
-function normalizedValue(value, type, declared) {
+function normalizedValue(value, type, declared, bridgeEasing = null) {
   const declaredType = String(declared || '').toLowerCase();
-  let candidate = declaredType === 'dimension' ? dimensionValue(value)
-    : declaredType === 'duration' ? durationValue(value) : value;
+  let candidate = bridgeEasing || (declaredType === 'dimension' ? dimensionValue(value)
+    : declaredType === 'duration' ? durationValue(value)
+      : declaredType === 'cubicbezier' && Array.isArray(value) && value.length === 4
+        ? {
+            type: 'CUSTOM_CUBIC_BEZIER',
+            easingFunctionCubicBezier: {
+              x1: value[0], y1: value[1], x2: value[2], y2: value[3],
+            },
+          }
+        : value);
   if (type === 'COLOR' && typeof candidate === 'object' && candidate && !Array.isArray(candidate)
     && Array.isArray(candidate.components) && candidate.components.length === 3) {
     if (String(candidate.colorSpace || '').toLowerCase() !== 'srgb') {
@@ -89,6 +100,26 @@ function normalizedValue(value, type, declared) {
     throw sourceError(`STRING value exceeds ${MAX_TOKEN_IMPORT_STRING_CODE_UNITS} code units`);
   }
   return candidate;
+}
+
+function bridgeEasingValue(leaf) {
+  const bridge = leaf?.$extensions?.['figma-bridge-mcp'];
+  if (!bridge || (bridge.resolvedType === undefined && bridge.easing === undefined)) return null;
+  if (bridge.resolvedType !== 'EASING' || !bridge.easing
+    || typeof bridge.easing !== 'object' || Array.isArray(bridge.easing)
+    || bridge.easing.schemaVersion !== 1
+    || !Object.hasOwn(bridge.easing, 'value')
+    || Object.keys(bridge.easing).some((key) => !['schemaVersion', 'value', 'valuesByMode'].includes(key))) {
+    throw sourceError('Bridge EASING extension is malformed');
+  }
+  if (bridge.easing.valuesByMode !== undefined
+    && (!bridge.easing.valuesByMode || typeof bridge.easing.valuesByMode !== 'object'
+      || Array.isArray(bridge.easing.valuesByMode)
+      || Object.keys(bridge.easing.valuesByMode).length > 1_000)) {
+    throw sourceError('Bridge EASING mode values are malformed or too large');
+  }
+  try { return canonicalMotionEasing(bridge.easing.value); }
+  catch { throw sourceError('Bridge EASING value is not a native MotionEasing'); }
 }
 
 function metadata(leaf) {
@@ -139,7 +170,9 @@ export function normalizeTokenImportSource(document) {
     if (names.has(name)) throw sourceError(`duplicate token name ${name}`);
     names.add(name);
     const alias = aliasName(raw);
-    unresolved.push({ name, raw, declared, alias, ...metadata(leaf) });
+    unresolved.push({
+      name, raw, declared, alias, bridgeEasing: bridgeEasingValue(leaf), ...metadata(leaf),
+    });
   };
   const visit = (node, parts, inheritedType = null) => {
     if (!node || typeof node !== 'object' || Array.isArray(node)) {
@@ -169,7 +202,8 @@ export function normalizeTokenImportSource(document) {
 
   const byName = new Map(unresolved.map((item) => [item.name, item]));
   for (const item of unresolved) {
-    item.type = item.alias && item.declared == null ? null : mappedType(item.raw, item.declared);
+    item.type = item.alias && item.declared == null && !item.bridgeEasing
+      ? null : mappedType(item.raw, item.declared, item.bridgeEasing);
   }
   for (const item of unresolved) {
     if (item.type !== null) continue;
@@ -185,10 +219,14 @@ export function normalizeTokenImportSource(document) {
     }
     for (const alias of path) alias.type = cursor.type;
   }
-  return normalizeTokenImportItems(unresolved.map(({ name, raw, declared, alias, type, ...meta }) => ({
+  return normalizeTokenImportItems(unresolved.map(({
+    name, raw, declared, alias, type, bridgeEasing, ...meta
+  }) => ({
     name,
     type,
-    ...(alias ? { alias } : { value: normalizedValue(raw, type, declared) }),
+    ...(alias ? { alias } : {
+      value: normalizedValue(raw, type, declared, bridgeEasing),
+    }),
     ...meta,
   })));
 }

@@ -17,6 +17,7 @@ import {
 } from '../design-extract.js';
 import { buildDtcgTree, formatCssTokens, projectVariableModes } from '../lib/css-tokens.js';
 import { createRevisionContext } from '../lib/revision-context.js';
+import { canonicalMotionEasing } from '../lib/motion-easing.js';
 import { DEFAULT_WORKSPACE_LIMITS, parseBoundedJson } from '../lib/workspace-io.js';
 import {
   parseTokenExportRequest,
@@ -61,9 +62,10 @@ function scalarValue(value, type) {
   if (type === 'FLOAT' || type === 'TIMING') return typeof value === 'number' && Number.isFinite(value);
   if (type === 'BOOLEAN') return typeof value === 'boolean';
   if (type === 'STRING') return typeof value === 'string' && value.length <= MAX_TEXT;
-  // The existing scoped collector deliberately leaves composite EASING facts
-  // unresolved rather than serializing a misleading CSS/DTCG value.
-  return value === null;
+  if (type === 'EASING') {
+    try { canonicalMotionEasing(value); return true; } catch { return false; }
+  }
+  return false;
 }
 
 function validScopedVariable(variable) {
