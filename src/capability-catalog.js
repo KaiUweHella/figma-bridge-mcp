@@ -57,6 +57,12 @@ import {
   parseNodeDeleteRequest,
 } from '../engine/src/application/node-delete-request.js';
 import {
+  acceptsNodeToComponentArgv,
+  nodeToComponentArgvFromRequest,
+  nodeToComponentFigmaUrlFileKeyFromArgv,
+  parseNodeToComponentRequest,
+} from '../engine/src/application/node-to-component-request.js';
+import {
   acceptsNodeCssArgv,
   nodeCssArgvFromRequest,
   nodeCssFigmaUrlFileKeyFromArgv,
@@ -496,7 +502,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.move', 'node.set-text', 'node.tree', 'find',
+  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.move', 'node.set-text',
+  'node.to-component', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
@@ -681,6 +688,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'node' && sub === 'bindings') retry = 'safe-read';
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
+  if (name === 'node' && sub === 'to-component') pathPolicy = 'node-to-component-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -886,6 +894,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'to-component'
+    && !action.help && !acceptsNodeToComponentArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'tree' && !action.help && !acceptsNodeTreeArgv(args)) {
@@ -1709,6 +1721,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           markRead(args[imageIndex], 'node-image');
         }
       }
+      break;
+    }
+    case 'node-to-component-input': {
+      const closedFileKey = nodeToComponentFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...nodeToComponentArgvFromRequest(parseNodeToComponentRequest(args)));
       break;
     }
     case 'component-main-input': {

@@ -363,6 +363,19 @@ test('figma_run routes Node Delete through the shared hierarchy-verified Command
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Delete must not re-enter Commander');
 });
 
+test('figma_run routes Node to-component through the irreversible verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeToComponentRoute = nodeToComponentPlanRoute(plan)');
+  const end = source.indexOf('const nodeBindingsRoute = nodeBindingsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeToComponentPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Node to-component must not re-enter Commander');
+});
+
 test('figma_run routes Node Tree through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeTreeRoute = nodeTreePlanRoute(plan)');
@@ -2481,6 +2494,21 @@ test('figma_run rejects malformed Node Delete before confirmation or readiness',
     ['node', 'delete', '--future', 'private-value'],
     ['node', 'delete', '1:2', '1-2'],
     ['node', 'delete', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /Plugin not connected|figma_connect|PREVIEW|private-value/);
+  }
+});
+
+test('figma_run rejects malformed Node to-component before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['node', 'to-component'],
+    ['node', 'to-component', '--future', 'private-value'],
+    ['node', 'to-component', '1:2', '1-2'],
+    ['node', 'to-component', 'not-a-node'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));

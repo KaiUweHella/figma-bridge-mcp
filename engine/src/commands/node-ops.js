@@ -39,6 +39,10 @@ import {
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
 } from '../application/node-delete-command.js';
+import {
+  executeNodeToComponentPlan,
+  nodeToComponentPlanningArgvFromRequest,
+} from '../application/node-to-component-command.js';
 import { finiteNodeCoordinate } from '../application/node-coordinate.js';
 import {
   executeNodeTreePlan,
@@ -156,29 +160,27 @@ node
 node
   .command('to-component <nodeIds...>')
   .description('Convert frames to components')
+  .allowExcessArguments(false)
   .action(async (nodeIds) => {
-    await checkConnection();
-
-    // Plugin bridge is the only execution path in the Safe-Mode build.
-    const code = `(async () => {
-      const ids = ${JSON.stringify(nodeIds)};
-      const results = [];
-      for (const id of ids) {
-        const node = await figma.getNodeByIdAsync(id);
-        if (node && (node.type === 'FRAME' || node.type === 'GROUP')) {
-          const comp = figma.createComponentFromNode(node);
-          results.push({ id: comp.id, name: comp.name });
-        }
-      }
-      return results;
-    })()`;
     try {
-      const result = await fastEval(code);
-      if (result && result.length > 0) {
-        result.forEach(r => console.log(chalk.green(`✓ Converted: ${r.id} (${r.name})`)));
-      }
-    } catch (e) {
-      console.log(chalk.red('✗ Convert failed: ' + e.message));
+      const plan = planFigmaCommand(nodeToComponentPlanningArgvFromRequest({ nodeIds }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeToComponentPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Convert failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

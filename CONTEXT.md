@@ -195,6 +195,15 @@ targets remain explicit outcomes; repeating cleanup never becomes a second
 removal claim.
 _Avoid_: delete counter, null direct-handle proof, repeated remove, Commander delete handler
 
+**Node-to-Component Conversion**:
+The bounded, irreversible conversion of one or more exact Frame or Group Node
+References through Figma's native component factory. The complete batch is
+preflighted before the first write; each sequential conversion is freshly
+verified against Component type, parent index, name and child identity. A
+later failure retains every proven Component as bounded possible residue and
+never retries or claims an identity-preserving reverse conversion.
+_Avoid_: conversion loop, skipped invalid target, retryable component factory, implicit rollback
+
 **Layout Grid Facts**:
 The exact, versioned and deeply bounded read of layout guides on one explicit
 Figma frame-like node or the current selection. It preserves the linked Grid

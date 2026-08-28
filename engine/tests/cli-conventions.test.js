@@ -364,6 +364,45 @@ test('node css delegates one Plan-bound bounded-read Command Application', () =>
     'Commander must not retain Node CSS readiness, capture, or formatting logic');
 });
 
+test('node to-component delegates one Plan-bound irreversible non-retrying Application', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('to-component <nodeIds...>')");
+  const end = adapter.indexOf('function normalizedNodeIds', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeToComponentPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeToComponentPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|createComponentFromNode/,
+    'Commander must not retain Node-to-Component preflight, mutation, or formatting logic');
+});
+
+test('the remaining direct Node write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const matches = [...adapter.matchAll(/\.command\('([^']+)'/g)];
+  const direct = [];
+  for (let index = 0; index < matches.length; index++) {
+    const start = matches[index].index;
+    const end = matches[index + 1]?.index ?? adapter.length;
+    const slice = adapter.slice(start, end);
+    if (/checkConnection\(\)/.test(slice) && /fastEval\(/.test(slice)) {
+      direct.push(matches[index][1].split(/[ <\[]/, 1)[0]);
+    }
+  }
+  assert.deepEqual(direct.sort(), [
+    'bind', 'boolean', 'duplicate', 'flatten', 'group', 'rename',
+    'reparent', 'resize', 'set', 'set-fill', 'set-image', 'ungroup',
+  ]);
+  assert.equal(direct.length, 12,
+    'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
+});
+
 test('component main delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

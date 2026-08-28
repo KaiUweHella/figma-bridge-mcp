@@ -137,6 +137,8 @@
     "engine/src/application/node-delete-request.js",
     "engine/src/application/node-move-command.js",
     "engine/src/application/node-move-request.js",
+    "engine/src/application/node-to-component-command.js",
+    "engine/src/application/node-to-component-request.js",
     "engine/src/application/node-text-command.js",
     "engine/src/application/node-text-request.js",
     "engine/src/application/node-css-command.js",
