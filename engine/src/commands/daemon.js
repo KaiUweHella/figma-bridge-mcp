@@ -1,7 +1,7 @@
 // Commands: daemon (extracted from index.js)
 import chalk from 'chalk';
 import { readFileSync } from 'fs';
-import { getPortPid } from '../platform.js';
+import { getPortPids } from '../platform.js';
 import {
   program,
   DAEMON_PID_FILE,
@@ -208,24 +208,31 @@ daemon
     console.log();
     console.log(chalk.bold('2. Port ' + getDaemonPort()));
 
-    let portPid = null;
+    let portPids = [];
+    let portInspectionError = null;
     try {
-      portPid = getPortPid(getDaemonPort());
-    } catch {}
+      portPids = getPortPids(getDaemonPort());
+    } catch (error) {
+      portInspectionError = error;
+    }
 
-    if (portPid) {
-      console.log(chalk.green('   ✓ Port in use by PID: ') + portPid);
+    if (portInspectionError) {
+      console.log(chalk.red('   ✗ Listener inspection unavailable'));
+      console.log(chalk.gray('     ' + portInspectionError.message));
+    } else if (portPids.length > 0) {
+      console.log(chalk.green('   ✓ Port in use by PID: ') + portPids.join(', '));
 
       // Check if it matches our PID file
       let savedPid = null;
       try {
-        savedPid = readFileSync(DAEMON_PID_FILE, 'utf8').trim();
+        const rawSavedPid = readFileSync(DAEMON_PID_FILE, 'utf8').trim();
+        if (/^\d+$/.test(rawSavedPid)) savedPid = Number(rawSavedPid);
       } catch {}
 
-      if (savedPid && savedPid === portPid) {
+      if (Number.isInteger(savedPid) && portPids.includes(savedPid)) {
         console.log(chalk.green('   ✓ PID matches saved daemon PID'));
-      } else if (savedPid) {
-        console.log(chalk.yellow('   ⚠ PID mismatch! Saved: ' + savedPid + ', Actual: ' + portPid));
+      } else if (Number.isInteger(savedPid)) {
+        console.log(chalk.yellow('   ⚠ PID mismatch! Saved: ' + savedPid + ', Actual: ' + portPids.join(', ')));
         console.log(chalk.gray('     This may cause auth issues. Fix: "node src/index.js daemon restart"'));
       }
     } else {

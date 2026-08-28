@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from '
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import * as apiDocs from '../api-docs.js';
-import { getPortPid, sleepAfterStop } from '../platform.js';
+import { getPortPids, sleepAfterStop } from '../platform.js';
 import { getDaemonPort, clearPortFile } from './daemon-port.js';
 import { createDaemonClient } from './daemon-client.js';
 import { PLUGIN_BUILD_VERSION } from './plugin-version.js';
@@ -357,15 +357,7 @@ function processAlive(pid) {
 }
 
 function listeningPids(port) {
-  try {
-    const raw = getPortPid(port);
-    if (!raw) return [];
-    return String(raw).split(/\s+/)
-      .map((value) => Number(value))
-      .filter((pid) => Number.isInteger(pid) && pid > 1);
-  } catch {
-    return [];
-  }
+  return getPortPids(port);
 }
 
 function sleepMs(ms) {
@@ -399,29 +391,43 @@ function terminateVerifiedDaemon(pid, port, graceMs = 500) {
 // Stop daemon
 async function stopDaemon() {
   invalidateDaemonHealthCache(); // state changed — don't serve a stale "up"
-  try {
-    let filePid = null;
-    const port = getDaemonPort();
-    if (existsSync(DAEMON_PID_FILE)) {
-      filePid = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
-      // Prefer an authenticated in-band shutdown. This works even when OS
-      // listener inspection is unavailable and lets active evals drain. A
-      // foreign service cannot authenticate this request.
-      try {
-        await daemonClient().shutdown({ timeoutMs: 1000 });
-        sleepMs(150);
-      } catch {}
-      terminateVerifiedDaemon(filePid, port);
-      // Do not unlink a PID written by a replacement daemon in a concurrent
-      // restart race. The contents must still be the PID we inspected.
-      try {
-        const current = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
-        if (current === filePid) unlinkSync(DAEMON_PID_FILE);
-      } catch {}
-    }
-    // A dying old daemon must not delete a newer daemon's published port.
+  const port = getDaemonPort();
+  if (!existsSync(DAEMON_PID_FILE)) {
     clearPortFile(process.env, port);
+    return;
+  }
+
+  let filePid = null;
+  try {
+    filePid = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
+  } catch {
+    clearPortFile(process.env, port);
+    return;
+  }
+
+  // Prefer an authenticated in-band shutdown. This works even when OS
+  // listener inspection is unavailable and lets active evals drain. A
+  // foreign service cannot authenticate this request.
+  try {
+    await daemonClient().shutdown({ timeoutMs: 1000 });
+    sleepMs(150);
   } catch {}
+
+  // A daemon that exited after authenticated shutdown needs no external
+  // listener tool. If it remains alive, listener inspection must succeed
+  // before any PID signal; an unavailable tool is an actionable stop error,
+  // never permission to kill the PID-file process blindly.
+  if (processAlive(filePid)) terminateVerifiedDaemon(filePid, port);
+
+  // Do not unlink a PID written by a replacement daemon in a concurrent
+  // restart race. The contents must still be the PID we inspected.
+  try {
+    const current = parseInt(readFileSync(DAEMON_PID_FILE, 'utf8').trim(), 10);
+    if (current === filePid) unlinkSync(DAEMON_PID_FILE);
+  } catch {}
+
+  // A dying old daemon must not delete a newer daemon's published port.
+  clearPortFile(process.env, port);
 }
 
 // (getFigmaPath / startFigma / killFigma / getManualStartCommand removed:

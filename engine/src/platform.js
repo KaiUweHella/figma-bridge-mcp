@@ -1,73 +1,161 @@
 /**
- * Platform-specific helpers.
- * Only defines functions for the current platform — no Windows code loaded on Mac, etc.
+ * Small, bounded platform helpers used by the daemon lifecycle.
+ *
+ * Listener inspection is diagnostic and ownership evidence only. It never
+ * kills a process by port and never invokes a shell. The caller may signal a
+ * PID only after independently matching it to the daemon-owned PID file.
  */
 
-import { execSync } from 'child_process';
+import { spawnSync } from "node:child_process";
 
 const PLATFORM = process.platform;
+const LISTENER_INSPECTION_TIMEOUT_MS = 1_500;
+const LISTENER_INSPECTION_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 // --- Null device ---
-export const nullDevice = PLATFORM === 'win32' ? 'NUL' : '/dev/null';
+export const nullDevice = PLATFORM === "win32" ? "NUL" : "/dev/null";
 
-// --- Port cleanup ---
-function killPortUnix(port) {
-  // LISTENERS only. Plain `lsof -ti:<port>` also returns every connected
-  // client; using it here could SIGKILL Figma itself together with the daemon.
-  const portCheck = execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' });
-  if (portCheck.trim()) {
-    for (const rawPid of portCheck.trim().split(/\s+/)) {
-      const pid = Number(rawPid);
-      if (!Number.isInteger(pid) || pid <= 1) continue;
-      try { process.kill(pid, 'SIGKILL'); } catch {}
-    }
-    try { execSync('sleep 0.3', { stdio: 'pipe' }); } catch {}
+export class PlatformListenerInspectionError extends Error {
+  constructor(message, { cause = null } = {}) {
+    super(message, cause ? { cause } : undefined);
+    this.name = "PlatformListenerInspectionError";
+    this.code = "LISTENER_INSPECTION_UNAVAILABLE";
   }
 }
 
-function killPortWindows(port) {
+function validPort(port) {
+  const value = Number(port);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new TypeError("Listener inspection requires a port from 1 to 65535.");
+  }
+  return value;
+}
+
+function uniquePids(values) {
+  return [...new Set(values)]
+    .filter((pid) => Number.isInteger(pid) && pid > 1)
+    .sort((left, right) => left - right);
+}
+
+function commandFailure(command, result) {
+  const reason =
+    result?.error?.code === "ETIMEDOUT"
+      ? `timed out after ${LISTENER_INSPECTION_TIMEOUT_MS} ms`
+      : result?.error?.code === "ENOENT"
+        ? "is not installed or not available on PATH"
+        : result?.error?.message ||
+          `exited with status ${String(result?.status)}`;
+  return new PlatformListenerInspectionError(
+    `Cannot inspect the daemon listener because ${command} ${reason}. ` +
+      "Use the authenticated daemon shutdown or install the platform listener tool before forcing a restart.",
+    { cause: result?.error || null }
+  );
+}
+
+function runListenerCommand(command, args, spawnSyncImpl) {
+  const result = spawnSyncImpl(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: LISTENER_INSPECTION_TIMEOUT_MS,
+    maxBuffer: LISTENER_INSPECTION_MAX_OUTPUT_BYTES,
+    windowsHide: true,
+    shell: false,
+  });
+  if (!result || result.error) throw commandFailure(command, result);
+  return {
+    status: result.status,
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
+  };
+}
+
+function unixListenerPids(port, spawnSyncImpl) {
+  const result = runListenerCommand(
+    "lsof",
+    ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+    spawnSyncImpl
+  );
+  // lsof uses exit 1 for a valid query with no matching open file.
+  if (result.status === 1 && !result.stderr.trim()) return [];
+  if (result.status !== 0) throw commandFailure("lsof", result);
+  const lines = result.stdout.trim() ? result.stdout.trim().split(/\s+/u) : [];
+  if (lines.some((value) => !/^\d+$/u.test(value))) {
+    throw new PlatformListenerInspectionError(
+      "Cannot inspect the daemon listener because lsof returned an unrecognized PID list."
+    );
+  }
+  return uniquePids(lines.map(Number));
+}
+
+function localPort(address) {
+  const separator = String(address || "").lastIndexOf(":");
+  if (separator < 0) return null;
+  const raw = address.slice(separator + 1);
+  return /^\d+$/u.test(raw) ? Number(raw) : null;
+}
+
+function windowsListenerPids(port, spawnSyncImpl) {
+  const result = runListenerCommand(
+    "netstat",
+    ["-ano", "-p", "tcp"],
+    spawnSyncImpl
+  );
+  if (result.status !== 0) throw commandFailure("netstat", result);
+  const pids = [];
+  for (const line of result.stdout.split(/\r?\n/u)) {
+    const columns = line.trim().split(/\s+/u);
+    if (
+      columns.length < 5 ||
+      columns[0].toUpperCase() !== "TCP" ||
+      columns.at(-2).toUpperCase() !== "LISTENING" ||
+      localPort(columns[1]) !== port
+    ) {
+      continue;
+    }
+    const rawPid = columns.at(-1);
+    if (!/^\d+$/u.test(rawPid)) {
+      throw new PlatformListenerInspectionError(
+        "Cannot inspect the daemon listener because netstat returned an unrecognized PID."
+      );
+    }
+    pids.push(Number(rawPid));
+  }
+  return uniquePids(pids);
+}
+
+/**
+ * Return every process that owns a LISTEN socket on exactly `port`.
+ * `spawnSyncImpl` and `platform` are injectable so both supported parsers and
+ * their no-shell invocation contracts can be tested on every CI platform.
+ */
+export function getPortPids(
+  port,
+  { platform = PLATFORM, spawnSyncImpl = spawnSync } = {}
+) {
+  const checkedPort = validPort(port);
+  if (platform === "win32") {
+    return windowsListenerPids(checkedPort, spawnSyncImpl);
+  }
+  if (platform === "darwin" || platform === "linux") {
+    return unixListenerPids(checkedPort, spawnSyncImpl);
+  }
+  throw new PlatformListenerInspectionError(
+    `Cannot inspect the daemon listener on unsupported platform ${JSON.stringify(platform)}.`
+  );
+}
+
+// Native bounded wait after daemon stop. This replaces the inherited shell
+// calls to sleep/ping while preserving the synchronous lifecycle contract.
+export function sleepAfterStop(milliseconds = 500) {
+  const duration = Number(milliseconds);
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const bounded = Math.min(5_000, Math.ceil(duration));
   try {
-    const result = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8', stdio: 'pipe' });
-    const lines = result.split('\n').filter(l => l.includes('LISTENING'));
-    for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      const pid = parts[parts.length - 1];
-      if (pid && /^\d+$/.test(pid)) {
-        execSync(`taskkill /PID ${pid} /F 2>nul`, { stdio: 'pipe' });
-      }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, bounded);
+  } catch {
+    const deadline = Date.now() + bounded;
+    while (Date.now() < deadline) {
+      // Best-effort fallback for runtimes where blocking Atomics are disabled.
     }
-    try { execSync('ping -n 1 127.0.0.1 >nul', { stdio: 'pipe' }); } catch {}
-  } catch {}
-}
-
-export const killPort = PLATFORM === 'win32' ? killPortWindows : killPortUnix;
-
-// --- Get PID listening on port ---
-function getPortPidUnix(port) {
-  return execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' }).trim() || null;
-}
-
-function getPortPidWindows(port) {
-  const result = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8', stdio: 'pipe' });
-  const line = result.split('\n').find(l => l.includes('LISTENING'));
-  if (line) {
-    const parts = line.trim().split(/\s+/);
-    return parts[parts.length - 1] || null;
-  }
-  return null;
-}
-
-export const getPortPid = PLATFORM === 'win32' ? getPortPidWindows : getPortPidUnix;
-
-// --- Sleep after daemon stop ---
-export function sleepAfterStop() {
-  if (PLATFORM === 'win32') {
-    try { execSync('ping -n 2 127.0.0.1 >nul', { stdio: 'pipe' }); } catch {}
-  } else {
-    try { execSync('sleep 0.5', { stdio: 'pipe' }); } catch {}
   }
 }
-
-// (The Figma-path helpers — asar locations, Figma.exe discovery — and the
-// doctor probes getFigmaVersion/isFigmaRunning served the removed Yolo/patching
-// path and the removed `doctor` command. Deleted with them.)

@@ -94,7 +94,7 @@ function isAlive(pid) {
   }
 }
 
-async function stopFromIsolatedCli(state, port) {
+async function stopFromIsolatedCli(state, port, extraEnv = {}) {
   const script = `
     const { stopDaemon } = await import('./engine/src/lib/cli-core.js');
     await stopDaemon();
@@ -108,6 +108,7 @@ async function stopFromIsolatedCli(state, port) {
       DAEMON_PORT_RANGE: String(port),
       DAEMON_TOKEN_FILE: join(state, "token"),
       PLUGIN_KEY_FILE: join(state, "key"),
+      ...extraEnv,
     },
     timeout: 5000,
   });
@@ -147,6 +148,56 @@ test(
     } finally {
       try {
         unrelated.kill("SIGKILL");
+      } catch {}
+      rmSync(state, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "stopDaemon reports unavailable listener inspection without signaling the PID-file process",
+  async () => {
+    const state = mkdtempSync(
+      join(tmpdir(), "figma-bridge-stop-no-inspector-")
+    );
+    const listener = spawn(
+      process.execPath,
+      [
+        "-e",
+        `
+    const net = require('net');
+    const server = net.createServer(() => {});
+    process.on('SIGTERM', () => {});
+    server.listen(0, '127.0.0.1', () => {
+      process.stdout.write(String(server.address().port) + '\\n');
+    });
+    setInterval(() => {}, 1000);
+  `,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] }
+    );
+    try {
+      const port = Number(
+        await waitForLine(listener, {
+          accept: isPortLine,
+          label: "listener child",
+        })
+      );
+      writeFileSync(join(state, "daemon.pid"), String(listener.pid));
+      writeFileSync(join(state, "daemon-port"), String(port));
+
+      await assert.rejects(
+        stopFromIsolatedCli(state, port, { PATH: "", Path: "" }),
+        /Cannot inspect the daemon listener because/u
+      );
+      assert.equal(
+        isAlive(listener.pid),
+        true,
+        "missing listener tooling must never authorize signaling the PID-file process"
+      );
+    } finally {
+      try {
+        listener.kill("SIGKILL");
       } catch {}
       rmSync(state, { recursive: true, force: true });
     }

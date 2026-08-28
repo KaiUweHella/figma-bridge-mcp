@@ -41,7 +41,7 @@ import {
   verify as verifyHandshake,
 } from './lib/plugin-handshake.js';
 import { STATE_DIR } from './lib/state-dir.js';
-import { getPortPid } from './platform.js';
+import { getPortPids } from './platform.js';
 import {
   MAX_EXEC_BODY_BYTES,
   MAX_PLUGIN_MESSAGE_BYTES,
@@ -1576,11 +1576,8 @@ function pidFileOwnsPort(port) {
   try {
     const filePid = parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10);
     if (!Number.isInteger(filePid)) return null;
-    const raw = getPortPid(port);
-    if (!raw) return null;
-    // lsof -ti may list several PIDs (listener + connected clients).
-    const pids = String(raw).split('\n').map((s) => parseInt(s.trim(), 10));
-    if (!pids.some(Number.isInteger)) return null;
+    const pids = getPortPids(port);
+    if (pids.length === 0) return null;
     return pids.includes(filePid);
   } catch {
     return null;
