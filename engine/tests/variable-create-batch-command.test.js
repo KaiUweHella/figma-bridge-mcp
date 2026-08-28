@@ -15,7 +15,7 @@ import {
 
 function fixture({
   existing = [], setFailsFor = null, removeFailsFor = null,
-  collections = null, float32ColorReadback = false,
+  collections = null, float32ColorReadback = false, nativeOpaqueAlphaReadback = false,
   verificationUnavailableAfterRemoval = false,
   nativeValuesByMode = {}, nativeValuesForType = null, easingPresetReadback = false,
   easingPresetBounce = 0.25, scopeSetIgnoredFor = null,
@@ -37,6 +37,11 @@ function fixture({
           && created.every((item) => item.removed)) throw new Error('catalog unavailable');
         return [...existing, ...created].filter((item) => !item.removed);
       },
+      getVariableByIdAsync: async (id) => [...existing, ...created]
+        .find((item) => item.id === id && !item.removed) || null,
+      createVariableAlias(variable) {
+        return { type: 'VARIABLE_ALIAS', id: variable.id };
+      },
       createVariable(name, target, type) {
         const initialNativeValues = nativeValuesForType
           ? nativeValuesForType(type) : nativeValuesByMode;
@@ -47,10 +52,13 @@ function fixture({
           valuesByMode: structuredClone(initialNativeValues), removed: false,
           setValueForMode(modeId, value) {
             if (name === setFailsFor) throw new Error('set failed');
-            if (float32ColorReadback && type === 'COLOR') {
+            if ((float32ColorReadback || nativeOpaqueAlphaReadback) && type === 'COLOR') {
               this.valuesByMode[modeId] = Object.fromEntries(
                 Object.entries(value).map(([key, channel]) => [key, Math.fround(channel)]),
               );
+              if (nativeOpaqueAlphaReadback && !Object.hasOwn(value, 'a')) {
+                this.valuesByMode[modeId].a = 1;
+              }
             } else if (easingPresetReadback && type === 'EASING' && value?.type === 'GENTLE') {
               this.valuesByMode[modeId] = {
                 type: 'GENTLE', easingFunctionSpring: { bounce: easingPresetBounce },
@@ -106,9 +114,111 @@ test('Variable Batch Creation closes and canonicalizes a complete bounded batch'
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x"},{"name":"x"}]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"FLOAT","scopes":["ALL_SCOPES","GAP"]}]'],
     ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","type":"COLOR","scopes":["GAP"]}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","value":1,"alias":"y"}]'],
+    ['var', 'create-batch', '-c', 'Tokens', '[{"name":"x","aliasCollection":"Primitives"}]'],
     ['var', 'create-batch', '[{"name":"x"}]'],
     ['var', 'create-batch', '-c', 'Tokens', '--future', 'private-value'],
   ]) assert.equal(acceptsVariableCreateBatchArgv(args), false, args.join(' '));
+});
+
+test('Variable Batch Creation closes explicit Alias intent without flattening equal literals', () => {
+  const parsed = parseVariableCreateBatchRequest([
+    'var', 'create-batch', '-c', 'Roles', '--', JSON.stringify([
+      { name: 'surface/default', type: 'COLOR', alias: 'color/neutral/0', aliasCollection: 'Primitives' },
+      { name: 'surface/equal-literal', type: 'COLOR', value: '#ffffff' },
+    ]),
+  ]);
+  assert.deepEqual(parsed.items, [
+    {
+      name: 'surface/default', type: 'COLOR', alias: 'color/neutral/0',
+      aliasCollection: 'Primitives',
+    },
+    {
+      name: 'surface/equal-literal', type: 'COLOR',
+      value: { r: 1, g: 1, b: 1 },
+    },
+  ]);
+  assert.deepEqual(parseVariableCreateBatchRequest(variableCreateBatchArgvFromRequest(parsed)), parsed);
+});
+
+test('Variable Batch Creation preserves same-batch and cross-Collection Alias identity', async () => {
+  const primitives = {
+    id: 'VariableCollectionId:primitive', key: 'primitive-key', name: 'Primitives', remote: false,
+    defaultModeId: 'ModeId:primitive', modes: [{ modeId: 'ModeId:primitive', name: 'Base' }],
+  };
+  const primitive = {
+    id: 'VariableID:primitive', key: 'primitive-variable-key', name: 'color/neutral/0',
+    resolvedType: 'COLOR', remote: false, variableCollectionId: primitives.id,
+    valuesByMode: { 'ModeId:primitive': { r: 1, g: 1, b: 1, a: 1 } },
+  };
+  const target = fixture({ existing: [primitive] });
+  const request = {
+    collection: 'Tokens', mode: 'Dark', items: [
+      { name: 'role/surface', type: 'COLOR', alias: primitive.id, aliasCollection: primitives.id },
+      { name: 'space/base', type: 'FLOAT', value: 12 },
+      { name: 'space/card', type: 'FLOAT', alias: 'space/base' },
+      { name: 'role/same-color-literal', type: 'COLOR', value: '#ffffff' },
+    ],
+  };
+  target.figma.variables.getLocalVariableCollectionsAsync = async () => [target.collection, primitives];
+  const serialized = await runCode(request, target.figma);
+  const result = await executeVariableCreateBatch(request, { evaluate: async () => serialized });
+
+  assert.deepEqual(target.created[0].valuesByMode['ModeId:dark'], {
+    type: 'VARIABLE_ALIAS', id: primitive.id,
+  });
+  assert.deepEqual(target.created[2].valuesByMode['ModeId:dark'], {
+    type: 'VARIABLE_ALIAS', id: target.created[1].id,
+  });
+  assert.deepEqual(target.created[3].valuesByMode['ModeId:dark'], {
+    r: 1, g: 1, b: 1,
+  }, 'same-value literals remain literals without explicit Alias intent');
+  assert.equal(result.result.created[0].modeValue.source, 'requested-alias');
+  assert.equal(result.result.created[0].aliasTarget.id, primitive.id);
+  assert.equal(result.result.created[2].aliasTarget.id, target.created[1].id);
+  assert.equal(result.result.created[3].aliasTarget, null);
+  assert.equal(Object.hasOwn(target.created[0].valuesByMode, 'ModeId:default'), false,
+    'an Alias for Dark must not fill another mode');
+});
+
+test('Variable Batch Creation refuses ambiguous, incompatible and cyclic Alias graphs before factories', async () => {
+  const other = {
+    id: 'VariableCollectionId:other', key: 'other-key', name: 'Other', remote: false,
+    defaultModeId: 'ModeId:other', modes: [{ modeId: 'ModeId:other', name: 'Base' }],
+  };
+  const duplicateName = (id, collectionId, type = 'FLOAT') => ({
+    id, key: `${id}-key`, name: 'space/base', resolvedType: type, remote: false,
+    variableCollectionId: collectionId, valuesByMode: {},
+  });
+  const ambiguous = fixture({
+    existing: [
+      duplicateName('VariableID:a', 'VariableCollectionId:1'),
+      duplicateName('VariableID:b', other.id),
+    ],
+  });
+  ambiguous.figma.variables.getLocalVariableCollectionsAsync = async () => [ambiguous.collection, other];
+  await assert.rejects(() => runCode({
+    collection: 'Tokens', items: [{ name: 'role/space', type: 'FLOAT', alias: 'space/base' }],
+  }, ambiguous.figma), /Alias target is ambiguous/);
+  assert.equal(ambiguous.created.length, 0);
+
+  const incompatible = fixture({
+    existing: [duplicateName('VariableID:color', other.id, 'COLOR')],
+  });
+  incompatible.figma.variables.getLocalVariableCollectionsAsync = async () => [incompatible.collection, other];
+  await assert.rejects(() => runCode({
+    collection: 'Tokens', items: [{ name: 'role/space', type: 'FLOAT', alias: 'VariableID:color' }],
+  }, incompatible.figma), /type is incompatible/);
+  assert.equal(incompatible.created.length, 0);
+
+  const cyclic = fixture();
+  await assert.rejects(() => runCode({
+    collection: 'Tokens', items: [
+      { name: 'role/a', type: 'FLOAT', alias: 'role/b' },
+      { name: 'role/b', type: 'FLOAT', alias: 'role/a' },
+    ],
+  }, cyclic.figma), /alias graph contains a cycle/);
+  assert.equal(cyclic.created.length, 0);
 });
 
 test('Variable Batch Creation applies per-item final metadata and preserves empty mode writes', async () => {
@@ -316,6 +426,37 @@ test('Variable Batch Creation accepts only numerically equivalent Figma Float32 
     () => executeVariableCreateBatch(request, { evaluate: async () => failure }),
     (error) => error.mutationOutcome === 'rolled-back',
   );
+});
+
+test('Variable Batch Creation accepts native opaque RGBA readback for RGB intent', async () => {
+  const target = fixture({ nativeOpaqueAlphaReadback: true });
+  const request = {
+    collection: 'Tokens',
+    items: [{ name: 'color/opaque', type: 'COLOR', value: '#3366ff' }],
+  };
+  const serialized = await runCode(request, target.figma);
+  const result = await executeVariableCreateBatch(request, { evaluate: async () => serialized });
+
+  assert.equal(result.result.created[0].modeValue.source, 'requested-initial');
+  assert.deepEqual(result.result.created[0].modeValue.value, {
+    r: Math.fround(0.2), g: Math.fround(0.4), b: 1, a: 1,
+  });
+  assert.equal(target.created[0].removed, false);
+
+  const nonOpaque = fixture();
+  const originalCatalog = nonOpaque.figma.variables.getLocalVariablesAsync;
+  nonOpaque.figma.variables.getLocalVariablesAsync = async () => {
+    const variables = await originalCatalog();
+    for (const variable of variables) {
+      if (variable.valuesByMode['ModeId:default']) {
+        variable.valuesByMode['ModeId:default'].a = 0.99;
+      }
+    }
+    return variables;
+  };
+  const failed = await runCode(request, nonOpaque.figma);
+  assert.equal(JSON.parse(failed).status, 'failed');
+  assert.equal(nonOpaque.created[0].removed, true);
 });
 
 test('Variable Batch Creation removes the whole journal after a later failure and reports residue', async () => {

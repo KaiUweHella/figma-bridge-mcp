@@ -33,7 +33,10 @@ function normalizedItem(value, index) {
     || Object.getPrototypeOf(value) !== Object.prototype) {
     throw requestError(`item ${index + 1} must be an object`);
   }
-  const allowed = new Set(['name', 'type', 'value', 'description', 'hidden', 'scopes']);
+  const allowed = new Set([
+    'name', 'type', 'value', 'alias', 'aliasCollection',
+    'description', 'hidden', 'scopes',
+  ]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) {
     throw requestError(`item ${index + 1} contains unknown fields: ${unknown.join(', ')}`);
@@ -43,8 +46,16 @@ function normalizedItem(value, index) {
   let type;
   try { type = parseVariableType(value.type === undefined ? 'COLOR' : value.type); }
   catch (error) { throw requestError(`item ${index + 1}: ${error.message}`); }
+  const hasValue = Object.hasOwn(value, 'value');
+  const hasAlias = Object.hasOwn(value, 'alias');
+  if (hasValue && hasAlias) {
+    throw requestError(`item ${index + 1} must not contain both value and alias`);
+  }
+  if (Object.hasOwn(value, 'aliasCollection') && !hasAlias) {
+    throw requestError(`item ${index + 1} aliasCollection requires alias`);
+  }
   let initialValue;
-  if (Object.hasOwn(value, 'value')) {
+  if (hasValue) {
     try { initialValue = normalizeVariableValue(value.value, type); }
     catch (error) { throw requestError(`item ${index + 1}: ${error.message}`); }
     if (type === 'STRING'
@@ -52,6 +63,11 @@ function normalizedItem(value, index) {
       throw requestError(`item ${index + 1}: STRING value must be at most ${MAX_VARIABLE_CREATE_BATCH_STRING_VALUE_CODE_UNITS} code units`);
     }
   }
+  const alias = hasAlias ? boundedIdentity(value.alias, `item ${index + 1} alias`,
+    MAX_VARIABLE_CREATE_BATCH_QUERY_CODE_UNITS) : undefined;
+  const aliasCollection = Object.hasOwn(value, 'aliasCollection')
+    ? boundedIdentity(value.aliasCollection, `item ${index + 1} aliasCollection`,
+      MAX_VARIABLE_CREATE_BATCH_QUERY_CODE_UNITS) : undefined;
   let description;
   let hidden;
   let scopes;
@@ -68,6 +84,8 @@ function normalizedItem(value, index) {
     name,
     type,
     ...(initialValue === undefined ? {} : { value: initialValue }),
+    ...(alias === undefined ? {} : { alias }),
+    ...(aliasCollection === undefined ? {} : { aliasCollection }),
     ...(description === undefined ? {} : { description }),
     ...(hidden === undefined ? {} : { hidden }),
     ...(scopes === undefined ? {} : { scopes }),

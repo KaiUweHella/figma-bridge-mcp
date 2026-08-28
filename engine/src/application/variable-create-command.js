@@ -111,6 +111,14 @@ export function variableCreateCode(request) {
       if (Array.isArray(actual) !== Array.isArray(expected)) return false;
       const actualKeys = Object.keys(actual).sort();
       const expectedKeys = Object.keys(expected).sort();
+      const colorShape = (value, keys) => keys.length >= 3 && keys.length <= 4
+        && ['r', 'g', 'b'].every((key) => Object.prototype.hasOwnProperty.call(value, key))
+        && keys.every((key) => ['r', 'g', 'b', 'a'].includes(key));
+      if (colorShape(actual, actualKeys) && colorShape(expected, expectedKeys)) {
+        return ['r', 'g', 'b'].every((key) => equivalent(actual[key], expected[key]))
+          && equivalent(Object.prototype.hasOwnProperty.call(actual, 'a') ? actual.a : 1,
+            Object.prototype.hasOwnProperty.call(expected, 'a') ? expected.a : 1);
+      }
       if (expectedKeys.length === 1 && expectedKeys[0] === 'type'
         && typeof expected.type === 'string' && actual.type === expected.type) {
         if (actualKeys.length === 1) return true;
@@ -269,6 +277,14 @@ function equivalent(actual, expected) {
   if (Array.isArray(actual) !== Array.isArray(expected)) return false;
   const actualKeys = Object.keys(actual).sort();
   const expectedKeys = Object.keys(expected).sort();
+  const colorShape = (value, keys) => keys.length >= 3 && keys.length <= 4
+    && ['r', 'g', 'b'].every((key) => Object.hasOwn(value, key))
+    && keys.every((key) => ['r', 'g', 'b', 'a'].includes(key));
+  if (colorShape(actual, actualKeys) && colorShape(expected, expectedKeys)) {
+    return ['r', 'g', 'b'].every((key) => equivalent(actual[key], expected[key]))
+      && equivalent(Object.hasOwn(actual, 'a') ? actual.a : 1,
+        Object.hasOwn(expected, 'a') ? expected.a : 1);
+  }
   if (expectedKeys.length === 1 && expectedKeys[0] === 'type'
     && typeof expected.type === 'string' && actual.type === expected.type) {
     if (actualKeys.length === 1) return true;

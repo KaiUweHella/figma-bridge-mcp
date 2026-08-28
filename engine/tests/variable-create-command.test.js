@@ -186,6 +186,30 @@ test('Variable Create uses exact Collection membership and fresh normalized valu
   assert.equal(target.created[0].valuesByMode['ModeId:default'], Math.fround(0.1));
 });
 
+test('Variable Create accepts native opaque RGBA readback for RGB intent', async () => {
+  const target = fixture({
+    normalizeValue: (value) => ({
+      r: Math.fround(value.r), g: Math.fround(value.g), b: Math.fround(value.b), a: 1,
+    }),
+  });
+  const request = {
+    name: 'color/opaque', collection: 'Tokens', type: 'COLOR', value: '#3366ff',
+  };
+  const serialized = await runCode(request, target.figma);
+  const result = await executeVariableCreate(request, { evaluate: async () => serialized });
+
+  assert.equal(result.result.modeValue.source, 'requested-initial');
+  assert.deepEqual(result.result.modeValue.value, {
+    r: Math.fround(0.2), g: Math.fround(0.4), b: 1, a: 1,
+  });
+  assert.equal(target.created[0].removed, false);
+
+  const nonOpaque = fixture({ normalizeValue: (value) => ({ ...value, a: 0.99 }) });
+  const failed = await runCode(request, nonOpaque.figma);
+  assert.equal(JSON.parse(failed).status, 'mutation-failed');
+  assert.equal(nonOpaque.created[0].removed, true);
+});
+
 test('Variable Create accepts and reports a native default without treating it as requested intent', async () => {
   const target = fixture({ nativeValuesByMode: { 'ModeId:default': 0 } });
   const serialized = await runCode({

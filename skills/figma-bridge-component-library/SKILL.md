@@ -46,6 +46,14 @@ update-batch` call; keep `var update` for one target.
   Prefer DTCG/CSS token sync for maintained code tokens and use a dry-run plan
   before applying writes.
 - Alias semantic variables to primitives instead of duplicating raw values.
+  When several Variables are new, use one `var create-batch` request with an
+  explicit `alias` and optional `aliasCollection` on each semantic item. The
+  target may be an exact existing Variable or another item in the same batch.
+  Never turn a resolved equal value into an Alias unless the source itself
+  declares that reference. If the user explicitly requests same-value linking,
+  inspect every compatible primitive candidate first and emit `alias` only
+  when exactly one target identity is provable; otherwise report the bounded
+  ambiguity and leave the literal unchanged.
   Preserve source code syntax and assign deliberate compatible scopes. Present
   every `SCOPE DECISION REQUIRED` result to the user before narrowing it.
 - Bind fills, strokes, padding, gaps, radii, dimensions, and typography wherever

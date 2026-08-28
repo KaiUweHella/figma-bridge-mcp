@@ -237,7 +237,9 @@ requested initial intent. A compact selected-mode result distinguishes `native-d
 `requested-initial` and `absent`, and reports the total observed mode count.
 Explicit intent remains mandatory to verify. Figma may expand a named EASING
 preset with valid canonical function parameters; custom parameters remain
-field-exact.
+field-exact. Figma's native opaque RGB readback may add `a: 1` and quantize
+channels to Float32; creation accepts only that equivalent representation, not
+non-opaque alpha or channel drift.
 _Avoid_: variable factory eval, first-name collection choice, retryable create, implicit duplicate
 
 **Variable Batch Creation**:
@@ -249,11 +251,18 @@ whole journal in reverse before verifying exact absence. It preserves all
 official Variable types and the established batch utility without allowing a
 partially initialized batch to look successful. Each item may carry final
 description, publishing visibility and compatible scopes; omitted fields
-retain that Variable's native defaults. Native values in unselected modes never
-invalidate an explicit selected-mode write, and explicit false, zero or empty
-string values remain writes. Each compact created result reports verified final
-metadata, selected mode value source and observed mode count without returning
-an unbounded value matrix; complete topology remains Variable Facts.
+retain that Variable's native defaults. Its selected-mode intent is either one
+literal or one explicit Variable Alias, never both. Alias targets resolve by
+exact Variable identity or unambiguous exact name, may be scoped to another
+Collection, and may refer forward within the same batch. Type mismatch,
+ambiguity and same-batch cycles stop before any factory call. Equal literals
+never imply Alias intent. Native values in unselected modes never invalidate an
+explicit selected-mode write, and explicit false, zero or empty string values
+remain writes. Each compact created result reports verified final metadata,
+selected mode value source, exact Alias target when present and observed mode
+count without returning an unbounded value matrix; complete topology remains
+Variable Facts. Opaque RGB intent accepts Figma's native RGBA `a: 1` and
+Float32 readback without accepting non-opaque alpha or actual channel drift.
 _Avoid_: variable batch eval, partial preflight, first mode, partial success, retryable factory loop
 
 **Variable Visualization**:

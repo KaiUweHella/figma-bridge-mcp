@@ -1384,6 +1384,8 @@ not own:
 
 ```
 figma_run ["var", "show", "space/md", "--collection", "Primitives"]
+figma_run ["var", "create-batch", "--collection", "Primitives", "[{\"name\":\"color/neutral/0\",\"type\":\"COLOR\",\"value\":\"#ffffff\"}]"]
+figma_run ["var", "create-batch", "--collection", "Roles", "[{\"name\":\"surface/default\",\"type\":\"COLOR\",\"alias\":\"color/neutral/0\",\"aliasCollection\":\"Primitives\"}]"]
 figma_run ["var", "update", "space/md", "--description", "Medium spacing", "--scopes", "GAP"]
 figma_run ["var", "update-batch", "[{\"variable\":\"space/md\",\"collection\":\"Primitives\",\"description\":\"Medium spacing\",\"scopes\":[\"GAP\"]},{\"variable\":\"space/lg\",\"collection\":\"Primitives\",\"hidden\":false}]"]
 figma_run ["var", "set-value", "space/md", "12", "--mode", "Light"]
@@ -1400,7 +1402,14 @@ figma_run ["col", "extend", "Primitives", "Brand"]
 Application from CLI and MCP: values by mode, alias ids, scopes, code syntax,
 collection/mode identity and publish status. Variable and collection names must
 resolve uniquely; `--collection` is the explicit way to disambiguate duplicate
-variable names. When metadata edits for several known local Variables are
+variable names. `var create-batch` accepts either `value` or an explicit
+`alias` per item. `aliasCollection` scopes a target in another Collection;
+same-batch forward references are also supported. Alias ambiguity, type
+mismatch and cycles stop before creation, and equal literals are never inferred
+as Aliases by the command. A workflow may supply an explicit `alias` after an
+opted-in policy proves one exact compatible target; ambiguous candidates remain
+a report rather than a guess. One selected mode is initialized per call, so separate mode intent
+remains separate rather than being copied into empty modes. When metadata edits for several known local Variables are
 already available, collect them into one `var update-batch` JSON array instead
 of emitting one `var update` call per Variable. The batch preflights every
 identity before its first write and owns reverse rollback under one confirmation;

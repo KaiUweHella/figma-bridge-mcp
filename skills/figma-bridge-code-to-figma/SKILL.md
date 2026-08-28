@@ -58,6 +58,13 @@ contract. Preserve all three instead of drawing a flattened approximation.
 update` calls. When several explicit Variable/mode values are already
    known, use one `var set-value-batch` call; previously empty modes are valid
    and its best-effort rollback Outcome must be checked for exact residue.
+   Preserve explicit source-token references as native Variable Aliases. For
+   several new Variables, use one `var create-batch` request with `alias` and,
+   when needed, `aliasCollection`; do not replace the reference with its
+   currently resolved literal. Equal literals alone are not Alias intent. If
+   the user explicitly requests same-value linking, inspect every compatible
+   primitive candidate and write an Alias only when one exact target is
+   uniquely provable; otherwise report the ambiguity and keep the literal.
    Bind supported properties instead of freezing raw values.
 3. Reuse existing component instances. When a missing reusable component must
    be created, follow `figma-bridge-component-library` before composing it into

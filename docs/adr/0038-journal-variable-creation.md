@@ -23,6 +23,8 @@ Success requires fresh targeted reads of both the Variable and its Collection.
 Those reads prove membership, identity, type, default scope metadata and the
 selected-mode value; finite numeric leaves use Figma-compatible float32
 equivalence so native COLOR/FLOAT normalization is not treated as corruption.
+For COLOR, an omitted authored alpha and native `a: 1` are equivalent; an
+added non-opaque alpha, extra field or actual channel drift still fails.
 A failure removes the new Variable and verifies that its freshly loaded owning
 Collection no longer declares the Variable id. Collection membership is the
 removal postcondition because Figma may briefly return a tombstoned Variable

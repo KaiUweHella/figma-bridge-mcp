@@ -415,7 +415,7 @@ variables
 
 variables
   .command('create-batch <json>')
-  .description('Create multiple variables at once (faster than individual calls)')
+  .description('Create multiple variables with literal or explicit Alias intent in one call')
   .requiredOption('-c, --collection <id>', 'Collection ID or name')
   .option('-m, --mode <mode>', 'Mode ID or name; defaults to the Collection default mode')
   .option('--allow-duplicate', 'Allow exact duplicate names intentionally')
