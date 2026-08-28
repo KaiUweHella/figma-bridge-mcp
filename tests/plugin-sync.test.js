@@ -133,6 +133,13 @@ test('Semantic Render Plans cross UI and main plugin threads without becoming co
   assert.doesNotMatch(UI, /type: 'render-plan'[^\n]+code:/);
 });
 
+test('the shipped Plugin has no unreachable generic eval batch protocol', () => {
+  assert.doesNotMatch(UI, /eval-batch|batch-result/);
+  assert.doesNotMatch(PLUGIN_CODE, /eval-batch|batch-result/);
+  assert.match(UI, /msg\.action === 'render-plan-batch'/);
+  assert.match(PLUGIN_CODE, /msg\.type === 'render-plan-batch'/);
+});
+
 test('execution deadlines cross the UI boundary for every write protocol', () => {
   assert.match(UI, /const PLUGIN_CAPABILITIES = Object\.freeze\(\[[\s\S]*?'execution-deadline-v1'[\s\S]*?'render-plan-batch-v1'[\s\S]*?'render-plan-v1'[\s\S]*?\]\)/);
   assert.match(UI, /capabilities: PLUGIN_CAPABILITIES/);

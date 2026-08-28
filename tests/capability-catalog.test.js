@@ -1056,10 +1056,8 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   const outputLiteral = planFigmaCommand(['export', 'node', '1:2', '--', '--output'], {
     workspaceDir,
   });
-  assert.deepEqual(outputLiteral.argv, [
-    'export', 'node', '1:2', '-o', join(workspaceDir, 'node-export.png'), '--', '--output',
-  ]);
-  assert.equal(outputLiteral.outputs[0].path, join(workspaceDir, 'node-export.png'));
+  assert.equal(outputLiteral.allowed, false);
+  assert.deepEqual(outputLiteral.outputs, []);
 
   const networkLiteral = planFigmaCommand([
     'kit', 'init', '.', '--', '--storybook=https://example.test/private',
@@ -1103,7 +1101,7 @@ test('short-attached Legacy option values keep Commander meaning during path pla
   ], { workspaceDir });
   assert.equal(exportPlan.allowed, true);
   assert.deepEqual(exportPlan.argv, [
-    'export', 'node', '1:2', `-o${join(workspaceDir, 'node.png')}`, '-fpng', '-s2',
+    'export', 'node', '1:2', '-o', join(workspaceDir, 'node.png'),
   ]);
   assert.equal(exportPlan.outputs[0].path, join(workspaceDir, 'node.png'));
 
@@ -1593,7 +1591,7 @@ test('catalog prepares every known project-relative path policy', () => {
   const argv = (args) => planFigmaCommand(args, { workspaceDir: base }).argv;
   assert.deepEqual(argv(['extract']).slice(-1), [inWorkspace('DESIGN.md')]);
   assert.deepEqual(argv(['export', 'assets', '1:2']).slice(-2), ['-o', inWorkspace('assets')]);
-  assert.deepEqual(argv(['export', 'node', '1:2', '--output=shot.png']).slice(-1), [`--output=${inWorkspace('shot.png')}`]);
+  assert.deepEqual(argv(['export', 'node', '1:2', '--output=shot.png']).slice(-1), [inWorkspace('shot.png')]);
   assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-1), [`--output=${inWorkspace('facts.json')}`]);
   assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), [`-o=${inWorkspace('facts.json')}`]);
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);

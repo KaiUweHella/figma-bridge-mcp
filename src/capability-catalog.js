@@ -398,6 +398,12 @@ import {
   screenshotFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/screenshot-request.js';
 import {
+  acceptsLegacyRasterExportArgv,
+  legacyRasterExportArgvFromRequest,
+  legacyRasterExportFigmaUrlFileKeyFromArgv,
+  parseLegacyRasterExportRequest,
+} from '../engine/src/application/legacy-raster-export-request.js';
+import {
   planVerificationArtifacts,
   verificationArtifactDirectory,
 } from '../engine/src/application/verification-artifact.js';
@@ -501,6 +507,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
+  'export.node', 'export.screenshot',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.move', 'node.set-text',
   'node.to-component', 'node.tree', 'find',
@@ -1148,6 +1155,10 @@ function commandCapability(args) {
   if (name === 'verify' && !action.help && !acceptsScreenshotArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'export' && ['node', 'screenshot'].includes(args[1])
+    && !action.help && !acceptsLegacyRasterExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -1513,9 +1524,26 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       markWrite(outputPath, 'asset-export-directory', 'directory');
       break;
     case 'export-image':
-      outputPath = outputFlag(args, baseDir,
-        args[1] === 'node' ? 'node-export.png' : 'screenshot.png', capability.options);
-      markWrite(outputPath, 'export-image-output');
+      {
+        const request = parseLegacyRasterExportRequest(args);
+        const explicitPath = absolute(baseDir, request.outputPath);
+        const closedFileKey = legacyRasterExportFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget && closedFileKey !== figmaUrlFileKey) {
+          throw new Error('Raster Export target projection disagrees with its closed request Interface.');
+        }
+        args.splice(0, args.length, ...legacyRasterExportArgvFromRequest({
+          ...request,
+          outputPath: explicitPath,
+        }));
+        if (request.format === 'PNG') {
+          markWrite(explicitPath, 'verification-image-output');
+          outputPath = null;
+          artifactOutputs = [...planVerificationArtifacts({ explicitPath })];
+        } else {
+          outputRole = 'export-image-output';
+          markWrite(explicitPath, 'export-image-output');
+        }
+      }
       break;
     case 'video-output': {
       const format = String(flagValue(args, ['--format', '-f'], capability.options) || 'mp4').toLowerCase();

@@ -15,6 +15,10 @@ import {
   screenshotArgvFromRequest,
   screenshotPlanningArgvFromRequest,
 } from './screenshot-request.js';
+import {
+  parseLegacyRasterExportRequest,
+  screenshotRequestFromLegacyRasterExport,
+} from './legacy-raster-export-request.js';
 
 export {
   screenshotArgvFromRequest,
@@ -22,6 +26,7 @@ export {
 } from './screenshot-request.js';
 
 const SCREENSHOT_APPLICATION_ID = 'verify';
+const SCREENSHOT_COMPATIBILITY_IDS = new Set(['export.node', 'export.screenshot']);
 
 function finiteNumber(value, fallback, { min, max }) {
   const number = value == null ? fallback : Number(value);
@@ -163,16 +168,31 @@ export function screenshotPlanRoute(plan) {
   if (!isFigmaCommandPlan(plan)) {
     throw new TypeError('Screenshot routing requires a Command Plan created by the Capability Catalog.');
   }
-  return plan.allowed && plan.id === SCREENSHOT_APPLICATION_ID
+  if (!plan.allowed) return 'not-screenshot';
+  if (plan.id === SCREENSHOT_APPLICATION_ID) return 'command-application';
+  if (!SCREENSHOT_COMPATIBILITY_IDS.has(plan.id)) return 'not-screenshot';
+  return parseLegacyRasterExportRequest(plan.argv).format === 'PNG'
     ? 'command-application'
     : 'not-screenshot';
+}
+
+function formatCompatibilityResult(action, metadata) {
+  const dimensions = `${metadata.pixelWidth}x${metadata.pixelHeight}`;
+  return action === 'node'
+    ? `✓ Exported ${metadata.name} (${dimensions}) to ${metadata.saved}`
+    : `✓ Screenshot: ${metadata.name} (${dimensions}) → ${metadata.saved}`;
 }
 
 export async function executeScreenshotPlan(plan, adapters = {}) {
   if (screenshotPlanRoute(plan) !== 'command-application') {
     throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Screenshot Command Application.`);
   }
-  const request = parseScreenshotRequest(plan.argv);
+  const compatibility = SCREENSHOT_COMPATIBILITY_IDS.has(plan.id)
+    ? parseLegacyRasterExportRequest(plan.argv)
+    : null;
+  const request = compatibility
+    ? screenshotRequestFromLegacyRasterExport(compatibility)
+    : parseScreenshotRequest(plan.argv);
   const outputs = plan.outputs.filter((output) => output.role === VERIFICATION_ARTIFACT_ROLE);
   if (request.persistence === 'inline') {
     if (outputs.length) throw new Error('Inline screenshot Command Plan must not declare file artifacts.');
@@ -182,7 +202,7 @@ export async function executeScreenshotPlan(plan, adapters = {}) {
     throw new Error('Persisted screenshot Command Plan must declare exactly one verification artifact.');
   }
   const writer = createVerificationArtifactWriter(outputs, { workspaceIO: adapters.workspaceIO });
-  return executeScreenshot({
+  const result = await executeScreenshot({
     ...request,
     savePath: outputs[0].path,
     saveDefault: false,
@@ -191,4 +211,7 @@ export async function executeScreenshotPlan(plan, adapters = {}) {
     evaluate: adapters.evaluate,
     save: (_path, bytes) => writer.write(0, bytes),
   });
+  return compatibility
+    ? { ...result, stdout: formatCompatibilityResult(compatibility.action, result.result) }
+    : result;
 }

@@ -1448,17 +1448,6 @@ function handlePluginSocket(ws) {
       });
     }
 
-    if (msg.type === 'batch-result') {
-      const pending = pluginPendingRequests.get(msg.id);
-      if (pending && pending.ws === ws) {
-        const conn = conns.get(ws);
-        if (conn) conn.lastResponseAt = new Date().toISOString();
-        clearTimeout(pending.timeout);
-        pluginPendingRequests.delete(msg.id);
-        pending.resolve(msg.results);
-      }
-    }
-
     if (msg.type === 'ping') {
       try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
     }

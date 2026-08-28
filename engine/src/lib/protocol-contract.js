@@ -31,7 +31,6 @@ const MAX_SELECTION_BYTES = 256 * 1024;
 const MAX_REST_TOKEN_BYTES = 4096;
 const MAX_HANDSHAKE_BYTES = 16 * 1024;
 const MAX_CAPABILITIES = 16;
-const MAX_BATCH_RESULTS = 100;
 
 function byteLength(value) {
   return Buffer.byteLength(String(value), 'utf8');
@@ -362,23 +361,6 @@ export function validatePluginMessage(value, { authenticated = false } = {}) {
       const receiptError = dispatchReceiptValidationError(value.dispatchReceipt, { terminal: true });
       return receiptError ? `lane-settled ${receiptError}` : null;
     }
-    case 'batch-result':
-      {
-        const idError = messageIdError(value.id);
-        if (idError) return `batch-result ${idError}`;
-      }
-      if (!Array.isArray(value.results)) return 'batch-result results must be an array';
-      if (value.results.length > MAX_BATCH_RESULTS) return `batch-result must contain at most ${MAX_BATCH_RESULTS} results`;
-      for (let index = 0; index < value.results.length; index++) {
-        const item = value.results[index];
-        if (!isRecord(item)) return `batch result item ${index + 1} must be an object`;
-        if (typeof item.success !== 'boolean') return `batch result item ${index + 1} success must be boolean`;
-        const itemError = resultFieldsError(item, `batch result item ${index + 1}`);
-        if (itemError) return itemError;
-      }
-      return serializedLimitError(
-        'batch-result results', value.results, MAX_PROTOCOL_VALUE_BYTES, '5 MB protocol',
-      );
     case 'ping':
       return null;
     case 'rest-token':

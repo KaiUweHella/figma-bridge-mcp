@@ -58,7 +58,7 @@ const EVIDENCE = Object.freeze([
       ["tests/daemon-auth.test.js", "oversized WebSocket messages close"],
       [
         "engine/tests/protocol-contract.test.js",
-        "plugin result, error, metadata, batch, token and selection payloads are bounded",
+        "plugin result, error, metadata, token and selection payloads are bounded",
       ],
       [
         "engine/tests/daemon-client.test.js",

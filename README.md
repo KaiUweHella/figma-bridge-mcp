@@ -425,6 +425,14 @@ actual raster and logical geometry. Refresh the identity with
 capture its parent Component Set. This avoids accepting a stale or unsettled
 Variant export as visual evidence.
 
+The documented `figma_run ["export","node",…]` and
+`figma_run ["export","screenshot",…]` names remain available. Their PNG mode
+is a compatibility alias of the same Screenshot Command Application, so it
+uses one bounded capture, validates the PNG before writing through Workspace
+I/O, and reports dimensions from the encoded raster. JPG, SVG and PDF remain
+available through an explicit non-PNG compatibility route; they are not
+misrepresented as verification PNGs.
+
 Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
 subcommand level: reads like `node tree` or `component list` pass freely,

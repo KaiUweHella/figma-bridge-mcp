@@ -153,11 +153,11 @@ test('plugin protocol has explicit pre-auth and authenticated message contracts'
     type: 'lane-settled', dispatchReceipt: PREPARED_RECEIPT,
   }, { authenticated: true }), /terminal state/);
   assert.equal(validatePluginMessage({ type: 'selection', selection: { nodes: [] } }, { authenticated: true }), null);
-  assert.match(validatePluginMessage({ type: 'batch-result', id: 1 }, { authenticated: true }), /results/);
+  assert.match(validatePluginMessage({ type: 'batch-result', id: 1, results: [] }, { authenticated: true }), /unknown/);
   assert.match(validatePluginMessage({ type: 'surprise' }, { authenticated: true }), /unknown/);
 });
 
-test('plugin result, error, metadata, batch, token and selection payloads are bounded', () => {
+test('plugin result, error, metadata, token and selection payloads are bounded', () => {
   const authenticated = { authenticated: true };
   assert.match(
     validatePluginMessage({ type: 'result', id: 1, result: 'x'.repeat(MAX_PROTOCOL_VALUE_BYTES + 1), dispatchReceipt: COMPLETED_RECEIPT }, authenticated),
@@ -182,10 +182,6 @@ test('plugin result, error, metadata, batch, token and selection payloads are bo
   assert.match(
     validatePluginMessage({ type: 'result', id: 1, result: 'ok', dispatchReceipt: FAILED_RECEIPT }, authenticated),
     /non-completed Dispatch Receipt/,
-  );
-  assert.match(
-    validatePluginMessage({ type: 'batch-result', id: 1, results: Array.from({ length: 101 }, () => ({})) }, authenticated),
-    /at most 100/i,
   );
   assert.match(
     validatePluginMessage({ type: 'rest-token', value: 'x'.repeat(4097) }, authenticated),

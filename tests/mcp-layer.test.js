@@ -138,7 +138,7 @@ test('normalizeOutputArgs anchors extract / export node|screenshot outputs to th
   assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2', '-o', 'shot.png'], base),
     ['export', 'node', '1:2', '-o', inWorkspace('shot.png')]);
   assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2', '--output=shot.png'], base),
-    ['export', 'node', '1:2', `--output=${inWorkspace('shot.png')}`]);
+    ['export', 'node', '1:2', '-o', inWorkspace('shot.png')]);
   assert.deepEqual(normalizeOutputArgs(['export', 'node', '1:2'], base).slice(-2),
     ['-o', inWorkspace('node-export.png')]);
   assert.deepEqual(normalizeOutputArgs(['export', 'screenshot'], base).slice(-2),
@@ -2797,7 +2797,7 @@ test('figma_run rejects malformed Code Spec argv before readiness or capture', a
   }
 });
 
-test('figma_screenshot and figma_run share the Plan-bound Screenshot Application', () => {
+test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Screenshot Application', async () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const dedicatedStart = source.indexOf('case "figma_screenshot"');
   const dedicated = source.slice(dedicatedStart, source.indexOf('case "figma_spec"', dedicatedStart));
@@ -2813,6 +2813,18 @@ test('figma_screenshot and figma_run share the Plan-bound Screenshot Application
   assert.match(generic, /compatibilityFallback:\s*false/);
   assert.match(generic, /executeScreenshotPlan\(plan/);
   assert.doesNotMatch(generic, /runCliPlan\(/);
+
+  const { screenshotPlanRoute } = await import('../engine/src/application/screenshot-command.js');
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  for (const args of [
+    ['export', 'node', '1:2'],
+    ['export', 'screenshot'],
+  ]) {
+    assert.equal(screenshotPlanRoute(planFigmaCommand(args)), 'command-application');
+  }
+  assert.equal(screenshotPlanRoute(planFigmaCommand([
+    'export', 'node', '1:2', '--format', 'svg',
+  ])), 'not-screenshot');
 });
 
 test('malformed Screenshot requests stop before readiness or persistence', async () => {
@@ -2822,6 +2834,8 @@ test('malformed Screenshot requests stop before readiness or persistence', async
     ['verify', '1:2', '2:3'],
     ['verify', '1:2', '--scale', '0'],
     ['verify', '1:2', '--save', 'shot.png', '--base64'],
+    ['export', 'node', 'bad-node'],
+    ['export', 'screenshot', '1:2'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));

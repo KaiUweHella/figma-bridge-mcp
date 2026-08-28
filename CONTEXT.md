@@ -617,6 +617,15 @@ directory. Inline Base64 declares no file. Bounded PNG IHDR dimensions stay
 distinct from logical node geometry and requested/applied scale.
 _Avoid_: screenshot temp file, incidental render output
 
+**Raster Export Compatibility**:
+The closed compatibility request behind the documented `export node` and
+`export screenshot` names. PNG adapts before readiness to the Screenshot
+Command Application and its Plan-owned Verification Artifact, bounded PNG
+validation, Workspace I/O and raster-dimension facts. JPG, SVG and PDF retain
+one explicit non-PNG compatibility route until a format-appropriate Command
+Application owns them; they are never presented as PNG verification evidence.
+_Avoid_: duplicate PNG eval, logical width as pixels, removed legacy format
+
 **Private State Permissions**:
 The platform-specific enforcement boundary for an exact Bridge-owned Shared
 State or Verification Artifact tree. POSIX proves `0700` directories and

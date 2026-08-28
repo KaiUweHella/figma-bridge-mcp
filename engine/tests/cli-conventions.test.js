@@ -1421,6 +1421,19 @@ test('verify delegates capture and persistence to one Plan-bound Screenshot Appl
     'Commander must not retain Screenshot readiness or persistence policy');
 });
 
+test('legacy PNG export names delegate to the Plan-bound Screenshot Application', () => {
+  const adapter = sources.get('export-eval.js');
+  assert.ok(adapter, 'export-eval.js exists');
+  const start = adapter.indexOf(".command('screenshot')");
+  const end = adapter.indexOf(".command('video <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /runPngExportCompatibilityCommand/);
+  assert.match(action, /format === 'PNG'/);
+  assert.match(adapter, /executeScreenshotPlan\(plan,/);
+  assert.match(adapter, /compatibilityFallback: false/);
+  assert.doesNotMatch(action, /format: 'PNG'.*exportAsync/s);
+});
+
 test('simple render delegates one non-retrying Semantic Render Application', () => {
   const adapter = sources.get('render.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'semantic-render-command.js'), 'utf8');

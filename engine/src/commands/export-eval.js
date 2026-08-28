@@ -31,6 +31,9 @@ import {
   executeScreenshotPlan,
   screenshotPlanningArgvFromRequest,
 } from '../application/screenshot-command.js';
+import {
+  legacyRasterExportPlanningArgvFromRequest,
+} from '../application/legacy-raster-export-request.js';
 import { DEFAULT_RASTER_SCALE } from '../lib/raster-optimize.js';
 import {
   AssetExportFailure,
@@ -58,6 +61,27 @@ function normalizedId(input) {
   return r.id;
 }
 
+async function runPngExportCompatibilityCommand(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(legacyRasterExportPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeScreenshotPlan(plan, {
+        workspaceIO: io,
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 const exp = program
   .command('export')
   .description('Export from Figma');
@@ -69,9 +93,22 @@ exp
   .option('-s, --scale <number>', 'Export scale (1-4)', '2')
   .option('-f, --format <format>', 'Format: png, jpg, svg, pdf', 'png')
   .action(async (options) => {
-    await checkConnection();
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
+    if (format === 'PNG') {
+      try {
+        const result = await runPngExportCompatibilityCommand({
+          action: 'screenshot', outputPath: options.output, scale, format,
+        });
+        if (result.stderr) console.error(result.stderr);
+        console.log(result.stdout);
+      } catch (error) {
+        console.error(chalk.red('✗'), error.message);
+        process.exitCode = 1;
+      }
+      return;
+    }
+    await checkConnection();
     const code = `(async () => {
 const sel = figma.currentPage.selection;
 const node = sel.length > 0 ? sel[0] : figma.currentPage;
@@ -108,10 +145,23 @@ exp
   .option('-s, --scale <number>', 'Export scale', '2')
   .option('-f, --format <format>', 'Format: png, svg, pdf, jpg', 'png')
   .action(async (nodeId, options) => {
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
+    if (format === 'PNG') {
+      try {
+        const result = await runPngExportCompatibilityCommand({
+          action: 'node', nodeId, outputPath: options.output, scale, format,
+        });
+        if (result.stderr) console.error(result.stderr);
+        console.log(result.stdout);
+      } catch (error) {
+        console.error(chalk.red('✗'), error.message);
+        process.exitCode = 1;
+      }
+      return;
+    }
+    await checkConnection();
+    nodeId = normalizedId(nodeId);
     const code = `(async () => {
 const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
 if (!node) return { error: 'Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '" — Safe Mode only reaches the file open in Figma Desktop.' };

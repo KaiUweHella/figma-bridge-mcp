@@ -4270,27 +4270,6 @@ figma.ui.onmessage = async (msg) => {
     return;
   }
 
-  // Batch eval (execute multiple codes in sequence, return all results)
-  if (msg.type === 'eval-batch') {
-    const { id, codes } = msg;
-    evalChain = evalChain.then(async () => {
-      const results = [];
-      for (const code of codes) {
-        const revisionBefore = documentRevisionAvailable ? documentRevision : null;
-        try {
-          const execution = await executeCode(code);
-          results.push(execution.timedOut
-            ? { success: false, error: errorMessage(execution.timeoutError), metadata: revisionMetadata(revisionBefore) }
-            : { success: true, result: execution.result, metadata: revisionMetadata(revisionBefore) });
-        } catch (error) {
-          results.push({ success: false, error: errorMessage(error), metadata: revisionMetadata(revisionBefore) });
-        }
-      }
-      figma.ui.postMessage({ type: 'batch-result', id, results });
-    });
-    return;
-  }
-
   // --- UI feature bridge ---
   // The iframe cannot resize itself; it asks the main thread.
   if (msg.type === 'resize') {

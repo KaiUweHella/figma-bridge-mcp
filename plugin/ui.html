@@ -311,7 +311,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.29';
+    const PLUGIN_VERSION = '3.3.30';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'asset-stream-v1',
       'dispatch-receipt-v1',
@@ -698,11 +698,9 @@
       try {
         dispatchReceipt = uiTerminalDispatchReceipt(msg.dispatchReceipt, 'not-dispatched', 'paused');
       } catch (e) {}
-      const reply = msg.action === 'eval-batch'
-        ? { type: 'batch-result', id: msg.id, results: (msg.codes || []).map(() => ({ success: false, error })) }
-        : msg.action === 'asset-stream'
-          ? { type: 'asset-stream-end', id: msg.id, chunks: 0, error, dispatchReceipt }
-          : { type: 'result', id: msg.id, error, dispatchReceipt };
+      const reply = msg.action === 'asset-stream'
+        ? { type: 'asset-stream-end', id: msg.id, chunks: 0, error, dispatchReceipt }
+        : { type: 'result', id: msg.id, error, dispatchReceipt };
       try { ws.send(JSON.stringify(reply)); } catch (e) {}
       if (msg.action === 'asset-stream') {
         try { ws.send(JSON.stringify({ type: 'lane-settled', dispatchReceipt })); } catch (e) {}
@@ -1278,12 +1276,6 @@
         addLog({ id: msg.id, t0: Date.now(), label: 'render plan batch · ' + n + ' frame' + (n !== 1 ? 's' : ''), kind: 'write' });
         parent.postMessage({ pluginMessage: { type: 'render-plan-batch', id: msg.id, plans: msg.plans, options: msg.options || {}, timeoutMs: msg.timeoutMs, deadlineAt: msg.deadlineAt, dispatchReceipt: msg.dispatchReceipt } }, '*');
       }
-      if (msg.action === 'eval-batch') {
-        if (paused) { rejectPaused(msg); return; }
-        const n = (msg.codes || []).length;
-        addLog({ id: msg.id, t0: Date.now(), label: 'batch · ' + n + ' step' + (n !== 1 ? 's' : ''), kind: 'write' });
-        parent.postMessage({ pluginMessage: { type: 'eval-batch', id: msg.id, codes: msg.codes } }, '*');
-      }
       if (msg.action === 'reload-ui') {
         // The long-lived plugin main thread owns figma.showUI(). Forward the
         // authenticated recovery request there; it acknowledges through the
@@ -1418,15 +1410,6 @@
           ws.send(JSON.stringify({ type: 'lane-settled', dispatchReceipt: msg.dispatchReceipt }));
         }
       }
-      if (msg.type === 'batch-result') {
-        const fails = (msg.results || []).filter(r => r && r.success === false);
-        finishLog(msg.id, fails.length ? (fails.length + ' step(s) failed: ' + (fails[0].error || '')) : null,
-          (msg.results || []).length + ' done');
-        if (ws && ws.readyState === WebSocket.OPEN && authed) {
-          ws.send(JSON.stringify({ type: 'batch-result', id: msg.id, results: msg.results }));
-        }
-      }
-
       // Selection snapshot from the main thread (automatic, debounced):
       // show it in the UI and forward it to the daemon so the MCP tool
       // figma_selection can read it. Not logged — auto-pushes would spam

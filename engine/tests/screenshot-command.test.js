@@ -17,6 +17,12 @@ import {
   screenshotArgvFromRequest,
 } from '../src/application/screenshot-request.js';
 import {
+  acceptsLegacyRasterExportArgv,
+  legacyRasterExportArgvFromRequest,
+  legacyRasterExportPlanningArgvFromRequest,
+  parseLegacyRasterExportRequest,
+} from '../src/application/legacy-raster-export-request.js';
+import {
   inspectVerificationPng,
   MAX_VERIFICATION_PNG_DIMENSION,
 } from '../src/application/verification-artifact.js';
@@ -172,6 +178,78 @@ test('screenshot request closes selection, URL targeting, persistence and option
     ['verify', '1:2', '--scale', '0'],
     ['verify', '1:2', '--save', 'shot.png', '--base64'],
   ]) assert.equal(acceptsScreenshotArgv(argv), false, argv.join(' '));
+});
+
+test('legacy raster export names retain closed PNG and non-PNG compatibility requests', () => {
+  assert.deepEqual(parseLegacyRasterExportRequest([
+    'export', 'node', '1-2', '--format=png', '-s2', '--output', 'card.png',
+  ]), {
+    action: 'node', nodeId: '1:2', scale: 2, format: 'PNG', outputPath: 'card.png',
+  });
+  assert.deepEqual(parseLegacyRasterExportRequest(['export', 'screenshot', '-f', 'svg']), {
+    action: 'screenshot', nodeId: '', scale: 2, format: 'SVG', outputPath: 'screenshot.svg',
+  });
+  assert.deepEqual(legacyRasterExportArgvFromRequest({
+    action: 'node', nodeId: '1:2', outputPath: 'card.png', scale: 2, format: 'PNG',
+  }), ['export', 'node', '1:2', '-o', 'card.png']);
+  assert.equal(legacyRasterExportPlanningArgvFromRequest({
+    action: 'node',
+    nodeId: 'https://www.figma.com/design/FILEA/Screen?node-id=12-34',
+    format: 'PNG',
+  })[2], 'https://www.figma.com/design/FILEA/Screen?node-id=12-34');
+  for (const argv of [
+    ['export', 'node'],
+    ['export', 'node', '1:2', '2:3'],
+    ['export', 'screenshot', '1:2'],
+    ['export', 'node', '1:2', '--format', 'webp'],
+    ['export', 'node', '1:2', '--scale', '0'],
+    ['export', 'node', 'arbitrary-name'],
+  ]) assert.equal(acceptsLegacyRasterExportArgv(argv), false, argv.join(' '));
+});
+
+test('PNG compatibility aliases use the Screenshot Plan while other formats stay explicit', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'screenshot-compatibility-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const io = createWorkspaceIO({ root });
+  const nodePlan = planFigmaCommand(['export', 'node', '1:2'], {
+    adapter: 'cli', workspaceDir: root, workspaceIO: io,
+  });
+  assert.equal(nodePlan.id, 'export.node');
+  assert.equal(nodePlan.allowed, true);
+  assert.equal(screenshotPlanRoute(nodePlan), 'command-application');
+  assert.deepEqual(nodePlan.outputs, [{
+    role: 'verification-image-output', path: join(root, 'node-export.png'),
+    scope: 'workspace', cleanup: 'caller-owned',
+  }]);
+  const capture = {
+    name: 'Card', id: '1:2', nodeWidth: 10, nodeHeight: 3.5,
+    appliedScale: 2, base64: PNG.toString('base64'),
+  };
+  const result = await executeScreenshotPlan(nodePlan, { workspaceIO: io, evaluate: async () => capture });
+  assert.equal(result.stdout, `✓ Exported Card (20x7) to ${join(root, 'node-export.png')}`);
+  assert.deepEqual(readFileSync(join(root, 'node-export.png')), PNG);
+
+  const selectionPlan = planFigmaCommand(['export', 'screenshot', '-o', 'selection.png'], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io,
+  });
+  assert.equal(screenshotPlanRoute(selectionPlan), 'command-application');
+  const selectionResult = await executeScreenshotPlan(selectionPlan, {
+    workspaceIO: io,
+    evaluate: async () => ({ ...capture, name: 'Selection' }),
+  });
+  assert.equal(selectionResult.stdout,
+    `✓ Screenshot: Selection (20x7) → ${join(root, 'selection.png')}`);
+
+  const svgPlan = planFigmaCommand(['export', 'node', '1:2', '--format', 'svg'], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io,
+  });
+  assert.equal(screenshotPlanRoute(svgPlan), 'not-screenshot');
+  assert.deepEqual(svgPlan.argv, [
+    'export', 'node', '1:2', '-o', join(root, 'node-export.svg'), '-f', 'svg',
+  ]);
+  assert.deepEqual(svgPlan.outputs, [{
+    role: 'export-image-output', path: join(root, 'node-export.svg'),
+  }]);
 });
 
 test('default screenshot persistence is an exact private Plan artifact', async (t) => {
