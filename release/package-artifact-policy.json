@@ -38,6 +38,8 @@
     "engine/src/application/component-property-set-command.js",
     "engine/src/application/component-property-set-request.js",
     "engine/src/application/component-set-reference-request.js",
+    "engine/src/application/component-swap-command.js",
+    "engine/src/application/component-swap-request.js",
     "engine/src/application/page-navigation-command.js",
     "engine/src/application/page-navigation-request.js",
     "engine/src/application/page-structure-command.js",

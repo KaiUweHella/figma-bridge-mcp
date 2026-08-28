@@ -174,6 +174,12 @@ import {
   parseComponentCreateRequest,
 } from '../engine/src/application/component-create-request.js';
 import {
+  acceptsComponentSwapArgv,
+  componentSwapArgvFromRequest,
+  componentSwapFigmaUrlFileKeyFromArgv,
+  parseComponentSwapRequest,
+} from '../engine/src/application/component-swap-request.js';
+import {
   acceptsComponentInventoryArgv,
   componentInventoryArgvFromRequest,
   parseComponentInventoryRequest,
@@ -504,7 +510,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
   'col.extend',
-  'component.main', 'component.combine', 'component.add-variant', 'component.create',
+  'component.main', 'component.combine', 'component.add-variant', 'component.create', 'component.swap',
   'component.list',
   'component.instantiate',
   'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
@@ -753,6 +759,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'instantiate') {
     pathPolicy = 'component-instantiate-input';
   }
+  if (name === 'component' && sub === 'swap') {
+    pathPolicy = 'component-swap-input';
+  }
   if (name === 'component' && sub === 'list') {
     retry = 'safe-read';
     if (args.includes('--all-pages')) timeoutClass = 'long';
@@ -879,6 +888,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'instantiate'
     && !action.help && !acceptsComponentInstantiateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'swap'
+    && !action.help && !acceptsComponentSwapArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'list'
@@ -1704,6 +1717,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentCreateArgvFromRequest(
         parseComponentCreateRequest(args)));
+      break;
+    }
+    case 'component-swap-input': {
+      const closedFileKey = componentSwapFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentSwapArgvFromRequest(
+        parseComponentSwapRequest(args)));
       break;
     }
     case 'component-inventory-input':

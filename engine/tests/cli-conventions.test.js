@@ -456,6 +456,24 @@ test('component create delegates one rollback-owned non-retrying Command Applica
     'Commander must not retain Component Create preflight, mutation, or formatting logic');
 });
 
+test('component swap delegates one one-shot verified non-retrying Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const helperStart = adapter.indexOf('async function runComponentSwapCommand');
+  const commandStart = adapter.indexOf(".command('swap <instanceId> <componentId>')", helperStart);
+  const commandEnd = adapter.indexOf(".command('detach <instanceId>')", commandStart);
+  const action = adapter.slice(helperStart, commandEnd);
+
+  assert.match(action, /componentSwapPlanningArgvFromRequest\(request\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeComponentSwapPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|swapComponent\(|getNodeByIdAsync/,
+    'Commander must not retain Component Swap preflight, mutation, or formatting logic');
+});
+
 test('component list delegates one Plan-bound bounded Component Inventory Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

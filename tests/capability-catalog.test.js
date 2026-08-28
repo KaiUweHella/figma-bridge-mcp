@@ -207,6 +207,26 @@ test('Component Create closes one policy-identical rollback-owned write', () => 
   assert.equal(cli.confirmation, 'configured');
 });
 
+test('Component Swap closes one policy-identical one-shot verified write', () => {
+  const args = [
+    'component', 'swap',
+    'https://www.figma.com/design/FILEA/Test?node-id=3-1',
+    'https://www.figma.com/design/FILEA/Test?node-id=2-2',
+    '--json',
+  ];
+  const cli = planFigmaCommand(args, { adapter: 'cli' });
+  const mcp = planFigmaCommand(args, { adapter: 'mcp' });
+  assert.equal(cli.id, 'component.swap');
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.target, mcp.target);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.target.fileKey, 'FILEA');
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured');
+});
+
 test('Component Inventory closes one policy-identical bounded safe read', () => {
   const args = ['component', 'list', '--all-pages', '--json'];
   const cli = planFigmaCommand(args, { adapter: 'cli', fileKey: 'FILEA' });

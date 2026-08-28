@@ -54,6 +54,10 @@ import {
   executeComponentCreatePlan,
 } from '../application/component-create-command.js';
 import {
+  componentSwapPlanningArgvFromRequest,
+  executeComponentSwapPlan,
+} from '../application/component-swap-command.js';
+import {
   componentInventoryPlanningArgvFromRequest,
   executeComponentInventoryPlan,
 } from '../application/component-inventory-command.js';
@@ -726,27 +730,42 @@ componentCmd
     }
   });
 
+async function runComponentSwapCommand(request) {
+  const argv = componentSwapPlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentSwapPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('swap <instanceId> <componentId>')
   .description('Swap an explicit instance to an explicit main component')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (instanceId, componentId, options) => {
     try {
-      const instance = normalizeNodeId(String(instanceId)).id;
-      const component = normalizeNodeId(String(componentId)).id;
-      await checkConnection();
-      const result = await daemonExec('eval', { code: `(async () => {
-const instance = await figma.getNodeByIdAsync(${JSON.stringify(instance)});
-const component = await figma.getNodeByIdAsync(${JSON.stringify(component)});
-if (!instance || instance.type !== 'INSTANCE') throw new Error('Expected INSTANCE: ' + ${JSON.stringify(instance)});
-if (!component || component.type !== 'COMPONENT') throw new Error('Expected COMPONENT: ' + ${JSON.stringify(component)});
-const previous = await instance.getMainComponentAsync();
-instance.swapComponent(component);
-return { instance: { id: instance.id, name: instance.name }, previous: previous ? { id: previous.id, name: previous.name } : null, component: { id: component.id, name: component.name } };
-})()` });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Swapped "${result.instance.name}" to ${result.component.name} (${result.component.id})`);
-    } catch (error) { handleEvalError(error); }
+      const result = await runComponentSwapCommand({
+        instanceId,
+        componentId,
+        json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Swap failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 componentCmd
