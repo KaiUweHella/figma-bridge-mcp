@@ -388,6 +388,35 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-PRIVATE-STATE",
+    [
+      [
+        "engine/tests/private-state-permissions.test.js",
+        "Windows ACL Adapter uses a bounded argument array and returns direct evidence",
+      ],
+      [
+        "engine/tests/private-state-permissions.test.js",
+        "Windows directly rejects a permissive DACL and repairs it idempotently",
+      ],
+      [
+        "engine/tests/private-state-permissions.test.js",
+        "POSIX privacy repair is recursive, idempotent and directly verifiable",
+      ],
+      [
+        "engine/tests/private-state-permissions.test.js",
+        "POSIX privacy preflight rejects links before changing the tree",
+      ],
+      [
+        "engine/tests/private-state-permissions.test.js",
+        "private-state policy rejects broad roots and unowned artifact names",
+      ],
+      [
+        "engine/tests/screenshot-command.test.js",
+        "default screenshot persistence is an exact private Plan artifact",
+      ],
+    ],
+  ],
+  [
     "SEC-PLUGIN-NETWORK",
     [
       [

@@ -373,7 +373,16 @@ import {
   createVerificationArtifactWriter,
   VERIFICATION_ARTIFACT_ROLE,
 } from "../engine/src/application/verification-artifact.js";
-import { WRITE_CONFIRM, WORKSPACE_IO } from "./config.js";
+import {
+  AUDIT_LOG_PATH,
+  DAEMON_PID_FILE,
+  DAEMON_TOKEN_FILE,
+  PLUGIN_KEY_FILE,
+  REST_TOKEN_FILE,
+  STATE_DIR,
+  WRITE_CONFIRM,
+  WORKSPACE_IO,
+} from "./config.js";
 import { getAuditStatus } from "./audit-trail.js";
 import {
   recordRuntimeTrace,
@@ -381,6 +390,10 @@ import {
   runtimeNow,
   runtimeTraceEnabled,
 } from "../engine/src/lib/runtime-trace.js";
+import {
+  hardenPrivateTree,
+  privateStateOwns,
+} from "../engine/src/lib/private-state-permissions.js";
 import { createTrackedJobRegistry } from "./tracked-job-registry.js";
 
 export const MCP_SERVER_ID = "figma-bridge-mcp";
@@ -3901,6 +3914,18 @@ export async function handleTool(name, rawArgs) {
 }
 
 async function main() {
+  // This exact directory is Bridge-owned private Shared State. On Windows the
+  // platform Adapter repairs and verifies its DACL; on POSIX it retains the
+  // existing 0700/0600 contract. No workspace or parent directory is changed.
+  if (privateStateOwns(STATE_DIR, [
+    AUDIT_LOG_PATH,
+    DAEMON_PID_FILE,
+    DAEMON_TOKEN_FILE,
+    PLUGIN_KEY_FILE,
+    REST_TOKEN_FILE,
+  ])) {
+    hardenPrivateTree(STATE_DIR, { kind: "bridge-state", create: true });
+  }
   const server = new Server(
     // Single source of truth: package.json (SERVER_VERSION also carries the
     // git SHA for figma_status; the MCP handshake wants the bare semver).

@@ -291,6 +291,10 @@ test('the live STDIO server advertises the complete tool surface to MCP clients'
     command: process.execPath,
     args: [fileURLToPath(new URL('../src/server.js', import.meta.url))],
     cwd: ROOT,
+    env: {
+      AUDIT_LOG_PATH: process.env.AUDIT_LOG_PATH,
+      PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE,
+    },
     stderr: 'pipe',
   });
   const client = new Client({ name: 'figma-bridge-tool-discovery-test', version: '1.0.0' });

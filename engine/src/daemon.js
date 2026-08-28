@@ -71,14 +71,28 @@ import {
 } from './lib/plugin-write-lane.js';
 import { PluginReadLaneError, createPluginReadLane } from './lib/plugin-read-lane.js';
 import { createAssetTransferStore } from './lib/asset-transfer-store.js';
+import { hardenPrivateTree, privateStateOwns } from './lib/private-state-permissions.js';
 
 const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
 const PLUGIN_HEALTH_PROBE_TIMEOUT_MS = 1500;
-const assetTransferStore = createAssetTransferStore(
-  process.env.DAEMON_ASSET_TRANSFER_DIR
-    ? { root: process.env.DAEMON_ASSET_TRANSFER_DIR }
-    : {}
-);
+const ASSET_TRANSFER_ROOT = process.env.DAEMON_ASSET_TRANSFER_DIR
+  || join(STATE_DIR, 'asset-transfers');
+
+// Test harnesses may redirect every runtime artifact into scratch paths. Those
+// paths are not silently claimed as Bridge-owned. The normal runtime keeps all
+// artifacts below the exact Shared-State root and repairs it before reading a
+// credential or creating a transfer.
+const DEFAULT_PRIVATE_RUNTIME_PATHS = [
+  process.env.DAEMON_TOKEN_FILE || join(STATE_DIR, '.daemon-token'),
+  process.env.DAEMON_PID_FILE || join(STATE_DIR, 'daemon.pid'),
+  process.env.PLUGIN_KEY_FILE || '',
+  process.env.REST_TOKEN_FILE || join(STATE_DIR, 'rest-token'),
+  ASSET_TRANSFER_ROOT,
+];
+if (privateStateOwns(STATE_DIR, DEFAULT_PRIVATE_RUNTIME_PATHS)) {
+  hardenPrivateTree(STATE_DIR, { kind: 'bridge-state', create: true });
+}
+const assetTransferStore = createAssetTransferStore({ root: ASSET_TRANSFER_ROOT });
 
 // Explicit DAEMON_PORT means "exactly this port, no fallback" (the plugin can
 // only reach the manifest range — off-range values are documented unsupported).

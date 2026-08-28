@@ -617,6 +617,15 @@ directory. Inline Base64 declares no file. Bounded PNG IHDR dimensions stay
 distinct from logical node geometry and requested/applied scale.
 _Avoid_: screenshot temp file, incidental render output
 
+**Private State Permissions**:
+The platform-specific enforcement boundary for an exact Bridge-owned Shared
+State or Verification Artifact tree. POSIX proves `0700` directories and
+`0600` files. Windows proves a protected, recursively repaired DACL granting
+Full Control only to the current account, LocalSystem and built-in
+Administrators. It rejects links, bounds traversal and never derives authority
+over a parent, Workspace path or general temporary directory.
+_Avoid_: chmod-on-Windows claim, inherited-profile assumption, common-parent repair
+
 **Structural Snapshot Store**:
 The sole private shared-state Module for local structural history. It maps one
 Figma file identity to one collision-resistant namespace, publishes canonical

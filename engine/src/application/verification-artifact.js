@@ -19,6 +19,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { hardenPrivateTree } from '../lib/private-state-permissions.js';
 
 export const VERIFICATION_ARTIFACT_ROLE = 'verification-image-output';
 export const MAX_VERIFICATION_ARTIFACTS = 100;
@@ -228,8 +229,12 @@ export function createVerificationArtifactWriter(outputs, { workspaceIO = null }
     if (canonical !== parent || !metadata.isDirectory() || metadata.isSymbolicLink()) {
       throw artifactError('private temporary directory did not retain its exact identity');
     }
+    hardenPrivateTree(parent, {
+      kind: 'verification-artifact',
+      create: false,
+    });
     privateParent = parent;
-    privateParentStat = metadata;
+    privateParentStat = lstatSync(parent);
   }
 
   async function write(index, bytes) {
@@ -284,6 +289,12 @@ export function createVerificationArtifactWriter(outputs, { workspaceIO = null }
         throw artifactError('temporary output changed while it was opened');
       }
       writeFileSync(fd, bytes);
+      closeSync(fd);
+      fd = undefined;
+      hardenPrivateTree(privateParent, {
+        kind: 'verification-artifact',
+        create: false,
+      });
       created.add(output.path);
       return output.path;
     } catch (error) {

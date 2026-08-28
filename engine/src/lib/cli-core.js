@@ -14,6 +14,7 @@ import { createDaemonClient } from './daemon-client.js';
 import { PLUGIN_BUILD_VERSION } from './plugin-version.js';
 import { retrySafeRead } from './safe-read-retry.js';
 import { STATE_DIR } from './state-dir.js';
+import { hardenPrivateTree, privateStateOwns } from './private-state-permissions.js';
 // Moved out of this file; re-exported below so command modules keep importing
 // everything from one place.
 import { unescapeShell, detectWrapperSplit } from './jsx-split.js';
@@ -27,6 +28,7 @@ import {
 const DAEMON_PID_FILE = process.env.DAEMON_PID_FILE || join(STATE_DIR, 'daemon.pid');
 const DAEMON_TOKEN_FILE = process.env.DAEMON_TOKEN_FILE || join(STATE_DIR, '.daemon-token');
 const DEFAULT_PLUGIN_KEY_FILE = join(STATE_DIR, 'plugin-key');
+let defaultPrivateStateReady = false;
 
 // The MCP wrapper passes PLUGIN_KEY_FILE explicitly, but the vendored engine is
 // also a supported local entry point (`connect`, `daemon restart`). Falling
@@ -36,10 +38,25 @@ function getPluginKeyFile() {
   return process.env.PLUGIN_KEY_FILE || DEFAULT_PLUGIN_KEY_FILE;
 }
 
+function ensureDefaultPrivateState(create = false) {
+  if (defaultPrivateStateReady) return;
+  if (!privateStateOwns(STATE_DIR, [
+    DAEMON_PID_FILE,
+    DAEMON_TOKEN_FILE,
+    getPluginKeyFile(),
+  ])) return;
+  const report = hardenPrivateTree(STATE_DIR, {
+    kind: 'bridge-state',
+    create,
+  });
+  defaultPrivateStateReady = report.count > 0;
+}
+
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {
+  ensureDefaultPrivateState(true);
   const configDir = STATE_DIR;
-  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
+  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString('hex');
   writeFileSync(DAEMON_TOKEN_FILE, token, { mode: 0o600 });
   return token;
@@ -47,6 +64,7 @@ function generateDaemonToken() {
 
 // Read the current daemon session token
 function getDaemonToken() {
+  ensureDefaultPrivateState(false);
   try {
     return readFileSync(DAEMON_TOKEN_FILE, 'utf8').trim();
   } catch {
