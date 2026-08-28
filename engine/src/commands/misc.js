@@ -47,6 +47,10 @@ import {
   executeComponentPropertySetPlan,
 } from '../application/component-property-set-command.js';
 import {
+  componentInstantiatePlanningArgvFromRequest,
+  executeComponentInstantiatePlan,
+} from '../application/component-instantiate-command.js';
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
@@ -591,6 +595,24 @@ async function runComponentPropertyListCommand(request) {
     });
 }
 
+async function runComponentInstantiateCommand(request) {
+  const argv = componentInstantiatePlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentInstantiatePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('instantiate <componentId>')
   .description('Create an instance from an explicit main component')
@@ -602,28 +624,21 @@ componentCmd
   .option('--json', 'Output as JSON')
   .action(async (componentId, options) => {
     try {
-      const component = normalizeNodeId(String(componentId)).id;
-      const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
-      const x = Number(options.x), y = Number(options.y);
-      const index = options.index === undefined ? null : Number(options.index);
-      if (![x, y].every(Number.isFinite)) throw new Error('x and y must be numbers');
-      if (index !== null && (!Number.isInteger(index) || index < 0)) throw new Error('--index must be a non-negative integer');
-      await checkConnection();
-      const result = await daemonExec('eval', { code: `(async () => {
-const component = await figma.getNodeByIdAsync(${JSON.stringify(component)});
-if (!component || component.type !== 'COMPONENT') throw new Error('Expected COMPONENT: ' + ${JSON.stringify(component)});
-let parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'figma.currentPage'};
-if (!parent || typeof parent.appendChild !== 'function') throw new Error('Target parent cannot contain children');
-${index === null ? '' : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});`}
-const instance = component.createInstance();
-${index === null ? 'parent.appendChild(instance);' : `parent.insertChild(${index}, instance);`}
-instance.x = ${x}; instance.y = ${y};
-${options.name ? `instance.name = ${JSON.stringify(options.name)};` : ''}
-return { id: instance.id, name: instance.name, type: instance.type, componentId: component.id, parentId: instance.parent ? instance.parent.id : null };
-})()` });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Created instance "${result.name}" (${result.id})`);
-    } catch (error) { handleEvalError(error); }
+      const result = await runComponentInstantiateCommand({
+        componentId,
+        parentId: options.parent ?? null,
+        x: options.x,
+        y: options.y,
+        index: options.index ?? null,
+        name: options.name ?? null,
+        json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Instantiate failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 componentCmd

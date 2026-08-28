@@ -1541,6 +1541,34 @@ test('figma_run routes Component Property List through the bounded safe-read App
     'Component Property List must not re-enter Commander');
 });
 
+test('figma_run routes Component Instantiate through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentInstantiateRoute = componentInstantiatePlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentInstantiatePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Instantiate must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Component Instantiate before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['component', 'instantiate'],
+    ['component', 'instantiate', 'bad'],
+    ['component', 'instantiate', '2:1', '--index', '-1'],
+    ['component', 'instantiate', '2:1', '-x', 'not-a-number'],
+    ['component', 'instantiate', '2:1', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+  }
+});
+
 test('figma_run rejects malformed Component Property List before readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

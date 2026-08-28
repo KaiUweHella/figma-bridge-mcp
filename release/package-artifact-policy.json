@@ -23,6 +23,8 @@
     "engine/src/application/component-combine-request.js",
     "engine/src/application/component-main-command.js",
     "engine/src/application/component-main-request.js",
+    "engine/src/application/component-instantiate-command.js",
+    "engine/src/application/component-instantiate-request.js",
     "engine/src/application/component-property-add-command.js",
     "engine/src/application/component-property-add-request.js",
     "engine/src/application/component-property-delete-command.js",

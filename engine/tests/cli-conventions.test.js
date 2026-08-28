@@ -419,6 +419,24 @@ test('component add-variant delegates one rollback-owned non-retrying Command Ap
     'Commander must not retain Component Add Variant resolution, mutation, or formatting');
 });
 
+test('component instantiate delegates one rollback-owned non-retrying Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const helperStart = adapter.indexOf('async function runComponentInstantiateCommand');
+  const commandStart = adapter.indexOf(".command('instantiate <componentId>')", helperStart);
+  const commandEnd = adapter.indexOf(".command('list')", commandStart);
+  const action = adapter.slice(helperStart, commandEnd);
+
+  assert.match(action, /componentInstantiatePlanningArgvFromRequest\(request\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeComponentInstantiatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|createInstance\(|getNodeByIdAsync/,
+    'Commander must not retain Component Instantiate preflight, mutation, or formatting logic');
+});
+
 test('style show delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');
