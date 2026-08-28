@@ -35,6 +35,10 @@ import {
   executeComponentPropertyAddPlan,
 } from '../application/component-property-add-command.js';
 import {
+  componentPropertyDeletePlanningArgvFromRequest,
+  executeComponentPropertyDeletePlan,
+} from '../application/component-property-delete-command.js';
+import {
   componentPropertySetPlanningArgvFromRequest,
   executeComponentPropertySetPlan,
 } from '../application/component-property-set-command.js';
@@ -547,6 +551,24 @@ async function runComponentPropertyAddCommand(request) {
     });
 }
 
+async function runComponentPropertyDeleteCommand(request) {
+  const argv = componentPropertyDeletePlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentPropertyDeletePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('instantiate <componentId>')
   .description('Create an instance from an explicit main component')
@@ -803,20 +825,17 @@ propCmd
 propCmd
   .command('delete <componentId> <propName>')
   .description('Delete a component property (use full name including #suffix)')
-  .action(async (componentId, propName) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(componentId)});
-      if (!n) throw new Error('Node not found: ${componentId}');
-      if (typeof n.deleteComponentProperty !== 'function') throw new Error('Node is not a component or component set');
-      n.deleteComponentProperty(${JSON.stringify(propName)});
-      return { id: n.id, name: n.name };
-    })()`;
+  .option('--json', 'Output as JSON')
+  .action(async (componentId, propName, options) => {
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Deleted "${propName}" on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runComponentPropertyDeleteCommand({
+        componentId, propName, json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Property Delete failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

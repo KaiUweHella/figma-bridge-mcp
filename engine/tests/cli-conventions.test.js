@@ -1432,6 +1432,17 @@ test('component prop add delegates one rollback-owned non-retrying Application',
     'Commander must not retain Component Property Add readiness or mutation logic');
 });
 
+test('component prop delete delegates one exact irreversible non-retrying Application', () => {
+  const src = sources.get('misc.js');
+  const start = src.indexOf(".command('delete <componentId> <propName>')");
+  const end = src.indexOf('async function runComponentCombineCommand', start);
+  const propDelete = src.slice(start, end);
+  assert.match(propDelete, /runComponentPropertyDeleteCommand/);
+  assert.match(propDelete, /process\.exitCode = 1/);
+  assert.doesNotMatch(propDelete, /deleteComponentProperty\(|daemonExec\(|checkConnection\(/,
+    'Commander must not retain Component Property Delete readiness or mutation logic');
+});
+
 test('unsafe legacy bulk writes stop before connection or generated mutation code', () => {
   const variables = sources.get('variables.js');
   const deleteStart = variables.indexOf(".command('delete-all')");
