@@ -86,6 +86,10 @@ import {
   nodeMoveRequestFromArgv,
 } from "../engine/src/application/node-move-command.js";
 import {
+  executeNodeDuplicatePlan,
+  nodeDuplicatePlanRoute,
+} from "../engine/src/application/node-duplicate-command.js";
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanRoute,
@@ -2206,6 +2210,23 @@ export async function handleTool(name, rawArgs) {
             }),
           });
           return { stdout: formatNodeMoveResult(result), stderr: "", code: 0 };
+        });
+        return resultFromCli(res);
+      }
+      const nodeDuplicateRoute = nodeDuplicatePlanRoute(plan);
+      if (nodeDuplicateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeDuplicatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
         });
         return resultFromCli(res);
       }

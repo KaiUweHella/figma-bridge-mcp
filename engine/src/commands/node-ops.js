@@ -35,6 +35,10 @@ import {
   nodeMoveRequestFromArgv,
 } from '../application/node-move-command.js';
 import {
+  executeNodeDuplicatePlan,
+  nodeDuplicatePlanningArgvFromRequest,
+} from '../application/node-duplicate-command.js';
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
@@ -310,58 +314,35 @@ node
   .option('--offset-x <n>', 'Horizontal offset from the source', '40')
   .option('--offset-y <n>', 'Vertical offset from the source', '40')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    const sourceId = normalizeNodeId(nodeId).id;
-    const parentId = options.parent ? normalizeNodeId(options.parent).id : null;
-    const offsetX = Number(options.offsetX);
-    const offsetY = Number(options.offsetY);
-    const index = options.index === undefined ? null : Number(options.index);
-    if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
-      console.error(chalk.red('✗ --offset-x and --offset-y must be numbers'));
-      process.exit(1);
-    }
-    if (index !== null && (!Number.isInteger(index) || index < 0)) {
-      console.error(chalk.red('✗ --index must be a non-negative integer'));
-      process.exit(1);
-    }
-    const code = `(async () => {
-      const source = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
-      if (!source) throw new Error('Node not found: ' + ${JSON.stringify(sourceId)});
-      if (typeof source.clone !== 'function') throw new Error('Node cannot be duplicated: ' + source.type);
-      let parent = source.parent;
-      ${parentId ? `parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
-      if (!parent) throw new Error('Parent not found: ' + ${JSON.stringify(parentId)});
-      if (typeof parent.appendChild !== 'function') throw new Error('Target cannot contain children: ' + parent.type);` : ''}
-      const copy = source.clone();
-      try {
-        ${parentId ? `${index === null
-          ? 'parent.appendChild(copy);'
-          : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});
-        parent.insertChild(${index}, copy);`}` : ''}
-        ${options.name ? `copy.name = ${JSON.stringify(options.name)};` : ''}
-        if ('x' in copy && typeof source.x === 'number') copy.x = source.x + ${offsetX};
-        if ('y' in copy && typeof source.y === 'number') copy.y = source.y + ${offsetY};
-      } catch (error) {
-        try { copy.remove(); } catch {}
-        throw error;
-      }
-      return {
-        id: copy.id,
-        name: copy.name,
-        type: copy.type,
-        parentId: copy.parent ? copy.parent.id : null,
-        x: typeof copy.x === 'number' ? copy.x : null,
-        y: typeof copy.y === 'number' ? copy.y : null,
-      };
-    })()`;
     try {
-      const result = await fastEval(code);
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Duplicated "${result.name}" (${result.id}) in ${result.parentId}`);
-    } catch (e) {
-      console.error(chalk.red('✗ Duplicate failed: ' + e.message));
-      process.exit(1);
+      const plan = planFigmaCommand(nodeDuplicatePlanningArgvFromRequest({
+        nodeId,
+        parentId: options.parent || null,
+        index: options.index,
+        name: options.name,
+        offsetX: options.offsetX,
+        offsetY: options.offsetY,
+        json: options.json === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeDuplicatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Duplicate failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

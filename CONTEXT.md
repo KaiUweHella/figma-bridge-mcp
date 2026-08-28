@@ -947,6 +947,10 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 >
 > **Domain expert:** No. Its Figma Target Context resolves once, then accompanies the Command Capability, audit entry, job identity and Daemon Client call. At the Plugin boundary a Dispatch Receipt binds that target and expected editor to the exact authenticated connection before mutation.
 
+> **Developer:** What happens if duplicating a node fails after Figma creates the copy?
+>
+> **Domain expert:** Node Duplicate never retries `clone()`. The Command Application owns only the new copy, removes it on a failed postcondition and freshly verifies both affected parent orders. Free-layout offsets are exact; Row, Column and Grid parents report `auto-layout-managed` coordinates because Figma owns child placement there. Its bounded mutation report distinguishes a complete rollback, remaining residue and unavailable verification without changing any supported placement, naming or offset option.
+
 > **Developer:** Does the renderer need to parse JSX again after structural validation?
 >
 > **Domain expert:** No. JSX and browser capture are adapters into a Semantic Render Plan. Validation and execution share that same ordered plan; neither path serializes and reparses another adapter's syntax.

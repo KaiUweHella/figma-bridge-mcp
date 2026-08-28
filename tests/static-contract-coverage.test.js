@@ -29,6 +29,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/legacy-raster-export-request.js',
   'engine/src/application/node-text-command.js',
   'engine/src/application/node-text-request.js',
+  'engine/src/application/node-duplicate-command.js',
+  'engine/src/application/node-duplicate-request.js',
   'engine/src/application/node-to-component-command.js',
   'engine/src/application/node-to-component-request.js',
   'engine/src/application/screenshot-command.js',

@@ -1219,6 +1219,36 @@ test('Node to-component closes one policy-identical irreversible batch', () => {
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
 });
 
+test('Node Duplicate closes one policy-identical rollback-owned write', () => {
+  const sourceUrl = 'https://www.figma.com/design/FILEA/Duplicate-Lab?node-id=12-34';
+  const parentUrl = 'https://www.figma.com/design/FILEA/Duplicate-Lab?node-id=56-78';
+  const mcp = planFigmaCommand([
+    'node', 'duplicate', sourceUrl, '--parent', parentUrl, '--index', '2',
+    '--name=Copy', '--offset-x=-20', '--offset-y=10', '--json',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand([
+    'node', 'duplicate', sourceUrl, '--parent', parentUrl, '--index=2',
+    '--name', 'Copy', '--offset-x', '-20', '--offset-y', '10', '--json',
+  ], { adapter: 'cli' });
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.target, mcp.target);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.duplicate');
+  for (const args of [
+    ['node', 'duplicate'],
+    ['node', 'duplicate', '1:2', '1-2'],
+    ['node', 'duplicate', '1:2', '--index', '-1'],
+    ['node', 'duplicate', '1:2', '--future'],
+    ['node', 'duplicate', 'not-a-node'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
 test('Node Binding Facts use the closed typed-read dispatch in both Adapters', () => {
   const cli = planFigmaCommand(['node', 'bindings', '12:34', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['node', 'bindings', '--json', '12-34'], { adapter: 'mcp' });

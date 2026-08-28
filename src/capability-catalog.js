@@ -51,6 +51,12 @@ import {
   parseNodeMoveRequest,
 } from '../engine/src/application/node-move-request.js';
 import {
+  acceptsNodeDuplicateArgv,
+  nodeDuplicateArgvFromRequest,
+  nodeDuplicateFigmaUrlFileKeyFromArgv,
+  parseNodeDuplicateRequest,
+} from '../engine/src/application/node-duplicate-request.js';
+import {
   acceptsNodeDeleteArgv,
   nodeDeleteArgvFromRequest,
   nodeDeleteFigmaUrlFileKeyFromArgv,
@@ -509,7 +515,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.move', 'node.set-text',
+  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.duplicate', 'node.move', 'node.set-text',
   'node.to-component', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
@@ -696,6 +702,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
   if (name === 'node' && sub === 'to-component') pathPolicy = 'node-to-component-input';
+  if (name === 'node' && sub === 'duplicate') pathPolicy = 'node-duplicate-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -898,6 +905,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'move' && !action.help && !acceptsNodeMoveArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'duplicate'
+    && !action.help && !acceptsNodeDuplicateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
@@ -1756,6 +1767,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...nodeToComponentArgvFromRequest(parseNodeToComponentRequest(args)));
+      break;
+    }
+    case 'node-duplicate-input': {
+      const closedFileKey = nodeDuplicateFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...nodeDuplicateArgvFromRequest(parseNodeDuplicateRequest(args)));
       break;
     }
     case 'component-main-input': {
