@@ -1903,7 +1903,7 @@ Node's `crypto` so the two implementations cannot drift apart.
 ## Development
 
 ```bash
-npm run check:contracts       # static JavaScript seam + plugin contracts
+npm run check:contracts       # separate host + Figma Plugin static contracts
 npm run check:plugin          # generated Plugin runtime has no source drift
 npm run check:architecture-latency # warmed latency budget in an idle process
 npm run measure:architecture  # context, payload and local latency baselines

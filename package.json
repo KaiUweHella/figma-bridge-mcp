@@ -53,7 +53,9 @@
   ],
   "scripts": {
     "start": "node src/server.js",
-    "check:contracts": "tsc -p jsconfig.contracts.json",
+    "check:contracts": "npm run check:contracts:host && npm run check:contracts:plugin",
+    "check:contracts:host": "tsc -p jsconfig.contracts.host.json",
+    "check:contracts:plugin": "tsc -p jsconfig.contracts.plugin.json",
     "check:audit": "npm audit --omit=dev",
     "check:audit:development": "npm audit --include=dev --audit-level=high",
     "check:package-artifact": "node scripts/verify-package-artifact.js",

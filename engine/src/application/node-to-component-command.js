@@ -349,6 +349,7 @@ function structuredMutationReport(payload) {
 }
 
 function mutationError(message, outcome, report) {
+  /** @type {Error & {kind?:string,phase?:string,outcome?:string,dispatchState?:string,mutationOutcome?:unknown,mutationReport?:unknown}} */
   const error = new Error(message);
   error.kind = 'execution';
   error.phase = 'plugin-execution';
@@ -366,6 +367,7 @@ export async function executeNodeToComponent(request, adapters = {}) {
   const input = normalizedRequest(request);
   const serialized = await adapters.evaluate(nodeToComponentCode(input));
   if (typeof serialized !== 'string' || serialized.length > MAX_NODE_TO_COMPONENT_RESULT_CODE_UNITS) {
+    /** @type {Error & {kind?:string,phase?:string,outcome?:string}} */
     const error = new Error('Node to-component returned an invalid bounded result.');
     error.kind = 'plugin-result'; error.phase = 'plugin-response'; error.outcome = 'unknown-after-dispatch';
     throw error;
@@ -373,6 +375,7 @@ export async function executeNodeToComponent(request, adapters = {}) {
   let payload;
   try { payload = JSON.parse(serialized); }
   catch {
+    /** @type {Error & {kind?:string,phase?:string,outcome?:string}} */
     const error = new Error('Node to-component returned invalid JSON.');
     error.kind = 'plugin-result'; error.phase = 'plugin-response'; error.outcome = 'unknown-after-dispatch';
     throw error;
@@ -394,6 +397,7 @@ export async function executeNodeToComponent(request, adapters = {}) {
     );
   }
   if (!validSuccess(payload, input)) {
+    /** @type {Error & {kind?:string,phase?:string,outcome?:string}} */
     const error = new Error('Node to-component returned an invalid bounded result.');
     error.kind = 'plugin-result'; error.phase = 'plugin-response'; error.outcome = 'unknown-after-dispatch';
     throw error;

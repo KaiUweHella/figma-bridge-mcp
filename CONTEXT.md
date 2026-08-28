@@ -13,6 +13,14 @@ _Avoid_: CLI command, MCP call
 The value-returning execution of a **Figma Command**, independent of Commander, MCP, console output, or process exit behaviour.
 _Avoid_: handler, command service
 
+**Static Contract Gate**:
+The incremental compile-time boundary for accepted host and Figma Plugin seams.
+Host files receive Node globals only; Plugin files receive official Figma
+Plugin globals only. Its explicit file inventory grows with completed Command
+Application migrations and cannot shrink without a reviewed contract change.
+Closed protocol discriminants must have matching validation branches.
+_Avoid_: mixed global type environment, whole-legacy typecheck, optional seam
+
 **Command Capability**:
 The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma/workspace/external-network/shared-local-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity. External network excludes the authenticated localhost Bridge transport, which is recorded separately as availability.
 _Avoid_: allowlist entry, command metadata
