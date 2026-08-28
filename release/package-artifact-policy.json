@@ -23,6 +23,8 @@
     "engine/src/application/component-combine-request.js",
     "engine/src/application/component-create-command.js",
     "engine/src/application/component-create-request.js",
+    "engine/src/application/component-inventory-command.js",
+    "engine/src/application/component-inventory-request.js",
     "engine/src/application/component-main-command.js",
     "engine/src/application/component-main-request.js",
     "engine/src/application/component-instantiate-command.js",

@@ -6,7 +6,6 @@ import {
   ensurePluginReadiness,
   runInProcessCommandPlan,
 } from '../../../src/engine.js';
-import { componentInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   annotationAddCode, annotationCategoriesCode, annotationCategoryCreateCode,
@@ -54,6 +53,10 @@ import {
   componentCreatePlanningArgvFromRequest,
   executeComponentCreatePlan,
 } from '../application/component-create-command.js';
+import {
+  componentInventoryPlanningArgvFromRequest,
+  executeComponentInventoryPlan,
+} from '../application/component-inventory-command.js';
 import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
@@ -665,42 +668,29 @@ componentCmd
   .option('--all-pages', 'Search every page, not just the current one (slower on big files)')
   .option('--json', 'Output as JSON')
   .action(async (options) => {
-    await checkConnection();
-    const code = componentInventoryCode(options.allPages);
     try {
-      const r = projectComponentInventory(await daemonExec('eval', { code }));
-      if (options.json) {
-        console.log(JSON.stringify(r, null, 2));
-        return;
-      }
-      if (r.componentSets.length === 0 && r.standaloneComponents.length === 0) {
-        console.log(chalk.yellow(options.allPages
-          ? 'No components in this file.'
-          : 'No components on the current page. Try --all-pages.'));
-        return;
-      }
-      if (r.componentSets.length > 0) {
-        console.log(chalk.cyan('\nComponent sets:'));
-        r.componentSets.forEach(s => {
-          console.log(`  ${chalk.white(s.name)} ${chalk.gray('(' + s.id + (options.allPages ? ', page: ' + s.page : '') + ')')}`);
-          if (s.key) console.log(chalk.gray(`    key: ${s.key}`));
-          if (s.variantAxes) {
-            Object.entries(s.variantAxes).forEach(([axis, def]) => {
-              console.log(chalk.gray(`    ${axis}: ${def.values.join(' | ')}`));
-            });
-          }
-          console.log(chalk.gray(`    ${s.variants.length} variant(s)`));
+      const plan = planFigmaCommand(componentInventoryPlanningArgvFromRequest({
+        allPages: options.allPages === true,
+        json: options.json === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentInventoryPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
         });
-      }
-      if (r.standaloneComponents.length > 0) {
-        console.log(chalk.cyan('\nStandalone components:'));
-        r.standaloneComponents.forEach(c => {
-          console.log(`  ${chalk.white(c.name)} ${chalk.gray('(' + c.id + (options.allPages ? ', page: ' + c.page : '') + (c.key ? ', key ' + c.key : '') + ')')}`);
-        });
-      }
-      console.log();
-    } catch (e) {
-      handleEvalError(e);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Inventory failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

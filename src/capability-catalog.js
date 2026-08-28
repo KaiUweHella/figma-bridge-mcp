@@ -174,6 +174,11 @@ import {
   parseComponentCreateRequest,
 } from '../engine/src/application/component-create-request.js';
 import {
+  acceptsComponentInventoryArgv,
+  componentInventoryArgvFromRequest,
+  parseComponentInventoryRequest,
+} from '../engine/src/application/component-inventory-request.js';
+import {
   acceptsPageStructureArgv,
   pageStructureArgvFromRequest,
   parsePageStructureRequest,
@@ -500,6 +505,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.delete',
   'col.extend',
   'component.main', 'component.combine', 'component.add-variant', 'component.create',
+  'component.list',
   'component.instantiate',
   'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
   'style.list',
@@ -747,6 +753,11 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'instantiate') {
     pathPolicy = 'component-instantiate-input';
   }
+  if (name === 'component' && sub === 'list') {
+    retry = 'safe-read';
+    if (args.includes('--all-pages')) timeoutClass = 'long';
+    pathPolicy = 'component-inventory-input';
+  }
   if (name === 'component' && sub === 'prop' && args[2] === 'set') {
     pathPolicy = 'component-property-set-input';
   }
@@ -868,6 +879,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'instantiate'
     && !action.help && !acceptsComponentInstantiateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'list'
+    && !action.help && !acceptsComponentInventoryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'set'
@@ -1691,6 +1706,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         parseComponentCreateRequest(args)));
       break;
     }
+    case 'component-inventory-input':
+      args.splice(0, args.length, ...componentInventoryArgvFromRequest(
+        parseComponentInventoryRequest(args)));
+      break;
     case 'component-property-set-input': {
       const closedFileKey = componentPropertySetFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;

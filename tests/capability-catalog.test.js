@@ -207,6 +207,24 @@ test('Component Create closes one policy-identical rollback-owned write', () => 
   assert.equal(cli.confirmation, 'configured');
 });
 
+test('Component Inventory closes one policy-identical bounded safe read', () => {
+  const args = ['component', 'list', '--all-pages', '--json'];
+  const cli = planFigmaCommand(args, { adapter: 'cli', fileKey: 'FILEA' });
+  const mcp = planFigmaCommand(args, { adapter: 'mcp', fileKey: 'FILEA' });
+  assert.equal(cli.id, 'component.list');
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.target, mcp.target);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(cli.effects.figma, 'read');
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.execution.timeout, 'long');
+  assert.equal(cli.confirmation, 'none');
+
+  const currentPage = planFigmaCommand(['component', 'list']);
+  assert.equal(currentPage.execution.timeout, 'default');
+});
+
 test('Style Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['style', 'show', 'Type/Body'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['style', 'show', '--', 'Type/Body'], { adapter: 'mcp' });

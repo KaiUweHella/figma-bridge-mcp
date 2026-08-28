@@ -149,9 +149,10 @@ test('cache and every inventory consumer use the bounded projection seam', () =>
   assert.ok(listStart >= 0 && listEnd > listStart);
   assert.match(
     misc.slice(listStart, listEnd),
-    /projectComponentInventory\(await daemonExec\('eval'/,
-    'component list must validate its own Plugin response',
+    /executeComponentInventoryPlan\(plan/,
+    'component list must delegate to the bounded Command Application',
   );
+  assert.doesNotMatch(misc.slice(listStart, listEnd), /checkConnection\(|componentInventoryCode\(/);
 
   for (const file of [
     'engine/src/commands/map.js',
