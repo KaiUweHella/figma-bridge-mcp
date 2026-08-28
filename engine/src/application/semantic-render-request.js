@@ -41,6 +41,7 @@ const OPTION_SPECS = new Map([
   ['--keep-wrapper', { key: 'keepWrapper', value: 'none' }],
   ['-c', { key: 'collection', value: 'required' }],
   ['--collection', { key: 'collection', value: 'required' }],
+  ['--materialize-resources', { key: 'materializeResources', value: 'none' }],
   ['--verify', { key: 'verify', value: 'none', compatibility: 'verification-output' }],
   ['--verification-output-dir', { key: 'verificationOutputDir', value: 'required' }],
   ['--preset', { key: 'preset', value: 'required' }],
@@ -69,6 +70,7 @@ const BATCH_OPTION_SPECS = new Map([
   ['--as-component', { key: 'asComponent', value: 'none' }],
   ['-c', { key: 'collection', value: 'required' }],
   ['--collection', { key: 'collection', value: 'required' }],
+  ['--materialize-resources', { key: 'materializeResources', value: 'none' }],
   ['--verify', { key: 'verify', value: 'none' }],
   ['--verification-output-dir', { key: 'verificationOutputDir', value: 'required' }],
   ['--preset', { key: 'preset', value: 'required' }],
@@ -258,6 +260,9 @@ function compoundRequest({ source, roots, sourceJsx = null, direction, values })
       y,
     }),
     collection: values.collection || null,
+    resourcePolicy: Object.freeze({
+      materializeGenerated: values.materializeResources === true,
+    }),
     preset: values.preset || null,
     icons: values.icons || null,
     manifest: values.manifest || null,
@@ -451,6 +456,9 @@ function inspectRenderArgv(args) {
         y: values.y === undefined ? null : finiteOption(values.y, '-y'),
       }),
       collection: values.collection || null,
+      resourcePolicy: Object.freeze({
+        materializeGenerated: values.materializeResources === true,
+      }),
       preset: values.preset || null,
       manifest: values.manifest || null,
       approvedFallbacks: Object.freeze(values.approveFallback || []),
@@ -595,6 +603,16 @@ export function semanticRenderArgvRoute(args) {
   return Object.freeze({ kind: inspected.kind, reason: reason || null });
 }
 
+/** Payload-free resource side-effect policy used by confirmation previews. */
+export function semanticRenderResourcePolicyFromArgv(args) {
+  const inspected = inspectSemanticRenderArgv(args);
+  return Object.freeze({
+    explicitIntent: 'allowed',
+    generated: inspected.values?.materializeResources === true
+      ? 'materialize' : 'reuse-or-literal',
+  });
+}
+
 function compoundOptions(request) {
   const options = [];
   if (request.layout.gap !== 40) options.push(`--gap=${request.layout.gap}`);
@@ -611,6 +629,7 @@ function compoundOptions(request) {
   }
   if (request.stages.resizeProbe !== null) options.push(`--resize-probe=${request.stages.resizeProbe}`);
   if (request.collection) options.push(`--collection=${request.collection}`);
+  if (request.resourcePolicy?.materializeGenerated === true) options.push('--materialize-resources');
   if (request.preset) options.push(`--preset=${request.preset}`);
   if (request.icons) options.push(`--icons=${request.icons}`);
   if (request.manifest) options.push(`--manifest=${request.manifest}`);
@@ -652,6 +671,7 @@ export function semanticRenderArgvFromRequest(request) {
   // Inline option values preserve the full accepted value range, including a
   // legitimate leading dash, when typed requests round-trip through argv.
   if (request.collection != null) options.push(`--collection=${String(request.collection)}`);
+  if (request.resourcePolicy?.materializeGenerated === true) options.push('--materialize-resources');
   if (request.preset != null) options.push(`--preset=${String(request.preset)}`);
   if (request.manifest != null) options.push(`--manifest=${String(request.manifest)}`);
   if (Array.isArray(request.approvedFallbacks) && request.approvedFallbacks.length) {

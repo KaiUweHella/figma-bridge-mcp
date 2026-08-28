@@ -1293,7 +1293,9 @@ export function inspectStructuredRenderPlan(plan) {
   return { supported: problems.length === 0, problems };
 }
 
-async function prepareStructuredVariables(figmaApi, plan, journal = null) {
+async function prepareStructuredVariables(figmaApi, plan, journal = null, {
+  materializeGenerated = false,
+} = {}) {
   const intents = [];
   const bindings = new WeakMap();
   const addColor = (node, key, raw) => {
@@ -1384,7 +1386,10 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
   collect(plan.root);
 
   const reusedVariableIds = new Set();
-  const report = { references: intents.length, reused: 0, created: 0, bound: 0, ambiguous: 0, unsupported: 0 };
+  const report = {
+    references: intents.length, reused: 0, created: 0, bound: 0,
+    literal: 0, ambiguous: 0, unsupported: 0,
+  };
   const fail = (prefix, entries, { unsupported = null } = {}) => {
     const ambiguous = entries.filter((entry) => /ambiguous/i.test(entry)).length;
     const next = {
@@ -1393,7 +1398,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
       ambiguous,
       unsupported: unsupported ?? Math.max(0, entries.length - ambiguous),
     };
-    throw new Error(`${prefix}: ${entries.slice(0, 5).join('; ')} [variable report: reused=${next.reused}, created=0, bound=0, ambiguous=${next.ambiguous}, unsupported=${next.unsupported}]`);
+    throw new Error(`${prefix}: ${entries.slice(0, 5).join('; ')} [variable report: reused=${next.reused}, created=0, bound=0, literal=${next.literal}, ambiguous=${next.ambiguous}, unsupported=${next.unsupported}]`);
   };
 
   if (intents.length && !figmaApi.variables) fail('Structured variable preflight failed', ['Figma variables are unavailable']);
@@ -1478,6 +1483,10 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
       }
       reusedVariableIds.add(variable.id);
       return { variable, value };
+    }
+    if (intent.generated && !materializeGenerated) {
+      report.literal++;
+      return { variable: null, value: fallback, unbound: 'literal' };
     }
     if (!mayCreate) {
       failures.push(`${label}: missing ${intent.type} variable and no usable fallback was supplied`);
@@ -1661,7 +1670,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null) {
   Object.assign(report, {
     reused: reusedVariableIds.size,
     created: createdVariables.length,
-    bound: intents.length - report.ambiguous - report.unsupported,
+    bound: intents.length - report.literal - report.ambiguous - report.unsupported,
   });
   return { bindings, createdVariables: createdVariables.sort(), scopeQuestions, fontNames, runFontNames, variableReport: report };
 }
@@ -1692,7 +1701,9 @@ function structuredTextStyleSignature(descriptor) {
   });
 }
 
-async function prepareStructuredTextStyles(figmaApi, plan, variableContext, journal = null) {
+async function prepareStructuredTextStyles(figmaApi, plan, variableContext, journal = null, {
+  materializeGenerated = false,
+} = {}) {
   const requests = [];
   const bindings = new WeakMap();
   const bindingValue = (node, key, raw, fallback) => variableContext.bindings.get(node)?.get(key)?.value ?? raw ?? fallback;
@@ -1719,8 +1730,20 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext, jour
     for (const child of node.children || []) collect(child);
   };
   collect(plan.root);
-  if (!requests.length) return { bindings, createdStyles: [], textStyleReport: { references: 0, reused: 0, created: 0, bound: 0 } };
+  if (!requests.length) return {
+    bindings, createdStyles: [],
+    textStyleReport: { references: 0, reused: 0, created: 0, bound: 0, literal: 0 },
+  };
   if (typeof figmaApi.getLocalTextStylesAsync !== 'function' || typeof figmaApi.createTextStyle !== 'function') {
+    if (!materializeGenerated && requests.every((request) => !request.explicitName)) {
+      return {
+        bindings, createdStyles: [],
+        textStyleReport: {
+          references: requests.length, reused: 0, created: 0, bound: 0,
+          literal: requests.length,
+        },
+      };
+    }
     throw new Error('Structured text-style preflight failed: local Text Style APIs are unavailable');
   }
 
@@ -1728,6 +1751,7 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext, jour
   const createdObjects = [];
   const reusedIds = new Set();
   const createdStyles = [];
+  let literal = 0;
   const styleBySignature = new Map();
   for (const style of styles) {
     const signature = structuredTextStyleSignature(style);
@@ -1756,6 +1780,10 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext, jour
       }
       if (style) reusedIds.add(style.id);
       else {
+        if (!request.explicitName && !materializeGenerated) {
+          literal++;
+          continue;
+        }
         const name = request.explicitName || generatedName(request.descriptor);
         const sameName = styles.find((candidate) => candidate.name === name);
         if (sameName) throw new Error(`generated Text Style "${name}" collides with different typography`);
@@ -1790,7 +1818,8 @@ async function prepareStructuredTextStyles(figmaApi, plan, variableContext, jour
       references: requests.length,
       reused: reusedIds.size,
       created: createdStyles.length,
-      bound: requests.length,
+      bound: requests.length - literal,
+      literal,
     },
   };
 }
@@ -2371,7 +2400,10 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
   };
 }
 
-async function preflightStructuredPlans(figmaApi, plans, { batch = false } = {}) {
+async function preflightStructuredPlans(figmaApi, plans, {
+  batch = false,
+  materializeResources = false,
+} = {}) {
   const unsupported = [];
   for (let index = 0; index < plans.length; index++) {
     const support = inspectStructuredRenderPlan(plans[index]);
@@ -2400,18 +2432,29 @@ async function preflightStructuredPlans(figmaApi, plans, { batch = false } = {})
   const componentContexts = [];
   for (const plan of plans) {
     componentContexts.push(await prepareStructuredComponents(figmaApi, plan));
-    const variableContext = await prepareStructuredVariables(preflightApi, plan);
-    await prepareStructuredTextStyles(preflightApi, plan, variableContext);
+    const variableContext = await prepareStructuredVariables(preflightApi, plan, null, {
+      materializeGenerated: materializeResources,
+    });
+    await prepareStructuredTextStyles(preflightApi, plan, variableContext, null, {
+      materializeGenerated: materializeResources,
+    });
     await prepareStructuredImages(preflightApi, plan);
   }
   return componentContexts;
 }
 
-async function materializeStructuredResources(figmaApi, plans, componentContexts, journal) {
+async function materializeStructuredResources(figmaApi, plans, componentContexts, journal, {
+  materializeResources = false,
+} = {}) {
   const prepared = [];
   for (let index = 0; index < plans.length; index++) {
-    const variableContext = await prepareStructuredVariables(figmaApi, plans[index], journal);
-    const textStyleContext = await prepareStructuredTextStyles(figmaApi, plans[index], variableContext, journal);
+    const variableContext = await prepareStructuredVariables(figmaApi, plans[index], journal, {
+      materializeGenerated: materializeResources,
+    });
+    const textStyleContext = await prepareStructuredTextStyles(
+      figmaApi, plans[index], variableContext, journal,
+      { materializeGenerated: materializeResources },
+    );
     const imageContext = await prepareStructuredImages(figmaApi, plans[index], journal);
     prepared.push({
       componentContext: componentContexts[index],
@@ -2426,17 +2469,29 @@ async function materializeStructuredResources(figmaApi, plans, componentContexts
 export async function executeStructuredRenderPlan(figmaApi, plan, options = {}) {
   const journal = createStructuredMutationJournal(figmaApi);
   if (!options || typeof options !== 'object' || Array.isArray(options)
-    || Object.keys(options).some((key) => !['smart', 'x', 'y'].includes(key))) {
+    || Object.keys(options).some((key) => ![
+      'smart', 'x', 'y', 'materializeResources',
+    ].includes(key))) {
     throw structuredExecutionError(
       new Error('Structured render placement options are invalid'),
       await journal.rollback(),
       'Structured render preflight failed',
     );
   }
-  const placementOptions = /** @type {{smart?: unknown, x?: unknown, y?: unknown}} */ (options);
+  const placementOptions = /** @type {{
+    smart?: unknown, x?: unknown, y?: unknown, materializeResources?: unknown,
+  }} */ (options);
   if (placementOptions.smart !== undefined && typeof placementOptions.smart !== 'boolean') {
     throw structuredExecutionError(
       new Error('Structured render smart placement must be boolean'),
+      await journal.rollback(),
+      'Structured render preflight failed',
+    );
+  }
+  if (placementOptions.materializeResources !== undefined
+    && typeof placementOptions.materializeResources !== 'boolean') {
+    throw structuredExecutionError(
+      new Error('Structured render materializeResources must be boolean'),
       await journal.rollback(),
       'Structured render preflight failed',
     );
@@ -2467,12 +2522,17 @@ export async function executeStructuredRenderPlan(figmaApi, plan, options = {}) 
   }
   let componentContexts;
   try {
-    componentContexts = await preflightStructuredPlans(figmaApi, [positionedPlan]);
+    componentContexts = await preflightStructuredPlans(figmaApi, [positionedPlan], {
+      materializeResources: placementOptions.materializeResources === true,
+    });
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured render preflight failed');
   }
   try {
-    const [prepared] = await materializeStructuredResources(figmaApi, [positionedPlan], componentContexts, journal);
+    const [prepared] = await materializeStructuredResources(
+      figmaApi, [positionedPlan], componentContexts, journal,
+      { materializeResources: placementOptions.materializeResources === true },
+    );
     const result = await executePreparedStructuredRenderPlan(figmaApi, positionedPlan, prepared, journal);
     const mutationReport = journal.completed();
     return { ...result, mutationOutcome: mutationReport.outcome, mutationReport };
@@ -2491,7 +2551,9 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
     );
   }
   if (!options || typeof options !== 'object' || Array.isArray(options)
-    || Object.keys(options).some((key) => !['gap', 'vertical', 'smart', 'x', 'y'].includes(key))) {
+    || Object.keys(options).some((key) => ![
+      'gap', 'vertical', 'smart', 'x', 'y', 'materializeResources',
+    ].includes(key))) {
     throw structuredExecutionError(
       new Error('Structured batch options are invalid'),
       await journal.rollback(),
@@ -2500,6 +2562,7 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
   }
   const batchOptions = /** @type {{
     gap?: unknown, vertical?: unknown, smart?: unknown, x?: unknown, y?: unknown,
+    materializeResources?: unknown,
   }} */ (options);
   const gap = structuredNumber(batchOptions.gap, 40);
   if (gap < 0 || gap > 10000) {
@@ -2511,6 +2574,14 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
   }
   const vertical = batchOptions.vertical === true;
   const smart = batchOptions.smart !== false;
+  if (batchOptions.materializeResources !== undefined
+    && typeof batchOptions.materializeResources !== 'boolean') {
+    throw structuredExecutionError(
+      new Error('Structured batch materializeResources must be boolean'),
+      await journal.rollback(),
+      'Structured batch preflight failed',
+    );
+  }
   const explicitX = batchOptions.x === null || batchOptions.x === undefined ? null : Number(batchOptions.x);
   const explicitY = batchOptions.y === null || batchOptions.y === undefined ? null : Number(batchOptions.y);
   if ((explicitX !== null && !Number.isFinite(explicitX))
@@ -2524,7 +2595,10 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
   const positionedPlans = plans.map((plan) => JSON.parse(JSON.stringify(plan)));
   let componentContexts;
   try {
-    componentContexts = await preflightStructuredPlans(figmaApi, positionedPlans, { batch: true });
+    componentContexts = await preflightStructuredPlans(figmaApi, positionedPlans, {
+      batch: true,
+      materializeResources: batchOptions.materializeResources === true,
+    });
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured batch preflight failed');
   }
@@ -2537,12 +2611,18 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
   const frames = [];
   const createdVariables = new Set();
   const scopeQuestions = [];
-  const variableReport = { references: 0, reused: 0, created: 0, bound: 0, ambiguous: 0, unsupported: 0 };
-  const textStyleReport = { references: 0, reused: 0, created: 0, bound: 0 };
+  const variableReport = {
+    references: 0, reused: 0, created: 0, bound: 0,
+    literal: 0, ambiguous: 0, unsupported: 0,
+  };
+  const textStyleReport = { references: 0, reused: 0, created: 0, bound: 0, literal: 0 };
   const createdTextStyles = new Set();
   const fallbackAnnotationReport = { requested: 0, applied: 0, deduplicated: 0, unsupported: 0 };
   try {
-    const preparedPlans = await materializeStructuredResources(figmaApi, positionedPlans, componentContexts, journal);
+    const preparedPlans = await materializeStructuredResources(
+      figmaApi, positionedPlans, componentContexts, journal,
+      { materializeResources: batchOptions.materializeResources === true },
+    );
     for (let index = 0; index < positionedPlans.length; index++) {
       const positioned = positionedPlans[index];
       positioned.root.source.props = { ...positioned.root.source.props, x, y };

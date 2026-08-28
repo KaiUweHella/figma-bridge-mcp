@@ -614,6 +614,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     smart: prepared.request.placement.smart,
     x: prepared.request.placement.x,
     y: prepared.request.placement.y,
+    materializeResources: prepared.request.resourcePolicy.materializeGenerated,
   };
   let raw;
   let executor;
@@ -828,7 +829,10 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   };
   if (prepared.support.supported) {
     try {
-      raw = await adapters.renderPlan(prepared.renderPlan, prepared.request.placement);
+      raw = await adapters.renderPlan(prepared.renderPlan, {
+        ...prepared.request.placement,
+        materializeResources: prepared.request.resourcePolicy.materializeGenerated,
+      });
       executor = 'structured-v1';
     } catch (error) {
       throw attachFailureOutcome(error, 'structured-v1');
@@ -843,6 +847,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
     try {
       const code = await prepared.client.compileRenderPlan(
         compatibilityPlanWithPlacement(prepared.renderPlan, prepared.request.placement),
+        { materializeResources: prepared.request.resourcePolicy.materializeGenerated },
       );
       raw = await adapters.evaluate(code);
     } catch (error) {
@@ -965,18 +970,26 @@ export function semanticRenderResultRows(result) {
   }
   if (resources.variableReport) {
     const report = resources.variableReport;
-    rows.push({ tone: 'muted', text: `variable report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound, ${report.ambiguous} ambiguous, ${report.unsupported} unsupported` });
-    const unbound = report.references - report.bound;
-    if (unbound) {
+    rows.push({ tone: 'muted', text: `variable report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound, ${report.literal} literal, ${report.ambiguous} ambiguous, ${report.unsupported} unsupported` });
+    if (report.literal) {
       rows.push({
-        tone: 'warning',
-        text: `${unbound} generated literal binding(s) left unbound; exact literal values were preserved.`,
+        tone: 'muted',
+        text: `${report.literal} generated literal binding candidate(s) stayed literal; exact values were preserved.`,
       });
     }
+    const unresolvedGenerated = report.ambiguous + report.unsupported;
+    if (unresolvedGenerated) rows.push({
+      tone: 'warning',
+      text: `${unresolvedGenerated} generated binding candidate(s) stayed unbound because reuse was ambiguous or incompatible.`,
+    });
   }
   if (resources.textStyleReport) {
     const report = resources.textStyleReport;
-    rows.push({ tone: 'muted', text: `Text Style report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound` });
+    rows.push({ tone: 'muted', text: `Text Style report: ${report.references} reference(s), ${report.reused} reused, ${report.created} created, ${report.bound} bound, ${report.literal} literal` });
+    if (report.literal) rows.push({
+      tone: 'muted',
+      text: `${report.literal} unmatched typography candidate(s) stayed literal; no parallel Text Style was created.`,
+    });
   }
   if (resources.fallbackAnnotationReport?.requested) {
     const report = resources.fallbackAnnotationReport;

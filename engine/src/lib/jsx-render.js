@@ -100,13 +100,26 @@ export class FigmaClient {
   /** Compile multiple already-validated plans without returning to their
    * authoring syntax. This keeps batch and single rendering on one contract. */
   async compileRenderPlans(plans, options = {}) {
-    const gap = options.gap ?? 40;
-    const vertical = options.vertical === true;
-    const smart = options.smart !== false;
-    const startX = options.x === null || options.x === undefined ? null : Number(options.x);
-    const startY = options.y === null || options.y === undefined ? 100 : Number(options.y);
+    if (!options || typeof options !== 'object' || Array.isArray(options)
+      || Object.keys(options).some((key) => ![
+        'gap', 'vertical', 'smart', 'x', 'y', 'materializeResources',
+      ].includes(key))) {
+      throw new Error('Compound render placement options are invalid.');
+    }
+    const renderOptions = /** @type {{
+      gap?: unknown, vertical?: unknown, smart?: unknown, x?: unknown, y?: unknown,
+      materializeResources?: unknown,
+    }} */ (options);
+    const gap = renderOptions.gap ?? 40;
+    const vertical = renderOptions.vertical === true;
+    const smart = renderOptions.smart !== false;
+    const startX = renderOptions.x === null || renderOptions.x === undefined ? null : Number(renderOptions.x);
+    const startY = renderOptions.y === null || renderOptions.y === undefined ? 100 : Number(renderOptions.y);
+    const materializeResources = renderOptions.materializeResources === true;
     if (!Number.isFinite(Number(gap)) || Number(gap) < 0 || Number(gap) > 10_000
-      || (startX !== null && !Number.isFinite(startX)) || !Number.isFinite(startY)) {
+      || (startX !== null && !Number.isFinite(startX)) || !Number.isFinite(startY)
+      || (renderOptions.materializeResources !== undefined
+        && typeof renderOptions.materializeResources !== 'boolean')) {
       throw new Error('Compound render placement options are invalid.');
     }
 
@@ -274,10 +287,18 @@ export class FigmaClient {
 
     return `
       (async function() {
+        globalThis.__variableReport = { references: 0, reused: 0, created: 0, bound: 0, literal: 0, ambiguous: 0, unsupported: 0 };
+        globalThis.__createdVariableIds = new Set();
+        globalThis.__reusedVariableIds = new Set();
+        globalThis.__createdVars = new Set();
+        globalThis.__textStyleReport = null;
+        globalThis.__reusedTextStyleIds = new Set();
+        globalThis.__createdTextStyleIds = new Set();
+        globalThis.__createdTextStyleNames = new Set();
         ${fontLoads}
         ${varLoadCode}
-        ${anyUsesTextStyles ? this.generateTextStyleHelperCode() : ''}
-        ${anyUsesSpacing ? this.generateSpacingHelperCode() : ''}
+        ${anyUsesTextStyles ? this.generateTextStyleHelperCode({ materializeResources }) : ''}
+        ${anyUsesSpacing ? this.generateSpacingHelperCode({ materializeResources }) : ''}
         ${anyUsesInstances ? this.generateInstanceHelperCode() : ''}
 
         // Calculate start position
@@ -305,11 +326,26 @@ export class FigmaClient {
           ? [...globalThis.__createdVars].sort() : [];
         const scopeQuestions = globalThis.__variableScopeQuestions
           ? [...globalThis.__variableScopeQuestions] : [];
+        const variableReport = globalThis.__variableReport;
+        variableReport.reused = globalThis.__reusedVariableIds.size;
+        variableReport.created = globalThis.__createdVariableIds.size;
+        const textStyleReport = globalThis.__textStyleReport || null;
+        if (textStyleReport) {
+          textStyleReport.reused = globalThis.__reusedTextStyleIds.size;
+          textStyleReport.created = globalThis.__createdTextStyleIds.size;
+        }
+        const createdTextStyles = globalThis.__createdTextStyleNames
+          ? [...globalThis.__createdTextStyleNames].sort() : [];
         globalThis.__unresolvedVars = new Set();
         globalThis.__createdVars = new Set();
+        globalThis.__createdVariableIds = new Set();
+        globalThis.__reusedVariableIds = new Set();
         globalThis.__variableScopeQuestions = [];
         return unresolved.length > 0 || createdVariables.length > 0 || scopeQuestions.length > 0
-          ? { frames: results, unresolved, createdVariables, scopeQuestions } : results;
+          || variableReport.references > 0 || textStyleReport || createdTextStyles.length > 0
+          ? { frames: results, unresolved, createdVariables, createdTextStyles, scopeQuestions,
+            ...(variableReport.references > 0 ? { variableReport } : {}),
+            ...(textStyleReport ? { textStyleReport } : {}) } : results;
       })()
     `;
   }
@@ -335,13 +371,24 @@ export class FigmaClient {
 
   /** Compile one already-validated plan. The generated-JavaScript executor is
    * deliberately retained as a compatibility seam in this first slice. */
-  async compileRenderPlan(plan) {
+  async compileRenderPlan(plan, options = {}) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new Error('Single render resource options are invalid.');
+    }
+    const renderOptions = /** @type {{materializeResources?: unknown}} */ (options);
+    if (Object.keys(renderOptions).some((key) => key !== 'materializeResources')
+      || (renderOptions.materializeResources !== undefined
+        && typeof renderOptions.materializeResources !== 'boolean')) {
+      throw new Error('Single render resource options are invalid.');
+    }
     const validated = assertSemanticRenderPlan(plan, { executable: true });
     const tree = semanticRenderPlanToJsxTree(materializeDesignBindingsForCompatibility(validated), {
       compatibilityMaterialized: true,
     });
     const iconSvgMap = { ...this.customIcons };
-    return this.generateCode(tree.props, tree.children, iconSvgMap);
+    return this.generateCode(tree.props, tree.children, iconSvgMap, {
+      materializeResources: renderOptions.materializeResources === true,
+    });
   }
 
   /** Parse one render document once into the tree shared by semantic
@@ -962,6 +1009,8 @@ export class FigmaClient {
       // surface them at the end instead of silently rendering grey.
       globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
       globalThis.__createdVars = globalThis.__createdVars || new Set();
+      globalThis.__createdVariableIds = globalThis.__createdVariableIds || new Set();
+      globalThis.__reusedVariableIds = globalThis.__reusedVariableIds || new Set();
       globalThis.__variableScopeQuestions = globalThis.__variableScopeQuestions || [];
       const __fallbackColor = (raw) => {
         const m = String(raw || '').match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
@@ -999,6 +1048,7 @@ export class FigmaClient {
         vars[requestedKey] = variable;
         varsByCollection[collection.name.toLowerCase() + ':' + variableName] = variable;
         globalThis.__createdVars.add(collection.name + '/' + variableName);
+        globalThis.__createdVariableIds.add(variable.id);
         globalThis.__variableScopeQuestions.push({
           name: variableName,
           collection: collection.name,
@@ -1011,6 +1061,8 @@ export class FigmaClient {
         return variable;
       };
       const boundFill = (variable, requestedKey, fallback) => {
+        const report = globalThis.__variableReport;
+        report.references++;
         if (variable && variable.resolvedType !== 'COLOR') {
           globalThis.__unresolvedVars.add(requestedKey + ' (expected COLOR)');
           variable = null;
@@ -1019,10 +1071,13 @@ export class FigmaClient {
         if (!variable && fallback) variable = __createColorVar(requestedKey, fallback);
         if (!variable) {
           if (requestedKey) globalThis.__unresolvedVars.add(requestedKey);
+          report.unsupported++;
           // No variable loaded for this name: neutral grey + the unresolved
           // warning above. No built-in design-system defaults.
           return { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } };
         }
+        if (!globalThis.__createdVariableIds.has(variable.id)) globalThis.__reusedVariableIds.add(variable.id);
+        report.bound++;
         return figma.variables.setBoundVariableForPaint(
           { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', variable
         );
@@ -1068,13 +1123,17 @@ export class FigmaClient {
    * typography, so the given name becomes a reusable style from then on.
    *
    * __ensureTextStyle(node, family, style, size) — for every plain <Text>:
-   * derives a deterministic style name ("Inter/14 Semi Bold"), reuses the
-   * local style of that name if present, creates it otherwise, and applies
-   * it. This is what keeps rendered text attached to shared styles instead
-   * of leaving raw fontSize/fontName everywhere.
+   * reuses a local style with exactly matching typography. If none exists,
+   * the typography stays literal unless generated resource materialization
+   * was explicitly requested; that opt-in creates a deterministic style.
    */
-  generateTextStyleHelperCode() {
+  generateTextStyleHelperCode({ materializeResources = false } = {}) {
     return `
+        globalThis.__textStyleReport = { references: 0, reused: 0, created: 0, bound: 0, literal: 0 };
+        globalThis.__reusedTextStyleIds = new Set();
+        globalThis.__createdTextStyleIds = new Set();
+        globalThis.__createdTextStyleNames = new Set();
+        const __materializeGeneratedTextStyles = ${materializeResources ? 'true' : 'false'};
         if (!globalThis.__textStylesCache || Date.now() - (globalThis.__textStylesTime || 0) > 30000) {
           globalThis.__textStylesCache = await figma.getLocalTextStylesAsync();
           globalThis.__textStylesTime = Date.now();
@@ -1084,6 +1143,7 @@ export class FigmaClient {
           catch (e) { try { node.textStyleId = styleId; } catch (e2) {} }
         };
         const __applyTextStyle = async (node, name) => {
+          globalThis.__textStyleReport.references++;
           const styles = globalThis.__textStylesCache || [];
           const ln = String(name).toLowerCase();
           let s = styles.find(st => st.name.toLowerCase() === ln)
@@ -1097,11 +1157,16 @@ export class FigmaClient {
             try { s.fontName = node.fontName; } catch (e) {}
             try { s.fontSize = node.fontSize; } catch (e) {}
             globalThis.__textStylesCache.push(s);
+            globalThis.__createdTextStyleIds.add(s.id);
+            globalThis.__createdTextStyleNames.add(s.name);
           }
+          if (!globalThis.__createdTextStyleIds.has(s.id)) globalThis.__reusedTextStyleIds.add(s.id);
           try { await figma.loadFontAsync(s.fontName); } catch (e) {}
           await __setStyleId(node, s.id);
+          globalThis.__textStyleReport.bound++;
         };
         const __ensureTextStyle = async (node, family, style, size) => {
+          globalThis.__textStyleReport.references++;
           const styles = globalThis.__textStylesCache || [];
           // Reuse ANY existing style with this exact typography, whatever it
           // is called — a file whose system calls 13px/Regular "Body/SM"
@@ -1110,6 +1175,10 @@ export class FigmaClient {
           let s = styles.find(st => st.fontSize === Number(size)
             && st.fontName && st.fontName.family === family && st.fontName.style === style);
           if (!s) {
+            if (!__materializeGeneratedTextStyles) {
+              globalThis.__textStyleReport.literal++;
+              return;
+            }
             const name = family + '/' + size + ' ' + style;
             s = styles.find(st => st.name === name);
             if (!s) {
@@ -1118,9 +1187,13 @@ export class FigmaClient {
               try { s.fontName = node.fontName; } catch (e) {}
               try { s.fontSize = Number(size); } catch (e) {}
               globalThis.__textStylesCache.push(s);
+              globalThis.__createdTextStyleIds.add(s.id);
+              globalThis.__createdTextStyleNames.add(s.name);
             }
           }
+          if (!globalThis.__createdTextStyleIds.has(s.id)) globalThis.__reusedTextStyleIds.add(s.id);
           await __setStyleId(node, s.id);
+          globalThis.__textStyleReport.bound++;
         };
     `;
   }
@@ -1131,19 +1204,19 @@ export class FigmaClient {
    * leaving a hard-coded number on the node:
    *
    *   - value "var:space/4"  → binds that variable (explicit opt-in)
-   *   - value 16 + kind      → REUSES a local FLOAT variable of the matching
-   *                            namespace (space / gap / padding for kind
-   *                            "space", radius / corner for kind "radius")
-   *                            whose resolved value is 16, and CREATES
-   *                            "space/16px" or "radius/16px" if none exists.
+   *   - value 16 + kind      → REUSES the exact generated identity
+   *                            "space/16px" or "radius/16px" when its value
+   *                            matches. Otherwise it stays literal unless
+   *                            materialization was explicitly requested.
    *
    * Matching is namespace-scoped on purpose: a padding of 40 must not latch
    * onto `size/control-md` just because that also happens to be 40.
    * The raw number is always assigned first, so a failed bind degrades to
    * exactly the old behaviour.
    */
-  generateSpacingHelperCode() {
+  generateSpacingHelperCode({ materializeResources = false } = {}) {
     return `
+        const __materializeGeneratedVariables = ${materializeResources ? 'true' : 'false'};
         if (!globalThis.__spaceCache || Date.now() - (globalThis.__spaceCacheTime || 0) > 30000) {
           const [__cols, __allVars] = await Promise.all([
             figma.variables.getLocalVariableCollectionsAsync(),
@@ -1198,22 +1271,29 @@ export class FigmaClient {
         };
         const __findOrCreateSpaceVar = (value, kind) => {
           const c = globalThis.__spaceCache;
-          const hit = (c.vars || []).find(v => __spaceNs(v.name, kind) && __spaceNum(v) === value);
-          if (hit) return hit;
+          const tokenNumber = String(value).replace(/\./g, '-');
+          const base = (kind === 'radius' ? 'radius/' : 'space/') + tokenNumber + 'px';
+          const hits = (c.vars || []).filter(v => __spaceNs(v.name, kind) && v.name === base);
+          if (hits.length > 1) return { variable: null, disposition: 'ambiguous' };
+          if (hits.length === 1) return __spaceNum(hits[0]) === value
+            ? { variable: hits[0], disposition: 'reused' }
+            : { variable: null, disposition: 'unsupported' };
+          if (!__materializeGeneratedVariables) return { variable: null, disposition: 'literal' };
           const col = __spaceCollection(kind);
-          if (!col) return null;
-          const base = (kind === 'radius' ? 'radius/' : 'space/') + value + 'px';
+          if (!col) return { variable: null, disposition: 'unsupported' };
           let name = base, i = 2;
           while ((c.vars || []).some(v => v.name === name)) name = base + '-' + (i++);
           let v;
           try { v = figma.variables.createVariable(name, col, 'FLOAT'); }
-          catch (e) { return null; }
+          catch (e) { return { variable: null, disposition: 'unsupported' }; }
           __scopeSpaceVar(v, kind, true);
           for (const m of col.modes) {
             try { v.setValueForMode(m.modeId, value); } catch (e) {}
           }
           c.vars.push(v);
-          return v;
+          globalThis.__createdVars.add(col.name + '/' + name);
+          globalThis.__createdVariableIds.add(v.id);
+          return { variable: v, disposition: 'created' };
         };
         const __createSpaceVar = (requestedKey, fallback, kind) => {
           const value = Number(fallback);
@@ -1246,9 +1326,12 @@ export class FigmaClient {
           vars[requestedKey] = variable;
           varsByCollection[collection.name.toLowerCase() + ':' + variableName] = variable;
           globalThis.__createdVars.add(collection.name + '/' + variableName);
+          globalThis.__createdVariableIds.add(variable.id);
           return variable;
         };
         const __space = (node, fields, value, kind) => {
+          const report = globalThis.__variableReport;
+          report.references += fields.length;
           let variable = null;
           if (typeof value === 'string' && value.startsWith('var:')) {
             const source = value.slice(4);
@@ -1261,19 +1344,27 @@ export class FigmaClient {
             if (!variable) {
               globalThis.__unresolvedVars = globalThis.__unresolvedVars || new Set();
               globalThis.__unresolvedVars.add(key);
+              report.unsupported += fields.length;
               return;
             }
             // Existing variables keep their authored scopes.
           } else {
             const num = Number(value);
             if (!isFinite(num) || num <= 0) return; /* 0 needs no token */
-            variable = __findOrCreateSpaceVar(num, kind);
+            const resolution = __findOrCreateSpaceVar(num, kind);
+            variable = resolution.variable;
+            if (!variable) {
+              report[resolution.disposition] += fields.length;
+              return;
+            }
           }
           if (!variable) return;
+          if (!globalThis.__createdVariableIds.has(variable.id)) globalThis.__reusedVariableIds.add(variable.id);
           for (const f of fields) {
             try { node.setBoundVariable(f, variable); }
             catch (e) { try { node.setBoundVariable(f, variable.id); } catch (e2) {} }
           }
+          report.bound += fields.length;
         };
     `;
   }
@@ -2093,7 +2184,8 @@ export class FigmaClient {
       }).join('\n');
   }
 
-  generateCode(props, children, iconSvgMap = {}) {
+  generateCode(props, children, iconSvgMap = {}, options = {}) {
+    const materializeResources = options.materializeResources === true;
     const name = props.name || 'Frame';
     const rawWidth = props.w || props.width;
     const rawHeight = props.h || props.height;
@@ -2204,10 +2296,18 @@ export class FigmaClient {
 
     return `
       (async function() {
+        globalThis.__variableReport = { references: 0, reused: 0, created: 0, bound: 0, literal: 0, ambiguous: 0, unsupported: 0 };
+        globalThis.__createdVariableIds = new Set();
+        globalThis.__reusedVariableIds = new Set();
+        globalThis.__createdVars = new Set();
+        globalThis.__textStyleReport = null;
+        globalThis.__reusedTextStyleIds = new Set();
+        globalThis.__createdTextStyleIds = new Set();
+        globalThis.__createdTextStyleNames = new Set();
         ${fontLoadCode}
         ${varLoadCode}
-        ${collected.usesTextStyles || collected.hasText ? this.generateTextStyleHelperCode() : ''}
-        ${collected.hasSpacing || this.hasSpacingProps(props) ? this.generateSpacingHelperCode() : ''}
+        ${collected.usesTextStyles || collected.hasText ? this.generateTextStyleHelperCode({ materializeResources }) : ''}
+        ${collected.hasSpacing || this.hasSpacingProps(props) ? this.generateSpacingHelperCode({ materializeResources }) : ''}
         ${collected.usesInstances ? this.generateInstanceHelperCode() : ''}
         ${smartPosCode}
 
@@ -2270,8 +2370,20 @@ export class FigmaClient {
           ? [...globalThis.__createdVars].sort() : [];
         const __scopeQuestions = globalThis.__variableScopeQuestions
           ? [...globalThis.__variableScopeQuestions] : [];
+        const __variableReport = globalThis.__variableReport;
+        __variableReport.reused = globalThis.__reusedVariableIds.size;
+        __variableReport.created = globalThis.__createdVariableIds.size;
+        const __textStyleReport = globalThis.__textStyleReport || null;
+        if (__textStyleReport) {
+          __textStyleReport.reused = globalThis.__reusedTextStyleIds.size;
+          __textStyleReport.created = globalThis.__createdTextStyleIds.size;
+        }
+        const __createdTextStyles = globalThis.__createdTextStyleNames
+          ? [...globalThis.__createdTextStyleNames].sort() : [];
         if (globalThis.__unresolvedVars) globalThis.__unresolvedVars = new Set();
         if (globalThis.__createdVars) globalThis.__createdVars = new Set();
+        globalThis.__createdVariableIds = new Set();
+        globalThis.__reusedVariableIds = new Set();
         if (globalThis.__variableScopeQuestions) globalThis.__variableScopeQuestions = [];
         // Fixed-height frame: measure whether the laid-out content spills past
         // the bottom edge. With clip=true the spill is invisible in the file
@@ -2287,7 +2399,10 @@ export class FigmaClient {
         const __result = { id: frame.id, name: frame.name };
         if (__unresolved.length > 0) __result.unresolved = __unresolved;
         if (__createdVariables.length > 0) __result.createdVariables = __createdVariables;
+        if (__createdTextStyles.length > 0) __result.createdTextStyles = __createdTextStyles;
         if (__scopeQuestions.length > 0) __result.scopeQuestions = __scopeQuestions;
+        if (__variableReport.references > 0) __result.variableReport = __variableReport;
+        if (__textStyleReport) __result.textStyleReport = __textStyleReport;
         if (__overflowPx > 0) __result.overflow = __overflowPx;
         return __result;
         } catch(e) {
@@ -2362,8 +2477,8 @@ export class FigmaClient {
 
   /**
    * Emit the __space() call that binds one spacing/radius value to a FLOAT
-   * variable (reusing or creating it). Returns '' when there is nothing worth
-   * tokenising — no value, or a plain 0.
+   * variable according to the active resource policy. Returns '' when there
+   * is nothing worth resolving — no value, or a plain 0.
    */
   spacingBind(nodeVar, fields, value, kind) {
     if (value === undefined || value === null) return '';

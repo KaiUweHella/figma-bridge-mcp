@@ -38,6 +38,11 @@ finished component.
 ## Build foundations first
 
 - Reuse or sync existing variables and styles before creating components.
+- Treat generated resources as an explicit library decision. Semantic Render
+  keeps unmatched implicit spacing/radius and typography literals literal by
+  default; use `materializeResources:true` only when the reviewed component
+  contract intentionally creates those Figma Variables and Text Styles, then
+  verify the returned reuse/create/bind/literal report.
 - Collect known metadata changes for several Variables into one `var
 update-batch` call; keep `var update` for one target.
 - Collect known value assignments for several Variable/mode pairs into one

@@ -38,9 +38,11 @@ const SCOPE_QUESTION_FIELDS = new Set([
   'name', 'collection', 'resolvedType', 'status', 'currentScopes', 'allowedScopes', 'question',
 ]);
 const VARIABLE_REPORT_FIELDS = new Set([
-  'references', 'reused', 'created', 'bound', 'ambiguous', 'unsupported',
+  'references', 'reused', 'created', 'bound', 'literal', 'ambiguous', 'unsupported',
 ]);
-const TEXT_STYLE_REPORT_FIELDS = new Set(['references', 'reused', 'created', 'bound']);
+const TEXT_STYLE_REPORT_FIELDS = new Set([
+  'references', 'reused', 'created', 'bound', 'literal',
+]);
 const FALLBACK_REPORT_FIELDS = new Set(['requested', 'applied', 'deduplicated', 'unsupported']);
 const COMPLETED_MUTATION_FIELDS = new Set([
   'version', 'outcome', 'created', 'removed', 'residueCount', 'residue', 'residueTruncated',
@@ -192,7 +194,7 @@ function projectVariableReport(value) {
   const report = numericReport(value, 'variableReport', VARIABLE_REPORT_FIELDS);
   const unbound = report ? report.references - report.bound : 0;
   if (report && (report.bound > report.references
-    || report.ambiguous + report.unsupported !== unbound
+    || report.literal + report.ambiguous + report.unsupported !== unbound
     || report.reused + report.created > report.bound)) {
     throw resultError('Semantic Render returned an inconsistent variableReport.');
   }
@@ -201,7 +203,7 @@ function projectVariableReport(value) {
 
 function projectTextStyleReport(value) {
   const report = numericReport(value, 'textStyleReport', TEXT_STYLE_REPORT_FIELDS);
-  if (report && (report.bound !== report.references
+  if (report && (report.bound + report.literal !== report.references
     || report.reused + report.created > report.references)) {
     throw resultError('Semantic Render returned an inconsistent textStyleReport.');
   }

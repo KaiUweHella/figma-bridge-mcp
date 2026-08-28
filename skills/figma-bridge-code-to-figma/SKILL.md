@@ -65,7 +65,13 @@ update` calls. When several explicit Variable/mode values are already
    the user explicitly requests same-value linking, inspect every compatible
    primitive candidate and write an Alias only when one exact target is
    uniquely provable; otherwise report the ambiguity and keep the literal.
-   Bind supported properties instead of freezing raw values.
+   Bind supported properties instead of freezing raw values. Semantic Render
+   reuses exact generated Variables and Text Styles but keeps unmatched
+   implicit candidates literal by default. Set `materializeResources:true`
+   only when the code or user explicitly intends the render to create those
+   generated Figma resources; explicit `var:` and named-style intent remains
+   available without that opt-in. Check the preview policy and the returned
+   `reused`, `created`, `bound`, and `literal` counts.
 3. Reuse existing component instances. When a missing reusable component must
    be created, follow `figma-bridge-component-library` before composing it into
    the screen.

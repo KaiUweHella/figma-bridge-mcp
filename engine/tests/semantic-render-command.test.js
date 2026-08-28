@@ -32,6 +32,7 @@ import {
   semanticRenderArgvRoute,
   semanticRenderImageReferences,
   semanticRenderPolicyFromArgv,
+  semanticRenderResourcePolicyFromArgv,
   semanticRenderRequestFromArgv,
 } from '../src/application/semantic-render-request.js';
 import { createWorkspaceIO } from '../src/lib/workspace-io.js';
@@ -109,7 +110,7 @@ function nativeBatchResult(count = 2, overrides = {}) {
       mutationReport: undefined,
     })),
     executor: 'structured-batch-v1',
-    textStyleReport: { references: 0, reused: 0, created: 0, bound: 0 },
+    textStyleReport: { references: 0, reused: 0, created: 0, bound: 0, literal: 0 },
     mutationOutcome: 'completed',
     mutationReport: {
       version: 1, outcome: 'completed', created: count * 2, removed: 0,
@@ -137,6 +138,7 @@ test('Semantic Render request Interface closes argv before policy and preserves 
     keepWrapper: true,
     placement: { smart: true, x: null, y: null },
     collection: 'Brand',
+    resourcePolicy: { materializeGenerated: false },
     preset: 'desktop',
     manifest: null,
     approvedFallbacks: ['font.named-faces', 'root'],
@@ -162,6 +164,22 @@ test('Semantic Render request Interface closes argv before policy and preserves 
   assert.deepEqual(semanticRenderArgvFromRequest(positioned), [
     'render', SIMPLE_JSX, '-x-120.5', '-y240', '--no-smart-position',
   ]);
+
+  const materialized = semanticRenderRequestFromArgv([
+    'render', SIMPLE_JSX, '--materialize-resources',
+  ]);
+  assert.deepEqual(materialized.resourcePolicy, { materializeGenerated: true });
+  assert.deepEqual(semanticRenderArgvFromRequest(materialized), [
+    'render', SIMPLE_JSX, '--materialize-resources',
+  ]);
+  assert.deepEqual(semanticRenderResourcePolicyFromArgv(['render', SIMPLE_JSX]), {
+    explicitIntent: 'allowed', generated: 'reuse-or-literal',
+  });
+  assert.deepEqual(semanticRenderResourcePolicyFromArgv([
+    'render', SIMPLE_JSX, '--materialize-resources',
+  ]), {
+    explicitIntent: 'allowed', generated: 'materialize',
+  });
 
   for (const malformed of [
     ['render'],
@@ -714,7 +732,10 @@ test('compound native rendering dispatches one journaled batch and returns one b
     renderPlanBatch: async (plans, options) => {
       nativeCalls++;
       assert.equal(plans.length, 2);
-      assert.deepEqual(options, { gap: 0, vertical: true, smart: true, x: null, y: null });
+      assert.deepEqual(options, {
+        gap: 0, vertical: true, smart: true, x: null, y: null,
+        materializeResources: false,
+      });
       return nativeBatchResult(2);
     },
     evaluate: async () => { evalCalls++; throw new Error('must not evaluate'); },
@@ -767,7 +788,10 @@ test('multi-screen acceptance blocks flat repetition before dispatch and reports
     workspaceIO: approved.io,
     renderPlanBatch: async (_plans, options) => {
       writes++;
-      assert.deepEqual(options, { gap: 40, vertical: false, smart: true, x: null, y: null });
+      assert.deepEqual(options, {
+        gap: 40, vertical: false, smart: true, x: null, y: null,
+        materializeResources: false,
+      });
       return nativeBatchResult(2);
     },
   });
@@ -826,7 +850,10 @@ test('compound follow-up stages preserve position, final handles and verificatio
   const outcome = await executeCompoundSemanticRenderPlan(plan, {
     workspaceIO: io,
     renderPlanBatch: async (_plans, options) => {
-      assert.deepEqual(options, { gap: 0, vertical: true, smart: false, x: 10, y: 20 });
+      assert.deepEqual(options, {
+        gap: 0, vertical: true, smart: false, x: 10, y: 20,
+        materializeResources: false,
+      });
       return nativeBatchResult(2);
     },
     evaluate: async (code) => {
@@ -1040,7 +1067,9 @@ test('the native Semantic Render executor is dispatched exactly once without gen
     renderPlan: async (structuredPlan, placement) => {
       nativeCalls += 1;
       assert.equal(structuredPlan.kind, 'figma-bridge/semantic-render-plan');
-      assert.deepEqual(placement, { smart: true, x: null, y: null });
+      assert.deepEqual(placement, {
+        smart: true, x: null, y: null, materializeResources: false,
+      });
       return nativeResult();
     },
   });
@@ -1055,6 +1084,24 @@ test('the native Semantic Render executor is dispatched exactly once without gen
   assert.equal(semanticRenderOutcomeCode(result), 0);
 });
 
+test('explicit resource materialization reaches the native executor', async (t) => {
+  const { plan, io } = renderPlan(t, [
+    'render', SIMPLE_JSX, '--materialize-resources',
+  ]);
+  const result = await executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async (_structuredPlan, placement) => {
+      assert.deepEqual(placement, {
+        smart: true, x: null, y: null, materializeResources: true,
+      });
+      return nativeResult();
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(result.executor, { kind: 'structured', version: 1 });
+});
+
 test('explicit single-root placement stays on the native Command Application', async (t) => {
   const { plan, io } = renderPlan(t, [
     'render', SIMPLE_JSX, '-x-45.5', '-y120', '--no-smart-position',
@@ -1067,7 +1114,9 @@ test('explicit single-root placement stays on the native Command Application', a
     renderPlan: async (structuredPlan, placement) => {
       nativeCalls += 1;
       assert.equal(structuredPlan.kind, 'figma-bridge/semantic-render-plan');
-      assert.deepEqual(placement, { smart: false, x: -45.5, y: 120 });
+      assert.deepEqual(placement, {
+        smart: false, x: -45.5, y: 120, materializeResources: false,
+      });
       return nativeResult();
     },
     evaluate: async () => { evalCalls += 1; return {}; },
@@ -1101,7 +1150,7 @@ test('typed Semantic Render never redispatches as eval, including before native 
 
 test('locally unsupported native plans choose one generated execution before dispatch', async (t) => {
   const { plan, io } = renderPlan(t, [
-    'render', '<Frame filter="brightness(1.2)"><Text lineHeight="125%">Fallback</Text></Frame>',
+    'render', '<Frame filter="brightness(1.2)" p="17" rounded="9"><Text lineHeight="125%">Fallback</Text></Frame>',
     '-x-45', '-y120', '--no-smart-position',
   ]);
   const prepared = prepareSemanticRenderPlan(plan, { workspaceIO: io });
@@ -1118,6 +1167,8 @@ test('locally unsupported native plans choose one generated execution before dis
       assert.match(code, /const smartX = -45;/);
       assert.match(code, /frame\.y = 120;/);
       assert.match(code, /lineHeight = \{ value: 125, unit: 'PERCENT' \}/);
+      assert.match(code, /const __materializeGeneratedVariables = false;/);
+      assert.match(code, /const __materializeGeneratedTextStyles = false;/);
       return { id: '3:4', name: 'Fallback' };
     },
   });
@@ -1133,6 +1184,25 @@ test('locally unsupported native plans choose one generated execution before dis
     disposition: 'generated-eval-compatibility',
   }]);
   assert.match(result.notices.at(-1).text, /Native preflight unsupported/);
+});
+
+test('explicit resource materialization reaches the compatibility executor', async (t) => {
+  const { plan, io } = renderPlan(t, [
+    'render', '<Frame filter="brightness(1.2)" p="18" rounded="10"><Text>Materialized</Text></Frame>',
+    '--materialize-resources',
+  ]);
+  const result = await executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async () => { throw new Error('must not run'); },
+    evaluate: async (code) => {
+      assert.match(code, /const __materializeGeneratedVariables = true;/);
+      assert.match(code, /const __materializeGeneratedTextStyles = true;/);
+      return { id: '3:6', name: 'Materialized' };
+    },
+  });
+
+  assert.equal(result.status, 'completed-with-findings');
+  assert.deepEqual(result.executor, { kind: 'generated-eval-compatibility', version: 1 });
 });
 
 test('compatibility preserves image utility while reporting exact unresolved binding loss', async (t) => {
@@ -1193,10 +1263,10 @@ test('malformed post-dispatch results remain unknown and never redispatch', asyn
     nativeResult({ width: '' }),
     nativeResult({ variableReport: { references: 1 } }),
     nativeResult({ variableReport: {
-      references: 1, reused: 0, created: 0, bound: 0, ambiguous: 0, unsupported: 0,
+      references: 1, reused: 0, created: 0, bound: 0, literal: 0, ambiguous: 0, unsupported: 0,
     } }),
     nativeResult({ textStyleReport: {
-      references: 1, reused: 1, created: 1, bound: 1,
+      references: 1, reused: 1, created: 1, bound: 1, literal: 0,
     } }),
     nativeResult({ fallbackAnnotationReport: {
       requested: 0, applied: 0, deduplicated: 0, unsupported: 9,
@@ -1373,18 +1443,41 @@ test('bounded Outcome preserves successful unbound generated literal evidence', 
     workspaceIO: io,
     renderPlan: async () => nativeResult({
       variableReport: {
-        references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
+        references: 4, reused: 0, created: 0, bound: 0,
+        literal: 0, ambiguous: 4, unsupported: 0,
       },
     }),
     evaluate: async () => { throw new Error('must not run'); },
   });
 
   assert.deepEqual(result.resources.variableReport, {
-    references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
+    references: 4, reused: 0, created: 0, bound: 0,
+    literal: 0, ambiguous: 4, unsupported: 0,
   });
   assert.equal(result.status, 'completed');
   assert.equal(semanticRenderOutcomeCode(result), 0);
   assert.deepEqual(result.degradations, []);
   assert.match(formatSemanticRenderResult(result),
-    /4 generated literal binding\(s\) left unbound; exact literal values were preserved/);
+    /4 generated binding candidate\(s\) stayed unbound because reuse was ambiguous or incompatible/);
+});
+
+test('bounded Outcome preserves intentional literal resource evidence', async (t) => {
+  const { plan, io } = renderPlan(t);
+  const result = await executeSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlan: async () => nativeResult({
+      variableReport: {
+        references: 4, reused: 0, created: 0, bound: 0,
+        literal: 4, ambiguous: 0, unsupported: 0,
+      },
+      textStyleReport: {
+        references: 1, reused: 0, created: 0, bound: 0, literal: 1,
+      },
+    }),
+  });
+
+  assert.equal(result.status, 'completed');
+  const output = formatSemanticRenderResult(result);
+  assert.match(output, /4 generated literal binding candidate\(s\) stayed literal/);
+  assert.match(output, /1 unmatched typography candidate\(s\) stayed literal/);
 });

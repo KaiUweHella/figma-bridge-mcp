@@ -763,6 +763,10 @@ _Avoid_: image expression evaluator, path rewrite regex, Plugin file path
 The versioned, validated and adapter-independent contract for one Figma creation request. JSX, browser capture and future structured inputs adapt into this plan; the Structural Gate and Figma executor consume it. It preserves ordered nodes, native layout intent, sizing, paint, typography, variable and asset intent, Design Entity identity, classified fallbacks and source provenance. Supported semantic and numeric-string font weights are canonical numeric weights at this boundary, while FLOAT Variable references remain references and only their literal fallback is normalized.
 _Avoid_: JSX tree, generated code, render payload
 
+**Generated Design Resource Policy**:
+The explicit Semantic Render request decision for unmatched generated spacing/radius Variables and Text Styles. Exact existing resources may be reused and explicit `var:` or named-style intent remains fully actionable; unmatched implicit candidates stay as exact literals by default. Only `materializeResources` / `--materialize-resources` authorizes their creation. Native and generated compatibility execution consume the same policy, and previews plus bounded resource reports distinguish reuse, creation, binding, literal preservation, ambiguity and incompatibility before or after dispatch without exposing source payloads.
+_Avoid_: automatic tokenization, implicit design-system generation, no-resource mode
+
 **Offline Structural Gate**:
 The repository-only audit of one Semantic Render Plan before Plugin readiness. Every check is explicitly PASS, FAIL or DEFERRED: structural contradictions fail, locally provable facts pass, and facts requiring the live Figma document remain deferred rather than being guessed. A deferred check never claims live acceptance and never weakens the authoritative Figma executor preflight, which still resolves explicit Variable intent and stops before the first canvas write when resolution is missing, ambiguous or unsupported.
 _Avoid_: dry-run render, offline Variable resolver, best-effort acceptance
@@ -944,7 +948,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 
 > **Developer:** How can the agent tell whether a render reused tokens or created new ones?
 >
-> **Domain expert:** Every native render with variable intent returns one Variable Report: references, unique reused variables, created variables, bound properties, ambiguities and unsupported intents. Explicit `var:` ambiguity fails preflight without variables or canvas nodes. Ambiguity created only by optional tokenization of a numeric spacing/radius literal instead preserves the exact value unbound and succeeds with that decision visible in the same report.
+> **Domain expert:** Every render with resource intent returns bounded Variable and Text Style reports: references, unique reuse, creation, binding and literal preservation, plus Variable ambiguity and incompatibility. Explicit `var:` ambiguity still fails preflight without variables or canvas nodes. Implicit numeric spacing/radius and typography candidates reuse an exact existing resource when possible, otherwise remain literal by default. The caller can explicitly authorize generated creation with `materializeResources` / `--materialize-resources`; preview exposes that policy before dispatch.
 
 > **Developer:** Code-to-Figma can write a native effect. Does that mean Design-to-Code can safely rebuild it?
 >

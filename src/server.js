@@ -359,6 +359,7 @@ import {
   SEMANTIC_RENDER_DEVICE_PRESETS,
   semanticCompoundRenderRequestFromArgv,
   semanticRenderArgvRoute,
+  semanticRenderResourcePolicyFromArgv,
   semanticRenderRequestFromArgv,
 } from "../engine/src/application/semantic-render-request.js";
 import { formatRoundTripFidelityContract } from "../engine/src/lib/round-trip-fidelity-contract.js";
@@ -570,6 +571,7 @@ export const TOOLS = [
         verify: { type: "boolean" },
         resizeProbe: { type: "number", minimum: 1, maximum: 2000 },
         collection: { type: "string", minLength: 1 },
+        materializeResources: { type: "boolean", default: false },
         preset: {
           type: "string",
           enum: Object.keys(SEMANTIC_RENDER_DEVICE_PRESETS),
@@ -1478,6 +1480,9 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
   const effects = plan.effects || {};
   const execution = plan.execution || {};
   const target = plan.target || {};
+  const resourcePolicy = ["render", "render-batch"].includes(plan.id)
+    ? semanticRenderResourcePolicyFromArgv([...plan.argv])
+    : null;
   return Object.freeze({
     version: 1,
     guaranteedNonMutating: true,
@@ -1504,6 +1509,7 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
     mutationPolicy: plan.mutationPolicy?.rollback
       ? Object.freeze({ rollback: plan.mutationPolicy.rollback })
       : null,
+    resourcePolicy,
   });
 }
 
@@ -1535,6 +1541,11 @@ function previewResult(plan, { reason = "explicit-preview" } = {}) {
     `  effective confirmation policy: ${facts.confirmationPolicy}`,
     ...(facts.mutationPolicy
       ? [`  mutation rollback policy: ${facts.mutationPolicy.rollback}`]
+      : []),
+    ...(facts.resourcePolicy
+      ? [`  generated resource creation: ${facts.resourcePolicy.generated === "materialize"
+        ? "enabled (explicit --materialize-resources)"
+        : "disabled; exact resources may be reused and unmatched values stay literal"}`]
       : []),
     "  dispatched: no",
     "",
@@ -1810,7 +1821,7 @@ function semanticRenderToolArgv(input) {
       throw new Error(`${key} must contain at most ${MAX_SEMANTIC_RENDER_LIST_ITEMS} non-empty strings.`);
     }
   }
-  for (const key of ["smartPosition", "asComponent", "verify"]) {
+  for (const key of ["smartPosition", "asComponent", "verify", "materializeResources"]) {
     if (input[key] !== undefined && typeof input[key] !== "boolean") throw new Error(`${key} must be a boolean.`);
   }
   for (const key of ["gap", "x", "y", "resizeProbe"]) {
@@ -1829,6 +1840,7 @@ function semanticRenderToolArgv(input) {
   if (input.y !== undefined) args.push(`-y${input.y}`);
   if (input.smartPosition === false) args.push("--no-smart-position");
   if (input.asComponent === true) args.push("--as-component");
+  if (input.materializeResources === true) args.push("--materialize-resources");
   if (input.verify === true) args.push("--verify");
   if (input.resizeProbe !== undefined) args.push(`--resize-probe=${input.resizeProbe}`);
   if (input.collection !== undefined) args.push(`--collection=${input.collection}`);

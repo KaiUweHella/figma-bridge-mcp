@@ -64,8 +64,16 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(frame.children[0], text);
     assert.equal(text.characters, 'Hello');
     assert.deepEqual(text.fontName, { family: 'Inter', style: 'Semi Bold' });
-    assert.match(text.textStyleId, /^text-style:/);
-    assert.deepEqual(result.textStyleReport, { references: 1, reused: 0, created: 1, bound: 1 });
+    assert.equal(text.textStyleId, undefined);
+    assert.deepEqual(figma.localVariables, []);
+    assert.deepEqual(figma.localTextStyles, []);
+    assert.deepEqual(result.variableReport, {
+      references: 5, reused: 0, created: 0, bound: 0,
+      literal: 5, ambiguous: 0, unsupported: 0,
+    });
+    assert.deepEqual(result.textStyleReport, {
+      references: 1, reused: 0, created: 0, bound: 0, literal: 1,
+    });
     assert.equal(result.structuralReport.passed, true);
     assert.deepEqual(result.structuralReport.summary, {
       nodes: 2, grids: 0, autoLayouts: 1, freeLayouts: 0,
@@ -214,14 +222,18 @@ describe('structured Semantic Render Plan executor', () => {
     const style = figma.localTextStyles.find((candidate) => candidate.name === 'Typography/Eyebrow');
     assert.ok(style);
     assert.equal(firstText.textStyleId, style.id);
-    assert.deepEqual(first.textStyleReport, { references: 1, reused: 0, created: 1, bound: 1 });
+    assert.deepEqual(first.textStyleReport, {
+      references: 1, reused: 0, created: 1, bound: 1, literal: 0,
+    });
     assert.deepEqual(first.createdTextStyles, ['Typography/Eyebrow']);
 
     const second = await executeStructuredRenderPlan(figma, plan);
     const texts = figma.created.filter((node) => node.type === 'TEXT');
     assert.equal(texts.at(-1).textStyleId, style.id);
     assert.equal(figma.localTextStyles.filter((candidate) => candidate.name === 'Typography/Eyebrow').length, 1);
-    assert.deepEqual(second.textStyleReport, { references: 1, reused: 1, created: 0, bound: 1 });
+    assert.deepEqual(second.textStyleReport, {
+      references: 1, reused: 1, created: 0, bound: 1, literal: 0,
+    });
   });
 
   it('preserves unit-bearing line height through native Text and generated Text Styles', async () => {
@@ -237,7 +249,7 @@ describe('structured Semantic Render Plan executor', () => {
       assert.deepEqual(plan.root.children[0].source.props.lineHeight, expected, authored);
       assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] }, authored);
       const figma = fakeFigma();
-      await executeStructuredRenderPlan(figma, plan);
+      await executeStructuredRenderPlan(figma, plan, { materializeResources: true });
       assert.deepEqual(figma.created.find((node) => node.type === 'TEXT').lineHeight, expected, authored);
       assert.deepEqual(figma.localTextStyles[0].lineHeight, expected, authored);
     }
@@ -256,7 +268,9 @@ describe('structured Semantic Render Plan executor', () => {
 
     const result = await executeStructuredRenderPlan(figma, plan);
     assert.equal(figma.created.find((node) => node.type === 'TEXT').textStyleId, existing.id);
-    assert.deepEqual(result.textStyleReport, { references: 1, reused: 1, created: 0, bound: 1 });
+    assert.deepEqual(result.textStyleReport, {
+      references: 1, reused: 1, created: 0, bound: 1, literal: 0,
+    });
   });
 
   it('rejects invalid line height before native mutation', () => {
@@ -275,7 +289,9 @@ describe('structured Semantic Render Plan executor', () => {
     });
     const plan = new FigmaClient().planJSX('<Frame><Text>Async only</Text></Frame>');
 
-    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /async Text Style rejected/);
+    await assert.rejects(() => executeStructuredRenderPlan(
+      figma, plan, { materializeResources: true },
+    ), /async Text Style rejected/);
     assert.equal(figma.currentPage.children.length, 0);
     assert.ok(figma.created.every((node) => node.removed === true));
   });
@@ -310,7 +326,9 @@ describe('structured Semantic Render Plan executor', () => {
 
     const result = await executeStructuredRenderPlan(figma, plan);
     assert.equal(figma.created.find((node) => node.type === 'TEXT').textStyleId, existing.id);
-    assert.deepEqual(result.textStyleReport, { references: 1, reused: 1, created: 0, bound: 1 });
+    assert.deepEqual(result.textStyleReport, {
+      references: 1, reused: 1, created: 0, bound: 1, literal: 0,
+    });
   });
 
   it('maps wrapped Flex axis gaps to native Auto Layout spacing', async () => {
@@ -322,7 +340,7 @@ describe('structured Semantic Render Plan executor', () => {
     const figma = fakeFigma();
 
     assert.deepEqual(inspectStructuredRenderPlan(plan), { supported: true, problems: [] });
-    await executeStructuredRenderPlan(figma, plan);
+    await executeStructuredRenderPlan(figma, plan, { materializeResources: true });
     const frame = figma.created.find((node) => node.name === 'Wrap');
 
     assert.equal(frame.layoutMode, 'HORIZONTAL');
@@ -898,7 +916,9 @@ describe('structured Semantic Render Plan executor', () => {
     const mutations = [];
     const figma = fakeFigma({ mutationCheckpoint: (entry) => mutations.push(entry) });
 
-    await assert.rejects(() => executeStructuredRenderPlanBatch(figma, plans), (error) => {
+    await assert.rejects(() => executeStructuredRenderPlanBatch(
+      figma, plans, { materializeResources: true },
+    ), (error) => {
       assert.match(error.message, /Text Style "Typography\/Shared" exists with different typography/);
       assert.equal(error.mutationOutcome, 'no-mutation');
       assert.deepEqual(error.mutationReport.residue, []);
@@ -930,7 +950,9 @@ describe('structured Semantic Render Plan executor', () => {
       client.planJSX('<Frame name="Two" gap="6"><Text size="14">Two</Text></Frame>'),
     ];
 
-    await assert.rejects(() => executeStructuredRenderPlanBatch(figma, plans), (error) => {
+    await assert.rejects(() => executeStructuredRenderPlanBatch(
+      figma, plans, { materializeResources: true },
+    ), (error) => {
       assert.match(error.message, /fault after third scene mutation/);
       assert.equal(error.mutationOutcome, 'rolled-back');
       assert.equal(error.mutationReport.removed, createdOrder.length);
@@ -951,7 +973,7 @@ describe('structured Semantic Render Plan executor', () => {
     const completed = await executeStructuredRenderPlan(fakeFigma({
       collections: [],
       mutationCheckpoint: (entry) => baseline.push(entry),
-    }), plan);
+    }), plan, { materializeResources: true });
     assert.equal(completed.mutationOutcome, 'completed');
     assert.ok(baseline.some((entry) => entry.kind === 'variable-collection'));
     assert.ok(baseline.some((entry) => entry.kind === 'variable'));
@@ -967,7 +989,9 @@ describe('structured Semantic Render Plan executor', () => {
           if (entry.sequence === failAt) throw new Error(`fault-${failAt}`);
         },
       });
-      await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+      await assert.rejects(() => executeStructuredRenderPlan(
+        figma, plan, { materializeResources: true },
+      ), (error) => {
         assert.match(error.cause.message, new RegExp(`fault-${failAt}$`));
         assert.equal(error.mutationOutcome, 'rolled-back');
         assert.equal(error.mutationReport.created, failAt);
@@ -1022,7 +1046,9 @@ describe('structured Semantic Render Plan executor', () => {
       },
     });
 
-    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), (error) => {
+    await assert.rejects(() => executeStructuredRenderPlan(
+      figma, plan, { materializeResources: true },
+    ), (error) => {
       assert.match(error.message, /original execution failure/);
       assert.equal(error.cause.message, 'original execution failure');
       assert.equal(error.mutationOutcome, 'partial-residue');
@@ -1338,7 +1364,9 @@ describe('structured Semantic Render Plan executor', () => {
       '<Frame name="Card" flex="col" gap="12" p="16" rounded="8"><Text>Tokens</Text></Frame>',
     );
 
-    const result = await executeStructuredRenderPlan(figma, plan);
+    const result = await executeStructuredRenderPlan(
+      figma, plan, { materializeResources: true },
+    );
     const frame = figma.created.find((node) => node.name === 'Card');
     const space12 = figma.localVariables.find((item) => item.name === 'space/12px');
     const space16 = figma.localVariables.find((item) => item.name === 'space/16px');
@@ -1361,7 +1389,7 @@ describe('structured Semantic Render Plan executor', () => {
     });
     const plan = new FigmaClient().planJSX('<Frame name="Dot" w="7" h="7" bg="#c9ff58" rounded="3.5" />');
 
-    await executeStructuredRenderPlan(figma, plan);
+    await executeStructuredRenderPlan(figma, plan, { materializeResources: true });
     const radius = figma.localVariables.find((item) => item.name === 'radius/3-5px');
     const frame = figma.created.find((node) => node.name === 'Dot');
 
@@ -1378,7 +1406,9 @@ describe('structured Semantic Render Plan executor', () => {
     });
     const plan = new FigmaClient().planJSX('<Frame name="Rejected" p="4" rounded="8" />');
 
-    await assert.rejects(() => executeStructuredRenderPlan(figma, plan), /simulated invalid variable name/);
+    await assert.rejects(() => executeStructuredRenderPlan(
+      figma, plan, { materializeResources: true },
+    ), /simulated invalid variable name/);
     assert.deepEqual(figma.localVariables, []);
     assert.equal(figma.created.length, 0);
   });
@@ -1389,14 +1419,17 @@ describe('structured Semantic Render Plan executor', () => {
     const figma = fakeFigma({ variables: [compact, semantic] });
     const plan = new FigmaClient().planJSX('<Frame name="Literal" p="20"><Text>Exact generated identity</Text></Frame>');
 
-    const result = await executeStructuredRenderPlan(figma, plan);
+    const result = await executeStructuredRenderPlan(
+      figma, plan, { materializeResources: true },
+    );
     const generated = figma.localVariables.find((variable) => variable.name === 'space/20px');
 
     assert.ok(generated);
     assert.equal(generated.valuesByMode['mode:1'], 20);
     assert.deepEqual(generated.scopes, ['GAP']);
     assert.deepEqual(result.variableReport, {
-      references: 4, reused: 0, created: 1, bound: 4, ambiguous: 0, unsupported: 0,
+      references: 4, reused: 0, created: 1, bound: 4,
+      literal: 0, ambiguous: 0, unsupported: 0,
     });
   });
 
@@ -1419,7 +1452,8 @@ describe('structured Semantic Render Plan executor', () => {
     ], [16, 16, 16, 16]);
     assert.deepEqual(frame.boundVariables, {});
     assert.deepEqual(result.variableReport, {
-      references: 4, reused: 0, created: 0, bound: 0, ambiguous: 4, unsupported: 0,
+      references: 4, reused: 0, created: 0, bound: 0,
+      literal: 0, ambiguous: 4, unsupported: 0,
     });
   });
 
@@ -1445,7 +1479,8 @@ describe('structured Semantic Render Plan executor', () => {
       paddingLeft: productSpace.id,
     });
     assert.deepEqual(result.variableReport, {
-      references: 4, reused: 1, created: 0, bound: 4, ambiguous: 0, unsupported: 0,
+      references: 4, reused: 1, created: 0, bound: 4,
+      literal: 0, ambiguous: 0, unsupported: 0,
     });
   });
 
@@ -1462,7 +1497,8 @@ describe('structured Semantic Render Plan executor', () => {
     ], [16, 16, 16, 16]);
     assert.deepEqual(frame.boundVariables, {});
     assert.deepEqual(result.variableReport, {
-      references: 4, reused: 0, created: 0, bound: 0, ambiguous: 0, unsupported: 4,
+      references: 4, reused: 0, created: 0, bound: 0,
+      literal: 0, ambiguous: 0, unsupported: 4,
     });
   });
 
@@ -1487,7 +1523,8 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(frames.every((frame) => frame.paddingTop === 16
       && Object.keys(frame.boundVariables).length === 0), true);
     assert.deepEqual(result.variableReport, {
-      references: 8, reused: 0, created: 0, bound: 0, ambiguous: 8, unsupported: 0,
+      references: 8, reused: 0, created: 0, bound: 0,
+      literal: 0, ambiguous: 8, unsupported: 0,
     });
   });
 
@@ -1575,7 +1612,8 @@ describe('structured Semantic Render Plan executor', () => {
       paragraphSpacing: 'variable:type/paragraph-gap', paragraphIndent: 'variable:type/indent',
     });
     assert.deepEqual(result.variableReport, {
-      references: 11, reused: 11, created: 0, bound: 11, ambiguous: 0, unsupported: 0,
+      references: 11, reused: 11, created: 0, bound: 11,
+      literal: 0, ambiguous: 0, unsupported: 0,
     });
   });
 
@@ -1608,7 +1646,8 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(result.scopeQuestions.every((question) => question.resolvedType === 'STRING'), true);
     assert.equal(result.scopeQuestions.every((question) => question.allowedScopes.includes('FONT_FAMILY')), true);
     assert.deepEqual(result.variableReport, {
-      references: 2, reused: 0, created: 2, bound: 2, ambiguous: 0, unsupported: 0,
+      references: 2, reused: 0, created: 2, bound: 2,
+      literal: 0, ambiguous: 0, unsupported: 0,
     });
   });
 

@@ -610,7 +610,12 @@ install-or-choose-another-face message instead of silently substituting it.
 Named Text Styles are reconciled before canvas creation as well: an explicit
 `style="Typography/Eyebrow"` is reused only when its complete typography
 matches; a conflicting same-name style stops, and otherwise exact typography
-is reused or created under a deterministic `Typography/Generated/...` name.
+is reused. Unmatched implicit typography stays literal by default instead of
+creating a parallel style. Set MCP `materializeResources:true` or CLI
+`--materialize-resources` when the source intentionally asks Figma Bridge to
+create generated Text Styles and spacing/radius Variables. Explicit named
+styles and `var:` fallbacks remain available without that flag because they
+already carry authored resource intent.
 Line height keeps its authored unit in the Semantic Render Plan: quoted
 unitless CSS multipliers such as `lineHeight="1.1"` and percentages such as
 `lineHeight="110%"` become Figma `PERCENT`; explicit
@@ -621,9 +626,11 @@ Figma float32 metric readback is normalized for stable comparison, and
 family-specific faces such as DM Sans/Manrope `SemiBold` and `ExtraBold` are
 tried before any fallback family. Successful native renders return
 `textStyleReport` and `variableReport` counts for references,
-unique reused variables, created variables and bound properties. Ambiguous or
-unsupported preflight errors include the corresponding zero/nonzero counts and
-do not leave newly created variables or canvas nodes behind.
+unique reused resources, created resources, bound properties and literals kept
+as literals. Ambiguous or unsupported preflight errors include the
+corresponding zero/nonzero counts and do not leave newly created variables or
+canvas nodes behind. Command Preview reports the generated-resource policy
+without echoing JSX or other private payloads.
 
 `<Text>` also preserves editable inline Rich Text. Nested `<strong>/<b>`,
 `<em>/<i>`, `<u>`, `<Span ...>` and `<a href="...">` markup becomes native
@@ -1184,7 +1191,10 @@ Numeric spacing and radius literals may reuse an exact generated variable only
 when its identity and value are unambiguous. If duplicate collections expose
 the same generated name, the native renderer keeps the exact visual literal
 unbound and reports that decision; explicit `var:` references still fail
-closed until their collection identity is resolved.
+closed until their collection identity is resolved. If no exact generated
+Variable exists, the literal remains literal unless the caller explicitly sets
+`materializeResources:true` / `--materialize-resources`; the opt-in preserves
+the former generated-token workflow rather than removing it.
 Other new COLOR, FLOAT, or STRING variables surface `SCOPE DECISION REQUIRED`
 with only the compatible Figma choices. The agent should ask before narrowing
 them; inspect the catalog with `figma_reference {name:"variable-scopes"}` and

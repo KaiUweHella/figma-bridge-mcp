@@ -53,7 +53,8 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
     queries: ['Alpha', 'Beta'], limit: 200,
   }, expectedEditor: 'figma', timeoutMs: 1000 }), null);
   assert.equal(validateExecPayload({
-    action: 'render-plan', plan, options: { smart: false, x: -10, y: 20 },
+    action: 'render-plan', plan,
+    options: { smart: false, x: -10, y: 20, materializeResources: true },
     expectedEditor: 'figma', timeoutMs: 1000, fileKey: 'FILE',
   }), null);
   assert.equal(validateExecPayload({
@@ -70,10 +71,12 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.match(validateExecPayload({ action: 'render-plan', plan: { version: 999 } }), /invalid/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, options: { future: true } }), /unknown/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, options: { smart: 'no' } }), /boolean/);
+  assert.match(validateExecPayload({ action: 'render-plan', plan, options: { materializeResources: 'yes' } }), /boolean/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, options: { x: Infinity } }), /finite/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { future: true } }), /unknown/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { x: Infinity } }), /finite/);
+  assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { materializeResources: 1 } }), /boolean/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', fileKey: 'x'.repeat(65) }), /64/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', timeoutMs: Infinity }), /finite/);
   assert.match(validateExecPayload({ action: 'eval', code: 'x', expectedEditor: 'figma', deadlineAt: Infinity }), /timestamp/);

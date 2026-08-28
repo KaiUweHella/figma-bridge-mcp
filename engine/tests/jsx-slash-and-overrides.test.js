@@ -178,11 +178,10 @@ describe('<Text> style + variable-bound size', () => {
   });
 });
 
-// Every plain <Text> gets attached to a shared local text style — reused when
-// a style of the derived name exists, created when it doesn't. This is what
-// keeps rendered screens from accumulating raw, style-less typography.
-describe('<Text> auto text styles (create-or-reuse)', () => {
-  it('plain text gets __ensureTextStyle with a deterministic name', async () => {
+// Plain Text reuses exact existing typography. Missing implicit styles stay
+// literal unless the request explicitly enables generated materialization.
+describe('<Text> generated resource policy', () => {
+  it('plain text gets an exact-reuse helper with literal default policy', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
       '<Frame name="P" flex="col"><Text size={14} weight="semibold">Hi</Text></Frame>'
@@ -190,6 +189,7 @@ describe('<Text> auto text styles (create-or-reuse)', () => {
     assert.ok(code.includes('__ensureTextStyle(el0, "Inter", "Semi Bold", 14)'), 'auto style applied');
     assert.ok(code.includes('createTextStyle'), 'helper can create missing styles');
     assert.ok(code.includes('getLocalTextStylesAsync'), 'helper reuses existing local styles');
+    assert.ok(code.includes('const __materializeGeneratedTextStyles = false;'), 'creation requires opt-in');
     assertValidJs(code);
   });
 
@@ -238,11 +238,9 @@ describe('<Text> auto text styles (create-or-reuse)', () => {
   });
 });
 
-// Spacing/radius numbers used to land on nodes as hard-coded values, ignoring
-// the file's space/* and radius/* tokens entirely. Now every gap, padding and
-// corner radius binds to a FLOAT variable: reused when one of the matching
-// namespace already holds that value, created otherwise.
-describe('spacing + radius tokens (reuse-or-create)', () => {
+// Spacing/radius numbers reuse only their exact generated identity. Missing
+// identities remain literal unless generated materialization is explicit.
+describe('spacing + radius generated resource policy', () => {
   it('nested frame gap/padding bind via __space with kind "space"', async () => {
     const client = makeClient();
     const code = await client.parseJSX(
@@ -312,9 +310,10 @@ describe('spacing + radius tokens (reuse-or-create)', () => {
     assert.ok(!code.includes('head.includes'), 'substring guesses must never select or scope a variable');
   });
 
-  it('creates a namespaced variable when no token matches', () => {
+  it('retains namespaced creation behind explicit materialization', () => {
     const client = makeClient();
     const code = client.generateSpacingHelperCode();
+    assert.ok(code.includes('const __materializeGeneratedVariables = false;'), 'creation defaults off');
     assert.ok(code.includes("'radius/' : 'space/'"), 'new variables are namespaced');
     assert.ok(code.includes("createVariable(name, col, 'FLOAT')"), 'creates a FLOAT variable');
     assert.ok(code.includes("['CORNER_RADIUS'] : ['GAP']"), 'created variables receive a narrow Figma scope');
@@ -325,7 +324,8 @@ describe('spacing + radius tokens (reuse-or-create)', () => {
     const client = makeClient();
     const code = client.generateSpacingHelperCode();
     assert.ok(code.includes('if (!isNew) return variable'), 'existing user/library variables keep their scopes');
-    assert.ok(code.includes('if (hit) return hit'), 'value-matched variables are reused unchanged');
+    assert.ok(code.includes('v.name === base'), 'reuse requires the exact generated identity');
+    assert.ok(code.includes('if (hits.length === 1)'), 'one exact generated variable is reused unchanged');
     assert.ok(code.includes('__scopeSpaceVar(v, kind, true)'), 'only variables created by the render are narrowed');
   });
 

@@ -2140,7 +2140,7 @@ test('figma_render exposes complete typed simple and compound requests', async (
   const schema = TOOLS.find((tool) => tool.name === 'figma_render').inputSchema.properties;
   for (const field of [
     'jsx', 'roots', 'keepWrapper', 'gap', 'direction', 'x', 'y', 'smartPosition',
-    'asComponent', 'verify', 'resizeProbe', 'collection', 'preset', 'manifest', 'icons',
+    'asComponent', 'verify', 'resizeProbe', 'collection', 'materializeResources', 'preset', 'manifest', 'icons',
     'approvedFallbacks', 'approvedFlatRepetitions', 'allowedFreePaths', 'confirm', 'preview', 'label', 'fileKey',
   ]) assert.ok(schema[field], `figma_render schema misses ${field}`);
 
@@ -2265,7 +2265,18 @@ test('explicit Command Preview is payload-free and wins over confirm:true', asyn
   assert.match(preview.content[0].text, /Guaranteed non-mutating Command Preview/);
   assert.match(preview.content[0].text, /capability: render/);
   assert.match(preview.content[0].text, /dispatched: no/);
+  assert.match(preview.content[0].text, /generated resource creation: disabled/);
   assert.doesNotMatch(preview.content[0].text, /private-preview-payload|do not echo me/);
+
+  const materializedPreview = await handleTool('figma_render', {
+    jsx: '<Frame name="private-materialized-preview"><Text>still private</Text></Frame>',
+    materializeResources: true,
+    preview: true,
+    confirm: true,
+  });
+  assert.equal(materializedPreview.isError, undefined);
+  assert.match(materializedPreview.content[0].text, /generated resource creation: enabled/);
+  assert.doesNotMatch(materializedPreview.content[0].text, /private-materialized-preview|still private/);
 
   const remotePreview = await handleTool('figma_render', {
     jsx: '<Frame><Image src="https://unapproved.example/private.png?signed-secret=never-fetch" /></Frame>',
