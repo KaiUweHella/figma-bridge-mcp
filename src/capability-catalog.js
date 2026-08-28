@@ -138,6 +138,12 @@ import {
   parseComponentSetReferenceRequest,
 } from '../engine/src/application/component-set-reference-request.js';
 import {
+  acceptsComponentPropertySetArgv,
+  componentPropertySetArgvFromRequest,
+  componentPropertySetFigmaUrlFileKeyFromArgv,
+  parseComponentPropertySetRequest,
+} from '../engine/src/application/component-property-set-request.js';
+import {
   acceptsPageStructureArgv,
   pageStructureArgvFromRequest,
   parsePageStructureRequest,
@@ -463,7 +469,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
   'col.extend',
-  'component.main', 'component.combine', 'component.add-variant',
+  'component.main', 'component.combine', 'component.add-variant', 'component.prop.set',
   'style.list',
   'style.create',
   'style.update',
@@ -703,6 +709,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'add-variant') {
     pathPolicy = 'component-set-reference-input';
   }
+  if (name === 'component' && sub === 'prop' && args[2] === 'set') {
+    pathPolicy = 'component-property-set-input';
+  }
   if (name === 'style' && sub === 'show') {
     retry = 'safe-read';
     pathPolicy = 'style-facts-input';
@@ -804,6 +813,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'add-variant'
     && !action.help && !acceptsComponentSetReferenceArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'prop' && args[2] === 'set'
+    && !action.help && !acceptsComponentPropertySetArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
@@ -1595,6 +1608,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentSetReferenceArgvFromRequest(
         parseComponentSetReferenceRequest(args)));
+      break;
+    }
+    case 'component-property-set-input': {
+      const closedFileKey = componentPropertySetFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentPropertySetArgvFromRequest(
+        parseComponentPropertySetRequest(args)));
       break;
     }
     case 'style-facts-input': {

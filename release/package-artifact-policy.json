@@ -23,6 +23,8 @@
     "engine/src/application/component-combine-request.js",
     "engine/src/application/component-main-command.js",
     "engine/src/application/component-main-request.js",
+    "engine/src/application/component-property-set-command.js",
+    "engine/src/application/component-property-set-request.js",
     "engine/src/application/component-set-reference-request.js",
     "engine/src/application/page-navigation-command.js",
     "engine/src/application/page-navigation-request.js",

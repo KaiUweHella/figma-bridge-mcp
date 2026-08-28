@@ -13,6 +13,7 @@ import { detectWrapperSplit } from '../src/lib/jsx-split.js';
 
 const COMMANDS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
 const LIB_DIR = join(COMMANDS_DIR, '..', 'lib');
+const APPLICATION_DIR = join(COMMANDS_DIR, '..', 'application');
 const files = readdirSync(COMMANDS_DIR).filter((f) => f.endsWith('.js'));
 const sources = new Map(files.map((f) => [f, readFileSync(join(COMMANDS_DIR, f), 'utf8')]));
 const cliCoreSource = readFileSync(join(LIB_DIR, 'cli-core.js'), 'utf8');
@@ -1405,14 +1406,18 @@ test('library code lives in lib/, not in command files', () => {
   }
 });
 
-test('component prop set keeps a validated local id for INSTANCE_SWAP values', () => {
+test('component prop set delegates while its Application keeps a validated local INSTANCE_SWAP id', () => {
   const src = sources.get('misc.js');
   const start = src.indexOf(".command('set <instanceId> <name> <value>')");
   const end = src.indexOf(".command('delete <componentId> <propName>')", start);
   const propSet = src.slice(start, end);
-  assert.match(propSet, /parsed = component\.id;/,
+  assert.match(propSet, /runComponentPropertySetCommand/);
+  assert.doesNotMatch(propSet, /setProperties\(|getMainComponentAsync/,
+    'Commander must not retain Component Property Set resolution or mutation logic');
+  const application = readFileSync(join(APPLICATION_DIR, 'component-property-set-command.js'), 'utf8');
+  assert.match(application, /parsed = component\.id;/,
     'Figma setProperties expects a local component node id for INSTANCE_SWAP');
-  assert.doesNotMatch(propSet, /parsed = component\.key;/,
+  assert.doesNotMatch(application, /parsed = component\.key;/,
     'a publish key is not a valid local INSTANCE_SWAP property value');
 });
 

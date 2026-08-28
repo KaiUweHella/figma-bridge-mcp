@@ -1489,6 +1489,19 @@ test('figma_run routes Component Add Variant through the rollback-owned Applicat
     'Component Add Variant must not re-enter Commander');
 });
 
+test('figma_run routes Component Property Set through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentPropertySetRoute = componentPropertySetPlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentPropertySetPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Property Set must not re-enter Commander');
+});
+
 test('figma_run routes Style Facts through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const styleFactsRoute = styleFactsPlanRoute(plan)');

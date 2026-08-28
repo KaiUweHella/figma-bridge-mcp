@@ -251,6 +251,10 @@ import {
   executeComponentAddVariantPlan,
 } from "../engine/src/application/component-add-variant-command.js";
 import {
+  componentPropertySetPlanRoute,
+  executeComponentPropertySetPlan,
+} from "../engine/src/application/component-property-set-command.js";
+import {
   executeStyleFactsPlan,
   styleFactsPlanRoute,
 } from "../engine/src/application/style-facts-command.js";
@@ -2842,6 +2846,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeComponentAddVariantPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentPropertySetRoute = componentPropertySetPlanRoute(plan);
+      if (componentPropertySetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentPropertySetPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

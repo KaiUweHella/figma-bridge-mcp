@@ -31,6 +31,10 @@ import {
 import { executeComponentAddVariantPlan } from '../application/component-add-variant-command.js';
 import { parseComponentSetReferenceRequest } from '../application/component-set-reference-request.js';
 import {
+  componentPropertySetPlanningArgvFromRequest,
+  executeComponentPropertySetPlan,
+} from '../application/component-property-set-command.js';
+import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
@@ -503,6 +507,24 @@ async function runComponentAddVariantCommand(argv) {
     });
 }
 
+async function runComponentPropertySetCommand(request) {
+  const argv = componentPropertySetPlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentPropertySetPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('instantiate <componentId>')
   .description('Create an instance from an explicit main component')
@@ -760,64 +782,15 @@ propCmd
   .description('Set a VARIANT, BOOLEAN, TEXT, or INSTANCE_SWAP property on an instance')
   .option('--json', 'Output as JSON')
   .action(async (instanceId, name, value, options) => {
-    await checkConnection();
-    const code = `(async () => {
-      const instance = await figma.getNodeByIdAsync(${JSON.stringify(instanceId)});
-      if (!instance) throw new Error('Node not found: ' + ${JSON.stringify(instanceId)});
-      if (instance.type !== 'INSTANCE' || typeof instance.setProperties !== 'function') {
-        throw new Error('Expected an INSTANCE; got ' + instance.type);
-      }
-      const current = instance.componentProperties || {};
-      const main = await instance.getMainComponentAsync();
-      const owner = main && main.parent && main.parent.type === 'COMPONENT_SET' ? main.parent : main;
-      const definitions = owner && owner.componentPropertyDefinitions ? owner.componentPropertyDefinitions : {};
-      const names = [...new Set([...Object.keys(current), ...Object.keys(definitions)])];
-      const requested = ${JSON.stringify(name)};
-      const base = (candidate) => String(candidate).split('#')[0].trim().toLowerCase();
-      let resolved = names.includes(requested) ? requested : null;
-      if (!resolved) {
-        const matches = names.filter((candidate) => base(candidate) === base(requested));
-        if (matches.length > 1) throw new Error('Property name is ambiguous: ' + requested + ' (' + matches.join(', ') + ')');
-        resolved = matches[0] || null;
-      }
-      if (!resolved) {
-        throw new Error('Unknown component property "' + requested + '". Available: ' + (names.join(', ') || '(none)'));
-      }
-      const definition = definitions[resolved] || current[resolved] || {};
-      const type = definition.type || (current[resolved] && current[resolved].type) || 'TEXT';
-      let parsed = ${JSON.stringify(value)};
-      if (type === 'BOOLEAN') {
-        const lowered = String(parsed).toLowerCase();
-        if (!['true', 'false', '1', '0'].includes(lowered)) throw new Error('BOOLEAN values must be true or false');
-        parsed = lowered === 'true' || lowered === '1';
-      } else if (type === 'INSTANCE_SWAP' && /^\\d+:\\d+$/.test(String(parsed))) {
-        let component = await figma.getNodeByIdAsync(String(parsed));
-        if (!component || !['COMPONENT', 'COMPONENT_SET'].includes(component.type)) {
-          throw new Error('INSTANCE_SWAP target is not a component: ' + parsed);
-        }
-        if (component.type === 'COMPONENT_SET') component = component.defaultVariant || component.children[0];
-        if (!component || component.type !== 'COMPONENT') {
-          throw new Error('INSTANCE_SWAP target component set has no variant: ' + parsed);
-        }
-        parsed = component.id;
-      }
-      instance.setProperties({ [resolved]: parsed });
-      const updated = instance.componentProperties && instance.componentProperties[resolved];
-      return {
-        id: instance.id,
-        name: instance.name,
-        property: resolved,
-        type,
-        value: updated ? updated.value : parsed,
-      };
-    })()`;
     try {
-      const result = await daemonExec('eval', { code });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Set ${result.property}=${JSON.stringify(result.value)} on ${result.name} (${result.id})`);
-    } catch (e) {
-      handleEvalError(e);
-      process.exit(1);
+      const result = await runComponentPropertySetCommand({
+        instanceId, name, value, json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Property Set failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
