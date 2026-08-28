@@ -132,7 +132,7 @@ test('nested component property effects follow the canonical action id', () => {
     assert.equal(read.audit.effects.figma, 'read');
 
     for (const [action, tail] of [
-      ['add', []], ['set', ['Label', 'Value']], ['delete', []],
+      ['add', ['Label', 'text', 'Value']], ['set', ['Label', 'Value']], ['delete', []],
     ]) {
       const write = planFigmaCommand(['component', 'prop', action, '1:2', ...tail], { adapter });
       assert.equal(write.id, `component.prop.${action}`);

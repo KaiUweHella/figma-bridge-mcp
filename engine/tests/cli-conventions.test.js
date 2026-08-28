@@ -1421,6 +1421,17 @@ test('component prop set delegates while its Application keeps a validated local
     'a publish key is not a valid local INSTANCE_SWAP property value');
 });
 
+test('component prop add delegates one rollback-owned non-retrying Application', () => {
+  const src = sources.get('misc.js');
+  const start = src.indexOf(".command('add <componentId> <name> <type> <defaultValue>')");
+  const end = src.indexOf(".command('list [componentId]')", start);
+  const propAdd = src.slice(start, end);
+  assert.match(propAdd, /runComponentPropertyAddCommand/);
+  assert.match(propAdd, /process\.exitCode = 1/);
+  assert.doesNotMatch(propAdd, /addComponentProperty\(|daemonExec\(|checkConnection\(/,
+    'Commander must not retain Component Property Add readiness or mutation logic');
+});
+
 test('unsafe legacy bulk writes stop before connection or generated mutation code', () => {
   const variables = sources.get('variables.js');
   const deleteStart = variables.indexOf(".command('delete-all')");

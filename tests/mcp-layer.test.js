@@ -1502,6 +1502,34 @@ test('figma_run routes Component Property Set through the rollback-owned Applica
     'Component Property Set must not re-enter Commander');
 });
 
+test('figma_run routes Component Property Add through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentPropertyAddRoute = componentPropertyAddPlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentPropertyAddPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Property Add must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Component Property Add before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['component', 'prop', 'add', '2:1', 'Label', 'text'],
+    ['component', 'prop', 'add', '2:1', 'Label', 'unknown', 'private-value'],
+    ['component', 'prop', 'add', '2:1', 'Mode', 'variant', 'Default'],
+    ['component', 'prop', 'add', '2:1', 'Label', 'text', 'Value', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Style Facts through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const styleFactsRoute = styleFactsPlanRoute(plan)');

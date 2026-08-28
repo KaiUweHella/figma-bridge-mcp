@@ -31,6 +31,10 @@ import {
 import { executeComponentAddVariantPlan } from '../application/component-add-variant-command.js';
 import { parseComponentSetReferenceRequest } from '../application/component-set-reference-request.js';
 import {
+  componentPropertyAddPlanningArgvFromRequest,
+  executeComponentPropertyAddPlan,
+} from '../application/component-property-add-command.js';
+import {
   componentPropertySetPlanningArgvFromRequest,
   executeComponentPropertySetPlan,
 } from '../application/component-property-set-command.js';
@@ -525,6 +529,24 @@ async function runComponentPropertySetCommand(request) {
     });
 }
 
+async function runComponentPropertyAddCommand(request) {
+  const argv = componentPropertyAddPlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentPropertyAddPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('instantiate <componentId>')
   .description('Create an instance from an explicit main component')
@@ -712,35 +734,19 @@ propCmd
   .command('add <componentId> <name> <type> <defaultValue>')
   .description('Add a property. Type: boolean | text | instance-swap | variant')
   .option('-o, --options <opts>', 'Comma-separated VARIANT options (e.g. "Small,Medium,Large")')
+  .option('--json', 'Output as JSON')
   .action(async (componentId, name, type, defaultValue, options) => {
-    await checkConnection();
-    const typeMap = { boolean: 'BOOLEAN', text: 'TEXT', 'instance-swap': 'INSTANCE_SWAP', variant: 'VARIANT' };
-    const apiType = typeMap[type.toLowerCase()] || type.toUpperCase();
-    if (!['BOOLEAN', 'TEXT', 'INSTANCE_SWAP', 'VARIANT'].includes(apiType)) {
-      console.error(chalk.red('✗'), `Invalid type "${type}". Use: boolean, text, instance-swap, variant`);
-      process.exit(1);
-    }
-    let parsedDefault = defaultValue;
-    if (apiType === 'BOOLEAN') parsedDefault = defaultValue === 'true' || defaultValue === '1';
-    if (apiType === 'VARIANT') {
-      console.error(chalk.red('✗'), 'VARIANT properties cannot be added directly. Create variants by:');
-      console.error('  1. Render multiple components (one per variant)');
-      console.error('  2. Convert each: figma_run ["node","to-component","<id>"]');
-      console.error('  3. Combine: figma_run ["component","combine","<id1,id2,id3>","--name","MyComponent"]');
-      process.exit(1);
-    }
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(componentId)});
-      if (!n) throw new Error('Node not found: ${componentId}');
-      if (typeof n.addComponentProperty !== 'function') throw new Error('Node is not a component or component set');
-      const propName = n.addComponentProperty(${JSON.stringify(name)}, ${JSON.stringify(apiType)}, ${JSON.stringify(parsedDefault)});
-      return { id: n.id, name: n.name, propName };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Added property "${r.propName}" on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runComponentPropertyAddCommand({
+        componentId, name, type, defaultValue,
+        options: options.options ?? null,
+        json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Property Add failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

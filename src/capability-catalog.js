@@ -144,6 +144,12 @@ import {
   parseComponentPropertySetRequest,
 } from '../engine/src/application/component-property-set-request.js';
 import {
+  acceptsComponentPropertyAddArgv,
+  componentPropertyAddArgvFromRequest,
+  componentPropertyAddFigmaUrlFileKeyFromArgv,
+  parseComponentPropertyAddRequest,
+} from '../engine/src/application/component-property-add-request.js';
+import {
   acceptsPageStructureArgv,
   pageStructureArgvFromRequest,
   parsePageStructureRequest,
@@ -469,7 +475,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
   'col.extend',
-  'component.main', 'component.combine', 'component.add-variant', 'component.prop.set',
+  'component.main', 'component.combine', 'component.add-variant',
+  'component.prop.add', 'component.prop.set',
   'style.list',
   'style.create',
   'style.update',
@@ -712,6 +719,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'prop' && args[2] === 'set') {
     pathPolicy = 'component-property-set-input';
   }
+  if (name === 'component' && sub === 'prop' && args[2] === 'add') {
+    pathPolicy = 'component-property-add-input';
+  }
   if (name === 'style' && sub === 'show') {
     retry = 'safe-read';
     pathPolicy = 'style-facts-input';
@@ -817,6 +827,10 @@ function commandCapability(args) {
   }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'set'
     && !action.help && !acceptsComponentPropertySetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'prop' && args[2] === 'add'
+    && !action.help && !acceptsComponentPropertyAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
@@ -1615,6 +1629,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentPropertySetArgvFromRequest(
         parseComponentPropertySetRequest(args)));
+      break;
+    }
+    case 'component-property-add-input': {
+      const closedFileKey = componentPropertyAddFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentPropertyAddArgvFromRequest(
+        parseComponentPropertyAddRequest(args)));
       break;
     }
     case 'style-facts-input': {
