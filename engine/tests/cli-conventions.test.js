@@ -399,6 +399,25 @@ test('component combine delegates every raw argument to one verified Command App
     'Commander must not lose positionals or retain Component Combine preflight/mutation logic');
 });
 
+test('component add-variant delegates one rollback-owned non-retrying Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const helperStart = adapter.indexOf('async function runComponentAddVariantCommand');
+  const helperEnd = adapter.indexOf(".command('instantiate <componentId>')", helperStart);
+  const commandStart = adapter.indexOf(".command('add-variant <set> <pairs>')", helperEnd);
+  const commandEnd = adapter.indexOf('// ============ ANNOTATIONS', commandStart);
+  const action = adapter.slice(helperStart, helperEnd) + adapter.slice(commandStart, commandEnd);
+
+  assert.match(action, /parseComponentSetReferenceRequest\(argv\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeComponentAddVariantPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|addVariantCode|parseVariantPairs|clone\(/,
+    'Commander must not retain Component Add Variant resolution, mutation, or formatting');
+});
+
 test('style show delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');

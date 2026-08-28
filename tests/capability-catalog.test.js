@@ -148,6 +148,24 @@ test('nested component property effects follow the canonical action id', () => {
   assert.equal(unknown.execution.retry, 'never');
 });
 
+test('Component Add Variant closes one policy-identical rollback-owned write', () => {
+  const cli = planFigmaCommand([
+    'component', 'add-variant', 'name:Button', 'State=Hover', '--from', 'State=Default', '--json',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'component', 'add-variant', 'name:Button', 'State=Hover', '--from=State=Default', '--json',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.audit.capability, 'component.add-variant');
+});
+
 test('Style Facts closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['style', 'show', 'Type/Body'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['style', 'show', '--', 'Type/Body'], { adapter: 'mcp' });

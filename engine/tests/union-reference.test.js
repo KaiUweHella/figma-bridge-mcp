@@ -60,12 +60,34 @@ test('Component Set reference request closes options and canonicalizes its targe
     'component', 'add-variant', `node:${NODE_URL}`, 'State=Hover', '--json', '--from', 'State=Default',
   ]);
   assert.equal(request.reference.fileKey, 'ARGUMENTPLACEHOLDERKEY');
+  assert.deepEqual(request.pairs, { State: 'Hover' });
+  assert.equal(Object.isFrozen(request.pairs), true);
+  assert.equal(Object.isFrozen(request), true);
   assert.deepEqual(componentSetReferenceArgvFromRequest(request), [
     'component', 'add-variant', 'node:12:34', 'State=Hover', '--from=State=Default', '--json',
   ]);
   assert.throws(
     () => parseComponentSetReferenceRequest(['component', 'add-variant', 'label:Button', 'State=Hover']),
     /kind-label/,
+  );
+  assert.throws(
+    () => parseComponentSetReferenceRequest([
+      'component', 'add-variant', 'name:Button', 'State=Hover, State=Pressed',
+    ]),
+    /specified twice/,
+  );
+  assert.throws(
+    () => parseComponentSetReferenceRequest([
+      'component', 'add-variant', 'name:Button', `State=Hover\u202e`,
+    ]),
+    /unsupported controls/,
+  );
+  assert.throws(
+    () => parseComponentSetReferenceRequest([
+      'component', 'add-variant', 'name:Button', 'State=Hover', '--from', 'State=Default',
+      '--from=State=Pressed',
+    ]),
+    /only once/,
   );
 });
 
@@ -105,7 +127,7 @@ test('Union-reference Commands produce policy-identical CLI and MCP plans', () =
     const { adapter: _cliAdapter, allowed: _cliAllowed, ...cliPolicy } = cli;
     const { adapter: _mcpAdapter, allowed: _mcpAllowed, ...mcpPolicy } = mcp;
     assert.equal(mcp.allowed, true, argv.join(' '));
-    assert.equal(cli.allowed, argv[0] === 'canvas', argv.join(' '));
+    assert.equal(cli.allowed, argv[0] === 'canvas' || argv[0] === 'component', argv.join(' '));
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
     assert.deepEqual(cli.audit, mcp.audit, argv.join(' '));
   }

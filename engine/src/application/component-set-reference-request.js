@@ -5,8 +5,13 @@ import {
   parseUnionReference,
   unionReferenceArgvValue,
 } from './union-reference.js';
+import { parseVariantPairs } from '../lib/variant-snippets.js';
 
-const MAX_VARIANT_INPUT_CODE_UNITS = 4096;
+export const MAX_COMPONENT_ADD_VARIANT_INPUT_CODE_UNITS = 4096;
+export const MAX_COMPONENT_ADD_VARIANT_AXES = 32;
+export const MAX_COMPONENT_ADD_VARIANT_AXIS_CODE_UNITS = 256;
+export const MAX_COMPONENT_ADD_VARIANT_VALUE_CODE_UNITS = 512;
+const UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/u;
 
 function requestError(message) {
   return new Error(`Invalid Component Set command: ${message}.`);
@@ -14,10 +19,48 @@ function requestError(message) {
 
 function bounded(value, label) {
   if (typeof value !== 'string' || value.length === 0) throw requestError(`${label} is required`);
-  if (value.length > MAX_VARIANT_INPUT_CODE_UNITS) {
-    throw requestError(`${label} exceeds ${MAX_VARIANT_INPUT_CODE_UNITS} code units`);
+  if (value.length > MAX_COMPONENT_ADD_VARIANT_INPUT_CODE_UNITS) {
+    throw requestError(`${label} exceeds ${MAX_COMPONENT_ADD_VARIANT_INPUT_CODE_UNITS} code units`);
   }
+  if (UNSAFE_CONTROLS.test(value)) throw requestError(`${label} contains unsupported controls`);
   return value;
+}
+
+function pairsValue(value) {
+  let parsed;
+  if (typeof value === 'string') {
+    try { parsed = parseVariantPairs(bounded(value, 'variant pairs')); }
+    catch (error) { throw requestError(error.message); }
+  } else if (value && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype) {
+    parsed = value;
+  } else {
+    throw requestError('variant pairs must be a string or plain object');
+  }
+  const entries = Object.entries(parsed);
+  if (entries.length < 1 || entries.length > MAX_COMPONENT_ADD_VARIANT_AXES) {
+    throw requestError(`variant pairs must contain 1-${MAX_COMPONENT_ADD_VARIANT_AXES} axes`);
+  }
+  const result = {};
+  for (const [axis, selected] of entries) {
+    if (typeof axis !== 'string' || !axis || axis.length > MAX_COMPONENT_ADD_VARIANT_AXIS_CODE_UNITS
+      || UNSAFE_CONTROLS.test(axis) || axis.includes(',') || axis.includes('=')) {
+      throw requestError('variant axis is empty, unsafe or too long');
+    }
+    if (typeof selected !== 'string' || !selected
+      || selected.length > MAX_COMPONENT_ADD_VARIANT_VALUE_CODE_UNITS
+      || UNSAFE_CONTROLS.test(selected) || selected.includes(',')) {
+      throw requestError(`value for axis ${axis} is empty, unsafe or too long`);
+    }
+    Object.defineProperty(result, axis, {
+      value: selected, enumerable: true, configurable: true, writable: true,
+    });
+  }
+  return Object.freeze(result);
+}
+
+function pairsText(value) {
+  return Object.entries(pairsValue(value)).map(([axis, selected]) => `${axis}=${selected}`).join(', ');
 }
 
 export function parseComponentSetReferenceRequest(args) {
@@ -67,7 +110,7 @@ export function parseComponentSetReferenceRequest(args) {
   } catch (error) {
     throw requestError(error.message);
   }
-  const pairs = bounded(positionals[1], 'variant pairs');
+  const pairs = pairsValue(positionals[1]);
   return Object.freeze({ action: 'add-variant', reference, pairs, fromName, json });
 }
 
@@ -88,7 +131,7 @@ export function componentSetReferenceArgvFromRequest(request) {
     allowedKinds: ['node', 'name', 'query'],
   });
   return [
-    'component', 'add-variant', reference, bounded(input.pairs, 'variant pairs'),
+    'component', 'add-variant', reference, pairsText(input.pairs),
     ...(input.fromName == null ? [] : [`--from=${bounded(input.fromName, '--from value')}`]),
     ...(input.json === true ? ['--json'] : []),
   ];

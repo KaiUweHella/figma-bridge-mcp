@@ -463,7 +463,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'col.mode-add', 'col.mode-rename', 'col.mode-remove',
   'col.delete',
   'col.extend',
-  'component.main', 'component.combine',
+  'component.main', 'component.combine', 'component.add-variant',
   'style.list',
   'style.create',
   'style.update',

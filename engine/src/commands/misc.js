@@ -7,7 +7,6 @@ import {
   runInProcessCommandPlan,
 } from '../../../src/engine.js';
 import { componentInventoryCode, projectComponentInventory } from '../lib/component-inventory.js';
-import { parseVariantPairs, addVariantCode } from '../lib/variant-snippets.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   annotationAddCode, annotationCategoriesCode, annotationCategoryCreateCode,
@@ -29,11 +28,12 @@ import {
   componentCombineRequestFromArgv,
   executeComponentCombinePlan,
 } from '../application/component-combine-command.js';
+import { executeComponentAddVariantPlan } from '../application/component-add-variant-command.js';
+import { parseComponentSetReferenceRequest } from '../application/component-set-reference-request.js';
 import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
-import { unionReferenceExecutionValue } from '../application/union-reference.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -485,6 +485,24 @@ return { id: component.id, name: component.name, type: component.type, parentId:
     } catch (error) { handleEvalError(error); }
   });
 
+async function runComponentAddVariantCommand(argv) {
+  parseComponentSetReferenceRequest(argv);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentAddVariantPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 componentCmd
   .command('instantiate <componentId>')
   .description('Create an instance from an explicit main component')
@@ -869,30 +887,18 @@ componentCmd
   .option('--from <variantName>', 'Clone this variant instead of the nearest match')
   .option('--json', 'Output as JSON')
   .action(async (set, pairsArg, options) => {
-    await checkConnection();
-    const setReference = unionReferenceExecutionValue(set, {
-      allowedKinds: ['node', 'name', 'query'],
-    });
-    let pairs;
     try {
-      pairs = parseVariantPairs(pairsArg);
-    } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
-    }
-    const code = addVariantCode({ setRef: setReference, pairs, fromName: options.from });
-    try {
-      const r = await daemonExec('eval', { code });
-      if (options.json) {
-        console.log(JSON.stringify(r, null, 2));
-        return;
-      }
-      console.log(chalk.green('✓'),
-        `Added variant "${r.newVariantName}" to ${r.setName} (${r.newVariantId}), cloned from "${r.sourceVariantName}"`);
-      r.warnings.forEach(w => console.log(chalk.yellow('  ⚠'), w));
-      console.log(chalk.gray(`  Now edit only what differs, e.g. figma_run ["set","fill","--node","${r.newVariantId}","<color>"]`));
-    } catch (e) {
-      handleEvalError(e);
+      const argv = [
+        'component', 'add-variant', set, pairsArg,
+        ...(options.from === undefined ? [] : ['--from', options.from]),
+        ...(options.json ? ['--json'] : []),
+      ];
+      const result = await runComponentAddVariantCommand(argv);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Add Variant failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

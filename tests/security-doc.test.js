@@ -409,7 +409,7 @@ const EVIDENCE = Object.freeze([
     "SEC-DATA-AS-DATA",
     [
       [
-        "engine/tests/add-variant.test.js",
+        "engine/tests/component-add-variant-command.test.js",
         "a quoted payload cannot break out of the eval",
       ],
       ["tests/history.test.js", "formatHistory sanitizes hostile labels/refs"],
