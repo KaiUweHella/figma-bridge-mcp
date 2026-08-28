@@ -58,6 +58,10 @@ import {
   executeComponentSwapPlan,
 } from '../application/component-swap-command.js';
 import {
+  componentDetachPlanningArgvFromRequest,
+  executeComponentDetachPlan,
+} from '../application/component-detach-command.js';
+import {
   componentInventoryPlanningArgvFromRequest,
   executeComponentInventoryPlan,
 } from '../application/component-inventory-command.js';
@@ -773,20 +777,34 @@ componentCmd
   .description('Detach an explicit instance into an editable frame')
   .option('--name <name>', 'Rename the detached frame')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (instanceId, options) => {
     try {
-      const instance = normalizeNodeId(String(instanceId)).id;
-      await checkConnection();
-      const result = await daemonExec('eval', { code: `(async () => {
-const instance = await figma.getNodeByIdAsync(${JSON.stringify(instance)});
-if (!instance || instance.type !== 'INSTANCE') throw new Error('Expected INSTANCE: ' + ${JSON.stringify(instance)});
-const frame = instance.detachInstance();
-${options.name ? `frame.name = ${JSON.stringify(options.name)};` : ''}
-return { id: frame.id, name: frame.name, type: frame.type, parentId: frame.parent ? frame.parent.id : null };
-})()` });
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Detached as "${result.name}" (${result.id})`);
-    } catch (error) { handleEvalError(error); }
+      const argv = componentDetachPlanningArgvFromRequest({
+        instanceId,
+        name: options.name ?? null,
+        json: options.json === true,
+      });
+      const plan = planFigmaCommand(argv, {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentDetachPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Detach failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 componentCmd

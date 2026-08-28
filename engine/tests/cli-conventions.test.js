@@ -474,6 +474,23 @@ test('component swap delegates one one-shot verified non-retrying Command Applic
     'Commander must not retain Component Swap preflight, mutation, or formatting logic');
 });
 
+test('component detach delegates one irreversible verified non-retrying Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('detach <instanceId>')");
+  const end = adapter.indexOf(".command('overrides <instanceId> <action>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /componentDetachPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeComponentDetachPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|detachInstance\(|getNodeByIdAsync/,
+    'Commander must not retain Component Detach preflight, mutation, or formatting logic');
+});
+
 test('component list delegates one Plan-bound bounded Component Inventory Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

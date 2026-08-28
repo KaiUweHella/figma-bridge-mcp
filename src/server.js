@@ -275,6 +275,10 @@ import {
   executeComponentSwapPlan,
 } from "../engine/src/application/component-swap-command.js";
 import {
+  componentDetachPlanRoute,
+  executeComponentDetachPlan,
+} from "../engine/src/application/component-detach-command.js";
+import {
   componentInventoryPlanRoute,
   executeComponentInventoryPlan,
 } from "../engine/src/application/component-inventory-command.js";
@@ -2993,6 +2997,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeComponentSwapPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentDetachRoute = componentDetachPlanRoute(plan);
+      if (componentDetachRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeComponentDetachPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
