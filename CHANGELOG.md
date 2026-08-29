@@ -5,11 +5,81 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.7.0] — 2026-08-30
+
+### Added
+
+- Added bounded first-party Component workflows for creation, inventory,
+  instantiation, variant creation and combination, Component Property
+  discovery and mutation, instance swapping, detaching and override removal.
+  Mutations preflight complete requests, verify native outcomes and report
+  rollback residue instead of claiming atomic success after partial failure.
+- Added batch Variable creation, metadata updates and per-mode value updates.
+  Batches can intentionally populate previously empty modes, preserve exact
+  Variable Alias identity and retain the prior values required for honest
+  rollback reporting.
+- Added exact CSS and DTCG token export with complete Collection modes,
+  per-mode alias resolution and native EASING preservation.
+- Added verified Node movement, deletion, duplication and Frame/Group-to-
+  Component conversion with explicit targeting and fresh structural readback.
+- Added authenticated one-shot asset transfer and cooperative background
+  publication, allowing large exports to leave the Plugin without embedding
+  unbounded binary payloads in command responses.
+- Added host-side materialization of bounded remote render images, reusable
+  Design Entity identity and a pre-write multi-screen component-reuse plan.
+
+### Changed
+
+- Semantic Code-to-Figma rendering now distinguishes intrinsic HUG text from
+  responsive FILL text, retains centered FILL alignment, preserves authored
+  line-height units and font weights, and keeps local and remote image
+  references on one validated projection path.
+- Render guidance is derived from executable contracts. Live-only evidence is
+  reported as unavailable instead of being invented offline, and compound
+  renders reject ambiguous union references before choosing a target.
+- Exact Node Binding and Token Overlap reads use bounded typed dispatch outside
+  the serialized write lane. Multi-roundtrip capture observes the target Page
+  instead of loading the complete Document when document scope is unnecessary.
+- Oversized Variable snapshots degrade to bounded summaries, while asset
+  export publication releases large in-memory candidates cooperatively.
+- Documented compatibility aliases now adapt to the same owned Command
+  Applications as their canonical forms. Unreachable generic eval batching and
+  shell-based Daemon listener helpers were removed without reducing the public
+  workflows.
+
+### Security
+
+- Bridge-owned credentials, audit data, snapshots and runtime state now enforce
+  native private-state permissions: exact POSIX modes on Unix and repaired,
+  verified owner-only DACLs on Windows. Canonical path and symlink checks remain
+  fail-closed.
+- Legacy eval readiness is bound to its explicit Figma target, preventing a
+  connected file from authorizing a command intended for another file.
+
 ### Fixed
 
 - Release publication now passes the verified tarball as an explicit local
   file spec (`./release-artifact/package.tgz`), preventing npm from
   interpreting the workspace-relative path as a GitHub dependency.
+- Plugin suspension and reconnect handling now distinguishes a sleeping UI
+  from Daemon loss, preserves font-binding work and verifies responsiveness
+  before declaring the Bridge ready.
+- Variable creation preserves native defaults, compatible final metadata and
+  exact aliases; local binding catalogs are preferred before bounded remote
+  lookup, and typography bindings are verified after mutation.
+- Screenshot export rejects zero-area and otherwise degenerate native output
+  instead of presenting it as a usable asset.
+- Windows cold-start and nested-Worker release tests now use bounded native
+  host discovery and serial test-file scheduling without skipping behavior.
+  Linux and macOS retain normal parallel scheduling.
+- Tracked-job retention tests use a deterministic clock, removing a real-time
+  boundary flake without changing production retention behavior.
+
+### Performance
+
+- Added a cold Page-revision budget measured against large-document scope and
+  retained the complete MCP runtime soak gate. Page observation stays well
+  below the accepted absolute and relative release thresholds.
 
 ## [0.6.1] — 2026-08-27
 
