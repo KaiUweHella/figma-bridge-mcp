@@ -4,12 +4,27 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertMcpRuntimeBudgets } from '../scripts/check-runtime-budgets.js';
 import {
+  isolatedMcpRuntimeEnvironment,
   measureMcpToolSession,
   summarizeMcpSamples,
 } from '../scripts/lib/mcp-runtime-harness.js';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SERVER = fileURLToPath(new URL('../src/server.js', import.meta.url));
+
+test('offline runtime sessions replace both platform home variables', () => {
+  assert.deepEqual(
+    isolatedMcpRuntimeEnvironment(
+      { PATH: 'safe-path', HOME: 'real-home', USERPROFILE: 'real-profile' },
+      '/private/runtime-home',
+    ),
+    {
+      PATH: 'safe-path',
+      HOME: '/private/runtime-home',
+      USERPROFILE: '/private/runtime-home',
+    },
+  );
+});
 
 test('MCP runtime summaries retain first/warm segment distributions', () => {
   const samples = [1, 2, 3].map((factor) => ({

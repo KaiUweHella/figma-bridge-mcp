@@ -31,6 +31,10 @@ children.
 Gate CI only on three offline server starts and repeated Tool Discovery. Use a
 relative warm/startup constraint plus generous absolute ceilings. Live Figma
 measurements remain private release evidence, not universal performance limits.
+Each offline start receives a separate canonical temporary Home, so it measures
+fresh platform permission enforcement without inspecting, repairing or relying
+on the maintainer's real Shared State. Child startup failures retain only a
+bounded session number and the server's already-redacted stderr.
 
 ## Consequences
 

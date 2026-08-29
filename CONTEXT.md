@@ -644,6 +644,9 @@ over a parent, Workspace path or general temporary directory. The existing
 account home is canonicalized before joining the exact Shared-State root so an
 OS-managed ancestor alias cannot make one inode appear as two authorities; the
 Bridge root itself must still be a real directory.
+The Windows Adapter prefers PowerShell 7 when installed and falls back to the
+built-in Windows PowerShell only when the first executable is absent. A timed
+out or failed ACL attempt is never replayed automatically.
 _Avoid_: chmod-on-Windows claim, inherited-profile assumption, common-parent repair
 
 **Structural Snapshot Store**:
@@ -714,7 +717,9 @@ calls, MCP-only work, Daemon transport, Plugin queue/execution, exact final
 envelope bytes, Audit lifecycle count and peak process RSS. Its opt-in trace is
 content-free and never changes dispatch, retry or result semantics. Compatibility
 child work remains explicitly identified until the owning Command Application
-moves in-process.
+moves in-process. Offline cold-start gates use a fresh private Home per process,
+so measurements exercise first-use permission enforcement without reading or
+changing maintainer credentials and state.
 _Avoid_: benchmark mode, production telemetry, one stopwatch, universal machine limit
 
 **MCP Server Identity**:

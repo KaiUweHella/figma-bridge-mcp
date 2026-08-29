@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -68,6 +74,14 @@ function percentile(values, fraction) {
   if (!values.length) return null;
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)];
+}
+
+export function isolatedMcpRuntimeEnvironment(baseEnvironment, privateHome) {
+  return {
+    ...baseEnvironment,
+    HOME: privateHome,
+    USERPROFILE: privateHome,
+  };
 }
 
 export function summarizeMcpSamples(samples) {
@@ -237,11 +251,21 @@ export async function measureMcpToolSession({
 export async function measureMcpDiscoveryBaseline({ serverPath, cwd, sessions = 3 }) {
   const results = [];
   for (let index = 0; index < sessions; index++) {
+    const privateHome = realpathSync.native(
+      mkdtempSync(join(tmpdir(), 'figma-bridge-mcp-discovery-')),
+    );
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [serverPath],
       cwd,
       stderr: 'pipe',
+      env: isolatedMcpRuntimeEnvironment(getDefaultEnvironment(), privateHome),
+    });
+    let stderr = '';
+    transport.stderr?.on('data', (chunk) => {
+      if (stderr.length < 16_384) {
+        stderr += String(chunk).slice(0, 16_384 - stderr.length);
+      }
     });
     const client = new Client({ name: 'figma-bridge-runtime-budget', version: '1.0.0' });
     const startedAt = performance.now();
@@ -267,9 +291,14 @@ export async function measureMcpDiscoveryBaseline({ serverPath, cwd, sessions = 
         peakRssBytes: sampler.stop(),
       });
       sampler = null;
+    } catch (error) {
+      error.message = `MCP discovery session ${index + 1} failed: ${error.message}`;
+      if (stderr.trim()) error.message += `\nMCP stderr: ${stderr.trim()}`;
+      throw error;
     } finally {
       if (sampler) sampler.stop();
       await client.close().catch(() => {});
+      rmSync(privateHome, { recursive: true, force: true });
     }
   }
   const starts = results.map((result) => result.processStartupMs);

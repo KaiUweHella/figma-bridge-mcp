@@ -45,9 +45,13 @@ Discovery response must also retain at least 4 KiB (25%) unused beneath that
 hard response cap. Its conservative JSON estimate uses three UTF-8 bytes per
 token and separately retains at least 1,024 estimated tokens beneath a 5,120
 token cap, so new capabilities cannot silently consume all future MCP metadata
-headroom. Shared runner scheduling, antivirus, Figma document size and desktop
-load make live Figma timings acceptance evidence and regression baselines
-rather than hard compatibility limits for every user machine.
+headroom. Every cold process uses a separate fresh temporary Home: platform
+permission enforcement remains inside the measurement while real maintainer
+credentials and state remain untouched. A failed process identifies its bounded
+session and retains only the server's already-redacted stderr. Shared runner
+scheduling, antivirus, Figma document size and desktop load make live Figma
+timings acceptance evidence and regression baselines rather than hard
+compatibility limits for every user machine.
 
 The corpus does not infer a traversal budget for Figma's non-interruptible
 `getStyleConsumersAsync()` API.

@@ -76,7 +76,7 @@ test("Windows ACL Adapter uses a bounded argument array and returns direct evide
     violations: [],
   });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].command, "powershell.exe");
+  assert.equal(calls[0].command, "pwsh.exe");
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[0].options.timeout, 10_000);
   assert.equal(calls[0].options.maxBuffer, 64 * 1024);
@@ -90,6 +90,65 @@ test("Windows ACL Adapter uses a bounded argument array and returns direct evide
   ]);
   assert.ok(calls[0].argv.includes("-NonInteractive"));
   assert.ok(calls[0].argv.includes("-NoProfile"));
+});
+
+test("Windows ACL Adapter falls back only when PowerShell 7 is unavailable", (t) => {
+  const root = fixture(t);
+  const calls = [];
+  const report = hardenPrivateTree(root, {
+    kind: "bridge-state",
+    platform: "win32",
+    runWindowsAcl(command) {
+      calls.push(command);
+      if (command === "pwsh.exe") {
+        return {
+          status: null,
+          signal: null,
+          stdout: "",
+          error: Object.assign(new Error("missing"), { code: "ENOENT" }),
+        };
+      }
+      return {
+        status: 0,
+        signal: null,
+        stdout: JSON.stringify({
+          version: 1,
+          private: true,
+          count: 1,
+          rootProtected: true,
+          principals: ["administrators", "current-user", "local-system"],
+          violations: [],
+        }),
+      };
+    },
+  });
+  assert.equal(report.private, true);
+  assert.deepEqual(calls, ["pwsh.exe", "powershell.exe"]);
+});
+
+test("Windows ACL Adapter never retries a possibly dispatched failure", (t) => {
+  const root = fixture(t);
+  const calls = [];
+  assert.throws(
+    () =>
+      hardenPrivateTree(root, {
+        kind: "bridge-state",
+        platform: "win32",
+        runWindowsAcl(command) {
+          calls.push(command);
+          return {
+            status: null,
+            signal: "SIGTERM",
+            stdout: "",
+            error: Object.assign(new Error("timed out"), {
+              code: "ETIMEDOUT",
+            }),
+          };
+        },
+      }),
+    /could not secure its private local state/
+  );
+  assert.deepEqual(calls, ["pwsh.exe"]);
 });
 
 test("Windows ACL failures retain bounded recovery guidance without the private path", (t) => {

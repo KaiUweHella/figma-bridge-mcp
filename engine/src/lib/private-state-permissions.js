@@ -31,6 +31,10 @@ const WINDOWS_PRINCIPALS = Object.freeze([
   "current-user",
   "local-system",
 ]);
+const WINDOWS_POWERSHELL_COMMANDS = Object.freeze([
+  "pwsh.exe",
+  "powershell.exe",
+]);
 const WINDOWS_SCRIPT = fileURLToPath(
   new URL("./windows-private-state-acl.ps1", import.meta.url)
 );
@@ -317,19 +321,30 @@ function windowsPermissions(
     "-MaxEntries",
     String(maxEntries),
   ];
+  const options = {
+    encoding: "utf8",
+    maxBuffer: MAX_WINDOWS_OUTPUT_BYTES,
+    shell: false,
+    timeout: timeoutMs,
+    windowsHide: true,
+  };
   let outcome;
-  try {
-    outcome = runWindowsAcl("powershell.exe", argv, {
-      encoding: "utf8",
-      maxBuffer: MAX_WINDOWS_OUTPUT_BYTES,
-      shell: false,
-      timeout: timeoutMs,
-      windowsHide: true,
-    });
-  } catch {
+  for (const command of WINDOWS_POWERSHELL_COMMANDS) {
+    try {
+      outcome = runWindowsAcl(command, argv, options);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      reject("Windows ACL verifier could not start");
+    }
+    if (outcome?.error?.code === "ENOENT") continue;
+    break;
+  }
+  if (!outcome || outcome.error?.code === "ENOENT") {
     reject("Windows ACL verifier could not start");
   }
   if (!outcome || outcome.error || outcome.signal || outcome.status !== 0) {
+    if (outcome?.error?.code === "ETIMEDOUT")
+      reject("Windows ACL verifier timed out");
     reject("Windows ACL enforcement failed");
   }
   return parseWindowsReport(outcome.stdout, maxEntries);

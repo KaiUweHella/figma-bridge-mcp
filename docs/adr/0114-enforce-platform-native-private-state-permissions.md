@@ -18,6 +18,13 @@ LocalSystem and built-in Administrators. Those latter two principals already
 have host-level authority and remain outside the local unprivileged-attacker
 boundary, as does arbitrary code running as the current account.
 
+The process Adapter prefers PowerShell 7 when it is installed because it is
+the active host on current GitHub Windows runners and avoids a cold legacy-host
+startup exhausting the bounded deadline. It falls back to built-in Windows
+PowerShell only when the PowerShell 7 executable is absent. A timeout, signal,
+nonzero result or malformed report may represent partial repair and therefore
+fails closed without trying a second host.
+
 Only closed ownership kinds are admitted. Shared State must be the exact
 `.figma-bridge-mcp` root. A Verification Artifact root must already satisfy the
 Command Plan's direct-child `figma-bridge-verify-*` namespace. The Module never

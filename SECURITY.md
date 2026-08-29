@@ -179,6 +179,9 @@ and Linux, every Bridge-owned directory is verified as `0700` and every file as
 bits as proof: one bounded argument-array PowerShell Adapter protects and
 repairs the exact `~/.figma-bridge-mcp` DACL recursively, then verifies Full
 Control for only the current account, LocalSystem and built-in Administrators.
+The Adapter prefers PowerShell 7 when installed and falls back to the built-in
+Windows PowerShell only when PowerShell 7 is absent; a timeout or other possibly
+dispatched failure is never replayed automatically.
 The same policy covers Command-owned Verification Artifact directories.
 Reparse points fail closed; no profile parent, general temporary directory or
 Workspace output is rewritten. A correctly configured profile needs no prompt
