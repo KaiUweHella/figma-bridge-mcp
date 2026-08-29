@@ -701,6 +701,10 @@ _Avoid_: Figma undo, atomic transaction, version restore
 
 **Runtime Soak Report**:
 The closed maintainer evidence from a sustained two-file Bridge session. It records bounded latency, recovery outcomes, cross-target mismatches, uncertain-write residue and cleanup state using target aliases only; Figma file keys, document names, node names, argv and error prose never enter the report.
+Its live Adapter binds every operation to the Figma Design editor, loads all
+pages before root traversal under dynamic-page access and observes intentional
+Daemon idle exit through passive Bridge-owned state rather than activity-producing
+health requests.
 _Avoid_: debug log, connection dump, live file transcript
 
 **Complete MCP Runtime Evidence**:

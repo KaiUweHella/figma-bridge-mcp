@@ -38,6 +38,9 @@ environment variables leave less identity-bearing shell history.
 - Every request names target A or B. A sustained alternating read stops all
   later test writes on the first cross-file identity mismatch and proceeds only
   to run-scoped cleanup.
+- Every live evaluation pins Figma Design as its expected editor. Document-wide
+  marker reads and cleanup load every page before traversing the root, retaining
+  compatibility with Figma's dynamic-page document access.
 - Plugin reload is targeted independently for both files and followed by a
   verified marker read.
 - The manual checkpoint asks the maintainer to background or sleep Figma/the
@@ -47,7 +50,9 @@ environment variables leave less identity-bearing shell history.
   disconnects on the normal deadline.
 - A temporary Bridge Daemon uses a 1–2 second idle window, deliberately below
   the Plugin keepalive interval. It is allowed to exit, then a read recovers
-  once through the normal Daemon Client path. The final daemon is restarted
+  once through the normal Daemon Client path. Idle exit is observed passively
+  through the daemon-owned port-state file; an HTTP health probe would itself
+  reset the timer and invalidate the measurement. The final daemon is restarted
   with the maintainer's normal timeout.
 - A controlled disconnect during a read may retry exactly once after readiness.
 - A controlled disconnect after a disposable write is dispatched never retries

@@ -6,15 +6,13 @@
 // requires two explicit Figma files plus a visible disposable-write opt-in.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  createDaemonClient,
-  DaemonClientError,
-} from "../engine/src/lib/daemon-client.js";
+import { createDaemonClient } from "../engine/src/lib/daemon-client.js";
+import { portFilePath } from "../engine/src/lib/daemon-port.js";
 import { createWorkspaceIO } from "../engine/src/lib/workspace-io.js";
 import { ensureSafeConnect } from "../src/engine.js";
 import {
@@ -115,6 +113,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export async function waitForDaemonStateRemoval({
+  maxWaitMs = 6000,
+  statePath = portFilePath(),
+  existsFile = existsSync,
+  now = Date.now,
+  wait = sleep,
+  pollMs = 100,
+} = {}) {
+  const deadline = now() + maxWaitMs;
+  do {
+    if (!existsFile(statePath)) return true;
+    if (now() >= deadline) return false;
+    await wait(pollMs);
+  } while (true);
+}
+
 function bridgeFailure(kind, phase, outcome) {
   return Object.assign(new Error("Runtime Soak bridge event failed"), {
     kind,
@@ -145,6 +159,7 @@ function codeForWrite(marker, holdMs) {
 
 function codeForRead(marker, holdMs) {
   return `(async () => {
+    await figma.loadAllPagesAsync();
     const matches = figma.root.findAll(node =>
       typeof node.getPluginData === 'function' &&
       node.getPluginData(${JSON.stringify(RUNTIME_SOAK_PLUGIN_DATA.marker)}) === ${JSON.stringify(marker.token)}
@@ -162,6 +177,7 @@ function codeForRead(marker, holdMs) {
 
 function codeForCleanup(runId) {
   return `(async () => {
+    await figma.loadAllPagesAsync();
     const matches = figma.root.findAll(node =>
       typeof node.getPluginData === 'function' &&
       node.getPluginData(${JSON.stringify(RUNTIME_SOAK_PLUGIN_DATA.run)}) === ${JSON.stringify(runId)}
@@ -172,14 +188,22 @@ function codeForCleanup(runId) {
 }
 
 function codeForCount(runId) {
-  return `(async () => figma.root.findAll(node =>
-    typeof node.getPluginData === 'function' &&
-    node.getPluginData(${JSON.stringify(RUNTIME_SOAK_PLUGIN_DATA.run)}) === ${JSON.stringify(runId)}
-  ).length)()`;
+  return `(async () => {
+    await figma.loadAllPagesAsync();
+    return figma.root.findAll(node =>
+      typeof node.getPluginData === 'function' &&
+      node.getPluginData(${JSON.stringify(RUNTIME_SOAK_PLUGIN_DATA.run)}) === ${JSON.stringify(runId)}
+    ).length;
+  })()`;
 }
 
-function createLiveAdapters(client, { targets, idleMs, holdMs }) {
+export function createLiveAdapters(client, { targets, idleMs, holdMs }) {
   const timeoutMs = Math.max(10_000, holdMs + 5000);
+  const figmaEvalOptions = (target) => ({
+    fileKey: target.key,
+    expectedEditor: "figma",
+    timeoutMs,
+  });
 
   async function healthConnections() {
     const response = await client.health({ timeoutMs: 1500 });
@@ -214,25 +238,6 @@ function createLiveAdapters(client, { targets, idleMs, holdMs }) {
       "target-resolution",
       "not-dispatched"
     );
-  }
-
-  async function waitForDaemonDown(maxWaitMs = 6000) {
-    const deadline = Date.now() + maxWaitMs;
-    do {
-      try {
-        const response = await client.health({ timeoutMs: 350 });
-        if (!response.ok) return true;
-      } catch (error) {
-        if (
-          error instanceof DaemonClientError &&
-          ["unavailable", "timeout"].includes(error.kind)
-        )
-          return true;
-      }
-      if (Date.now() >= deadline) break;
-      await sleep(100);
-    } while (true);
-    return false;
   }
 
   async function startShortIdleDaemon() {
@@ -271,16 +276,16 @@ function createLiveAdapters(client, { targets, idleMs, holdMs }) {
       }
     },
     writeMarker(target, marker, { holdMs: requestedHold }) {
-      return client.evaluate(codeForWrite(marker, requestedHold), {
-        fileKey: target.key,
-        timeoutMs,
-      });
+      return client.evaluate(
+        codeForWrite(marker, requestedHold),
+        figmaEvalOptions(target)
+      );
     },
     readMarker(target, marker, { holdMs: requestedHold }) {
-      return client.evaluate(codeForRead(marker, requestedHold), {
-        fileKey: target.key,
-        timeoutMs,
-      });
+      return client.evaluate(
+        codeForRead(marker, requestedHold),
+        figmaEvalOptions(target)
+      );
     },
     async reloadPlugin(target) {
       const response = await client.reconnect({
@@ -319,40 +324,25 @@ function createLiveAdapters(client, { targets, idleMs, holdMs }) {
     },
     async expireDaemon() {
       const shutdown = await client.shutdown({ timeoutMs: 3000 });
-      if (!shutdown.ok || !(await waitForDaemonDown())) return false;
+      if (!shutdown.ok || !(await waitForDaemonStateRemoval())) return false;
       await startShortIdleDaemon();
       await waitUntilReady(targets);
-      await sleep(idleMs + 750);
-      try {
-        const stillRunning = await client.health({ timeoutMs: 500 });
-        if (stillRunning.ok) {
-          await client.shutdown({ timeoutMs: 3000 }).catch(() => {});
-          await waitForDaemonDown();
-          return false;
-        }
-      } catch (error) {
-        if (
-          error instanceof DaemonClientError &&
-          ["unavailable", "timeout"].includes(error.kind)
-        )
-          return true;
-      }
+      if (
+        await waitForDaemonStateRemoval({ maxWaitMs: idleMs + 5000 })
+      )
+        return true;
+      await client.shutdown({ timeoutMs: 3000 }).catch(() => {});
+      await waitForDaemonStateRemoval();
       return false;
     },
     async recoverDaemon() {
       await ensureSafeConnect();
     },
     async cleanup(target, runId) {
-      return client.evaluate(codeForCleanup(runId), {
-        fileKey: target.key,
-        timeoutMs,
-      });
+      return client.evaluate(codeForCleanup(runId), figmaEvalOptions(target));
     },
     async countRunMarkers(target, runId) {
-      return client.evaluate(codeForCount(runId), {
-        fileKey: target.key,
-        timeoutMs,
-      });
+      return client.evaluate(codeForCount(runId), figmaEvalOptions(target));
     },
   });
 }

@@ -8,7 +8,11 @@ import {
   runRuntimeSoak,
   runtimeSoakErrorFacts,
 } from "../scripts/lib/runtime-soak-harness.js";
-import { writeRuntimeSoakReport } from "../scripts/runtime-soak.js";
+import {
+  createLiveAdapters,
+  waitForDaemonStateRemoval,
+  writeRuntimeSoakReport,
+} from "../scripts/runtime-soak.js";
 import { assertPosixMode } from "../test-support/posix-permissions.js";
 
 function transient(kind = "plugin-unavailable") {
@@ -291,6 +295,28 @@ test("Runtime Soak keeps the temporary daemon idle window below Plugin keepalive
   );
 });
 
+test("Runtime Soak observes daemon idle exit without health activity", async () => {
+  let clock = 0;
+  let probes = 0;
+  const removed = await waitForDaemonStateRemoval({
+    maxWaitMs: 1000,
+    statePath: "PRIVATE_DAEMON_PORT_STATE",
+    existsFile() {
+      probes++;
+      return probes < 4;
+    },
+    now: () => clock,
+    wait: async (ms) => {
+      clock += ms;
+    },
+    pollMs: 100,
+  });
+
+  assert.equal(removed, true);
+  assert.equal(probes, 4);
+  assert.equal(clock, 300);
+});
+
 test("Runtime Soak reports are new private workspace files", () => {
   const root = mkdtempSync(join(tmpdir(), "figma-bridge-soak-report-"));
   const reportPath = join(root, "docs-local", "evidence", "runtime-soak.json");
@@ -309,6 +335,46 @@ test("Runtime Soak reports are new private workspace files", () => {
       }),
     /outside allowed roots/
   );
+});
+
+test("live Runtime Soak binds every eval to Figma Design", async () => {
+  const calls = [];
+  const client = {
+    evaluate(code, options) {
+      calls.push({ code, options });
+      return Promise.resolve(null);
+    },
+  };
+  const target = Object.freeze({ alias: "A", key: "PRIVATE_FILE_ALPHA" });
+  const adapters = createLiveAdapters(client, {
+    targets: [target],
+    idleMs: 1000,
+    holdMs: 50,
+  });
+  const marker = Object.freeze({
+    runId: "test-run-editor-binding",
+    token: "test-marker-token",
+    label: "test marker",
+  });
+
+  await adapters.writeMarker(target, marker, { holdMs: 0 });
+  await adapters.readMarker(target, marker, { holdMs: 0 });
+  await adapters.cleanup(target, marker.runId);
+  await adapters.countRunMarkers(target, marker.runId);
+
+  assert.equal(calls.length, 4);
+  for (const call of calls) {
+    assert.deepEqual(call.options, {
+      fileKey: target.key,
+      timeoutMs: 10_000,
+      expectedEditor: "figma",
+    });
+  }
+  for (const call of calls.slice(1)) {
+    const load = call.code.indexOf("await figma.loadAllPagesAsync()");
+    const traversal = call.code.indexOf("figma.root.findAll");
+    assert.ok(load >= 0 && traversal > load);
+  }
 });
 
 test("live Runtime Soak Adapter stays on the shared Daemon Client Interface", () => {
