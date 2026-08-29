@@ -67,6 +67,7 @@ test('tracked jobs evict terminal success and failure even when nobody polls aga
   const registry = createTrackedJobRegistry({
     resultCacheMs: 25,
     terminalRetentionMs: 100,
+    now: () => 0,
     setTimer(callback, delay) {
       timers.push({ callback, delay });
       return 1;

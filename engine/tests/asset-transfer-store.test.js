@@ -5,7 +5,6 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -15,6 +14,7 @@ import {
   MAX_ASSET_TRANSFER_CHUNK_BYTES,
   createAssetTransferStore,
 } from "../src/lib/asset-transfer-store.js";
+import { assertPosixMode } from "../../test-support/posix-permissions.js";
 
 function fixture(t, options = {}) {
   const root = mkdtempSync(join(tmpdir(), "asset-transfer-store-"));
@@ -95,8 +95,8 @@ test("private permissions and restart cleanup retain no recognised transfer byte
   writer.write(0, bytes.toString("base64"));
   const descriptor = writer.finish({ chunks: 1 });
   const file = join(root, `${descriptor.id}.bin`);
-  assert.equal(statSync(root).mode & 0o777, 0o700);
-  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assertPosixMode(root, 0o700);
+  assertPosixMode(file, 0o600);
 
   const unknown = join(root, "maintainer-note.txt");
   writeFileSync(unknown, "leave me");

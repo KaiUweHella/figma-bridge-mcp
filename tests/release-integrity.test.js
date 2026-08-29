@@ -70,3 +70,14 @@ test("CI dependency installation suppresses lifecycle scripts", () => {
     }
   }
 });
+
+test("Windows CI serializes nested Worker test files without reducing suite coverage", () => {
+  assert.match(
+    TEST_WORKFLOW,
+    /if: runner\.os == 'Windows'\s+run: npm test -- --test-concurrency=1/m
+  );
+  assert.match(
+    TEST_WORKFLOW,
+    /if: runner\.os != 'Windows'\s+run: npm test/m
+  );
+});

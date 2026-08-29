@@ -4,7 +4,7 @@ import { statSync } from 'node:fs';
 /**
  * Assert the POSIX permission contract where Node exposes it faithfully.
  * Windows reports synthesized Unix mode bits; stat still proves the artifact
- * exists there, while its privacy comes from the inherited user-profile ACL.
+ * exists there, while native Windows DACL fixtures separately prove privacy.
  */
 export function assertPosixMode(path, expected) {
   const metadata = statSync(path);
