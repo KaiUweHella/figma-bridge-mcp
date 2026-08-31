@@ -25,6 +25,10 @@ import {
   executeSlidesCreatePlan,
   slidesCreatePlanningArgvFromRequest,
 } from '../application/slides-create-command.js';
+import {
+  executeSlidesDuplicatePlan,
+  slidesDuplicatePlanningArgvFromRequest,
+} from '../application/slides-duplicate-command.js';
 
 const slides = program
   .command('slides')
@@ -131,18 +135,34 @@ slides
   .option('--label <label>', 'Durable Bridge label for the copy')
   .option('--row <n>', 'Zero-based target row')
   .option('--col <n>', 'Zero-based target column (requires --row)')
+  .allowExcessArguments(false)
   .action(async (slide, options) => {
-    const reference = unionReferenceExecutionValue(slide);
-    const row = index(options.row, 'row', { optional: true });
-    const col = index(options.col, 'col', { optional: true });
-    if (col !== null && row === null) {
-      console.error(chalk.red('✗ --col requires --row.'));
-      process.exit(1);
+    try {
+      const plan = planFigmaCommand(slidesDuplicatePlanningArgvFromRequest({
+        reference: slide,
+        label: options.label ?? null,
+        row: options.row ?? null,
+        col: options.col ?? null,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesDuplicatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides duplicate failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    await run(snippets.duplicate(reference, { label: options.label, row, col }), (result) => {
-      const labelled = result.slide.label ? ` [${result.slide.label}]` : '';
-      console.log(chalk.green('✓'), `Slide ${result.sourceId} duplicated as ${result.slide.id}${labelled}`);
-    });
   });
 
 slides

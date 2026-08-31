@@ -318,6 +318,12 @@ import {
   slidesCreateArgvFromRequest,
 } from '../engine/src/application/slides-create-request.js';
 import {
+  acceptsSlidesDuplicateArgv,
+  parseSlidesDuplicateRequest,
+  slidesDuplicateArgvFromRequest,
+  slidesDuplicateFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-duplicate-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -920,7 +926,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'analyze.lint',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
-  'slides.inspect', 'slides.create',
+  'slides.inspect', 'slides.create', 'slides.duplicate',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1315,7 +1321,8 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'slides') {
     if (sub === 'inspect') retry = 'safe-read';
-    pathPolicy = sub === 'create' ? 'slides-create-input' : 'slides-reference-input';
+    pathPolicy = sub === 'create' ? 'slides-create-input'
+      : sub === 'duplicate' ? 'slides-duplicate-input' : 'slides-reference-input';
   }
   return { execution, timeoutClass, pathPolicy, retry };
 }
@@ -1534,7 +1541,11 @@ function commandCapability(args) {
     && !action.help && !acceptsSlidesCreateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'slides' && args[1] !== 'create'
+  if (name === 'slides' && args[1] === 'duplicate'
+    && !action.help && !acceptsSlidesDuplicateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && !['create', 'duplicate'].includes(args[1])
     && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2889,6 +2900,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'slides-create-input': {
       args.splice(0, args.length,
         ...slidesCreateArgvFromRequest(parseSlidesCreateRequest(args)));
+      break;
+    }
+    case 'slides-duplicate-input': {
+      const closedFileKey = slidesDuplicateFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesDuplicateArgvFromRequest(parseSlidesDuplicateRequest(args)));
       break;
     }
     case 'node-discovery-input': {

@@ -267,6 +267,8 @@
     "engine/src/application/node-reference.js",
     "engine/src/application/slides-create-command.js",
     "engine/src/application/slides-create-request.js",
+    "engine/src/application/slides-duplicate-command.js",
+    "engine/src/application/slides-duplicate-request.js",
     "engine/src/application/slides-inspect-command.js",
     "engine/src/application/slides-reference-request.js",
     "engine/src/application/node-tree-command.js",

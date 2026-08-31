@@ -498,6 +498,10 @@ import {
   slidesCreatePlanRoute,
 } from "../engine/src/application/slides-create-command.js";
 import {
+  executeSlidesDuplicatePlan,
+  slidesDuplicatePlanRoute,
+} from "../engine/src/application/slides-duplicate-command.js";
+import {
   devResourceReadPlanRoute,
   executeDevResourceReadPlan,
 } from "../engine/src/application/dev-resource-read-command.js";
@@ -4191,6 +4195,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeSlidesCreatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesDuplicateRoute = slidesDuplicatePlanRoute(plan);
+      if (slidesDuplicateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesDuplicatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
