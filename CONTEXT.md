@@ -80,6 +80,17 @@ restores and verifies the complete prior Paint list, otherwise reporting
 bounded fill residue or unavailable verification.
 _Avoid_: Commander fill handler, setter-return success, first Variable-name match, partial Paint rollback
 
+**Node Image Fill**:
+The bounded, non-retrying replacement of one exact fill-capable canvas Node's
+complete Paint list with one workspace-backed Image Paint. Image bytes are
+authorized and read before Plugin readiness; success requires fresh Image hash,
+scale-mode and default-presentation readback. Placeholder annotations are
+cleared best-effort and their effective outcome stays explicit. Node fields can
+be restored after a mismatch, but Figma exposes no Image-resource deletion API,
+so every failure after `createImage()` reports possible image-resource residue
+rather than claiming full rollback.
+_Avoid_: Commander image handler, unbounded file read, setter-return success, synthetic Image rollback
+
 **Component Identity Facts**:
 The exact, versioned and deeply bounded resolution of one explicit Figma
 Instance to its main component and optional component set. It preserves native

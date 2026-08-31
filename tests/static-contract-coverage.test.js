@@ -47,6 +47,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/node-bind-request.js',
   'engine/src/application/node-set-fill-command.js',
   'engine/src/application/node-set-fill-request.js',
+  'engine/src/application/node-set-image-command.js',
+  'engine/src/application/node-set-image-request.js',
   'engine/src/application/node-flatten-command.js',
   'engine/src/application/node-flatten-request.js',
   'engine/src/application/node-to-component-command.js',

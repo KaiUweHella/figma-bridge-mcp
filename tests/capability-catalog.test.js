@@ -1324,6 +1324,40 @@ test('Node Set Fill closes one policy-identical rollback-owned write', () => {
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
 });
 
+test('Node Set Image closes one policy-identical workspace-backed write', () => {
+  const base = resolve('work', 'image-plan');
+  const file = join(base, 'pixel.png');
+  const url = 'https://www.figma.com/design/FILEA/Image-Lab?node-id=12-34';
+  const mcp = planFigmaCommand([
+    'node', 'set-image', '--scale', 'crop', url, 'pixel.png',
+  ], { adapter: 'mcp', workspaceDir: base });
+  const cli = planFigmaCommand([
+    'node', 'set-image', url, 'pixel.png', '--scale=CROP',
+  ], { adapter: 'cli', workspaceDir: base });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, [
+    'node', 'set-image', '12:34', '--scale', 'CROP', '--', file,
+  ]);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, {
+    figma: 'write', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
+  });
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.set-image');
+  for (const args of [
+    ['node', 'set-image'],
+    ['node', 'set-image', '1:2'],
+    ['node', 'set-image', '1:2', 'pixel.png', 'extra'],
+    ['node', 'set-image', '1:2', 'pixel.png', '--future'],
+    ['node', 'set-image', 'not-a-node', 'pixel.png'],
+  ]) assert.equal(planFigmaCommand(args, { workspaceDir: base }).allowed, false, args.join(' '));
+});
+
 test('Node Binding Facts use the closed typed-read dispatch in both Adapters', () => {
   const cli = planFigmaCommand(['node', 'bindings', '12:34', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['node', 'bindings', '--json', '12-34'], { adapter: 'mcp' });
@@ -1728,7 +1762,9 @@ test('catalog prepares every known project-relative path policy', () => {
       '--manifest', inWorkspace('figma-bridge.json'),
     ],
   );
-  assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), ['node', 'set-image', '1:2', inWorkspace('photo.png')]);
+  assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), [
+    'node', 'set-image', '1:2', '--scale', 'FILL', '--', inWorkspace('photo.png'),
+  ]);
   assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
     'tokens', 'sync', inWorkspace('tokens.json'), '--lockfile', inWorkspace('.tokens.lock.json'),
   ]);

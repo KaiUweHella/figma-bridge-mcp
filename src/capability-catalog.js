@@ -87,6 +87,7 @@ import { acceptsNodeUngroupArgv, nodeUngroupArgvFromRequest, nodeUngroupFigmaUrl
 import { acceptsNodeBooleanArgv, nodeBooleanArgvFromRequest, nodeBooleanFigmaUrlFileKeyFromArgv, parseNodeBooleanRequest } from '../engine/src/application/node-boolean-request.js';
 import { acceptsNodeBindArgv, nodeBindArgvFromRequest, nodeBindFigmaUrlFileKeyFromArgv, parseNodeBindRequest } from '../engine/src/application/node-bind-request.js';
 import { acceptsNodeSetFillArgv, nodeSetFillArgvFromRequest, nodeSetFillFigmaUrlFileKeyFromArgv, parseNodeSetFillRequest } from '../engine/src/application/node-set-fill-request.js';
+import { acceptsNodeSetImageArgv, nodeSetImageArgvFromRequest, nodeSetImageFigmaUrlFileKeyFromArgv, parseNodeSetImageRequest } from '../engine/src/application/node-set-image-request.js';
 import { acceptsNodeFlattenArgv, nodeFlattenArgvFromRequest, nodeFlattenFigmaUrlFileKeyFromArgv, parseNodeFlattenRequest } from '../engine/src/application/node-flatten-request.js';
 import {
   acceptsNodeDeleteArgv,
@@ -563,7 +564,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set-fill', 'node.set-text', 'node.ungroup',
+  'link.set', 'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set-fill', 'node.set-image', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
@@ -976,6 +977,7 @@ function commandCapability(args) {
   if (name === 'node' && args[1] === 'boolean' && !action.help && !acceptsNodeBooleanArgv(args)) return Object.freeze({ ...UNKNOWN, name });
   if (name === 'node' && args[1] === 'bind' && !action.help && !acceptsNodeBindArgv(args)) return Object.freeze({ ...UNKNOWN, name });
   if (name === 'node' && args[1] === 'set-fill' && !action.help && !acceptsNodeSetFillArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'set-image' && !action.help && !acceptsNodeSetImageArgv(args)) return Object.freeze({ ...UNKNOWN, name });
   if (name === 'node' && args[1] === 'flatten' && !action.help && !acceptsNodeFlattenArgv(args)) return Object.freeze({ ...UNKNOWN, name });
   if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1858,11 +1860,14 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         if (projectUrlTarget) figmaUrlFileKey = closedNodeDeleteFileKey;
         args.splice(0, args.length, ...nodeDeleteArgvFromRequest(parseNodeDeleteRequest(args)));
       } else if (args[1] === 'set-image') {
-        const imageIndex = positionalIndexes(args, 2)[1];
+        const imageIndex = positionalIndexes(args, 2, ['--scale'])[1];
         if (typeof args[imageIndex] === 'string') {
           args[imageIndex] = absolute(baseDir, args[imageIndex]);
           markRead(args[imageIndex], 'node-image');
         }
+        const closedNodeSetImageFileKey = nodeSetImageFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeSetImageFileKey;
+        args.splice(0, args.length, ...nodeSetImageArgvFromRequest(parseNodeSetImageRequest(args)));
       }
       break;
     }

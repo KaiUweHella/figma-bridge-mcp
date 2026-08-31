@@ -470,3 +470,15 @@ or Variable alias on the single resulting Solid Paint. A mismatch restores and
 re-reads the complete prior list, otherwise reporting bounded fill residue or
 unavailable verification. Commander and `figma_run` share that same outcome
 semantics and retain no direct fill mutation path.
+
+`node set-image` owns the adjacent workspace-backed Image Paint replacement.
+Its closed request preserves the legacy scale modes and the legacy fallback of
+unknown scale values to `FILL`, while the Capability Catalog canonicalizes and
+authorizes the source path before Plugin readiness. One shared non-retrying
+Application creates the Image resource, replaces the complete Paint list and
+requires fresh Image-hash, scale-mode and default-presentation readback.
+Placeholder annotation clearing remains best-effort but its effective outcome
+is explicit. A mismatch restores and verifies the prior Paint and annotation
+fields; because Figma has no Image-resource deletion operation, every failure
+after `createImage()` still reports possible Image-resource residue instead of
+claiming complete rollback. Commander and `figma_run` share this exact seam.

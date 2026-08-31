@@ -14,7 +14,7 @@ import {
 } from '../lib/cli-core.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import { generateFillCode, isVarRef, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
-import { readImageBase64 } from '../lib/image-file.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 import {
   executeNodeCssPlan,
   nodeCssPlanningArgvFromRequest,
@@ -71,6 +71,11 @@ import {
   executeNodeSetFillPlan,
   nodeSetFillPlanningArgvFromRequest,
 } from '../application/node-set-fill-command.js';
+import {
+  executePreparedNodeSetImage,
+  nodeSetImagePlanningArgvFromRequest,
+  prepareNodeSetImagePlan,
+} from '../application/node-set-image-command.js';
 import { executeNodeFlattenPlan, nodeFlattenPlanningArgvFromRequest } from '../application/node-flatten-command.js';
 import {
   executeNodeDeletePlan,
@@ -541,27 +546,29 @@ node
   .command('set-image <nodeId> <file>')
   .description('Set a local image file (png/jpg/gif/webp) as the fill of a node — turns render placeholders into real images')
   .option('--scale <mode>', 'Scale mode: FILL, FIT, CROP, TILE', 'FILL')
+  .allowExcessArguments(false)
   .action(async (nodeId, file, options) => {
-    await checkConnection();
-    const { b64, error } = readImageBase64(file);
-    if (error) return;
-    const mode = String(options.scale || 'FILL').toUpperCase();
-    const finalMode = ['FILL', 'FIT', 'CROP', 'TILE'].includes(mode) ? mode : 'FILL';
-    const code = `(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
-      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-      if (!('fills' in node)) throw new Error('Node has no fills: ' + node.type);
-      const img = figma.createImage(figma.base64Decode(${JSON.stringify(b64)}));
-      node.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: ${JSON.stringify(finalMode)} }];
-      // The placeholder annotation has served its purpose once a real image lands.
-      try { node.annotations = []; } catch (e) {}
-      return { id: node.id, name: node.name };
-    })()`;
     try {
-      const r = await fastEval(code);
-      console.log(chalk.green('✓'), `Image set on "${r.name}" (${r.id}) from ${file}`);
-    } catch (e) {
-      console.log(chalk.red('✗ set-image failed: ' + e.message));
+      const io = workspaceIO();
+      const plan = planFigmaCommand(nodeSetImagePlanningArgvFromRequest({
+        nodeId, file, scale: options.scale,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+        workspaceDir: io.roots[0], workspaceIO: io,
+      });
+      const prepared = prepareNodeSetImagePlan(plan, { workspaceIO: io });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executePreparedNodeSetImage(prepared, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(chalk.green('✓'), result.stdout);
+    } catch (error) {
+      console.log(chalk.red('✗ set-image failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

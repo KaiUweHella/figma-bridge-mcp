@@ -438,9 +438,9 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
     }
   }
   assert.deepEqual(direct.sort(), [
-    'set', 'set-image',
+    'set',
   ]);
-  assert.equal(direct.length, 2,
+  assert.equal(direct.length, 1,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
 });
 
@@ -457,6 +457,22 @@ test('node set-fill delegates one Plan-bound readback-verified Command Applicati
   assert.match(action, /process\.exitCode = 1/);
   assert.doesNotMatch(action,
     /checkConnection\(|fastEval\(|generateFillCode\(|node\.fills\s*=|setBoundVariableForPaint\(/);
+});
+
+test('node set-image delegates prepared bytes to one Plan-bound verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('set-image <nodeId> <file>')");
+  const end = adapter.indexOf(".command('delete <nodeIds...>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeSetImagePlanningArgvFromRequest\(/);
+  assert.match(action, /prepareNodeSetImagePlan\(plan, \{ workspaceIO: io \}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executePreparedNodeSetImage\(prepared/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|readImageBase64\(|createImage\(|node\.fills\s*=/);
 });
 
 test('node bind delegates one Plan-bound readback-verified Command Application', () => {
