@@ -81,6 +81,10 @@ import {
   sectionInventoryArgvFromRequest,
 } from '../application/section-inventory-command.js';
 import {
+  executeSectionFitPlan,
+  sectionFitPlanningArgvFromRequest,
+} from '../application/section-fit-command.js';
+import {
   annotationCategoryInventoryArgvFromRequest,
   executeAnnotationCategoryInventoryPlan,
 } from '../application/annotation-category-inventory-command.js';
@@ -269,23 +273,31 @@ sectionCmd
   .command('fit <sectionId>')
   .description('Shrink/grow a section to wrap its children (children stay visually in place)')
   .option('--pad <n>', 'Padding around children', '64')
+  .allowExcessArguments(false)
   .action(async (sectionId, options) => {
-    await checkConnection();
-    const pad = Number(options.pad) || 64;
-    const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(sectionId).id)});
-      if (!s) throw new Error('Section not found: ${sectionId}');
-      if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
-      if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
-      ${sectionFitSnippet(pad)}
-      return { id: s.id, name: s.name, width: s.width, height: s.height };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (r.empty) console.log(chalk.yellow('⚠'), `Section "${r.name}" is empty — nothing to fit`);
-      else console.log(chalk.green('✓'), `Fitted "${r.name}" to ${Math.round(r.width)}×${Math.round(r.height)}`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionFitPlanningArgvFromRequest({
+        sectionId,
+        pad: options.pad,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionFitPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Fit failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

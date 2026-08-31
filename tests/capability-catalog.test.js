@@ -1049,6 +1049,20 @@ test('Section Inventory closes one policy-identical current-page safe read', () 
   assert.equal(cli.audit.capability, 'section.list');
 });
 
+test('Section Fit closes one policy-identical non-retrying geometry write', () => {
+  const cli = planFigmaCommand(['section', 'fit', '10-3', '--pad=32'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'fit', '--pad', '32', '10:3'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'section.fit');
+});
+
 test('Annotation Category Inventory closes one policy-identical file safe read', () => {
   const cli = planFigmaCommand(['annotate', 'categories'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['annotate', 'categories', '--'], { adapter: 'mcp' });

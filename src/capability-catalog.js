@@ -602,6 +602,12 @@ import {
   sectionInventoryArgvFromRequest,
 } from '../engine/src/application/section-inventory-request.js';
 import {
+  acceptsSectionFitArgv,
+  parseSectionFitRequest,
+  sectionFitArgvFromRequest,
+  sectionFitFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-fit-request.js';
+import {
   acceptsAnnotationCategoryInventoryArgv,
   annotationCategoryInventoryArgvFromRequest,
   parseAnnotationCategoryInventoryRequest,
@@ -854,6 +860,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
+  'section.fit',
   'annotate.categories',
   'annotate.list',
   'annotate.clear',
@@ -1197,6 +1204,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'section-inventory-input';
   }
+  if (name === 'section' && sub === 'fit') pathPolicy = 'section-fit-input';
   if (name === 'annotate' && sub === 'categories') {
     retry = 'safe-read';
     pathPolicy = 'annotation-category-inventory-input';
@@ -1635,6 +1643,10 @@ function commandCapability(args) {
   }
   if (name === 'section' && args[1] === 'list'
     && !action.help && !acceptsSectionInventoryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'fit'
+    && !action.help && !acceptsSectionFitArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'annotate' && args[1] === 'categories'
@@ -2624,6 +2636,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'section-inventory-input': {
       args.splice(0, args.length,
         ...sectionInventoryArgvFromRequest(parseSectionInventoryRequest(args)));
+      break;
+    }
+    case 'section-fit-input': {
+      const closedFileKey = sectionFitFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionFitArgvFromRequest(parseSectionFitRequest(args)));
       break;
     }
     case 'annotation-category-inventory-input': {

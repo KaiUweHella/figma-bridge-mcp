@@ -165,6 +165,8 @@
     "engine/src/application/legacy-raster-export-request.js",
     "engine/src/application/section-inventory-command.js",
     "engine/src/application/section-inventory-request.js",
+    "engine/src/application/section-fit-command.js",
+    "engine/src/application/section-fit-request.js",
     "engine/src/application/create-frame-command.js",
     "engine/src/application/create-frame-request.js",
     "engine/src/application/create-shape-command.js",
