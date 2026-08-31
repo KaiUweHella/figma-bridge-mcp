@@ -51,7 +51,8 @@ const PLUGIN_API_CREATION_OPERATIONS = Object.freeze({
 const PLUGIN_API_STRUCTURAL_OPERATIONS = Object.freeze({
   combineAsVariants: supported(['component', 'combine', '1:2,1:3']),
   group: supported(['node', 'group', '1:2', '1:3']),
-  transformGroup: supported(['draw', 'transform-group', '1:2,1:3', '--modifiers', '[]']),
+  transformGroup: supported(['draw', 'transform-group', '1:2,1:3', '--modifiers',
+    '[{"type":"REPEAT","repeatType":"RADIAL","count":2,"unitType":"PIXELS","offset":10}]']),
   flatten: supported(['node', 'flatten', '1:2', '1:3']),
   union: supported(['node', 'boolean', 'union', '1:2', '1:3']),
   subtract: supported(['node', 'boolean', 'subtract', '1:2', '1:3']),

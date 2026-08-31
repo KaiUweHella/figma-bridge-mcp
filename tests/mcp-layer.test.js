@@ -693,6 +693,37 @@ test('figma_run rejects malformed Shader writes before readiness or dispatch', a
   }
 });
 
+test('figma_run routes Draw reads and writes through the shared verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const drawCommandRoute = drawCommandPlanRoute(plan)');
+  const end = source.indexOf('const slotConfigurationRoute = slotConfigurationPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeDrawCommandPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Draw Command must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Draw requests before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['draw', 'inspect'],
+    ['draw', 'inspect', '1:2', '--future', 'private-value'],
+    ['draw', 'text-path', '1:2'],
+    ['draw', 'transform-group', '1:2', '--modifiers', '[]'],
+    ['draw', 'stroke-profile', '1:2'],
+    ['draw', 'pattern', '1:2', '1:3'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Slot create/edit through the rollback-owned Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const slotConfigurationRoute = slotConfigurationPlanRoute(plan)');

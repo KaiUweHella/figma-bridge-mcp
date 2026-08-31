@@ -130,6 +130,10 @@ import {
   shaderMutationPlanRoute,
 } from "../engine/src/application/shader-mutation-command.js";
 import {
+  drawCommandPlanRoute,
+  executeDrawCommandPlan,
+} from "../engine/src/application/draw-command.js";
+import {
   executeSlotConfigurationPlan,
   slotConfigurationPlanRoute,
 } from "../engine/src/application/slot-configuration-command.js";
@@ -2410,6 +2414,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeShaderMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const drawCommandRoute = drawCommandPlanRoute(plan);
+      if (drawCommandRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeDrawCommandPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

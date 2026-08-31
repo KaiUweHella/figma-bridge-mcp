@@ -606,6 +606,39 @@ test('the remaining direct Shader write inventory is explicit and cannot grow si
     'STAB-26 Shader-family Legacy Write count may decrease, but must never increase silently');
 });
 
+test('Draw reads and writes delegate one Plan-bound verified Application', () => {
+  const adapter = sources.get('draw.js');
+  for (const name of ['inspect', 'text-path', 'transform-group', 'brush', 'stroke-profile', 'pattern']) {
+    const marker = `command('${name} `;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('draw.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.ok(start >= 0, `${name} command exists`);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runDrawCommand\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|draw(?:Inspect|TextPath|TransformGroup|Brush|StrokeProfile|Pattern)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'draw-command.js'), 'utf8');
+  assert.match(application, /figma\.createTextPath\(/);
+  assert.match(application, /figma\.transformGroup\(/);
+  assert.match(application, /await write\(desired\)/);
+  assert.match(application, /await write\(before\)/);
+});
+
+test('the remaining direct Draw Action inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('draw.js'); const direct = [];
+  for (const name of ['inspect', 'text-path', 'transform-group', 'brush', 'stroke-profile', 'pattern']) {
+    const marker = `command('${name} `;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('draw.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Draw-family Legacy Action count may decrease, but must never increase silently');
+});
+
 test('Slot create and edit delegate one Plan-bound rollback-owned Application', () => {
   const adapter = sources.get('slots.js');
   for (const marker of [
