@@ -2606,6 +2606,30 @@ test('figma_run distinguishes command groups, actions, options and malformed val
   }
 });
 
+test('figma_run errors include one machine-readable recovery context', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const rejected = await handleTool('figma_run', { args: ['future-group', 'private-payload'] });
+  assert.deepEqual(rejected._meta['figma-bridge-mcp'].error, {
+    schemaVersion: 1,
+    layer: 'whitelist',
+    kind: 'command-rejected',
+    dispatchState: 'not-dispatched',
+    suggestion: 'Use ["--help"].',
+  });
+  assert.match(rejected.content[0].text,
+    /\[layer:whitelist\] \[kind:command-rejected\] \[dispatch:not-dispatched\]/);
+  assert.doesNotMatch(JSON.stringify(rejected._meta), /private-payload/);
+
+  const malformed = await handleTool('figma_run', { args: [] });
+  assert.deepEqual(malformed._meta['figma-bridge-mcp'].error, {
+    schemaVersion: 1,
+    layer: 'validation',
+    kind: 'request',
+    suggestion: 'Correct the request using the validation message, then retry.',
+  });
+  assert.match(malformed.content[0].text, /\[layer:validation\] \[kind:request\]/);
+});
+
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {
   // Safe to import since server.js only boots when run as the entry point.
   const { unknownParamError } = await import('../src/server.js');

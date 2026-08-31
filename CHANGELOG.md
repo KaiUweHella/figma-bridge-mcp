@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- Every MCP failure now exposes one closed recovery context with `layer`,
+  `kind`, optional `dispatchState`, and a payload-free `suggestion` in the
+  Figma Bridge metadata namespace. The same layer/kind/dispatch facts are
+  visible in error text, so agents can distinguish whitelist, validation,
+  execution, and transport failures without parsing five unrelated dialects.
 - `col delete --only-if-empty` provides an atomic cleanup path that refuses a
   populated Variable Collection before native removal. Collection deletion now
   also always requires an explicit MCP confirmation preview regardless of the

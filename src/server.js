@@ -14,7 +14,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, streamFigmaAsset, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
-import { formatPublicError } from "./error-projection.js";
+import { formatPublicError, projectMcpErrorContext } from "./error-projection.js";
 import {
   explainFigmaCommandRejection,
   legacyCommandRiskGateReason,
@@ -1374,12 +1374,15 @@ function enrichStructuredSpec(text, format) {
 }
 
 function identifiedResult(result, auditStatus = getAuditStatus()) {
+  const resultMeta = result._meta || {};
+  const resultServerMeta = resultMeta[MCP_SERVER_ID] || {};
   return {
     ...result,
     _mcp: MCP_SERVER_ID,
     _meta: {
-      ...(result._meta || {}),
+      ...resultMeta,
       [MCP_SERVER_ID]: {
+        ...resultServerMeta,
         serverId: MCP_SERVER_ID,
         toolNamespace: MCP_TOOL_NAMESPACE,
         failureScope: "this-server-only",
@@ -1414,8 +1417,16 @@ function textResult(text, { audit = getAuditStatus() } = {}) {
 
 function errorResult(text, { audit = getAuditStatus(), structuredContent = null } = {}) {
   let body = String(text || "The Figma Bridge request failed.");
-  if (!body.startsWith(`[${MCP_SERVER_ID}]`)) {
-    body = `[${MCP_SERVER_ID}] ${body}`;
+  const errorContext = projectMcpErrorContext(body);
+  if (body.startsWith(`[${MCP_SERVER_ID}]`)) {
+    body = body.slice(MCP_SERVER_ID.length + 2).trimStart();
+  }
+  const dispatch = errorContext.dispatchState
+    ? ` [dispatch:${errorContext.dispatchState}]`
+    : "";
+  body = `[${MCP_SERVER_ID}] [layer:${errorContext.layer}] [kind:${errorContext.kind}]${dispatch} ${body}`;
+  if (["execution", "transport"].includes(errorContext.layer)) {
+    body += `\n\nSuggested next step: ${errorContext.suggestion}`;
   }
   const scope = "Only this Figma Bridge transport failed; this does not mean Figma or another Figma MCP is unavailable.";
   if (!body.includes(scope)) body += `\n\n${scope}`;
@@ -1424,6 +1435,11 @@ function errorResult(text, { audit = getAuditStatus(), structuredContent = null 
   return identifiedResult({
     content: [{ type: "text", text: body }],
     isError: true,
+    _meta: {
+      [MCP_SERVER_ID]: {
+        error: errorContext,
+      },
+    },
     ...(isSemanticRenderOutcome(structuredContent) ? { structuredContent } : {}),
   }, audit);
 }
