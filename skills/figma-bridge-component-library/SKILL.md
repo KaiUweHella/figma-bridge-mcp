@@ -90,6 +90,10 @@ update-batch` call; keep `var update` for one target.
    - Create SLOT as a native flexible region with the dedicated Slot commands.
      Set child limits, empty/default behavior, stretch behavior and preferred
      values deliberately; Slot contents remain structural instance overrides.
+     A newly created native Slot starts as a 100×100 freeform container. Use
+     the returned Slot node id to set its intended Auto Layout direction,
+     Fill/Hug sizing, gap and padding before inserting content. Bind the gap or
+     padding to existing Variables when available.
 5. For Components inside Components, preserve the nested Instance. Use
    `component nested expose` only on a primary nested Instance when consumers
    of the wrapper should access that Instance's own properties. Do not detach,
@@ -107,7 +111,8 @@ update-batch` call; keep `var update` for one target.
    component, exercise each control independently, and treat that Instance as
    authoritative for `minChildren` because an empty Slot on the main Component
    can report no violation. Read the node tree, take a screenshot, and verify
-   clipping, states and touch targets.
+   clipping, states and touch targets. `slot validate` checks Slot rules, not
+   visual layout; overlapping children in a freeform Slot can still validate.
 9. Link the result with `link set` to its source/export and Storybook story.
    Run Storybook mapping only after the component and story names are final.
 

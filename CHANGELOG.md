@@ -40,6 +40,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   value instead of JavaScript key order. A layer can therefore retain multiple
   valid references such as `characters` plus `visible`, or `visible` plus
   `mainComponent`, even when Figma canonicalizes their order during writeback.
+- Component authoring guidance now treats native Slot layout as a required
+  follow-up to `slot create`: normalize the returned 100×100 freeform node to
+  intentional Auto Layout and Fill/Hug sizing before inserting children.
+  Validation guidance also states that `slot validate` checks limits and
+  preference rules, not visual overlap.
 - Top-level `figma_run --help` now comes from the MCP Capability Catalog and
   no longer advertises engine-only commands such as `connect`, `daemon`,
   `eval`, or `run`. Rejected `find`, `style consumers`, and `style apply`

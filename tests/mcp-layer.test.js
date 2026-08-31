@@ -2821,6 +2821,9 @@ test('Component authoring reference covers all native properties and executable 
   assert.match(text, /component","prop","bind/);
   assert.match(text, /component","nested","expose/);
   assert.match(text, /slot","create/);
+  assert.match(text, /node","set","<returned-slot-id>"/);
+  assert.match(text, /100×100/);
+  assert.match(text, /slot validate does not verify visual layout/i);
   assert.match(text, /unbound scalar definition is a defect/);
 });
 
