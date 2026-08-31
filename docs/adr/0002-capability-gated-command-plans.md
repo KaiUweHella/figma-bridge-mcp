@@ -531,3 +531,14 @@ Failure removes only the newly created node, restores selection and reports
 verified rollback, exact residue or unavailable verification. Both Adapters
 consume the same non-retrying Plan and bounded outcome. The mechanically pinned
 public Create legacy-write count consequently falls from five to three.
+
+Line creation is a separate closed Application because endpoint-derived
+rotation and zero-height geometry do not share the solid-Shape contract. It
+preserves the existing smart-position gap and length fallback, resolves an
+explicit stroke Variable before the factory call without first-match
+ambiguity, and freshly verifies hierarchy, geometry, rotation, Paint, stroke
+weight and selection. Failure removes only the newly created Line, restores
+selection and reports verified rollback, exact residue or unavailable
+verification. Both Adapters use the same non-retrying Plan and bounded outcome;
+the mechanically pinned public Create legacy-write count falls from three to
+two.

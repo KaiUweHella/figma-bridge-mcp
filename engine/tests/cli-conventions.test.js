@@ -497,10 +497,23 @@ test('the remaining public direct Create write inventory is explicit and cannot 
     direct.push('polygon', 'star');
   }
   assert.deepEqual(direct.sort(), [
-    'autolayout', 'line', 'text',
+    'autolayout', 'text',
   ]);
-  assert.equal(direct.length, 3,
+  assert.equal(direct.length, 2,
     'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Line creation delegates one Plan-bound rollback-verified Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('line')");
+  const end = adapter.indexOf('.command(', start + 20);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runCreateLine\(options\)/);
+  assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|figma\.createLine\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'create-line-command.js'), 'utf8');
+  assert.match(application, /figma\.createLine\(\)/);
+  assert.match(application, /mutationReport/);
 });
 
 test('Vector and Slice delegate one shared Plan-bound Canvas Node Application', () => {

@@ -78,6 +78,12 @@ import {
   parseCreateCanvasNodeRequest,
 } from '../engine/src/application/create-canvas-node-request.js';
 import {
+  acceptsCreateLineArgv,
+  createLineArgvFromRequest,
+  createLineFigmaUrlFileKeyFromArgv,
+  parseCreateLineRequest,
+} from '../engine/src/application/create-line-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -580,6 +586,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'create.frame',
   'create.rect', 'create.ellipse', 'create.polygon', 'create.star',
   'create.vector', 'create.slice',
+  'create.line',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -779,6 +786,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'create-shape-input';
   }
   if (['create.vector', 'create.slice'].includes(actionId)) pathPolicy = 'create-canvas-node-input';
+  if (actionId === 'create.line') pathPolicy = 'create-line-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -987,6 +995,9 @@ function commandCapability(args) {
   }
   if (['create.vector', 'create.slice'].includes(action.actionId)
     && !action.help && !acceptsCreateCanvasNodeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.line' && !action.help && !acceptsCreateLineArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1948,6 +1959,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...createCanvasNodeArgvFromRequest(parseCreateCanvasNodeRequest(args)));
+      break;
+    }
+    case 'create-line-input': {
+      const closedFileKey = createLineFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...createLineArgvFromRequest(parseCreateLineRequest(args)));
       break;
     }
     case 'component-main-input': {

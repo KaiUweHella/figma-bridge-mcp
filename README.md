@@ -543,10 +543,10 @@ and reports possible residue truthfully if Figma cannot remove it.
 `node duplicate` works for cloneable design nodes including Sections;
 `node reparent` accepts an explicit child index and preserves canvas position
 when the destination is not Auto Layout. `create frame|rect|ellipse|polygon|star`
-and `vector|slice` share action-specific, readback-verified creation Applications
+and `vector|slice|line` use action-specific, readback-verified creation Applications
 across CLI and MCP. They accept an explicit parent where Figma permits it, so
 small children can be added to an existing frame without rebuilding it. The
-remaining `create text|line|autolayout` actions retain the same parent surface
+remaining `create text|autolayout` actions retain the same parent surface
 while their structured migration is tracked separately.
 ID-scoped `node group|ungroup|boolean|flatten` replace selection-dependent
 structural edits. Components can be created, instantiated, swapped, detached,

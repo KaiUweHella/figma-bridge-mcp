@@ -1159,3 +1159,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Are Vector and Slice still unstructured compatibility writes?
 >
 > **Domain expert:** No. They share a closed Canvas Node Application across both Adapters. VectorNetwork JSON is bounded before dispatch and freshly compared after the asynchronous setter; Slice geometry and both kinds' identity, hierarchy, position and selection are verified after one native factory call. Failure removes only the created node and reports rollback or exact residue. The remaining public Create-family legacy budget is three: Text, Line and Auto Layout.
+
+> **Developer:** Does `create line` retain endpoint and Variable-stroke semantics outside the shared execution contract?
+>
+> **Domain expert:** No. One Line Application preserves the established smart-position gap and endpoint-derived length/rotation rules, resolves an explicit `var:` stroke without ambiguous first-match selection, and freshly verifies hierarchy, geometry, Paint, stroke weight and selection. Failure removes only the created Line and reports rollback or exact residue. Text and Auto Layout are the two remaining public Create-family legacy writes.

@@ -2016,6 +2016,22 @@ test('Vector and Slice creation own canonical cross-Adapter write Plans', () => 
   assert.equal(planFigmaCommand(['create', 'slice', '--network', JSON.stringify(network)]).allowed, false);
 });
 
+test('Line creation owns one canonical cross-Adapter write Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=3-1';
+  const mcp = planFigmaCommand([
+    'create', 'line', '--x1', '-4', '--x2', '6', '--color', 'var:color/line',
+    '--parent', url,
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'create.line');
+  assert.deepEqual(mcp.argv, ['create', 'line', '--x1=-4', '--x2=6', '--color=var:color/line', '--parent', '3:1']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  assert.equal(planFigmaCommand(['create', 'line', '--length', '0']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'line', '--color', 'red']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

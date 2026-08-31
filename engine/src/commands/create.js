@@ -9,7 +9,6 @@ import {
   daemonExec,
   evalPrint,
   generateFillCode,
-  generateStrokeCode,
   getVarName,
   isVarRef,
   program,
@@ -29,6 +28,10 @@ import {
   createCanvasNodePlanningArgvFromRequest,
   executeCreateCanvasNodePlan,
 } from '../application/create-canvas-node-command.js';
+import {
+  createLinePlanningArgvFromRequest,
+  executeCreateLinePlan,
+} from '../application/create-line-command.js';
 
 // ============ CREATE ============
 
@@ -116,6 +119,29 @@ async function runCreateCanvasNode(kind, name, options) {
     console.log(result.stdout);
   } catch (error) {
     console.error(chalk.red('✗ Create Canvas Node failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
+
+async function runCreateLine(options) {
+  try {
+    const plan = planFigmaCommand(createLinePlanningArgvFromRequest({
+      x1: options.x1, y1: options.y1, x2: options.x2, y2: options.y2,
+      length: options.length, color: options.color, weight: options.weight,
+      spacing: options.spacing, parentId: options.parent, index: options.index,
+    }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeCreateLinePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Create Line failed: ' + (error?.message || String(error))));
     process.exitCode = 1;
   }
 }
@@ -395,41 +421,8 @@ create
   .option('--spacing <n>', 'Gap from other elements', '100')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (options) => {
-    await checkConnection();
-    const target = childTarget(options);
-    const x1 = options.x1 === undefined ? undefined : finiteNumber(options.x1, '--x1');
-    const y1 = finiteNumber(options.y1, '--y1');
-    const x2 = options.x2 === undefined ? null : finiteNumber(options.x2, '--x2');
-    const y2 = finiteNumber(options.y2, '--y2');
-    const lineLength = finiteNumber(options.length, '--length', { min: 0.01 });
-    const strokeWeight = finiteNumber(options.weight, '--weight', { min: 0 });
-    const spacing = finiteNumber(options.spacing, '--spacing', { min: 0 });
-    const useSmartPos = x1 === undefined;
-    const usesVars = isVarRef(options.color);
-
-    const strokeCode = generateStrokeCode(options.color, 'line', strokeWeight);
-    const renderedLength = x1 !== undefined && x2 !== null ? Math.abs(x2 - x1) || lineLength : lineLength;
-
-    let code = `
-(async () => {
-${usesVars ? varLoadingCode() : ''}
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: useSmartPos, gap: spacing, explicitX: x1 })}
-const line = figma.createLine();
-line.x = smartX;
-line.y = ${y1};
-line.resize(${renderedLength}, 0);
-${x1 !== undefined && x2 !== null ? `line.rotation = Math.atan2(${y2} - ${y1}, ${x2} - ${x1}) * 180 / Math.PI;` : ''}
-${strokeCode.code}
-${attachToChildTarget('line', target)}
-figma.currentPage.selection = [line];
-return 'Line created (' + line.id + ') in ' + (line.parent ? line.parent.id : 'none') + ' with length ${renderedLength}';
-})()
-`;
-    const result = await daemonExec('eval', { code });
-    console.log(result);
-  });
+  .allowExcessArguments(false)
+  .action(async (options) => runCreateLine(options));
 
 create
   .command('component [name]')

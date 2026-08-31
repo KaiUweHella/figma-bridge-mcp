@@ -33,6 +33,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/create-shape-request.js',
   'engine/src/application/create-canvas-node-command.js',
   'engine/src/application/create-canvas-node-request.js',
+  'engine/src/application/create-line-command.js',
+  'engine/src/application/create-line-request.js',
   'engine/src/application/node-text-command.js',
   'engine/src/application/node-text-request.js',
   'engine/src/application/node-duplicate-command.js',
