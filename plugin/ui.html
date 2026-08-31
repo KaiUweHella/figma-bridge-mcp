@@ -311,7 +311,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.30';
+    const PLUGIN_VERSION = '3.3.36';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'asset-stream-v1',
       'dispatch-receipt-v1',
@@ -1368,6 +1368,12 @@
       if (!msg) return;
 
       if (msg.type === 'key') {
+        if (Array.isArray(msg.ports)) {
+          const configured = Array.from(new Set(msg.ports));
+          const valid = configured.length >= 1 && configured.length <= 5
+            && configured.every((port) => Number.isInteger(port) && port >= 3456 && port <= 3460);
+          if (valid) PORTS.splice(0, PORTS.length, ...configured);
+        }
         KEY = (msg.value || '').trim() || null;
         if (KEY) {
           showKeyPanel(false);

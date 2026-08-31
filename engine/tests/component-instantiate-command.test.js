@@ -16,6 +16,7 @@ function fixture({
   remote = false,
   componentType = 'COMPONENT',
   recursiveParent = false,
+  autoLayoutParent = false,
   wrongMain = false,
   removeNoEffect = false,
   throwCreate = false,
@@ -25,6 +26,7 @@ function fixture({
   const second = { id: '3:2', type: 'TEXT' };
   const parent = {
     id: '2:2', type: 'FRAME', name: 'Destination', remote: false,
+    layoutMode: autoLayoutParent ? 'HORIZONTAL' : 'NONE',
     parent: null,
     children: [first, second],
     appendChild(node) {
@@ -51,7 +53,7 @@ function fixture({
       creates += 1;
       const instance = {
         id: `9:${creates}`, type: 'INSTANCE', name: 'Source component',
-        x: 0, y: 0, parent: null,
+        parent: null,
         getMainComponentAsync: async () => wrongMain ? { id: '8:8' } : component,
         remove() {
           if (removeNoEffect) return;
@@ -63,6 +65,18 @@ function fixture({
           registry.delete(this.id);
         },
       };
+      let explicitX = 0;
+      let explicitY = 0;
+      Object.defineProperties(instance, {
+        x: {
+          get: () => instance.parent?.layoutMode === 'HORIZONTAL' ? 64 : explicitX,
+          set: (value) => { explicitX = value; },
+        },
+        y: {
+          get: () => instance.parent?.layoutMode === 'HORIZONTAL' ? 16 : explicitY,
+          set: (value) => { explicitY = value; },
+        },
+      });
       registry.set(instance.id, instance);
       if (throwCreate) throw new Error('injected create failure');
       return instance;
@@ -139,7 +153,7 @@ test('exact Component instantiation preserves remote sources, placement, index a
   assert.equal(result.result.component.remote, true);
   assert.deepEqual(result.result.instance, {
     id: '9:1', name: 'Test instance', type: 'INSTANCE', parentId: '2:2',
-    index: 1, x: -12.5, y: 24, mainComponentId: '2:1',
+    index: 1, x: -12.5, y: 24, positioning: 'explicit', mainComponentId: '2:1',
   });
   assert.deepEqual(live.parent.children.map((node) => node.id), ['3:1', '9:1', '3:2']);
   assert.deepEqual(JSON.parse(result.stdout), result.result);
@@ -156,6 +170,25 @@ test('default parent, position and append behavior remain available', async () =
   assert.equal(result.result.instance.index, 0);
   assert.equal(result.result.instance.name, '');
   assert.deepEqual(live.page.children.map((node) => node.id), ['9:1']);
+});
+
+test('Auto Layout parents own child coordinates while membership remains verifiable', async () => {
+  const live = fixture({ autoLayoutParent: true });
+  const result = await executeComponentInstantiate(request({ x: 0, y: 0, index: null }), {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'created');
+  assert.deepEqual(result.result.instance, {
+    id: '9:1', name: 'Test instance', type: 'INSTANCE', parentId: '2:2',
+    index: 2, x: 64, y: 16, positioning: 'auto-layout', mainComponentId: '2:1',
+  });
+  assert.deepEqual(live.parent.children.map((node) => node.id), ['3:1', '3:2', '9:1']);
+
+  const explicit = fixture({ autoLayoutParent: true });
+  await assert.rejects(() => executeComponentInstantiate(request({ x: 8, y: 0 }), {
+    evaluate: evaluate(explicit.figma),
+  }), (error) => error.mutationOutcome === 'no-mutation');
+  assert.equal(explicit.creates(), 0);
 });
 
 test('invalid source, recursive destination and out-of-range index refuse before creation', async () => {
@@ -254,7 +287,7 @@ test('human formatting escapes control-bearing native names', () => {
     component: { id: '2:1', name: 'Source\u202e', remote: false },
     instance: {
       id: '9:1', name: 'Instance\u0000', type: 'INSTANCE', parentId: '2:2',
-      index: 0, x: 0, y: 0, mainComponentId: '2:1',
+      index: 0, x: 0, y: 0, positioning: 'explicit', mainComponentId: '2:1',
     },
   });
   assert.doesNotMatch(text, /\u202e|\u0000/u);

@@ -36,6 +36,7 @@ import { normalizeRestDocument } from "../engine/src/lib/doc-snapshot.js";
 import { diffSnapshots, formatDiff, formatChangelog } from "../engine/src/lib/doc-diff.js";
 import { DEFAULT_SPEC_FORMAT, parseSpecModel, serializeSpecModel } from "../engine/src/lib/spec-format.js";
 import { formatSemanticRenderGuidance } from "../engine/src/lib/semantic-render-guidance.js";
+import { COMPONENT_AUTHORING_GUIDE } from "../engine/src/lib/component-authoring-guide.js";
 import {
   codeSpecPlanRoute,
   codeSpecPlanningArgvFromRequest,
@@ -263,6 +264,10 @@ import {
   executeComponentPropertyAddPlan,
 } from "../engine/src/application/component-property-add-command.js";
 import {
+  componentPropertyBindPlanRoute,
+  executeComponentPropertyBindPlan,
+} from "../engine/src/application/component-property-bind-command.js";
+import {
   componentPropertyDeletePlanRoute,
   executeComponentPropertyDeletePlan,
 } from "../engine/src/application/component-property-delete-command.js";
@@ -298,6 +303,10 @@ import {
   componentPropertySetPlanRoute,
   executeComponentPropertySetPlan,
 } from "../engine/src/application/component-property-set-command.js";
+import {
+  componentNestedExposePlanRoute,
+  executeComponentNestedExposePlan,
+} from "../engine/src/application/component-nested-expose-command.js";
 import {
   executeStyleFactsPlan,
   styleFactsPlanRoute,
@@ -384,6 +393,7 @@ import {
   PLUGIN_KEY_FILE,
   REST_TOKEN_FILE,
   STATE_DIR,
+  STATE_ROOT,
   WRITE_CONFIRM,
   WORKSPACE_IO,
 } from "./config.js";
@@ -755,7 +765,7 @@ export const TOOLS = [
   {
     name: "figma_reference",
     description:
-      "Offline API reference plus capabilities, fidelity, variable scopes and workflows.",
+      "Offline API reference plus capabilities, Component authoring, fidelity, variable scopes and workflows.",
     annotations: toolAnnotations({
       readOnlyHint: true,
       openWorldHint: false,
@@ -925,12 +935,15 @@ export function createFigmaComponentPrompt(args = {}) {
         text:
           `Create or update the reusable Figma component ${component} from ${source}. ` +
           `Use Figma Bridge and follow figma_reference ` +
-          `{name:"workflow:code-to-figma"}. Inspect code props/defaults, Storybook, ` +
+          `{name:"workflow:code-to-figma"} and figma_reference {name:"components"}. ` +
+          `Inspect code props/defaults, Storybook, ` +
           `the Design Link Registry, existing Figma components, variables and styles ` +
           `before writing. Resolve code/Figma conflicts explicitly. Establish token ` +
-          `foundations first, build and validate one variant at a time, use TEXT, ` +
-          `BOOLEAN and INSTANCE_SWAP properties, never create an icon-name variant ` +
-          `axis, keep writes sequential, then inspect the component contract and ` +
+          `foundations first, build and validate one variant at a time, model TEXT, ` +
+          `BOOLEAN, INSTANCE_SWAP, VARIANT and SLOT deliberately, bind every scalar property to its ` +
+          `sublayer, expose intended nested Instances, use Slots for flexible content, ` +
+          `never create an icon-name variant axis, keep writes sequential, then inspect ` +
+          `the component contract and ` +
           `screenshots before linking the final component to its code identity.`,
       },
     }],
@@ -1603,7 +1616,7 @@ async function runAssetExport(plan, label, { force = false } = {}) {
     { label, compatibilityFallback: false },
     async ({ fileKey, expectedEditor, deadline }) => {
       const remainingMs = () => Math.max(0, deadline - Date.now());
-      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
       const result = await executeAssetExportPlan(plan, {
         workspaceIO: WORKSPACE_IO,
         remainingMs,
@@ -1682,7 +1695,7 @@ async function runSemanticRenderApplication(plan, label, prepared) {
         remainingMs,
       })
       : prepared;
-    await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+    await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
     const evaluate = (code) => evaluateFigma(code, {
       fileKey,
       expectedEditor,
@@ -2179,7 +2192,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           const result = await executeNodeTextPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2201,7 +2214,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           const result = await executeNodeMovePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2219,7 +2232,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeNodeDuplicatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2236,7 +2249,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           const result = await executeNodeDeletePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2254,7 +2267,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeNodeToComponentPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2271,7 +2284,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeNodeBindingsPlan(plan, {
             typedRead: (operation, request, fallbackCode) => typedReadFigma(
               operation, request, fallbackCode, {
@@ -2295,7 +2308,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeNodeCssPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2312,7 +2325,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeNodeTreePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2329,7 +2342,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeNodeDiscoveryPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2346,7 +2359,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executePrototypeInspectionPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2365,7 +2378,7 @@ export async function handleTool(name, rawArgs) {
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
           const remainingMs = () => Math.max(0, deadline - Date.now());
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenExportPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             remainingMs,
@@ -2384,7 +2397,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenPresetPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2401,7 +2414,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenAddPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2418,7 +2431,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenOverlapPlan(plan, {
             typedRead: (operation, request, fallbackCode) => typedReadFigma(
               operation, request, fallbackCode, {
@@ -2442,7 +2455,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenRebindPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2464,7 +2477,7 @@ export async function handleTool(name, rawArgs) {
             workspaceIO: WORKSPACE_IO,
           });
           if (designSourceImportRequiresFigma(prepared)) {
-            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           }
           return executeDesignSourceImportPlan(plan, prepared, {
             workspaceIO: WORKSPACE_IO,
@@ -2484,7 +2497,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenImportPlan(plan, prepared, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2520,7 +2533,7 @@ export async function handleTool(name, rawArgs) {
           }, async ({ fileKey, expectedEditor, deadline }) => {
             if (prepared.kind === "single-collection"
               || prepared.kind === "variable-snapshot-v2") {
-              await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+              await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
             }
             return executeDesignMdImportPlan(plan, prepared, {
               evaluate: (code) => evaluateFigma(code, {
@@ -2539,7 +2552,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableCreatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2556,7 +2569,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableCreateBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2573,7 +2586,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableVisualizationPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2590,7 +2603,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableSetValuePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2607,7 +2620,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableSetValueBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2624,7 +2637,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableCodeSyntaxPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2641,7 +2654,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableUpdatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2658,7 +2671,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableUpdateBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2675,7 +2688,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableDeletePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2692,7 +2705,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionCreatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2709,7 +2722,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionUpdatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2726,7 +2739,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionModePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2743,7 +2756,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionDeletePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2760,7 +2773,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionExtendPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2777,7 +2790,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionCatalogPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2794,7 +2807,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCollectionFactsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2811,7 +2824,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableDiscoveryPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2828,7 +2841,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeTokenPublishStatusPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2845,7 +2858,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableFactsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2862,7 +2875,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableResolutionPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2879,7 +2892,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeFontInspectionPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2896,7 +2909,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeFontVariableBindingPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2913,7 +2926,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentMainPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2930,7 +2943,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentCombinePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2947,7 +2960,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentAddVariantPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2964,7 +2977,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentPropertySetPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -2981,8 +2994,25 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentPropertyAddPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentPropertyBindRoute = componentPropertyBindPlanRoute(plan);
+      if (componentPropertyBindRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeComponentPropertyBindPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
@@ -2998,7 +3028,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentPropertyDeletePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3015,8 +3045,32 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentPropertyListPlan(plan, {
+            typedRead: (operation, request, fallbackCode) => typedReadFigma(
+              operation, request, fallbackCode, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              },
+            ),
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentNestedExposeRoute = componentNestedExposePlanRoute(plan);
+      if (componentNestedExposeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeComponentNestedExposePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
@@ -3032,7 +3086,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentInstantiatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3049,7 +3103,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentCreatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3066,7 +3120,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentSwapPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3083,7 +3137,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentDetachPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3100,7 +3154,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentOverridesPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3117,7 +3171,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeComponentInventoryPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3134,7 +3188,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleCatalogPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3151,7 +3205,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleConsumerPlan(plan, {
             typedRead: (operation, request, fallbackCode) => typedReadFigma(
               operation, request, fallbackCode, {
@@ -3175,7 +3229,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleFactsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3192,7 +3246,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStylePublishStatusPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3213,7 +3267,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleCreatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3229,7 +3283,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleUpdatePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3245,7 +3299,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleDeletePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
@@ -3257,7 +3311,7 @@ export async function handleTool(name, rawArgs) {
       if (textStyleBindingRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false },
           async ({ fileKey, expectedEditor, deadline }) => {
-            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
             return executeTextStyleVariableBindingPlan(plan, { evaluate: (code) => evaluateFigma(code, {
               fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }) });
@@ -3269,7 +3323,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeStyleApplyPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3286,7 +3340,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeLayoutGridFactsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3303,7 +3357,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executePageStructurePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3320,7 +3374,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executePageNavigationPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3337,7 +3391,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCanvasAwarenessPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3354,7 +3408,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeInspectPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3371,7 +3425,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCodeSpecPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3393,7 +3447,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeScreenshotPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
@@ -3411,7 +3465,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeHistoryPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
@@ -3588,7 +3642,7 @@ export async function handleTool(name, rawArgs) {
         });
         const res = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
           async ({ fileKey, expectedEditor, deadline }) => {
-            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
             return executeHistoryPlan(plan, {
               workspaceIO: WORKSPACE_IO,
               evaluate: (code) => evaluateFigma(code, {
@@ -3750,7 +3804,7 @@ export async function handleTool(name, rawArgs) {
         fileKey: input.fileKey,
         compatibilityFallback: false,
       }, async ({ plan, fileKey, expectedEditor, deadline }) => {
-        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
         return executeInspectPlan(plan, {
           evaluate: (code) => evaluateFigma(code, {
             fileKey,
@@ -3774,6 +3828,9 @@ export async function handleTool(name, rawArgs) {
       }
       if (typeof input.name === "string" && /^variable-scopes$/i.test(input.name.trim())) {
         return textResult(VARIABLE_SCOPE_GUIDE);
+      }
+      if (typeof input.name === "string" && /^(components|component-authoring)$/i.test(input.name.trim())) {
+        return textResult(COMPONENT_AUTHORING_GUIDE);
       }
       if (typeof input.name === "string" && /^workflow(?::.*)?$/i.test(input.name.trim())) {
         const guide = workflowGuideFor(input.name);
@@ -3816,7 +3873,7 @@ export async function handleTool(name, rawArgs) {
         fileKey: input.fileKey,
         compatibilityFallback: false,
       }, async ({ plan, fileKey, expectedEditor, deadline }) => {
-        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
         return executeScreenshotPlan(plan, {
           workspaceIO: WORKSPACE_IO,
           evaluate: (code) => evaluateFigma(code, {
@@ -3872,7 +3929,7 @@ export async function handleTool(name, rawArgs) {
         codeSpecPlanningArgvFromRequest(requestFor(useDedup)),
         { fileKey: input.fileKey, compatibilityFallback: false },
         async ({ plan, fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCodeSpecPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
@@ -3938,14 +3995,14 @@ async function main() {
   // This exact directory is Bridge-owned private Shared State. On Windows the
   // platform Adapter repairs and verifies its DACL; on POSIX it retains the
   // existing 0700/0600 contract. No workspace or parent directory is changed.
-  if (privateStateOwns(STATE_DIR, [
+  if (privateStateOwns(STATE_ROOT, [
     AUDIT_LOG_PATH,
     DAEMON_PID_FILE,
     DAEMON_TOKEN_FILE,
     PLUGIN_KEY_FILE,
     REST_TOKEN_FILE,
   ])) {
-    hardenPrivateTree(STATE_DIR, { kind: "bridge-state", create: true });
+    hardenPrivateTree(STATE_ROOT, { kind: "bridge-state", create: true });
   }
   const server = new Server(
     // Single source of truth: package.json (SERVER_VERSION also carries the

@@ -547,12 +547,46 @@ export function structuredRenderFailureResult(error, executor = 'structured-v1')
   };
 }
 
-async function createStructuredPreflightApi(figmaApi) {
-  const [collections, variables, textStyles] = await Promise.all([
-    figmaApi.variables?.getLocalVariableCollectionsAsync?.() || [],
-    figmaApi.variables?.getLocalVariablesAsync?.() || [],
-    figmaApi.getLocalTextStylesAsync?.() || [],
-  ]);
+const STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS = 15_000;
+
+/**
+ * @param {{ preflightTimeoutMs?: number }} [runtime]
+ */
+function structuredPreflightTimeout(runtime = {}) {
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)
+    || Object.keys(runtime).some((key) => key !== 'preflightTimeoutMs')) {
+    throw new Error('Structured render runtime options are invalid');
+  }
+  const timeout = runtime.preflightTimeoutMs === undefined
+    ? STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS
+    : Number(runtime.preflightTimeoutMs);
+  if (!Number.isFinite(timeout) || timeout < 1 || timeout > STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS) {
+    throw new Error(`Structured render preflight timeout must be 1-${STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS}ms`);
+  }
+  return Math.floor(timeout);
+}
+
+async function createStructuredPreflightApi(figmaApi, runtime = {}) {
+  const timeoutMs = structuredPreflightTimeout(runtime);
+  let timeoutHandle;
+  let resources;
+  try {
+    resources = await Promise.race([
+      Promise.all([
+        figmaApi.variables?.getLocalVariableCollectionsAsync?.() || [],
+        figmaApi.variables?.getLocalVariablesAsync?.() || [],
+        figmaApi.getLocalTextStylesAsync?.() || [],
+      ]),
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(
+          `Structured render preflight catalog read timed out after ${timeoutMs}ms`,
+        )), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle != null) clearTimeout(timeoutHandle);
+  }
+  const [collections, variables, textStyles] = resources;
   let virtualId = 0;
   const nextId = (kind) => `preflight:${kind}:${++virtualId}`;
   const virtualCollections = [...collections];
@@ -2403,7 +2437,7 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
 async function preflightStructuredPlans(figmaApi, plans, {
   batch = false,
   materializeResources = false,
-} = {}) {
+} = {}, runtime = {}) {
   const unsupported = [];
   for (let index = 0; index < plans.length; index++) {
     const support = inspectStructuredRenderPlan(plans[index]);
@@ -2428,7 +2462,7 @@ async function preflightStructuredPlans(figmaApi, plans, {
   // catches cross-plan variable/style naming conflicts without creating a
   // Figma resource. Fonts and component handles are resolved against the real
   // API because those reads do not mutate the document.
-  const preflightApi = await createStructuredPreflightApi(figmaApi);
+  const preflightApi = await createStructuredPreflightApi(figmaApi, runtime);
   const componentContexts = [];
   for (const plan of plans) {
     componentContexts.push(await prepareStructuredComponents(figmaApi, plan));
@@ -2466,7 +2500,7 @@ async function materializeStructuredResources(figmaApi, plans, componentContexts
   return prepared;
 }
 
-export async function executeStructuredRenderPlan(figmaApi, plan, options = {}) {
+export async function executeStructuredRenderPlan(figmaApi, plan, options = {}, runtime = {}) {
   const journal = createStructuredMutationJournal(figmaApi);
   if (!options || typeof options !== 'object' || Array.isArray(options)
     || Object.keys(options).some((key) => ![
@@ -2524,7 +2558,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan, options = {}) 
   try {
     componentContexts = await preflightStructuredPlans(figmaApi, [positionedPlan], {
       materializeResources: placementOptions.materializeResources === true,
-    });
+    }, runtime);
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured render preflight failed');
   }
@@ -2541,7 +2575,7 @@ export async function executeStructuredRenderPlan(figmaApi, plan, options = {}) 
   }
 }
 
-export async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
+export async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}, runtime = {}) {
   const journal = createStructuredMutationJournal(figmaApi);
   if (!Array.isArray(plans) || !plans.length) {
     throw structuredExecutionError(
@@ -2598,7 +2632,7 @@ export async function executeStructuredRenderPlanBatch(figmaApi, plans, options 
     componentContexts = await preflightStructuredPlans(figmaApi, positionedPlans, {
       batch: true,
       materializeResources: batchOptions.materializeResources === true,
-    });
+    }, runtime);
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured batch preflight failed');
   }

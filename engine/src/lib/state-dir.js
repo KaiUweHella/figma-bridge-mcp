@@ -25,12 +25,32 @@ const HOME_DIR = canonicalHomeDir();
 const NEW_DIR = join(HOME_DIR, '.figma-bridge-mcp');
 const OLD_DIR = join(HOME_DIR, '.figma-safe-mcp');
 
+export const LOCAL_DEVELOPMENT_PROFILE = 'local-development';
+
+export function isLocalDevelopmentProfile(env = process.env) {
+  return env.FIGMA_BRIDGE_PROFILE === LOCAL_DEVELOPMENT_PROFILE;
+}
+
+function selectedStateDir(env = process.env) {
+  const profile = String(env.FIGMA_BRIDGE_PROFILE || '').trim();
+  if (!profile) return NEW_DIR;
+  if (profile !== LOCAL_DEVELOPMENT_PROFILE) {
+    throw new Error(
+      `Unsupported FIGMA_BRIDGE_PROFILE "${profile}". Expected "${LOCAL_DEVELOPMENT_PROFILE}".`,
+    );
+  }
+  return join(NEW_DIR, 'profiles', LOCAL_DEVELOPMENT_PROFILE);
+}
+
 /**
  * Migrate ~/.figma-safe-mcp → ~/.figma-bridge-mcp exactly once: only when the
  * old dir exists and the new one does not. If both exist the new dir wins and
  * the old one is left untouched (never destroy user state).
  */
 function migrateOnce() {
+  // The isolated contributor profile must never claim or move the installed
+  // Bridge's legacy pairing. It owns a new key and plugin identity.
+  if (isLocalDevelopmentProfile()) return;
   try {
     if (fs.existsSync(NEW_DIR) || !fs.existsSync(OLD_DIR)) return;
     try {
@@ -47,4 +67,7 @@ function migrateOnce() {
 
 migrateOnce();
 
-export const STATE_DIR = NEW_DIR;
+// STATE_ROOT is the one exact private tree whose permissions are enforced.
+// STATE_DIR is the active profile's storage namespace inside that tree.
+export const STATE_ROOT = NEW_DIR;
+export const STATE_DIR = selectedStateDir();

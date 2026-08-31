@@ -172,11 +172,22 @@ npm install
   "mcpServers": {
     "figma-bridge": {
       "command": "node",
-      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
+      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"],
+      "env": { "FIGMA_BRIDGE_PROFILE": "local-development" }
     }
   }
 }
 ```
+
+Use the `local-development` profile when a released Bridge is running at the
+same time (for example from Claude Code). It pins the source checkout to
+`localhost:3460` and isolates its daemon, tokens, pairing and audit data below
+`~/.figma-bridge-mcp/profiles/local-development/`. Import the checkout-owned
+`plugin/manifest.json` directly and open **Figma Bridge Local
+Development**. The main Plugin passes that manifest identity's exact port to
+the shared UI, while Figma's manifest policy also permits only `:3460`.
+Omitting `FIGMA_BRIDGE_PROFILE` retains the normal released profile and its
+3456–3460 fallback behavior.
 
 </details>
 
@@ -542,7 +553,9 @@ The same discriminator protects union lookups in Figma Slides and
 `component add-variant`: `node:`, `name:` and (for Slides) `label:` select one
 identity surface, while bare values preserve the existing query workflow.
 URL-shaped names and labels therefore stay usable without silently retargeting
-the Command.
+the Command. `component add-variant --from` also restores and freshly verifies
+TEXT, BOOLEAN, INSTANCE_SWAP and SLOT sublayer references plus nested Instance
+exposure that Figma's native clone can drop.
 
 Top-level `find` provides bounded Node Discovery on the fully loaded current
 page across CLI and MCP. Case-insensitive partial-name matching, the optional
@@ -1561,7 +1574,11 @@ is returned as `{ "$figmaScalar": "Infinity" }`, never the lossy JSON value
 `null`; text output renders that value as `Auto`.
 Slots expose GA `SlotSettings`, preferred values, reset, and limit violations;
 JSX `<Slot>` now uses `ComponentNode.createSlot()` and validates configured
-limits after rendering. Draw commands cover text paths, repeat transform
+limits after rendering. An empty Slot on a main Component can have no reported
+violation even when `minChildren` is nonzero; instantiate the Component and run
+`slot validate` on that exercised Instance to observe `BELOW_MIN`. Component
+Property Facts normalize Figma's missing SLOT `defaultValue` to `null`.
+Draw commands cover text paths, repeat transform
 groups, stretch/scatter/dynamic strokes, variable-width profiles, and async
 pattern fill/stroke setters. Run the corresponding `inspect`/`validate` read
 before writes when modifying an unfamiliar document.
@@ -1772,7 +1789,10 @@ rather than a generic API failure.
   `networkAccess.allowedDomains` to WebSocket and discovery HTTP traffic on
   `localhost:3456–3460` only.
 - **Isolated state** — token, pid, key, and Audit Trail live under
-  `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install.
+  `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install. A
+  source checkout can additionally select `FIGMA_BRIDGE_PROFILE=local-development`
+  for a distinct namespace and a daemon/plugin pinned to `:3460` while the
+  released profile remains active.
 - **Private Audit Trail** — commands attempt a closed, versioned start/outcome
   lifecycle in `~/.figma-bridge-mcp/audit.log`. Capability, effects, redacted
   data summaries, outcome, and duration remain useful to `figma_history`; raw

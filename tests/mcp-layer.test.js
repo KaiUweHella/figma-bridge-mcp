@@ -1545,6 +1545,19 @@ test('figma_run routes Component Property Add through the rollback-owned Applica
     'Component Property Add must not re-enter Commander');
 });
 
+test('figma_run routes Component Property Bind through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentPropertyBindRoute = componentPropertyBindPlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentPropertyBindPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Property Bind must not re-enter Commander');
+});
+
 test('figma_run routes Component Property Delete through the irreversible Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const componentPropertyDeleteRoute = componentPropertyDeletePlanRoute(plan)');
@@ -1569,6 +1582,19 @@ test('figma_run routes Component Property List through the bounded safe-read App
   assert.match(slice, /executeComponentPropertyListPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Component Property List must not re-enter Commander');
+});
+
+test('figma_run routes nested Instance exposure through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentNestedExposeRoute = componentNestedExposePlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentNestedExposePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Nested Expose must not re-enter Commander');
 });
 
 test('figma_run routes Component Instantiate through the rollback-owned Application', () => {
@@ -2701,6 +2727,19 @@ test('variable scope reference is available without an engine round-trip', async
   assert.match(text, /var","update/);
 });
 
+test('Component authoring reference covers all native properties and executable wiring', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_reference', { name: 'components' });
+  const text = result.content?.[0]?.text || '';
+  for (const type of ['TEXT', 'BOOLEAN', 'INSTANCE_SWAP', 'VARIANT', 'SLOT']) {
+    assert.match(text, new RegExp(`\\b${type}\\b`));
+  }
+  assert.match(text, /component","prop","bind/);
+  assert.match(text, /component","nested","expose/);
+  assert.match(text, /slot","create/);
+  assert.match(text, /unbound scalar definition is a defect/);
+});
+
 test('capability index is generated on demand without an engine round-trip', async () => {
   const { handleTool } = await import('../src/server.js');
   const result = await handleTool('figma_reference', { name: 'capabilities' });
@@ -2758,6 +2797,17 @@ test('MCP responsiveness probing uses the closed health read, never eval or the 
   assert.match(probe, /daemonClient\(\)\.health\(\{/);
   assert.match(probe, /probe:\s*true/);
   assert.doesNotMatch(probe, /\.execute\(|\.evaluate\(|\beval\b/);
+});
+
+test('every MCP Command readiness probe waits for its planned file and editor', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const calls = [...source.matchAll(/ensurePluginReadiness\(\{([^}]+)\}\)/g)];
+  assert.ok(calls.length >= 70, 'expected the complete in-process MCP readiness inventory');
+  for (const [, options] of calls) {
+    assert.match(options, /\bdeadline\b/);
+    assert.match(options, /\bfileKey\b/);
+    assert.match(options, /\bexpectedEditor\b/);
+  }
 });
 
 test('figma_spec batches bounded reads behind one manual approval', async () => {

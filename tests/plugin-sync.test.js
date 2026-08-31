@@ -21,7 +21,8 @@ import { randomUUID } from 'node:crypto';
 import { createPreparedDispatchReceipt } from '../engine/src/lib/dispatch-receipt.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
+const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.release.json'), 'utf8'));
+const localManifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
 const UI = readFileSync(join(ROOT, 'plugin', 'ui.html'), 'utf8');
 const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 
@@ -82,6 +83,24 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.main, 'code.js');
   assert.equal(manifest.ui, 'ui.html');
   assert.equal(manifest.id, 'figma-bridge-mcp');
+});
+
+test('the repository-local manifest pins the source adapter to :3460', () => {
+  assert.equal(localManifest.name, 'Figma Bridge Local Development');
+  assert.equal(localManifest.id, 'figma-bridge-mcp-local-development');
+  assert.equal(localManifest.main, 'code.js');
+  assert.equal(localManifest.ui, 'ui.html');
+  assert.deepEqual(localManifest.networkAccess.allowedDomains, [
+    'ws://localhost:3460',
+    'http://localhost:3460',
+  ]);
+  assert.deepEqual(
+    localManifest.networkAccess.devAllowedDomains,
+    localManifest.networkAccess.allowedDomains,
+  );
+  assert.match(PLUGIN_CODE, /figma\.pluginId === LOCAL_DEVELOPMENT_PLUGIN_ID/);
+  assert.match(PLUGIN_CODE, /type: 'key', value, ports: BRIDGE_PORTS/);
+  assert.match(UI, /PORTS\.splice\(0, PORTS\.length, \.\.\.configured\)/);
 });
 
 test('Figma document API timeout is not reported as a Bridge disconnect', () => {

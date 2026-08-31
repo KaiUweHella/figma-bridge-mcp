@@ -5,8 +5,37 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Added
+
+- Component authoring now includes rollback-verified sublayer bindings for
+  TEXT, BOOLEAN and INSTANCE_SWAP properties, explicit exposure of primary
+  nested Instance properties and preferred values for INSTANCE_SWAP controls.
+  Component Property reads cover all five native types, wiring state, Slot
+  settings and limit violations, and nested exposure. A new offline Component
+  authoring guide gives agents executable recipes and treats definition-only
+  scalar properties as incomplete.
+- Source checkouts can use `FIGMA_BRIDGE_PROFILE=local-development` to run a
+  separately identified, checkout-owned `plugin/manifest.json` and fully
+  isolated local state pinned to `localhost:3460`, without competing with a
+  released Bridge used by another MCP client.
+
 ### Fixed
 
+- `component add-variant --from` now restores and freshly verifies TEXT,
+  BOOLEAN, INSTANCE_SWAP and SLOT sublayer references plus nested Instance
+  exposure after Figma's native clone drops those fields. Component Property
+  Facts also accept Figma's real SLOT definition shape when `defaultValue` is
+  absent and normalize it to `null` instead of rejecting the entire read.
+- Component Property Facts now use the typed read lane instead of the
+  serialized eval/write lane, so an unknown prior write cannot quarantine the
+  read needed to reconcile it. Semantic Render also bounds its foundation
+  catalog preflight before any canvas mutation, preventing a stalled Variable
+  or Text Style read from wedging later Bridge operations indefinitely.
+- Component instances placed into Auto Layout parents now verify the native
+  parent-owned position instead of rolling back a valid insertion for not
+  retaining explicit `x`/`y`. MCP readiness probes are also bound to the exact
+  planned Figma file and editor, and a bounded connect retry replaces a stale
+  released Daemon that wins an upgrade race.
 - Claude Code plugin installs and updates now fetch the pinned public release
   through an explicit HTTPS Git URL instead of allowing GitHub shorthand to
   select SSH and require machine-specific host-key setup. Startup guidance now

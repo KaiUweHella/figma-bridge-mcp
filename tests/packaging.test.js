@@ -235,15 +235,19 @@ test("plugin dir ships every adapter connect installs", () => {
     assert.equal(existsSync(join(ROOT, "plugin", removed)), false, `plugin/${removed} stays removed`);
     assert.ok(setupSource.includes(`'${removed}'`), `figma_connect retires cached plugin/${removed}`);
   }
+  assert.ok(
+    existsSync(join(ROOT, "plugin", "manifest.release.json")),
+    "plugin/manifest.release.json exists for stable released installs",
+  );
 });
 
 // The migration lives at module load of engine/src/lib/state-dir.js and keys
 // off homedir() — run it in a child process with a scratch home on Unix and Windows.
-function runMigration(home) {
+function runMigration(home, extraEnv = {}) {
   return execFileSync(
     process.execPath,
     ["-e", "import('./engine/src/lib/state-dir.js').then(m => console.log(m.STATE_DIR))"],
-    { cwd: ROOT, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" },
+    { cwd: ROOT, env: { ...process.env, HOME: home, USERPROFILE: home, ...extraEnv }, encoding: "utf8" },
   ).trim();
 }
 
@@ -300,5 +304,20 @@ test("fresh install: no old dir, migration is a no-op", () => {
   runMigration(home);
   assert.equal(existsSync(join(home, ".figma-safe-mcp")), false);
   // STATE_DIR itself is created lazily by the writers, not the migration.
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("local-development profile gets an isolated state directory and skips migration", () => {
+  const home = mkdtempSync(join(tmpdir(), "figma-bridge-profile-home-"));
+  mkdirSync(join(home, ".figma-safe-mcp"), { recursive: true });
+  writeFileSync(join(home, ".figma-safe-mcp", "plugin-key"), "installed-key");
+
+  const state = runMigration(home, { FIGMA_BRIDGE_PROFILE: "local-development" });
+  assert.equal(
+    state,
+    join(realpathSync.native(home), ".figma-bridge-mcp", "profiles", "local-development"),
+  );
+  assert.equal(existsSync(join(home, ".figma-safe-mcp")), true, "development startup must not move installed state");
+  assert.equal(existsSync(join(home, ".figma-bridge-mcp", "plugin-key")), false);
   rmSync(home, { recursive: true, force: true });
 });

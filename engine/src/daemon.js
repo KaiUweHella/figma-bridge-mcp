@@ -40,7 +40,7 @@ import {
   sign as signHandshake,
   verify as verifyHandshake,
 } from './lib/plugin-handshake.js';
-import { STATE_DIR } from './lib/state-dir.js';
+import { STATE_DIR, STATE_ROOT } from './lib/state-dir.js';
 import { getPortPids } from './platform.js';
 import {
   MAX_EXEC_BODY_BYTES,
@@ -89,8 +89,8 @@ const DEFAULT_PRIVATE_RUNTIME_PATHS = [
   process.env.REST_TOKEN_FILE || join(STATE_DIR, 'rest-token'),
   ASSET_TRANSFER_ROOT,
 ];
-if (privateStateOwns(STATE_DIR, DEFAULT_PRIVATE_RUNTIME_PATHS)) {
-  hardenPrivateTree(STATE_DIR, { kind: 'bridge-state', create: true });
+if (privateStateOwns(STATE_ROOT, DEFAULT_PRIVATE_RUNTIME_PATHS)) {
+  hardenPrivateTree(STATE_ROOT, { kind: 'bridge-state', create: true });
 }
 const assetTransferStore = createAssetTransferStore({ root: ASSET_TRANSFER_ROOT });
 

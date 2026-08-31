@@ -87,6 +87,27 @@ describe('structured Semantic Render Plan executor', () => {
     assert.equal(text.getPluginData('figmaBridge.semanticPath'), plan.root.children[0].path);
   });
 
+  it('bounds preflight catalog reads before any canvas mutation', async () => {
+    const plan = new FigmaClient().planJSX(
+      '<Frame name="Bounded fixture" p="16"><Text>Component test</Text></Frame>',
+    );
+    const figma = fakeFigma();
+    const never = () => new Promise(() => {});
+    figma.variables.getLocalVariableCollectionsAsync = never;
+    figma.variables.getLocalVariablesAsync = never;
+    figma.getLocalTextStylesAsync = never;
+
+    const outcome = await Promise.race([
+      executeStructuredRenderPlan(figma, plan, {}, { preflightTimeoutMs: 10 })
+        .then(() => 'completed', (error) => error),
+      new Promise((resolve) => setTimeout(() => resolve('hung'), 60)),
+    ]);
+    assert.notEqual(outcome, 'hung');
+    assert.match(outcome.message, /preflight catalog read timed out/);
+    assert.equal(outcome.mutationOutcome, 'no-mutation');
+    assert.equal(figma.created.length, 0);
+  });
+
   it('executes semantic, string-numeric, and numeric font weights through the same native path', async () => {
     const plan = new FigmaClient().planJSX(
       '<Frame name="Weight aliases" flex="col">'

@@ -257,7 +257,8 @@ const COMMAND_GRAMMAR = Object.freeze({
   node: actionGroup('tree bindings css to-component group ungroup boolean flatten duplicate reparent move resize rename set-text set-fill set-image delete bind set'),
   component: group({
     ...actionGroup('create instantiate list main swap detach overrides combine add-variant').children,
-    prop: actionGroup('add list set delete'),
+    prop: actionGroup('add list set bind delete'),
+    nested: actionGroup('expose'),
   }),
   tokens: actionGroup('spacing radii import sync overlap import-design-md add rebind'),
   var: group({

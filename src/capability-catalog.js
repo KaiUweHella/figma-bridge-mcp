@@ -162,6 +162,12 @@ import {
   parseComponentPropertyAddRequest,
 } from '../engine/src/application/component-property-add-request.js';
 import {
+  acceptsComponentPropertyBindArgv,
+  componentPropertyBindArgvFromRequest,
+  componentPropertyBindFigmaUrlFileKeyFromArgv,
+  parseComponentPropertyBindRequest,
+} from '../engine/src/application/component-property-bind-request.js';
+import {
   acceptsComponentPropertyDeleteArgv,
   componentPropertyDeleteArgvFromRequest,
   componentPropertyDeleteFigmaUrlFileKeyFromArgv,
@@ -173,6 +179,12 @@ import {
   componentPropertyListFigmaUrlFileKeyFromArgv,
   parseComponentPropertyListRequest,
 } from '../engine/src/application/component-property-list-request.js';
+import {
+  acceptsComponentNestedExposeArgv,
+  componentNestedExposeArgvFromRequest,
+  componentNestedExposeFigmaUrlFileKeyFromArgv,
+  parseComponentNestedExposeRequest,
+} from '../engine/src/application/component-nested-expose-request.js';
 import {
   acceptsComponentInstantiateArgv,
   componentInstantiateArgvFromRequest,
@@ -546,7 +558,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'component.swap', 'component.detach', 'component.overrides',
   'component.list',
   'component.instantiate',
-  'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
+  'component.prop.add', 'component.prop.bind', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
+  'component.nested.expose',
   'style.list',
   'style.create',
   'style.update',
@@ -814,11 +827,17 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'prop' && args[2] === 'add') {
     pathPolicy = 'component-property-add-input';
   }
+  if (name === 'component' && sub === 'prop' && args[2] === 'bind') {
+    pathPolicy = 'component-property-bind-input';
+  }
   if (name === 'component' && sub === 'prop' && args[2] === 'delete') {
     pathPolicy = 'component-property-delete-input';
   }
   if (name === 'component' && sub === 'prop' && args[2] === 'list') {
     pathPolicy = 'component-property-list-input';
+  }
+  if (name === 'component' && sub === 'nested' && args[2] === 'expose') {
+    pathPolicy = 'component-nested-expose-input';
   }
   if (name === 'style' && sub === 'show') {
     retry = 'safe-read';
@@ -963,12 +982,20 @@ function commandCapability(args) {
     && !action.help && !acceptsComponentPropertyAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'component' && args[1] === 'prop' && args[2] === 'bind'
+    && !action.help && !acceptsComponentPropertyBindArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'delete'
     && !action.help && !acceptsComponentPropertyDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'list'
     && !action.help && !acceptsComponentPropertyListArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'nested' && args[2] === 'expose'
+    && !action.help && !acceptsComponentNestedExposeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
@@ -1850,6 +1877,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         parseComponentPropertyAddRequest(args)));
       break;
     }
+    case 'component-property-bind-input': {
+      const closedFileKey = componentPropertyBindFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentPropertyBindArgvFromRequest(
+        parseComponentPropertyBindRequest(args)));
+      break;
+    }
     case 'component-property-delete-input': {
       const closedFileKey = componentPropertyDeleteFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -1862,6 +1896,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentPropertyListArgvFromRequest(
         parseComponentPropertyListRequest(args)));
+      break;
+    }
+    case 'component-nested-expose-input': {
+      const closedFileKey = componentNestedExposeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentNestedExposeArgvFromRequest(
+        parseComponentNestedExposeRequest(args)));
       break;
     }
     case 'style-facts-input': {
@@ -2389,7 +2430,9 @@ export function planFigmaCommand(rawArgs, {
       mode: capability.execution === 'background' ? 'tracked-job' : 'foreground',
       timeout: capability.timeoutClass,
       retry,
-      pluginDispatch: ['style.consumers', 'node.bindings', 'tokens.overlap'].includes(capability.actionId)
+      pluginDispatch: [
+        'style.consumers', 'node.bindings', 'tokens.overlap', 'component.prop.list',
+      ].includes(capability.actionId)
         ? 'typed-read'
         : effects.figma === 'none' ? 'none' : 'serialized',
       idempotence: jobKey ? 'deduped' : retry === 'safe-read' ? 'read-only' : 'unknown',

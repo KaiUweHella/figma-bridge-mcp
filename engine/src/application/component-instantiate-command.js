@@ -65,7 +65,7 @@ export function componentInstantiateCode(request) {
     const sameIds = (left, right) => left.length === right.length
       && left.every((id, index) => id === right[index]);
     const refusal = (error) => bounded({
-      schemaVersion: 1,
+      schemaVersion: 2,
       status: 'refused',
       outcome: 'no-mutation',
       attempted: 0,
@@ -76,6 +76,7 @@ export function componentInstantiateCode(request) {
     let parent;
     let beforeIds;
     let expectedIndex;
+    let parentUsesAutoLayout;
     try {
       component = await figma.getNodeByIdAsync(componentId);
       if (!component || component.type !== 'COMPONENT'
@@ -90,6 +91,11 @@ export function componentInstantiateCode(request) {
         || typeof parent.insertChild !== 'function'
         || parent.remote === true) {
         throw new Error('Target parent cannot contain a new Instance.');
+      }
+      parentUsesAutoLayout = typeof parent.layoutMode === 'string'
+        && parent.layoutMode !== 'NONE';
+      if (parentUsesAutoLayout && (requestedX !== 0 || requestedY !== 0)) {
+        throw new Error('Target parent uses Auto Layout; explicit x/y cannot be applied.');
       }
       const seen = new Set();
       let ancestor = parent;
@@ -122,8 +128,10 @@ export function componentInstantiateCode(request) {
       }
       if (requestedIndex === null) parent.appendChild(instance);
       else parent.insertChild(requestedIndex, instance);
-      instance.x = requestedX;
-      instance.y = requestedY;
+      if (!parentUsesAutoLayout) {
+        instance.x = requestedX;
+        instance.y = requestedY;
+      }
       if (requestedName !== null) instance.name = requestedName;
 
       const verified = await figma.getNodeByIdAsync(instance.id);
@@ -134,18 +142,23 @@ export function componentInstantiateCode(request) {
       const main = verified && typeof verified.getMainComponentAsync === 'function'
         ? await verified.getMainComponentAsync()
         : null;
+      const freshParentUsesAutoLayout = typeof freshParent.layoutMode === 'string'
+        && freshParent.layoutMode !== 'NONE';
       if (!verified || verified.type !== 'INSTANCE'
         || !verified.parent || verified.parent.id !== parent.id
         || !sameIds(afterIds, expectedIds)
         || afterIds[expectedIndex] !== verified.id
-        || verified.x !== requestedX || verified.y !== requestedY
+        || freshParentUsesAutoLayout !== parentUsesAutoLayout
+        || !Number.isFinite(verified.x) || !Number.isFinite(verified.y)
+        || (!parentUsesAutoLayout
+          && (verified.x !== requestedX || verified.y !== requestedY))
         || (requestedName !== null && verified.name !== requestedName)
         || !main || main.id !== component.id) {
         throw new Error('Component Instantiate could not freshly verify the complete requested state.');
       }
       delete globalThis.__invCache;
       return bounded({
-        schemaVersion: 1,
+        schemaVersion: 2,
         status: 'created',
         component: {
           id: component.id,
@@ -160,6 +173,7 @@ export function componentInstantiateCode(request) {
           index: expectedIndex,
           x: verified.x,
           y: verified.y,
+          positioning: parentUsesAutoLayout ? 'auto-layout' : 'explicit',
           mainComponentId: main.id,
         },
         attempted: 1,
@@ -169,7 +183,7 @@ export function componentInstantiateCode(request) {
       const failure = clean(error && error.message ? error.message : String(error), 1024);
       if (!instance || typeof instance.id !== 'string') {
         return bounded({
-          schemaVersion: 1,
+          schemaVersion: 2,
           status: 'failed',
           outcome: 'verification-unavailable',
           attempted: 1,
@@ -190,7 +204,7 @@ export function componentInstantiateCode(request) {
         const restored = !instancePresent && !parentChanged;
         if (restored) delete globalThis.__invCache;
         return bounded({
-          schemaVersion: 1,
+          schemaVersion: 2,
           status: 'failed',
           outcome: restored ? 'rolled-back' : 'partial-residue',
           attempted: 1,
@@ -204,7 +218,7 @@ export function componentInstantiateCode(request) {
         });
       } catch {
         return bounded({
-          schemaVersion: 1,
+          schemaVersion: 2,
           status: 'failed',
           outcome: 'verification-unavailable',
           attempted: 1,
@@ -238,14 +252,14 @@ function validId(value) {
 
 function validSuccess(value, input) {
   return exactKeys(value, ['schemaVersion', 'status', 'component', 'instance', 'attempted', 'residue'])
-    && value.schemaVersion === 1 && value.status === 'created'
+    && value.schemaVersion === 2 && value.status === 'created'
     && exactKeys(value.component, ['id', 'name', 'remote'])
     && value.component.id === input.componentId
     && validId(value.component.id)
     && validString(value.component.name, MAX_COMPONENT_INSTANTIATE_NAME_CODE_UNITS)
     && typeof value.component.remote === 'boolean'
     && exactKeys(value.instance, [
-      'id', 'name', 'type', 'parentId', 'index', 'x', 'y', 'mainComponentId',
+      'id', 'name', 'type', 'parentId', 'index', 'x', 'y', 'positioning', 'mainComponentId',
     ])
     && validId(value.instance.id)
     && validString(value.instance.name, MAX_COMPONENT_INSTANTIATE_NAME_CODE_UNITS)
@@ -254,7 +268,11 @@ function validSuccess(value, input) {
     && (input.parentId === null || value.instance.parentId === input.parentId)
     && Number.isSafeInteger(value.instance.index) && value.instance.index >= 0
     && (input.index === null || value.instance.index === input.index)
-    && value.instance.x === input.x && value.instance.y === input.y
+    && Number.isFinite(value.instance.x) && Number.isFinite(value.instance.y)
+    && ['explicit', 'auto-layout'].includes(value.instance.positioning)
+    && (value.instance.positioning === 'auto-layout'
+      ? input.x === 0 && input.y === 0
+      : value.instance.x === input.x && value.instance.y === input.y)
     && value.instance.mainComponentId === input.componentId
     && value.attempted === 1
     && Array.isArray(value.residue) && value.residue.length === 0
@@ -265,7 +283,7 @@ function validFailure(value) {
   return exactKeys(value, [
     'schemaVersion', 'status', 'outcome', 'attempted', 'restored', 'residue', 'failure',
   ])
-    && value.schemaVersion === 1 && value.status === 'failed'
+    && value.schemaVersion === 2 && value.status === 'failed'
     && ['rolled-back', 'partial-residue', 'verification-unavailable'].includes(value.outcome)
     && value.attempted === 1 && [0, 1].includes(value.restored)
     && exactKeys(value.residue, ['instanceId', 'instancePresent', 'parentChanged'])
@@ -284,7 +302,7 @@ function validFailure(value) {
 
 function validRefusal(value) {
   return exactKeys(value, ['schemaVersion', 'status', 'outcome', 'attempted', 'failure'])
-    && value.schemaVersion === 1 && value.status === 'refused'
+    && value.schemaVersion === 2 && value.status === 'refused'
     && value.outcome === 'no-mutation' && value.attempted === 0
     && validString(value.failure, 1_024, false);
 }
@@ -300,7 +318,8 @@ export function formatComponentInstantiateResult(result, { json = false } = {}) 
   if (json) return safeJson(result, true);
   return `Created instance ${safeJson(result.instance.name)} (${result.instance.id}) from `
     + `${safeJson(result.component.name)} (${result.component.id}) in ${result.instance.parentId} `
-    + `at index ${result.instance.index}, x=${result.instance.x}, y=${result.instance.y}`;
+    + `at index ${result.instance.index}, x=${result.instance.x}, y=${result.instance.y}`
+    + (result.instance.positioning === 'auto-layout' ? ' (Auto Layout owned)' : '');
 }
 
 function mutationError(message, outcome, report) {

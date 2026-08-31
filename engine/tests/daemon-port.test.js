@@ -26,6 +26,15 @@ test('default port is 3456 and the range matches the plugin manifest', () => {
   assert.deepEqual(PORT_RANGE, [3456, 3457, 3458, 3459, 3460]);
 });
 
+test('local-development profile is pinned to the isolated port', () => {
+  const { env } = scratchEnv({ FIGMA_BRIDGE_PROFILE: 'local-development' });
+  assert.deepEqual(parsePortRange(env), [3460]);
+  assert.equal(getDaemonPort(env), 3460);
+
+  env.DAEMON_PORT = '3459';
+  assert.equal(getDaemonPort(env), 3459, 'an explicit port remains authoritative');
+});
+
 test('precedence: DAEMON_PORT env beats port file beats default', () => {
   const { env } = scratchEnv();
   assert.equal(getDaemonPort(env), 3456); // nothing set

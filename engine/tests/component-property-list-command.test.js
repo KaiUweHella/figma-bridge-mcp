@@ -11,15 +11,52 @@ import {
   formatComponentPropertyListResult,
 } from '../src/application/component-property-list-command.js';
 import { parseComponentPropertyListRequest } from '../src/application/component-property-list-request.js';
+import { COMPONENT_PROPERTY_LIST_TYPED_READ } from '../src/lib/typed-read-operations.js';
 
 function fixture({ remote = false, type = 'COMPONENT', selection = true } = {}) {
+  const text = {
+    id: '2:2', type: 'TEXT', name: 'Label',
+    componentPropertyReferences: { characters: 'Label#2:0' },
+  };
+  const badge = {
+    id: '2:3', type: 'FRAME', name: 'Badge', children: [],
+    componentPropertyReferences: { visible: 'Visible#2:1' },
+  };
+  const icon = {
+    id: '2:4', type: 'INSTANCE', name: 'Icon', isExposedInstance: true,
+    children: [{
+      id: '9:9', type: 'TEXT', name: 'Inherited label',
+      componentPropertyReferences: { characters: 'Nested label#9:8' },
+    }],
+    componentPropertyReferences: { mainComponent: 'Icon#2:3' },
+  };
+  const slot = {
+    id: '2:5', type: 'SLOT', name: 'Content', componentPropertyReferences: null,
+    children: [{
+      id: '2:6', type: 'INSTANCE', name: 'Default content', isExposedInstance: false,
+      componentPropertyReferences: { visible: 'Slotted visibility#8:8' }, children: [],
+    }],
+    limitViolations: [],
+  };
   const component = {
     id: '2:1', type, name: 'Fixture component', remote,
+    children: [text, badge, icon, slot],
     componentPropertyDefinitions: {
-      'Label#2:0': { type: 'TEXT', defaultValue: 'Hello' },
+      'Label#2:0': {
+        type: 'TEXT', defaultValue: 'Hello',
+        boundVariables: { defaultValue: { type: 'VARIABLE_ALIAS', id: 'VariableID:7:7' } },
+      },
       'Visible#2:1': { type: 'BOOLEAN', defaultValue: true },
       Mode: { type: 'VARIANT', defaultValue: 'Default', variantOptions: ['Default', 'Compact'] },
-      'Slot#2:2': { type: 'SLOT', defaultValue: '' },
+      'Slot#2:2': {
+        type: 'SLOT', description: 'Flexible content',
+        preferredValues: [{ type: 'COMPONENT', key: 'CARD_KEY' }],
+        slotSettings: { minChildren: 1, maxChildren: 3, stretchChildOnInsert: true },
+      },
+      'Icon#2:3': {
+        type: 'INSTANCE_SWAP', defaultValue: '3:1',
+        preferredValues: [{ type: 'COMPONENT_SET', key: 'ICON_SET_KEY' }],
+      },
     },
   };
   return {
@@ -60,18 +97,52 @@ test('Component Property List request closes optional id, URL and output mode', 
   ]) assert.throws(() => parseComponentPropertyListRequest(argv), /Invalid component prop list command/);
 });
 
-test('explicit-id read preserves every native type, default and Variant option', async () => {
+test('explicit-id read preserves all five native types, bindings, Slots and nested exposure', async () => {
   const live = fixture();
   const result = await executeComponentPropertyList({ componentId: '2:1', json: true }, {
     evaluate: evaluate(live.figma),
   });
   assert.equal(result.result.source, 'id');
   assert.deepEqual(result.result.properties, [
-    { name: 'Label#2:0', type: 'TEXT', defaultValue: 'Hello', variantOptions: null },
-    { name: 'Visible#2:1', type: 'BOOLEAN', defaultValue: true, variantOptions: null },
-    { name: 'Mode', type: 'VARIANT', defaultValue: 'Default', variantOptions: ['Default', 'Compact'] },
-    { name: 'Slot#2:2', type: 'SLOT', defaultValue: '', variantOptions: null },
+    {
+      name: 'Label#2:0', type: 'TEXT', defaultValue: 'Hello', variantOptions: null,
+      preferredValues: null, description: null, slotSettings: null,
+      defaultValueVariable: { type: 'VARIABLE_ALIAS', id: 'VariableID:7:7' },
+      bindings: [{ nodeId: '2:2', nodeName: 'Label', nodeType: 'TEXT', field: 'characters' }],
+      bindingStatus: 'wired',
+    },
+    {
+      name: 'Visible#2:1', type: 'BOOLEAN', defaultValue: true, variantOptions: null,
+      preferredValues: null, description: null, slotSettings: null,
+      defaultValueVariable: null,
+      bindings: [{ nodeId: '2:3', nodeName: 'Badge', nodeType: 'FRAME', field: 'visible' }],
+      bindingStatus: 'wired',
+    },
+    {
+      name: 'Mode', type: 'VARIANT', defaultValue: 'Default', variantOptions: ['Default', 'Compact'],
+      preferredValues: null, description: null, slotSettings: null, bindings: [], bindingStatus: 'native-axis',
+      defaultValueVariable: null,
+    },
+    {
+      name: 'Slot#2:2', type: 'SLOT', defaultValue: null, variantOptions: null,
+      preferredValues: [{ type: 'COMPONENT', key: 'CARD_KEY' }], description: 'Flexible content',
+      slotSettings: { minChildren: 1, maxChildren: 3, stretchChildOnInsert: true },
+      defaultValueVariable: null,
+      bindings: [], bindingStatus: 'native-slot',
+    },
+    {
+      name: 'Icon#2:3', type: 'INSTANCE_SWAP', defaultValue: '3:1', variantOptions: null,
+      preferredValues: [{ type: 'COMPONENT_SET', key: 'ICON_SET_KEY' }],
+      description: null, slotSettings: null,
+      defaultValueVariable: null,
+      bindings: [{ nodeId: '2:4', nodeName: 'Icon', nodeType: 'INSTANCE', field: 'mainComponent' }],
+      bindingStatus: 'wired',
+    },
   ]);
+  assert.deepEqual(result.result.nestedInstances, [{ id: '2:4', name: 'Icon', exposed: true }]);
+  assert.deepEqual(result.result.slots, [{
+    id: '2:5', name: 'Content', childCount: 1, limitViolations: [], property: 'Slot#2:2',
+  }]);
   assert.deepEqual(JSON.parse(result.stdout), result.result);
 });
 
@@ -91,6 +162,7 @@ test('selection mode returns the same structured facts without requiring an id',
 test('empty definitions retain the useful human no-properties result', async () => {
   const live = fixture();
   live.component.componentPropertyDefinitions = {};
+  live.component.children = [];
   const result = await executeComponentPropertyList({ componentId: '2:1', json: false }, {
     evaluate: evaluate(live.figma),
   });
@@ -136,15 +208,24 @@ test('only one authentic safe-read component.prop.list plan crosses the Applicat
   assert.equal(plan.effects.figma, 'read');
   assert.equal(plan.confirmation, 'none');
   assert.equal(plan.execution.retry, 'safe-read');
+  assert.equal(plan.execution.pluginDispatch, 'typed-read');
   assert.equal(componentPropertyListPlanRoute(plan), 'command-application');
   assert.throws(() => componentPropertyListPlanRoute({ ...plan }), /requires a Command Plan/);
   const live = fixture();
   let evaluations = 0;
+  let typedReads = 0;
   const result = await executeComponentPropertyListPlan(plan, {
-    evaluate: async (code) => { evaluations += 1; return evaluate(live.figma)(code); },
+    typedRead: async (operation, request, fallbackCode) => {
+      typedReads += 1;
+      assert.equal(operation, COMPONENT_PROPERTY_LIST_TYPED_READ);
+      assert.deepEqual(request, { componentId: '2:1' });
+      return evaluate(live.figma)(fallbackCode);
+    },
+    evaluate: async () => { evaluations += 1; throw new Error('typed read must win'); },
   });
   assert.equal(result.result.status, 'listed');
-  assert.equal(evaluations, 1);
+  assert.equal(typedReads, 1);
+  assert.equal(evaluations, 0);
 });
 
 test('malformed Plugin results cannot become successful property facts', async () => {
