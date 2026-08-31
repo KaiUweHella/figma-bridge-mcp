@@ -2662,6 +2662,20 @@ test('figma_run routes Layout Guide mutations through the rollback-owned Applica
     'Layout Guide mutations must not re-enter Commander');
 });
 
+test('figma_run routes Analyze census reads through the bounded Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const analysisCensusRoute = analysisCensusPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnalysisCensusPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Analyze census must not re-enter Commander');
+});
+
 test('figma_run routes Dev Resource Read through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)');
@@ -3086,6 +3100,20 @@ test('figma_run rejects malformed Layout Guide mutation argv before readiness or
     ['grid', 'set', '10:3', '--columns=1', '--future'],
     ['grid', 'clear', '10:3', '--append'],
     ['grid', 'clear', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Analyze census argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['analyze', 'colors', 'private-value'],
+    ['analyze', 'typography', '--future'],
+    ['analyze', 'spacing', '--json', '--json'],
+    ['analyze', 'clusters', '--', '--json'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));

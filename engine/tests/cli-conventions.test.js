@@ -1515,6 +1515,46 @@ test('grid set and clear delegate one Plan-bound rollback-owned Command Applicat
   }
 });
 
+test('Analyze census reads delegate one Plan-bound bounded Application', () => {
+  const adapter = sources.get('analyze.js');
+  assert.ok(adapter, 'analyze.js exists');
+  const helperStart = adapter.indexOf('async function runAnalysisCensus');
+  const lintStart = adapter.indexOf(".command('lint')", helperStart);
+  const census = adapter.slice(helperStart, lintStart);
+  assert.match(census, /analysisCensusArgvFromRequest/);
+  assert.match(census, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(census, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(census, /executeAnalysisCensusPlan\(plan/);
+  assert.match(census, /daemonExec\('eval'/);
+  assert.match(census, /process\.exitCode = 1/);
+  for (const action of ['colors', 'typography', 'spacing', 'clusters']) {
+    const marker = action === 'typography' ? ".command('typography')" : `.command('${action}')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf(".command('", start + marker.length);
+    const slice = adapter.slice(start, end);
+    assert.match(slice, /\.allowExcessArguments\(false\)/);
+    assert.match(slice, new RegExp(`runAnalysisCensus\\('${action}'`));
+    assert.doesNotMatch(slice, /checkConnection\(|fastEval\(/);
+  }
+  assert.doesNotMatch(census, /figma\.currentPage|new Map\(|fastEval\(|checkConnection\(/,
+    'Commander must not retain Analyze census traversal or result logic');
+});
+
+test('the remaining direct Analyze inventory is explicit', () => {
+  const adapter = sources.get('analyze.js');
+  const direct = [];
+  for (const action of ['colors', 'typography', 'spacing', 'clusters', 'lint']) {
+    const marker = `.command('${action}')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf(".command('", start + marker.length);
+    const slice = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(slice)) direct.push(action);
+  }
+  assert.deepEqual(direct, ['lint']);
+  assert.equal(direct.length, 1,
+    'STAB-06 Analyze Legacy Action count may decrease, but must never increase silently');
+});
+
 test('dev list delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

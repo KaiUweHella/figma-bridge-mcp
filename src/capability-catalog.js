@@ -591,6 +591,11 @@ import {
   parseLayoutGuideMutationRequest,
 } from '../engine/src/application/layout-guide-mutation-request.js';
 import {
+  acceptsAnalysisCensusArgv,
+  analysisCensusArgvFromRequest,
+  parseAnalysisCensusRequest,
+} from '../engine/src/application/analysis-census-request.js';
+import {
   acceptsDevResourceReadArgv,
   devResourceReadArgvFromRequest,
   devResourceReadFigmaUrlFileKeyFromArgv,
@@ -782,6 +787,7 @@ const SAFE_READ_ACTIONS = new Set([
   'shader.list', 'dev.list', 'section.list', 'annotate.categories', 'annotate.list',
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
+  'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -792,6 +798,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slides.inspect',
   'export.screenshot',
   'section.list', 'a11y.vision', 'a11y.focus',
+  'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'section.create',
   'jam.board', 'jam.arrange',
 ]);
@@ -884,6 +891,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'grid.set',
   'grid.list',
   'grid.clear',
+  'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1225,6 +1233,10 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'grid' && ['set', 'clear'].includes(sub)) {
     pathPolicy = 'layout-guide-mutation-input';
+  }
+  if (['analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters']
+    .includes(actionId)) {
+    pathPolicy = 'analysis-census-input';
   }
   if (name === 'dev' && sub === 'list') {
     retry = 'safe-read';
@@ -1671,6 +1683,10 @@ function commandCapability(args) {
   }
   if (name === 'grid' && ['set', 'clear'].includes(args[1])
     && !action.help && !acceptsLayoutGuideMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'analyze' && ['colors', 'typography', 'type', 'spacing', 'clusters'].includes(args[1])
+    && !action.help && !acceptsAnalysisCensusArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'dev' && args[1] === 'list'
@@ -2676,6 +2692,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...layoutGuideMutationArgvFromRequest(parseLayoutGuideMutationRequest(args)));
+      break;
+    }
+    case 'analysis-census-input': {
+      args.splice(0, args.length,
+        ...analysisCensusArgvFromRequest(parseAnalysisCensusRequest(args)));
       break;
     }
     case 'dev-resource-read-input': {

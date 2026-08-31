@@ -1011,6 +1011,27 @@ test('Layout Guide mutations close policy-identical non-retrying CLI/MCP writes'
   }
 });
 
+test('Analyze census actions close policy-identical safe current-page reads', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [['analyze', 'colors'], ['analyze', 'colors'], 'analyze.colors'],
+    [['analyze', 'type', '--json'], ['analyze', 'typography', '--json'], 'analyze.typography'],
+    [['analyze', 'spacing'], ['analyze', 'spacing'], 'analyze.spacing'],
+    [['analyze', 'clusters'], ['analyze', 'clusters'], 'analyze.clusters'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'read');
+    assert.equal(cli.effects.editor, 'read');
+    assert.equal(cli.execution.retry, 'safe-read');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
 test('Dev Resource Read closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['dev', 'list', '10-3'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['dev', 'list', '--', '10:3'], { adapter: 'mcp' });

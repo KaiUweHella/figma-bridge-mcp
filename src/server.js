@@ -474,6 +474,10 @@ import {
   layoutGuideMutationPlanRoute,
 } from "../engine/src/application/layout-guide-mutation-command.js";
 import {
+  analysisCensusPlanRoute,
+  executeAnalysisCensusPlan,
+} from "../engine/src/application/analysis-census-command.js";
+import {
   devResourceReadPlanRoute,
   executeDevResourceReadPlan,
 } from "../engine/src/application/dev-resource-read-command.js";
@@ -4053,6 +4057,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeLayoutGuideMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const analysisCensusRoute = analysisCensusPlanRoute(plan);
+      if (analysisCensusRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnalysisCensusPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
