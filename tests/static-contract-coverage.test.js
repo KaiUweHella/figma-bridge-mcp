@@ -69,6 +69,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/grid-set-request.js',
   'engine/src/application/grid-track-reorder-command.js',
   'engine/src/application/grid-track-reorder-request.js',
+  'engine/src/application/pin-command.js',
+  'engine/src/application/pin-request.js',
   'engine/src/application/prototype-mutation-command.js',
   'engine/src/application/prototype-mutation-request.js',
   'engine/src/application/node-text-command.js',

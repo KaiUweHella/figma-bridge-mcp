@@ -1509,6 +1509,24 @@ test('top-level inspect delegates one Plan-bound safe-read Command Application',
     'Commander must not retain Inspect readiness or execution logic');
 });
 
+test('top-level pin delegates one Plan-bound preflighted rollback-owned Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const start = adapter.indexOf(".command('pin <edge>')");
+  const end = adapter.indexOf('// (`unwrap` and `use`/`theme` were removed', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /pinPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executePinPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|buildNodeSelector\(|function pinOne|\.resize\(|\.constraints\s*=/,
+    'Commander must not retain Pin selection, preflight, mutation, rollback, or formatting');
+});
+
 test('top-level find delegates one Plan-bound bounded Node Discovery Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

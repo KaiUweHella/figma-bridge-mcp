@@ -22,10 +22,9 @@ import {
   executeNodeDiscoveryPlan,
   nodeDiscoveryPlanningArgvFromRequest,
 } from '../application/node-discovery-command.js';
+import { executePinPlan, pinPlanningArgvFromRequest } from '../application/pin-command.js';
 import {
   program,
-  buildNodeSelector,
-  checkConnection,
   daemonExec,
   evalPrint,
   handleEvalError
@@ -232,102 +231,26 @@ program
   .option('--offset-y <n>', 'Vertical offset (overrides --offset on the vertical axis)')
   .option('--start <v>', 'For stretch-x/stretch-y/scale-x/scale-y: start offset (px) or percentage string for scale')
   .option('--end <v>', 'For stretch-x/stretch-y/scale-x/scale-y: end offset (px) or percentage string for scale')
+  .allowExcessArguments(false)
   .action(async (edge, options) => {
-    await checkConnection();
-    const validEdges = new Set([
-      'left', 'right', 'top', 'bottom',
-      'top-left', 'top-right', 'bottom-left', 'bottom-right',
-      'center-x', 'center-y',
-      'stretch-x', 'stretch-y',
-      'scale-x', 'scale-y',
-    ]);
-    if (!validEdges.has(edge)) {
-      console.error(chalk.red('✗'), `Unknown edge "${edge}". Valid: ${[...validEdges].join(', ')}`);
-      process.exit(1);
-    }
-    const off = parseFloat(options.offset ?? 0);
-    const offX = options.offsetX !== undefined ? parseFloat(options.offsetX) : off;
-    const offY = options.offsetY !== undefined ? parseFloat(options.offsetY) : off;
-    const start = options.start;
-    const end = options.end;
-
-    // Build the per-node mutation. Runs inside the eval, so it can read each
-    // node's parent dimensions and compute the raw x/y per the Spec formulas.
-    // Constraints are set so Figma keeps the anchor when the parent resizes.
-    const pinExpr = `
-      function pinOne(n) {
-        if (!n || typeof n.x !== 'number' || !('constraints' in n)) return false;
-        const p = n.parent;
-        if (!p || typeof p.width !== 'number') return false;
-        const pw = p.width, ph = p.height;
-        const c = { ...n.constraints };
-        const edge = ${JSON.stringify(edge)};
-        const offX = ${offX}, offY = ${offY};
-        if (edge === 'left')        { n.x = offX;                          c.horizontal = 'MIN'; }
-        else if (edge === 'right')  { n.x = pw - n.width - offX;            c.horizontal = 'MAX'; }
-        else if (edge === 'top')    { n.y = offY;                          c.vertical = 'MIN'; }
-        else if (edge === 'bottom') { n.y = ph - n.height - offY;           c.vertical = 'MAX'; }
-        else if (edge === 'top-left')     { n.x = offX; n.y = offY;
-                                             c.horizontal = 'MIN'; c.vertical = 'MIN'; }
-        else if (edge === 'top-right')    { n.x = pw - n.width - offX; n.y = offY;
-                                             c.horizontal = 'MAX'; c.vertical = 'MIN'; }
-        else if (edge === 'bottom-left')  { n.x = offX; n.y = ph - n.height - offY;
-                                             c.horizontal = 'MIN'; c.vertical = 'MAX'; }
-        else if (edge === 'bottom-right') { n.x = pw - n.width - offX; n.y = ph - n.height - offY;
-                                             c.horizontal = 'MAX'; c.vertical = 'MAX'; }
-        else if (edge === 'center-x') { n.x = (pw - n.width) / 2 + offX; c.horizontal = 'CENTER'; }
-        else if (edge === 'center-y') { n.y = (ph - n.height) / 2 + offY; c.vertical = 'CENTER'; }
-        else if (edge === 'stretch-x') {
-          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
-          const sNum = s == null ? 0 : parseFloat(s);
-          const eNum = e == null ? 0 : parseFloat(e);
-          n.x = sNum;
-          n.resize(Math.max(1, pw - sNum - eNum), n.height);
-          c.horizontal = 'STRETCH';
-        }
-        else if (edge === 'stretch-y') {
-          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
-          const sNum = s == null ? 0 : parseFloat(s);
-          const eNum = e == null ? 0 : parseFloat(e);
-          n.y = sNum;
-          n.resize(n.width, Math.max(1, ph - sNum - eNum));
-          c.vertical = 'STRETCH';
-        }
-        else if (edge === 'scale-x') {
-          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
-          const sPct = typeof s === 'string' && s.endsWith('%') ? parseFloat(s) / 100 : (parseFloat(s) || 0) / pw;
-          const ePct = typeof e === 'string' && e.endsWith('%') ? parseFloat(e) / 100 : (parseFloat(e) || 0) / pw;
-          n.x = pw * sPct;
-          n.resize(Math.max(1, pw - n.x - pw * ePct), n.height);
-          c.horizontal = 'SCALE';
-        }
-        else if (edge === 'scale-y') {
-          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
-          const sPct = typeof s === 'string' && s.endsWith('%') ? parseFloat(s) / 100 : (parseFloat(s) || 0) / ph;
-          const ePct = typeof e === 'string' && e.endsWith('%') ? parseFloat(e) / 100 : (parseFloat(e) || 0) / ph;
-          n.y = ph * sPct;
-          n.resize(n.width, Math.max(1, ph - n.y - ph * ePct));
-          c.vertical = 'SCALE';
-        }
-        n.constraints = c;
-        return true;
-      }
-    `;
-
-    const selector = buildNodeSelector(options);
-    const code = `(async () => {
-      ${selector}
-      if (nodes.length === 0) return 'No node found';
-      ${pinExpr}
-      let count = 0;
-      for (const n of nodes) if (pinOne(n)) count++;
-      return 'Pinned ' + count + ' element(s) to ' + ${JSON.stringify(edge)};
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓ ' + (r || 'Done')));
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(pinPlanningArgvFromRequest({
+        edge, node: options.node ?? null, query: options.query ?? null,
+        offset: options.offset ?? null, offsetX: options.offsetX ?? null,
+        offsetY: options.offsetY ?? null, start: options.start ?? null, end: options.end ?? null,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executePinPlan(plan, {
+            evaluate: (code) => daemonExec('eval', { code, ...(fileKey ? { fileKey } : {}) },
+              Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(chalk.green('✓ ' + result.stdout));
+    } catch (error) {
+      handleEvalError(error);
     }
   });
 

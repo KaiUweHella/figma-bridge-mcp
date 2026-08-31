@@ -194,6 +194,10 @@ import {
   nodeResizePlanRoute,
 } from "../engine/src/application/node-resize-command.js";
 import {
+  executePinPlan,
+  pinPlanRoute,
+} from "../engine/src/application/pin-command.js";
+import {
   executeNodeReparentPlan,
   nodeReparentPlanRoute,
 } from "../engine/src/application/node-reparent-command.js";
@@ -2664,6 +2668,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeGridTrackReorderPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const pinRoute = pinPlanRoute(plan);
+      if (pinRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executePinPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

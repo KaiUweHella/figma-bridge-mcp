@@ -3853,3 +3853,31 @@ test('normalizeOutputArgs: verify-build paths resolve against the client workspa
     ['verify-build', absoluteProject, '--compare', absoluteBuild],
   );
 });
+
+test('figma_run routes Pin through the same target-aware rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const pinRoute = pinPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /ensurePluginReadiness\(\{ deadline, maxWaitMs: 8000, fileKey, expectedEditor \}\)/);
+  assert.match(slice, /executePinPlan\(plan/);
+  assert.match(slice, /evaluateFigma\(code, \{[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Pin requests before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['pin', 'future-edge'],
+    ['pin', '--node', '3:1', '--query', 'private-value', 'left'],
+    ['pin', '--offset', 'globalThis.privateValue', 'left'],
+    ['pin', '--query', 'Frame', 'left'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});

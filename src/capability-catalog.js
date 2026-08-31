@@ -201,6 +201,12 @@ import {
   parseNodeResizeRequest,
 } from '../engine/src/application/node-resize-request.js';
 import {
+  acceptsPinArgv,
+  parsePinRequest,
+  pinArgvFromRequest,
+  pinFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/pin-request.js';
+import {
   acceptsNodeReparentArgv,
   nodeReparentArgvFromRequest,
   nodeReparentFigmaUrlFileKeyFromArgv,
@@ -652,7 +658,7 @@ const COMMANDS = Object.freeze({
   inspect: { summary: 'Inspect one node as structured facts', mutation: 'read', retry: 'safe-read', path: 'inspect-input' },
   export: { summary: 'Export design facts, images and assets', mutation: 'read' },
   gradient: { summary: 'Extract and apply gradients', mutation: 'gradient', target: 'conditional', path: 'gradient-input' },
-  pin: { summary: 'Pin nodes to parent edges', mutation: 'write' },
+  pin: { summary: 'Pin nodes to parent edges', mutation: 'write', path: 'pin-input' },
   api: { summary: 'Read the offline Figma Plugin reference', mutation: 'read', target: 'none' },
   import: { summary: 'Import a design source into Figma', mutation: 'write', path: 'design-source-import-input' },
   motion: readGroup('Inspect or manage motion data', ['styles', 'inspect'], { path: 'motion-inputs' }),
@@ -739,6 +745,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect',
+  'pin',
   'link.inspect', 'link.set', 'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
   'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set', 'node.set-fill', 'node.set-image', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
@@ -1155,6 +1162,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'contract' && !action.help && !acceptsDesignContractArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'pin' && !action.help && !acceptsPinArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'spec' && !action.help && !acceptsComponentSpecArgv(args)) {
@@ -2667,6 +2677,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       args.splice(0, args.length, ...inspectArgvFromRequest(parseInspectRequest(args)));
       break;
     }
+    case 'pin-input': {
+      if (projectUrlTarget) figmaUrlFileKey = pinFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...pinArgvFromRequest(parsePinRequest(args)));
+      break;
+    }
     case 'code-spec-input': {
       if (projectUrlTarget) figmaUrlFileKey = codeSpecFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length, ...codeSpecArgvFromRequest(parseCodeSpecRequest(args)));
@@ -2874,9 +2889,7 @@ function editorEffect(args, capability) {
     && String(flagValue(args, '--apply-to', capability.options)).toLowerCase() === 'selected') {
     return 'read';
   }
-  if (actionId === 'pin'
-    && !hasOption(capability.options, '--node')
-    && !hasOption(capability.options, '--query')) return 'read';
+  if (actionId === 'pin' && parsePinRequest(args).selector.kind === 'selection') return 'read';
   if (EDITOR_CONTEXT_READ_ACTIONS.has(actionId)) return 'read';
   return 'none';
 }
