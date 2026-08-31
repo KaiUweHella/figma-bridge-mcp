@@ -451,6 +451,25 @@ test('figma_run routes Measurement mutations through the structured Application'
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Measurement Mutation must not re-enter Commander');
 });
 
+test('figma_run routes Measurement reads through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const measurementReadRoute = measurementReadPlanRoute(plan)');
+  const end = source.indexOf('const libraryImportRoute = libraryImportPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMeasurementReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Measurement Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Measurement reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_run', { args: ['measure', 'list', '1:2', '3:4'] });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+});
+
 test('figma_run routes Node Rename through the rollback-verified Command Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeRenameRoute = nodeRenamePlanRoute(plan)');

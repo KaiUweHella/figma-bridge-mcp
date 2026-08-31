@@ -530,6 +530,24 @@ test('Measurement writes delegate one Plan-bound mutation Application', () => {
   assert.match(application, /page\.deleteMeasurement\(/);
 });
 
+test('Measurement list delegates one Plan-bound bounded read Application', () => {
+  const adapter = sources.get('measurements.js');
+  const start = adapter.indexOf("command('list [nodeId]')");
+  const end = adapter.indexOf("measure.command('add", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMeasurementRead\(/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|measurementListCode\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'measurement-read-command.js'), 'utf8');
+  assert.match(application, /page\.getMeasurements\(\)/);
+  assert.match(application, /page\.getMeasurementsForNode\(node\)/);
+});
+
+test('the remaining direct Measurement Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('measurements.js');
+  assert.deepEqual([...adapter.matchAll(/measurementListCode|fastEval|checkConnection/g)].map((match) => match[0]), []);
+});
+
 test('Prototype writes delegate one Plan-bound rollback-owned Application', () => {
   const adapter = sources.get('prototype.js');
   for (const marker of ["command('add <nodeId>')", "command('set <nodeId>')", "command('clear <nodeId>')"]) {

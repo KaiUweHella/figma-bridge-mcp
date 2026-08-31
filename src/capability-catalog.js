@@ -102,6 +102,12 @@ import {
   parseMeasurementMutationRequest,
 } from '../engine/src/application/measurement-mutation-request.js';
 import {
+  acceptsMeasurementReadArgv,
+  measurementReadArgvFromRequest,
+  measurementReadFigmaUrlFileKeyFromArgv,
+  parseMeasurementReadRequest,
+} from '../engine/src/application/measurement-read-request.js';
+import {
   acceptsLibraryImportArgv,
   libraryImportArgvFromRequest,
   parseLibraryImportRequest,
@@ -644,7 +650,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
-  'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables',
+  'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -672,6 +678,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'create.autolayout',
   'create.text',
   'measure.add', 'measure.edit', 'measure.delete',
+  'measure.list',
   'library.import-variable', 'library.import-style',
   'library.import-component', 'library.import-component-set',
   'library.collections', 'library.variables',
@@ -889,6 +896,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (['measure.add', 'measure.edit', 'measure.delete'].includes(actionId)) {
     pathPolicy = 'measurement-mutation-input';
   }
+  if (actionId === 'measure.list') pathPolicy = 'measurement-read-input';
   if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
   if (['library.collections', 'library.variables'].includes(actionId)) pathPolicy = 'library-read-input';
   if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
@@ -1126,6 +1134,9 @@ function commandCapability(args) {
   }
   if (['measure.add', 'measure.edit', 'measure.delete'].includes(action.actionId)
     && !action.help && !acceptsMeasurementMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'measure.list' && !action.help && !acceptsMeasurementReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId.startsWith('library.import-')
@@ -2153,6 +2164,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = measurementMutationFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length,
         ...measurementMutationArgvFromRequest(parseMeasurementMutationRequest(args)));
+      break;
+    }
+    case 'measurement-read-input': {
+      if (projectUrlTarget) figmaUrlFileKey = measurementReadFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...measurementReadArgvFromRequest(parseMeasurementReadRequest(args)));
       break;
     }
     case 'library-import-input': {

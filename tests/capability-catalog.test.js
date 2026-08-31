@@ -2082,6 +2082,19 @@ test('Measurement mutations own action-specific canonical cross-Adapter write Pl
   assert.equal(planFigmaCommand(['measure', 'add', '1:2:right', '3:4:left', '--relative', '2']).allowed, false);
 });
 
+test('Measurement list owns one canonical cross-Adapter safe-read Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const mcp = planFigmaCommand(['measure', 'list', url], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true);
+  assert.equal(mcp.id, 'measure.list');
+  assert.deepEqual(mcp.argv, ['measure', 'list', '--', '1:2']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.equal(mcp.execution.retry, 'safe-read');
+  assert.equal(planFigmaCommand(['measure', 'list', '1:2', '3:4']).allowed, false);
+});
+
 test('Prototype mutations own canonical cross-Adapter write Plans', () => {
   const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
   const cases = [

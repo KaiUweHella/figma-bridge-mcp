@@ -5,15 +5,35 @@ import {
   measurementMutationPlanningArgvFromRequest,
 } from '../application/measurement-mutation-command.js';
 import {
-  checkConnection, daemonExec, fastEval, handleEvalError, program,
-} from '../lib/cli-core.js';
+  executeMeasurementReadPlan,
+  measurementReadPlanningArgvFromRequest,
+} from '../application/measurement-read-command.js';
 import {
-  measurementListCode,
-} from '../lib/measurement-management.js';
+  daemonExec, handleEvalError, program,
+} from '../lib/cli-core.js';
 
-const print = (value) => console.log(JSON.stringify(value, null, 2));
-const run = async (code) => { await checkConnection(); return fastEval(code); };
 const measure = program.command('measure').description('Inspect and manage Dev Mode measurements');
+
+async function runMeasurementRead(request) {
+  try {
+    const plan = planFigmaCommand(measurementReadPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMeasurementReadPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+    if (result.stderr) console.error(result.stderr);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
 
 async function runMeasurementMutation(request) {
   try {
@@ -35,9 +55,9 @@ async function runMeasurementMutation(request) {
   }
 }
 
-measure.command('list [nodeId]').action(async (nodeId) => {
-  try { print(await run(measurementListCode({ nodeId }))); } catch (error) { handleEvalError(error); }
-});
+measure.command('list [nodeId]')
+  .allowExcessArguments(false)
+  .action(async (nodeId) => runMeasurementRead({ nodeId }));
 measure.command('add <from> <to>')
   .description('Add a measurement, e.g. 1:2:right 3:4:left')
   .option('--offset <pixels>', 'Outer fixed offset').option('--relative <ratio>', 'Inner relative offset, 0..1')
