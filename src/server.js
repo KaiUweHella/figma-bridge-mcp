@@ -358,6 +358,10 @@ import {
   fontInspectionPlanRoute,
 } from "../engine/src/application/font-inspection-command.js";
 import {
+  executeFontAxisMetadataPlan,
+  fontAxisMetadataPlanRoute,
+} from "../engine/src/application/font-axis-metadata-command.js";
+import {
   executeFontVariableBindingPlan,
   fontVariableBindingPlanRoute,
 } from "../engine/src/application/font-variable-binding-command.js";
@@ -3486,6 +3490,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeVariableResolutionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const fontAxisMetadataRoute = fontAxisMetadataPlanRoute(plan);
+      if (fontAxisMetadataRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeFontAxisMetadataPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

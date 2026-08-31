@@ -2300,6 +2300,24 @@ test('Grid Track Reorder owns one URL-targeted irreversible non-retrying Plan pe
   ]).allowed, false);
 });
 
+test('Font Axis Metadata owns URL-targeted cross-Adapter read and write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const cases = [
+    [['font', 'axes', url], 'font.axes', 'safe-read', 'read'],
+    [['font', 'remember-axes', url, 'wght=357', '--start', '1', '--end', '4'], 'font.remember-axes', 'never', 'write'],
+    [['font', 'forget-axes', '--start=1', url, '--end=4'], 'font.forget-axes', 'never', 'write'],
+  ];
+  for (const [argv, id, retry, figma] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.execution.retry, retry);
+    assert.equal(mcp.effects.figma, figma); assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['font', 'axes']).allowed, false);
+  assert.equal(planFigmaCommand(['font', 'remember-axes', '2:1', 'wght=nope']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

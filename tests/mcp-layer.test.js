@@ -1861,7 +1861,7 @@ test('figma_run rejects malformed Variable Discovery before readiness or dispatc
 test('figma_run routes Variable Resolution through the shared target-bound Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const variableResolutionRoute = variableResolutionPlanRoute(plan)');
-  const end = source.indexOf('const fontInspectionRoute = fontInspectionPlanRoute(plan)', start);
+  const end = source.indexOf('const fontAxisMetadataRoute = fontAxisMetadataPlanRoute(plan)', start);
   const slice = source.slice(start, end);
   assert.match(slice, /runInProcessCommandPlan\(plan/);
   assert.match(slice, /compatibilityFallback:\s*false/);
@@ -1869,6 +1869,35 @@ test('figma_run routes Variable Resolution through the shared target-bound Appli
   assert.match(slice, /executeVariableResolutionPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Variable Resolution must not re-enter Commander');
+});
+
+test('figma_run routes Font Axis Metadata through the bounded readback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const fontAxisMetadataRoute = fontAxisMetadataPlanRoute(plan)');
+  const end = source.indexOf('const fontInspectionRoute = fontInspectionPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeFontAxisMetadataPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Font Axis Metadata must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Font Axis Metadata before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['font', 'axes'],
+    ['font', 'axes', '1:1', '2:2'],
+    ['font', 'remember-axes', '1:1', 'wght=nope'],
+    ['font', 'forget-axes', '1:1', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value|Plugin not connected|figma_connect/);
+  }
 });
 
 test('figma_run routes Font Inspection through the shared bounded-read Application', () => {

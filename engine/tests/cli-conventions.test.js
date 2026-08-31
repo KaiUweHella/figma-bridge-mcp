@@ -2261,6 +2261,35 @@ test('font bind and unbind delegate one readback-verified rollback-owned Applica
     'Commander must not retain an unverified legacy binding path');
 });
 
+test('font axis metadata delegates reads and writes to one bounded Application', () => {
+  const adapter = sources.get('font.js');
+  const start = adapter.indexOf(".command('axes <nodeId>')");
+  const slice = adapter.slice(start);
+  for (const command of ['axes <nodeId>', 'remember-axes <nodeId> <axes>', 'forget-axes <nodeId>']) {
+    const commandStart = slice.indexOf(`.command('${command}')`);
+    const commandEnd = slice.indexOf(".command('", commandStart + command.length);
+    const action = slice.slice(commandStart, commandEnd === -1 ? slice.length : commandEnd);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runFontAxisMetadata\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|fontAxesCode\(|rememberAxesCode\(|forgetAxesCode\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'font-axis-metadata-command.js'), 'utf8');
+  assert.match(application, /node\.setPluginData\(metadataKey, desiredRaw\)/);
+  assert.match(application, /fresh\.getPluginData\(metadataKey\) === desiredRaw/);
+  assert.match(application, /node\.setPluginData\(metadataKey, beforeRaw\)/);
+  assert.match(application, /appliedToFont: false/);
+});
+
+test('the remaining direct Font Axis Metadata inventory is explicit', () => {
+  const adapter = sources.get('font.js');
+  const start = adapter.indexOf(".command('axes <nodeId>')");
+  const direct = /checkConnection\(\)|fastEval\(/.test(adapter.slice(start))
+    ? ['axes-metadata'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Font Axis Metadata Legacy Action count may decrease, but must never increase silently');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {

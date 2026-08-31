@@ -491,6 +491,12 @@ import {
   parseFontInspectionRequest,
 } from '../engine/src/application/font-inspection-request.js';
 import {
+  acceptsFontAxisMetadataArgv,
+  fontAxisMetadataArgvFromRequest,
+  fontAxisMetadataFigmaUrlFileKeyFromArgv,
+  parseFontAxisMetadataRequest,
+} from '../engine/src/application/font-axis-metadata-request.js';
+import {
   acceptsFontVariableBindingArgv,
   fontVariableBindingArgvFromRequest,
   fontVariableBindingFigmaUrlFileKeyFromArgv,
@@ -721,7 +727,9 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set', 'node.set-fill', 'node.set-image', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
-  'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect',
+  'font.bind', 'font.unbind', 'font.inspect',
+  'font.axes', 'font.remember-axes', 'font.forget-axes',
+  'prototype.inspect',
   'prototype.add', 'prototype.set', 'prototype.clear',
   'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
@@ -1012,6 +1020,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
+  }
+  if (name === 'font' && ['axes', 'remember-axes', 'forget-axes'].includes(sub)) {
+    pathPolicy = 'font-axis-metadata-input';
   }
   if (name === 'font' && ['bind', 'unbind'].includes(sub)) pathPolicy = 'font-variable-binding-input';
   if (name === 'component' && sub === 'main') {
@@ -1427,6 +1438,10 @@ function commandCapability(args) {
   }
   if (name === 'font' && args[1] === 'inspect'
     && !action.help && !acceptsFontInspectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'font' && ['axes', 'remember-axes', 'forget-axes'].includes(args[1])
+    && !action.help && !acceptsFontAxisMetadataArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'font' && ['bind', 'unbind'].includes(args[1])
@@ -2596,6 +2611,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...fontInspectionArgvFromRequest(parseFontInspectionRequest(args)));
+      break;
+    }
+    case 'font-axis-metadata-input': {
+      const closedFileKey = fontAxisMetadataFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...fontAxisMetadataArgvFromRequest(parseFontAxisMetadataRequest(args)));
       break;
     }
     case 'font-variable-binding-input': {
