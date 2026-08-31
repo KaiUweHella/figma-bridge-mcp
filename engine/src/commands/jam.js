@@ -28,6 +28,10 @@ import {
   executeJamArrangePlan,
   jamArrangeArgvFromRequest,
 } from '../application/jam-arrange-command.js';
+import {
+  executeJamStickyPlan,
+  jamStickyArgvFromRequest,
+} from '../application/jam-sticky-command.js';
 
 const jam = program
   .command('jam')
@@ -60,11 +64,27 @@ jam
   .description('Add a sticky note')
   .option('--color <name>', `Fill: ${Object.keys(snippets.STICKY_COLORS).join(', ')}, or a hex value`)
   .option('--at <x,y>', 'Place at absolute coordinates (default: right of existing content)')
+  .allowExcessArguments(false)
   .action(async (text, options) => {
-    await run(
-      snippets.sticky(text, { color: options.color, at: options.at }),
-      (r) => console.log(chalk.green('✓'), `Sticky ${r.id} at ${Math.round(r.x)},${Math.round(r.y)}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamStickyArgvFromRequest({
+        text, color: options.color, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamStickyPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam sticky failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam

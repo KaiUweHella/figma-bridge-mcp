@@ -2788,6 +2788,20 @@ test('figma_run routes Jam Arrange through the shared rollback-owned Application
     'Jam Arrange must not re-enter Commander');
 });
 
+test('figma_run routes Jam Sticky through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamStickyRoute = jamStickyPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamStickyPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Jam Sticky must not re-enter Commander');
+});
+
 test('figma_run routes Dev Resource Read through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)');

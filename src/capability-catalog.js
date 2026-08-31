@@ -352,6 +352,11 @@ import {
   parseJamArrangeRequest,
 } from '../engine/src/application/jam-arrange-request.js';
 import {
+  acceptsJamStickyArgv,
+  jamStickyArgvFromRequest,
+  parseJamStickyRequest,
+} from '../engine/src/application/jam-sticky-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -957,7 +962,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
-  'jam.board', 'jam.arrange',
+  'jam.board', 'jam.arrange', 'jam.sticky',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1364,6 +1369,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'jam-board-input';
   }
   if (name === 'jam' && sub === 'arrange') pathPolicy = 'jam-arrange-input';
+  if (name === 'jam' && sub === 'sticky') pathPolicy = 'jam-sticky-input';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -1603,6 +1609,10 @@ function commandCapability(args) {
   }
   if (name === 'jam' && args[1] === 'arrange'
     && !action.help && !acceptsJamArrangeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'sticky'
+    && !action.help && !acceptsJamStickyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
@@ -2997,6 +3007,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'jam-arrange-input': {
       args.splice(0, args.length, ...jamArrangeArgvFromRequest(parseJamArrangeRequest(args)));
+      break;
+    }
+    case 'jam-sticky-input': {
+      args.splice(0, args.length, ...jamStickyArgvFromRequest(parseJamStickyRequest(args)));
       break;
     }
     case 'node-discovery-input': {

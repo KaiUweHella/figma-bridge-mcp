@@ -6,12 +6,11 @@
 // as a runtime error in the plugin sandbox, one command at a time.
 // engine/tests/jam-snippets.test.js parses every one of these.
 
-/** Named sticky colours, plus whatever hex a caller passes through. */
-export const STICKY_COLORS = {
-  yellow: '#FFE066', green: '#A8E6A1', blue: '#A6D8FF', pink: '#FFB3D9',
-  orange: '#FFC08A', violet: '#D4B3FF', grey: '#E0E0E0', red: '#FF9B9B',
-};
+import { STICKY_COLORS } from './jam-colors.js';
 
+export { STICKY_COLORS } from './jam-colors.js';
+
+/** Named sticky colours, plus whatever hex a caller passes through. */
 export const SHAPE_TYPES = [
   'SQUARE', 'ELLIPSE', 'ROUNDED_RECTANGLE', 'DIAMOND',
   'TRIANGLE_UP', 'TRIANGLE_DOWN', 'PARALLELOGRAM_RIGHT', 'PARALLELOGRAM_LEFT',
