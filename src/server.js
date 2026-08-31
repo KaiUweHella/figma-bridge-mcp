@@ -94,6 +94,10 @@ import {
   nodeRenamePlanRoute,
 } from "../engine/src/application/node-rename-command.js";
 import {
+  executeNodeResizePlan,
+  nodeResizePlanRoute,
+} from "../engine/src/application/node-resize-command.js";
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanRoute,
@@ -2247,6 +2251,20 @@ export async function handleTool(name, rawArgs) {
               fileKey,
               expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeResizeRoute = nodeResizePlanRoute(plan);
+      if (nodeResizeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeResizePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }),
           });
         });

@@ -1277,6 +1277,28 @@ test('Node Rename closes one policy-identical rollback-owned write', () => {
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
 });
 
+test('Node Resize closes one policy-identical rollback-owned write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Resize-Lab?node-id=12-34';
+  const mcp = planFigmaCommand(['node', 'resize', url, '--', '-20', 'hug'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(['node', 'resize', url, '--', '-20', 'hug'], { adapter: 'cli' });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, ['node', 'resize', '12:34', '--', '-20', 'hug']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.resize');
+  for (const args of [
+    ['node', 'resize'], ['node', 'resize', '1:2', '20'],
+    ['node', 'resize', '1:2', '20', '30', 'extra'],
+    ['node', 'resize', '1:2', 'wide', '30'], ['node', 'resize', 'not-a-node', '20', '30'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
 test('Node Binding Facts use the closed typed-read dispatch in both Adapters', () => {
   const cli = planFigmaCommand(['node', 'bindings', '12:34', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['node', 'bindings', '--json', '12-34'], { adapter: 'mcp' });

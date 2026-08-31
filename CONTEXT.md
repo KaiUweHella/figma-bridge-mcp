@@ -209,6 +209,16 @@ attempts to restore the previous name and reports verified rollback, bounded
 residue or unavailable verification through the shared mutation outcome.
 _Avoid_: Commander rename handler, setter-result success, retryable rename, unverified rollback
 
+**Node Resize**:
+The bounded, non-retrying change of one exact resizable Node's two sizing axes.
+Each closed axis intent is either a finite native size, `keep`, `fill` or `hug`;
+the report keeps that intent separate from the freshly observed width, height
+and Auto Layout sizing modes. Native minimums and obvious FILL/HUG context are
+preflighted before mutation. A mismatch restores both prior dimensions and
+both sizing modes, then reports verified rollback, bounded residue or
+unavailable verification through the shared mutation outcome.
+_Avoid_: Commander resize handler, pixel claim for FILL/HUG, retryable resize, unverified rollback
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation
@@ -984,6 +994,10 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Is a successful `node rename` just a setter acknowledgement?
 >
 > **Domain expert:** No. Node Rename reads the exact node again and succeeds only when the requested name is observed. A thrown setter may still have committed, so the readback decides. A mismatch triggers one restoration of the previous name; the report distinguishes verified rollback, remaining name residue and unavailable verification.
+
+> **Developer:** Does `node resize 1:2 fill hug` report a requested pixel size?
+>
+> **Domain expert:** No. FILL and HUG are native Auto Layout sizing intents. Node Resize reports them separately from the actual width and height read back from Figma. Numeric axes must reach their requested size and FIXED mode; KEEP must preserve its prior size and mode. Any mismatch triggers restoration of both prior dimensions and both sizing modes.
 
 > **Developer:** Does the renderer need to parse JSX again after structural validation?
 >

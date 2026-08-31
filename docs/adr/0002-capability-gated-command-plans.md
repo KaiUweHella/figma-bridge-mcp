@@ -381,3 +381,13 @@ decides success. Mismatches restore the previous name once and emit the shared
 bounded mutation outcome as verified rollback, partial residue or unavailable
 verification. This reduces the explicit direct Node Write inventory without
 changing another Legacy Command's compatibility behavior.
+
+`node resize` follows as another bounded Legacy Write migration. Its closed
+request treats numeric, KEEP, FILL and HUG axis intent as data, retains signed
+numeric tokens through an explicit literal boundary and projects URL identity
+only from the Node Reference. Commander and `figma_run` execute one
+non-retrying Application. Numeric and KEEP postconditions verify both geometry
+and sizing mode; FILL and HUG verify their native modes while reporting actual
+dimensions separately. Failure restores and freshly verifies both prior sizes
+and both prior modes, producing the shared rollback, residue or unavailable-
+verification outcome instead of accepting a partial two-axis write.

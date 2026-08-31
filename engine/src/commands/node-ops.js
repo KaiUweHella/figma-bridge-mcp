@@ -43,6 +43,10 @@ import {
   nodeRenamePlanningArgvFromRequest,
 } from '../application/node-rename-command.js';
 import {
+  executeNodeResizePlan,
+  nodeResizePlanningArgvFromRequest,
+} from '../application/node-resize-command.js';
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
@@ -483,39 +487,25 @@ node
 node
   .command('resize <nodeId> <width> <height>')
   .description('Resize a node (keeps position). Per dimension: a number, "keep" (unchanged), "fill" or "hug" (auto-layout sizing).')
+  .allowExcessArguments(false)
   .action(async (nodeId, width, height) => {
-    await checkConnection();
-    const KEYWORDS = ['keep', 'fill', 'hug'];
-    const parseDim = (v) => KEYWORDS.includes(v) ? v : Number(v);
-    const w = parseDim(width);
-    const h = parseDim(height);
-    if ((typeof w === 'number' && !Number.isFinite(w)) || (typeof h === 'number' && !Number.isFinite(h))) {
-      console.log(chalk.red('✗ width/height must be numbers (or "keep" / "fill" / "hug")'));
-      return;
-    }
-    // fill/hug set layoutSizing (needs an auto-layout parent / children);
-    // numbers resize to FIXED. Mixed forms are fine ("fill" + number).
-    const dimCode = (dim, prop, sizeProp) => {
-      if (dim === 'keep') return '';
-      if (dim === 'fill' || dim === 'hug') {
-        return `node.${sizeProp} = '${dim.toUpperCase()}';`;
-      }
-      return `node.${sizeProp} = 'FIXED'; ${prop === 'width' ? `node.resize(${dim}, node.height);` : `node.resize(node.width, ${dim});`}`;
-    };
-    const code = `(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
-      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-      if (typeof node.resize !== 'function') throw new Error('Node cannot be resized: ' + node.type);
-      try { ${dimCode(w, 'width', 'layoutSizingHorizontal')} } catch (e) { throw new Error('width: ' + e.message); }
-      try { ${dimCode(h, 'height', 'layoutSizingVertical')} } catch (e) { throw new Error('height: ' + e.message); }
-      return { id: node.id, name: node.name, width: node.width, height: node.height,
-        sizingH: node.layoutSizingHorizontal, sizingV: node.layoutSizingVertical };
-    })()`;
     try {
-      const r = await fastEval(code);
-      console.log(chalk.green('✓'), `Resized "${r.name}" to ${r.width}×${r.height}`);
-    } catch (e) {
-      console.log(chalk.red('✗ Resize failed: ' + e.message));
+      const plan = planFigmaCommand(nodeResizePlanningArgvFromRequest({ nodeId, width, height }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeResizePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Resize failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });
