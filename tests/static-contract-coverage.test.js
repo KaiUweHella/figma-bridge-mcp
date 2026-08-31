@@ -39,6 +39,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/node-reparent-request.js',
   'engine/src/application/node-group-command.js',
   'engine/src/application/node-group-request.js',
+  'engine/src/application/node-ungroup-command.js',
+  'engine/src/application/node-ungroup-request.js',
   'engine/src/application/node-to-component-command.js',
   'engine/src/application/node-to-component-request.js',
   'engine/src/application/screenshot-command.js',

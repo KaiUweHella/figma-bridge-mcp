@@ -55,6 +55,10 @@ import {
   nodeGroupPlanningArgvFromRequest,
 } from '../application/node-group-command.js';
 import {
+  executeNodeUngroupPlan,
+  nodeUngroupPlanningArgvFromRequest,
+} from '../application/node-ungroup-command.js';
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
@@ -277,18 +281,13 @@ node
   .option('--json', 'Output as JSON')
   .action(async (nodeId, options) => {
     try {
-      const id = normalizeNodeId(String(nodeId)).id;
-      await checkConnection();
-      const result = await fastEval(`(async () => {
-const target = await figma.getNodeByIdAsync(${JSON.stringify(id)});
-if (!target || !['GROUP', 'TRANSFORM_GROUP'].includes(target.type)) throw new Error('Expected GROUP or TRANSFORM_GROUP: ' + ${JSON.stringify(id)});
-const parentId = target.parent ? target.parent.id : null;
-const children = figma.ungroup(target);
-return { parentId, children: children.map(child => ({ id: child.id, name: child.name, type: child.type })) };
-})()`);
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Ungrouped ${result.children.length} nodes into ${result.parentId}`);
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(nodeUngroupPlanningArgvFromRequest({ nodeId, json: options.json === true }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false }, async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeNodeUngroupPlan(plan, { evaluate: (code) => daemonExec('eval', { code, ...(fileKey ? { fileKey } : {}) }, Math.max(1, deadline - Date.now())) });
+      });
+      console.log(result.stdout);
+    } catch (error) { console.error(chalk.red('✗ Ungroup failed: ' + (error?.message || String(error)))); process.exitCode = 1; }
   });
 
 structuralParentOptions(node

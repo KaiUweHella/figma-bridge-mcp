@@ -439,9 +439,9 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
   }
   assert.deepEqual(direct.sort(), [
     'bind', 'boolean', 'flatten',
-    'set', 'set-fill', 'set-image', 'ungroup',
+    'set', 'set-fill', 'set-image',
   ]);
-  assert.equal(direct.length, 7,
+  assert.equal(direct.length, 6,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
 });
 
@@ -454,6 +454,11 @@ test('node group delegates one Plan-bound rollback-owned Command Application', (
   assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(action, /executeNodeGroupPlan\(plan/);
   assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.group\(/);
+});
+
+test('node ungroup delegates one Plan-bound hierarchy-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js'); const start = adapter.indexOf(".command('ungroup <nodeId>')"); const end = adapter.indexOf(".command('boolean <operation> <nodeIds...>')", start); const action = adapter.slice(start, end);
+  assert.match(action, /nodeUngroupPlanningArgvFromRequest\(/); assert.match(action, /executeNodeUngroupPlan\(plan/); assert.match(action, /compatibilityFallback: false/); assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.ungroup\(/);
 });
 
 test('node reparent delegates one Plan-bound hierarchy-verified Command Application', () => {

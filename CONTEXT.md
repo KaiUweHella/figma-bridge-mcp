@@ -242,6 +242,16 @@ original parents, indices and positions, and reports verified rollback,
 bounded structural residue or unavailable verification.
 _Avoid_: Commander group handler, count-only success, partial parent verification, unverified ungroup rollback
 
+**Node Ungroup**:
+The bounded, non-retrying dissolution of one exact attached Group or Transform
+Group. Success requires fresh proof that the group identity is absent, its
+complete ordered children replaced it at the original parent index, and every
+child now belongs to that parent. Because reconstructing an arbitrary native
+Transform Group would overclaim rollback, a mismatched postcondition reports
+verified unchanged state, bounded group/parent/child residue, or unavailable
+verification instead of fabricating restoration.
+_Avoid_: Commander ungroup handler, returned-array success, recreated Transform Group claim, unbounded residue
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation

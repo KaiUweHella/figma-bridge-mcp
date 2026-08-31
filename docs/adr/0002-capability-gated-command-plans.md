@@ -414,3 +414,14 @@ Group identity, exact selected membership and exact readback of every affected
 parent. A mismatch uses the new Group as the rollback boundary, ungroups it,
 restores original parents, indices and positions, and reports verified
 rollback, bounded residue or unavailable verification.
+
+`node ungroup` closes the inverse public action without pretending it is
+generically reversible. One exact Group or Transform Group is preflighted with
+its full bounded child order and original parent position. Commander and
+`figma_run` execute one non-retrying Application and accept success only when a
+fresh read proves the group absent, the ordered children spliced into its old
+index and every child attached to the old parent. If the native operation
+throws or verification disagrees, a freshly unchanged hierarchy is explicit;
+otherwise the Application reports bounded group, parent-order and child-parent
+residue or unavailable verification. It does not recreate a lossy stand-in for
+an arbitrary Transform Group.

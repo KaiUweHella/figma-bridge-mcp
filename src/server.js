@@ -105,6 +105,7 @@ import {
   executeNodeGroupPlan,
   nodeGroupPlanRoute,
 } from "../engine/src/application/node-group-command.js";
+import { executeNodeUngroupPlan, nodeUngroupPlanRoute } from "../engine/src/application/node-ungroup-command.js";
 import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
@@ -2303,6 +2304,14 @@ export async function handleTool(name, rawArgs) {
               fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }),
           });
+        });
+        return resultFromCli(res);
+      }
+      const nodeUngroupRoute = nodeUngroupPlanRoute(plan);
+      if (nodeUngroupRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeUngroupPlan(plan, { evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()) }) });
         });
         return resultFromCli(res);
       }
