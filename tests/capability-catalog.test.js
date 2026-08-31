@@ -2184,6 +2184,21 @@ test('Slot create and edit own canonical cross-Adapter non-retrying write Plans'
   assert.equal(planFigmaCommand(['slot', 'edit', '1:1', 'Content#1:1']).allowed, false);
 });
 
+test('Slot inspect and validate own canonical cross-Adapter safe-read Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=2-1';
+  for (const argv of [['slot', 'inspect', url], ['slot', 'validate'], ['slot', 'validate', url]]) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true);
+    assert.equal(mcp.id, `slot.${argv[1]}`);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.equal(mcp.execution.retry, 'safe-read');
+    assert.equal(mcp.effects.editor, argv[1] === 'validate' ? 'read' : 'none');
+  }
+  assert.equal(planFigmaCommand(['slot', 'inspect']).allowed, false);
+  assert.equal(planFigmaCommand(['slot', 'validate', '1:1', '2:1']).allowed, false);
+});
+
 test('Slot reset owns one URL-targeted irreversible non-retrying Plan', () => {
   const url = 'https://www.figma.com/design/FILEA/Test?node-id=2-1';
   const mcp = planFigmaCommand(['slot', 'reset', url], { adapter: 'mcp' });

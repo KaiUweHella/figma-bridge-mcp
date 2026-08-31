@@ -725,6 +725,26 @@ test('Slot create and edit delegate one Plan-bound rollback-owned Application', 
   assert.match(application, /current\.deleteComponentProperty\(/);
 });
 
+test('Slot inspect and validate delegate one Plan-bound bounded read Application', () => {
+  const adapter = sources.get('slots.js');
+  for (const marker of ["command('inspect <nodeId>')", "command('validate [nodeId]')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('slot.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runSlotRead\(/);
+    assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|slot(?:Inspect|Validate)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'slot-read-command.js'), 'utf8');
+  assert.match(application, /componentPropertyDefinitions/);
+  assert.match(application, /root\.findAll\(\(node\) => node\.type === 'SLOT'\)/);
+});
+
+test('the remaining direct Slot Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('slots.js');
+  assert.deepEqual([...adapter.matchAll(/slot(?:Inspect|Validate)Code|fastEval|checkConnection/g)].map((match) => match[0]), []);
+});
+
 test('the remaining direct Slot write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('slots.js'); const direct = [];
   const markers = {

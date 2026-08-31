@@ -812,6 +812,32 @@ test('figma_run routes Slot create/edit through the rollback-owned Application',
     'Slot Configuration must not re-enter Commander');
 });
 
+test('figma_run routes Slot reads through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slotReadRoute = slotReadPlanRoute(plan)');
+  const end = source.indexOf('const gridSetRoute = gridSetPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeSlotReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Slot Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Slot reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['slot', 'inspect'],
+    ['slot', 'inspect', '1:1', '2:1'],
+    ['slot', 'validate', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Slot create/edit before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
