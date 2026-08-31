@@ -602,6 +602,12 @@ import {
   parseAnalysisLintRequest,
 } from '../engine/src/application/analysis-lint-request.js';
 import {
+  acceptsA11yVisionArgv,
+  a11yVisionArgvFromRequest,
+  a11yVisionFigmaUrlFileKeyFromArgv,
+  parseA11yVisionRequest,
+} from '../engine/src/application/a11y-vision-request.js';
+import {
   acceptsDevResourceReadArgv,
   devResourceReadArgvFromRequest,
   devResourceReadFigmaUrlFileKeyFromArgv,
@@ -749,7 +755,7 @@ const COMMANDS = Object.freeze({
   grid: readGroup('Inspect or manage Layout Guides (not Auto Layout Grid)', ['list']),
   dev: readGroup('Inspect or manage dev-resource links', ['list']),
   annotate: readGroup('Inspect or manage annotations and categories', ['list', 'categories']),
-  a11y: { summary: 'Run accessibility checks', mutation: 'read' },
+  a11y: readGroup('Run accessibility checks', ['contrast', 'touch', 'text', 'focus', 'audit']),
   canvas: readGroup('Inspect pages or mutate the canvas', ['info', 'pages', 'page', 'next']),
   find: { summary: 'Find nodes by name', mutation: 'read', retry: 'safe-read', path: 'node-discovery-input' },
   verify: { summary: 'Capture a verification screenshot', mutation: 'read', path: 'verify-image', retry: 'safe-read' },
@@ -804,7 +810,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slot.validate',
   'slides.inspect',
   'export.screenshot',
-  'section.list', 'a11y.vision', 'a11y.focus',
+  'section.list', 'a11y.focus',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'section.create',
   'jam.board', 'jam.arrange',
@@ -900,6 +906,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'grid.clear',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'analyze.lint',
+  'a11y.vision',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1247,6 +1254,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'analysis-census-input';
   }
   if (actionId === 'analyze.lint') pathPolicy = 'analysis-lint-input';
+  if (actionId === 'a11y.vision') pathPolicy = 'a11y-vision-input';
   if (name === 'dev' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'dev-resource-read-input';
@@ -1696,6 +1704,10 @@ function commandCapability(args) {
   }
   if (name === 'analyze' && ['colors', 'typography', 'type', 'spacing', 'clusters'].includes(args[1])
     && !action.help && !acceptsAnalysisCensusArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'a11y.vision'
+    && !action.help && !acceptsA11yVisionArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'dev' && args[1] === 'list'
@@ -2717,6 +2729,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...analysisLintArgvFromRequest(parseAnalysisLintRequest(args)));
       break;
     }
+    case 'a11y-vision-input': {
+      const closedFileKey = a11yVisionFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...a11yVisionArgvFromRequest(parseA11yVisionRequest(args)));
+      break;
+    }
     case 'dev-resource-read-input': {
       const closedFileKey = devResourceReadFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -3221,6 +3240,7 @@ function editorEffect(args, capability) {
     && !parseComponentPropertyListRequest(args).componentId) return 'read';
   if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
   if (actionId === 'analyze.lint' && !parseAnalysisLintRequest(args).nodeId) return 'read';
+  if (actionId === 'a11y.vision' && !parseA11yVisionRequest(args).nodeId) return 'read';
   if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.list' && !parseAnnotationReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.add' && parseAnnotationAddRequest(args).selector === 'query') {

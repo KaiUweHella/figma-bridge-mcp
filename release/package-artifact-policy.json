@@ -18,6 +18,8 @@
     "engine/src/application/analysis-census-request.js",
     "engine/src/application/analysis-lint-command.js",
     "engine/src/application/analysis-lint-request.js",
+    "engine/src/application/a11y-vision-command.js",
+    "engine/src/application/a11y-vision-request.js",
     "engine/src/application/annotation-category-inventory-command.js",
     "engine/src/application/annotation-category-inventory-request.js",
     "engine/src/application/annotation-category-facts.js",

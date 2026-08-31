@@ -1,9 +1,18 @@
 // Commands: a11y (extracted from index.js)
 import chalk from 'chalk';
-import { join } from 'path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import {
+  ensurePluginReadiness,
+  runInProcessCommandPlan,
+} from '../../../src/engine.js';
+import {
+  a11yVisionPlanningArgvFromRequest,
+  executeA11yVisionPlan,
+} from '../application/a11y-vision-command.js';
 import {
   program,
   checkConnection,
+  daemonExec,
   fastEval,
   handleEvalError
 } from '../lib/cli-core.js';
@@ -166,188 +175,32 @@ a11y
   .description('Simulate color blindness (protanopia, deuteranopia, tritanopia, achromatopsia)')
   .option('--type <type>', 'Type: protanopia, deuteranopia, tritanopia, achromatopsia, all', 'all')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    const simType = options.type.toLowerCase();
-    const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
-      const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage.selection[0];
-      if (!root) return { error: 'Select a frame or provide a node ID' };
-
-      // Color blindness simulation matrices (Brettel/Vienot models)
-      const matrices = {
-        protanopia: [
-          0.152286, 1.052583, -0.204868,
-          0.114503, 0.786281, 0.099216,
-          -0.003882, -0.048116, 1.051998
-        ],
-        deuteranopia: [
-          0.367322, 0.860646, -0.227968,
-          0.280085, 0.672501, 0.047413,
-          -0.011820, 0.042940, 0.968881
-        ],
-        tritanopia: [
-          1.255528, -0.076749, -0.178779,
-          -0.078411, 0.930809, 0.147602,
-          0.004733, 0.691367, 0.303900
-        ],
-        achromatopsia: [
-          0.2126, 0.7152, 0.0722,
-          0.2126, 0.7152, 0.0722,
-          0.2126, 0.7152, 0.0722
-        ]
-      };
-
-      function applyMatrix(r, g, b, matrix) {
-        return {
-          r: Math.max(0, Math.min(1, matrix[0] * r + matrix[1] * g + matrix[2] * b)),
-          g: Math.max(0, Math.min(1, matrix[3] * r + matrix[4] * g + matrix[5] * b)),
-          b: Math.max(0, Math.min(1, matrix[6] * r + matrix[7] * g + matrix[8] * b))
-        };
-      }
-
-      function toHex(c) {
-        const r = Math.round(c.r * 255).toString(16).padStart(2, '0');
-        const g = Math.round(c.g * 255).toString(16).padStart(2, '0');
-        const b = Math.round(c.b * 255).toString(16).padStart(2, '0');
-        return '#' + r + g + b;
-      }
-
-      const types = "${simType}" === 'all' ? Object.keys(matrices) : ["${simType}"];
-      if (!types.every(t => matrices[t])) return { error: 'Unknown type. Use: protanopia, deuteranopia, tritanopia, achromatopsia, all' };
-
-      // Collect all unique colors used in the selection
-      const colorMap = new Map();
-      function collectColors(node) {
-        if (node.fills && Array.isArray(node.fills)) {
-          for (const fill of node.fills) {
-            if (fill.type === 'SOLID' && fill.visible !== false) {
-              const hex = toHex(fill.color);
-              if (!colorMap.has(hex)) colorMap.set(hex, { ...fill.color });
-            }
-          }
-        }
-        if (node.strokes && Array.isArray(node.strokes)) {
-          for (const stroke of node.strokes) {
-            if (stroke.type === 'SOLID' && stroke.visible !== false) {
-              const hex = toHex(stroke.color);
-              if (!colorMap.has(hex)) colorMap.set(hex, { ...stroke.color });
-            }
-          }
-        }
-        if ('children' in node) {
-          for (const child of node.children) collectColors(child);
-        }
-      }
-      collectColors(root);
-
-      // Simulate each type
-      const simulations = {};
-      for (const type of types) {
-        const matrix = matrices[type];
-        const colors = [];
-        for (const [hex, color] of colorMap) {
-          const sim = applyMatrix(color.r, color.g, color.b, matrix);
-          colors.push({ original: hex, simulated: toHex(sim) });
-        }
-        // Find confusable pairs (colors that become too similar after simulation)
-        const confusable = [];
-        const entries = Array.from(colorMap.entries());
-        for (let i = 0; i < entries.length; i++) {
-          for (let j = i + 1; j < entries.length; j++) {
-            const [hex1, c1] = entries[i];
-            const [hex2, c2] = entries[j];
-            const s1 = applyMatrix(c1.r, c1.g, c1.b, matrix);
-            const s2 = applyMatrix(c2.r, c2.g, c2.b, matrix);
-            const diff = Math.sqrt(
-              Math.pow(s1.r - s2.r, 2) + Math.pow(s1.g - s2.g, 2) + Math.pow(s1.b - s2.b, 2)
-            );
-            if (diff < 0.05 && Math.sqrt(
-              Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2)
-            ) > 0.1) {
-              confusable.push({ color1: hex1, color2: hex2, simulated1: toHex(s1), simulated2: toHex(s2) });
-            }
-          }
-        }
-        simulations[type] = { colors, confusable };
-      }
-
-      // Create visual simulation copies
-      const clones = [];
-      const rootX = root.x;
-      const rootWidth = root.width;
-      let offsetX = rootX + rootWidth + 100;
-
-      for (const type of types) {
-        const clone = root.clone();
-        clone.name = root.name + ' (' + type.charAt(0).toUpperCase() + type.slice(1) + ')';
-        clone.x = offsetX;
-        clone.y = root.y;
-
-        function transformColors(node) {
-          const matrix = matrices[type];
-          if (node.fills && Array.isArray(node.fills)) {
-            const newFills = node.fills.map(fill => {
-              if (fill.type === 'SOLID' && fill.visible !== false) {
-                const sim = applyMatrix(fill.color.r, fill.color.g, fill.color.b, matrix);
-                return { ...fill, color: { r: sim.r, g: sim.g, b: sim.b } };
-              }
-              return fill;
-            });
-            node.fills = newFills;
-          }
-          if (node.strokes && Array.isArray(node.strokes)) {
-            const newStrokes = node.strokes.map(stroke => {
-              if (stroke.type === 'SOLID' && stroke.visible !== false) {
-                const sim = applyMatrix(stroke.color.r, stroke.color.g, stroke.color.b, matrix);
-                return { ...stroke, color: { r: sim.r, g: sim.g, b: sim.b } };
-              }
-              return stroke;
-            });
-            node.strokes = newStrokes;
-          }
-          if ('children' in node) {
-            for (const child of node.children) transformColors(child);
-          }
-        }
-        transformColors(clone);
-        clones.push({ id: clone.id, name: clone.name, type });
-        offsetX += rootWidth + 60;
-      }
-
-      return { original: root.name, totalColors: colorMap.size, types, simulations, clones };
-    })()`;
-
     try {
-      const result = await fastEval(code);
-      if (result.error) { console.error(chalk.red('✗ ' + result.error)); process.exit(1); }
-
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
-        return;
-      }
-
-      console.log(chalk.cyan('\n  Color Blindness Simulation\n'));
-      console.log(`  Source: ${chalk.white(result.original)} (${result.totalColors} unique colors)\n`);
-      console.log('  Created simulation copies:\n');
-
-      for (const clone of result.clones) {
-        const sim = result.simulations[clone.type];
-        const issues = sim.confusable.length;
-        const icon = issues > 0 ? chalk.yellow('⚠') : chalk.green('✓');
-        console.log(`  ${icon} ${chalk.white(clone.name)}`);
-        if (issues > 0) {
-          console.log(`    ${chalk.yellow(issues + ' confusable color pair(s):')}`);
-          sim.confusable.forEach(pair => {
-            console.log(`    ${pair.color1} ↔ ${pair.color2} → both appear as ~${pair.simulated1}`);
+      const plan = planFigmaCommand(a11yVisionPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+        type: options.type,
+        json: options.json === true,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
-        } else {
-          console.log(`    ${chalk.green('No confusable colors')}`);
-        }
-        console.log(`    ${chalk.gray('ID: ' + clone.id)}\n`);
-      }
-    } catch (e) {
-      handleEvalError(e);
+          return executeA11yVisionPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ A11y Vision failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -889,4 +742,3 @@ a11y
       handleEvalError(e);
     }
   });
-

@@ -61,12 +61,16 @@ test('success text goes to stdout via spinnerSucceed, never spinner.succeed', ()
 test('a11y checks fail loudly (no console.log for execution errors)', () => {
   const src = sources.get('a11y.js');
   assert.ok(src, 'a11y.js exists');
-  // Every catch reports via handleEvalError (which exits 1); result.error
-  // paths exit 1 explicitly. Neither may swallow into a zero exit.
+  // The five legacy reads report via handleEvalError; the owned mutating
+  // Vision Application has its own nonzero Commander outcome.
   assert.ok(!/console\.log\(chalk\.red\('✗ .*failed/.test(src),
     'failed checks must not be logged-and-forgotten on stdout');
-  assert.equal((src.match(/handleEvalError\(e\)/g) || []).length, 6,
-    'all six a11y subcommands route errors through handleEvalError');
+  assert.equal((src.match(/handleEvalError\(e\)/g) || []).length, 5,
+    'all five direct a11y reads route errors through handleEvalError');
+  assert.match(src, /executeA11yVisionPlan\(plan/,
+    'a11y vision delegates to its authoritative Command Application');
+  assert.match(src, /A11y Vision failed:[\s\S]*process\.exitCode = 1/,
+    'the delegated mutating command retains a nonzero failure outcome');
   assert.equal((src.match(/options\.failOnIssues/g) || []).length, 4,
     'the four violation-reporting checks offer --fail-on-issues for CI');
 });
