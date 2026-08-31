@@ -19,12 +19,6 @@ function parseTrackSizes(raw, label) {
   return values;
 }
 
-function parseIndices(raw) {
-  const indices = String(raw || '').split(',').map(Number);
-  if (!indices.length || indices.some((value) => !Number.isInteger(value) || value < 0)) throw new Error('--from must be comma-separated zero-based indices');
-  return indices;
-}
-
 function gridFactsCode() {
   return `const __gridFacts = (n) => ({ id: n.id, name: n.name, type: n.type, layoutMode: n.layoutMode, rows: n.gridRowCount, columns: n.gridColumnCount, rowGap: n.gridRowGap, columnGap: n.gridColumnGap, rowSizes: Array.from(n.gridRowSizes || [], t => ({ type: t.type, ...(t.value === undefined ? {} : { value: t.value }) })), columnSizes: Array.from(n.gridColumnSizes || [], t => ({ type: t.type, ...(t.value === undefined ? {} : { value: t.value }) })), autoTracks: n.gridAutoTracks, itemsPositioning: n.gridItemsPositioning });`;
 }
@@ -65,17 +59,6 @@ ${parsedColumnSizes === undefined ? '' : `if (node.gridColumnSizes.length !== ${
 return { before, after: __gridFacts(node) };`);
 }
 
-function gridLayoutReorderCode({ nodeId, axis, from, insertionIndex }) {
-  const normalizedAxis = String(axis).toLowerCase();
-  if (!['rows', 'columns'].includes(normalizedAxis)) throw new Error('Axis must be rows or columns');
-  const indices = parseIndices(from);
-  const insertion = Number(insertionIndex);
-  if (!Number.isInteger(insertion) || insertion < 0) throw new Error('--to must be a zero-based insertion index');
-  const method = normalizedAxis === 'rows' ? 'reorderRows' : 'reorderColumns';
-  return gridNodeCode(nodeId, `if (node.layoutMode !== 'GRID' || typeof node.${method} !== 'function') throw new Error('Grid track reordering is unavailable'); const moves = node.${method}({ fromIndices: ${JSON.stringify(indices)}, insertionIndex: ${insertion} }); return { grid: __gridFacts(node), moves };`);
-}
-
 export {
-  gridLayoutInspectCode, gridLayoutReorderCode,
-  gridLayoutSetCode, parseIndices, parseTrackSizes,
+  gridLayoutInspectCode, gridLayoutSetCode, parseTrackSizes,
 };

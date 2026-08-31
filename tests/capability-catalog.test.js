@@ -2210,6 +2210,26 @@ test('Grid Place owns one dual-URL rollback-capable non-retrying Plan', () => {
   ]).allowed, false);
 });
 
+test('Grid Track Reorder owns one URL-targeted irreversible non-retrying Plan per axis', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  for (const action of ['reorder-rows', 'reorder-columns']) {
+    const mcp = planFigmaCommand([
+      'layout', 'grid', action, '--to=3', url, '--from', '0,2',
+    ], { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, `layout.grid.${action}`);
+    assert.deepEqual(mcp.argv, [
+      'layout', 'grid', action, '--from', '0,2', '--to', '3', '--', '2:1',
+    ]);
+    assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+    assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand([
+    'layout', 'grid', 'reorder-rows', '2:1', '--from', '0',
+  ]).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

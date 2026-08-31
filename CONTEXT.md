@@ -764,6 +764,15 @@ and restores the prior parent order plus free-layout or Grid placement state on
 failure. CLI and MCP share one non-retrying Command Application.
 _Avoid_: Grid placement eval, unverified reparenting, retry after `appendChildAt`
 
+**Grid Track Reorder**:
+The closed, irreversible permutation of native Auto Layout Grid rows or
+columns. It dispatches exactly one native reorder call, validates the returned
+permutation and freshly proves track definitions plus every child anchor/span.
+Because arbitrary track moves have no safe inverse, failure reports exact
+no-mutation, partial residue or unavailable verification instead of claiming
+rollback. CLI and MCP share one non-retrying Command Application.
+_Avoid_: Grid reorder eval, inferred inverse permutation, retry after dispatch
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -1255,4 +1264,4 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 
 > **Developer:** Can `layout grid auto-flow` leave one of its two native fields changed after reporting failure?
 >
-> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan. Grid child placement now has the same authoritative seam, leaving `set` and the two track-reorder actions as the three measured Auto Layout Grid legacy writes.
+> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan. Grid child placement has the same authoritative seam. Row and column reordering now share a separate irreversible Application: it validates the native permutation and fresh tracks plus child anchors/spans, but never claims a rollback that Figma cannot safely provide. `set` is the one remaining measured Auto Layout Grid legacy write.

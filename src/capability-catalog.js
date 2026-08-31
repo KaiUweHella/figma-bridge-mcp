@@ -137,6 +137,12 @@ import {
   parseGridPlaceRequest,
 } from '../engine/src/application/grid-place-request.js';
 import {
+  acceptsGridTrackReorderArgv,
+  gridTrackReorderArgvFromRequest,
+  gridTrackReorderFigmaUrlFileKeyFromArgv,
+  parseGridTrackReorderRequest,
+} from '../engine/src/application/grid-track-reorder-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -655,6 +661,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'slot.create', 'slot.edit',
   'slot.reset',
   'layout.grid.auto-flow', 'layout.grid.place',
+  'layout.grid.reorder-rows', 'layout.grid.reorder-columns',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -868,6 +875,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (actionId === 'slot.reset') pathPolicy = 'slot-reset-input';
   if (actionId === 'layout.grid.auto-flow') pathPolicy = 'grid-auto-flow-input';
   if (actionId === 'layout.grid.place') pathPolicy = 'grid-place-input';
+  if (['layout.grid.reorder-rows', 'layout.grid.reorder-columns'].includes(actionId)) {
+    pathPolicy = 'grid-track-reorder-input';
+  }
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1116,6 +1126,10 @@ function commandCapability(args) {
   }
   if (action.actionId === 'layout.grid.place'
     && !action.help && !acceptsGridPlaceArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['layout.grid.reorder-rows', 'layout.grid.reorder-columns'].includes(action.actionId)
+    && !action.help && !acceptsGridTrackReorderArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -2138,6 +2152,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'grid-place-input': {
       if (projectUrlTarget) figmaUrlFileKey = gridPlaceFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length, ...gridPlaceArgvFromRequest(parseGridPlaceRequest(args)));
+      break;
+    }
+    case 'grid-track-reorder-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridTrackReorderFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...gridTrackReorderArgvFromRequest(parseGridTrackReorderRequest(args)));
       break;
     }
     case 'component-main-input': {

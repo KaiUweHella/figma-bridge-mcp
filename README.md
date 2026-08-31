@@ -1544,6 +1544,7 @@ figma_run ["shader", "import", "<shader-id>"]
 figma_run ["shader", "apply", "12:34", "<shader-id>", "--field", "fill", "--properties", "{\"definition-id\":0.8}"]
 figma_run ["layout", "grid", "set", "12:34", "--rows", "2", "--columns", "3", "--row-gap", "12"]
 figma_run ["layout", "grid", "auto-flow", "12:34", "--auto-tracks", "rows", "--positioning", "row_auto_flow"]
+figma_run ["layout", "grid", "reorder-rows", "12:34", "--from", "0,2", "--to", "3"]
 figma_run ["grid", "list", "12:34", "--json"]
 figma_run ["slot", "create", "12:37", "Content", "--settings", "{\"minChildren\":1,\"maxChildren\":3}"]
 figma_run ["slot", "validate", "12:37"]
@@ -1570,6 +1571,12 @@ reports the exact remaining field residue.
 manual Grid bounds and occupied cells before moving the child, freshly proves
 the resulting hierarchy, cell, spans and alignment, and restores the complete
 prior parent/free-layout or Grid state when the postcondition fails.
+`layout grid reorder-rows|reorder-columns` shares one irreversible,
+non-retrying path. It validates the native track permutation and freshly proves
+the track definitions plus every child anchor/span. A thrown call is reported
+as no mutation only when fresh state proves the complete old Grid; otherwise
+confirmed differences remain explicit residue because the Plugin API exposes
+no safe general inverse.
 `grid list [nodeId]` is the exact bounded read for those layout guides and may
 use the current selection when the id is omitted. It preserves `gridStyleId`,
 all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count

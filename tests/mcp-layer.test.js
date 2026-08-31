@@ -802,6 +802,33 @@ test('figma_run rejects malformed Grid Place before readiness or dispatch', asyn
   }
 });
 
+test('figma_run routes Grid Track Reorder through the irreversible Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridTrackReorderRoute = gridTrackReorderPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridTrackReorderPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Track Reorder must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Grid Track Reorder before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'reorder-rows', '2:1', '--from', '0'],
+    ['layout', 'grid', 'reorder-columns', '2:1', '--from', '-1', '--to', '1'],
+    ['layout', 'grid', 'reorder-rows', '2:1', '--from', '0', '--to', '1', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('MCP error results retain one validated bounded mutation projection', async () => {
   const { errorResult } = await import('../src/server.js');
   const structuredContent = {

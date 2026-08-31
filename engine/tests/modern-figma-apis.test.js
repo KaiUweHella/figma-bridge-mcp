@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gridAutoFlowCode } from '../src/application/grid-auto-flow-command.js';
 import { gridPlaceCode } from '../src/application/grid-place-command.js';
+import { gridTrackReorderCode } from '../src/application/grid-track-reorder-command.js';
 import { shaderApplyCode, shaderImportCode, shaderListCode } from '../src/lib/shader-management.js';
-import { gridLayoutReorderCode, gridLayoutSetCode } from '../src/lib/grid-layout-management.js';
+import { gridLayoutSetCode } from '../src/lib/grid-layout-management.js';
 import { parseSlotSettings, slotCreateCode, slotResetCode, slotValidateCode } from '../src/lib/slot-management.js';
 import { drawBrushCode, drawPatternCode, drawStrokeProfileCode, drawTextPathCode, drawTransformGroupCode } from '../src/lib/draw-management.js';
 
@@ -47,9 +48,27 @@ function gridFixture() {
       if (node.parent) node.parent.children.splice(node.parent.children.indexOf(node), 1);
       this.children.splice(index, 0, node); node.parent = this;
     },
-    reorderRows: ({ fromIndices, insertionIndex }) => fromIndices.map((from) => ({ from, to: insertionIndex - 1 })),
-    reorderColumns: () => [],
+    reorderRows: (options) => reorder('rows', options),
+    reorderColumns: (options) => reorder('columns', options),
   };
+  function reorder(axis, { fromIndices, insertionIndex }) {
+    const field = axis === 'rows' ? 'gridRowSizes' : 'gridColumnSizes';
+    const anchor = axis === 'rows' ? 'gridRowAnchorIndex' : 'gridColumnAnchorIndex';
+    const span = axis === 'rows' ? 'gridRowSpan' : 'gridColumnSpan';
+    const count = grid[field].length;
+    const selected = [...new Set(fromIndices)].sort((left, right) => left - right);
+    const remaining = Array.from({ length: count }, (_, index) => index)
+      .filter((index) => !selected.includes(index));
+    const adjusted = insertionIndex - selected.filter((index) => index < insertionIndex).length;
+    const order = [...remaining]; order.splice(adjusted, 0, ...selected);
+    const mapping = new Map(order.map((from, to) => [from, to]));
+    grid[field] = order.map((from) => grid[field][from]);
+    for (const item of grid.children) {
+      const occupied = Array.from({ length: item[span] }, (_, offset) => mapping.get(item[anchor] + offset));
+      item[anchor] = Math.min(...occupied);
+    }
+    return order.map((from, to) => ({ from, to })).filter(({ from, to }) => from !== to);
+  }
   Object.defineProperty(grid, 'gridRowCount', { get() { return this.gridRowSizes.length; }, set(value) { while (this.gridRowSizes.length < value) this.gridRowSizes.push({ type: 'FLEX', value: 1 }); this.gridRowSizes.length = value; } });
   Object.defineProperty(grid, 'gridColumnCount', { get() { return this.gridColumnSizes.length; }, set(value) { while (this.gridColumnSizes.length < value) this.gridColumnSizes.push({ type: 'FLEX', value: 1 }); this.gridColumnSizes.length = value; } });
   return { grid, child, figma: { getNodeByIdAsync: async (id) => id === grid.id ? grid : id === child.id ? child : id === source.id ? source : null } };
@@ -68,7 +87,10 @@ test('auto-layout grid APIs configure tracks, place children, auto-flow, and reo
   const autoFlow = JSON.parse(await execute(gridAutoFlowCode({ nodeId: grid.id, autoTracks: 'rows', positioning: 'row_auto_flow' }), figma));
   assert.equal(autoFlow.outcome, 'verified');
   assert.equal(grid.gridItemsPositioning, 'ROW_AUTO_FLOW');
-  assert.equal((await execute(gridLayoutReorderCode({ nodeId: grid.id, axis: 'rows', from: '0', insertionIndex: 2 }), figma)).moves[0].from, 0);
+  const reordered = JSON.parse(await execute(gridTrackReorderCode({
+    nodeId: grid.id, axis: 'rows', from: '0', insertionIndex: 2,
+  }), figma));
+  assert.equal(reordered.moves[0].from, 0);
 });
 
 test('occupied native grids grow without resetting layout mode', async () => {

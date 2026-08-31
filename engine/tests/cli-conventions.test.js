@@ -1165,6 +1165,23 @@ test('Grid Place delegates one Plan-bound hierarchy-verified Application', () =>
   assert.match(application, /getNodeByIdAsync\(request\.childId\)/);
 });
 
+test('Grid Track Reorder delegates one Plan-bound irreversible Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  for (const [name, next] of [['reorder-rows', 'reorder-columns'], ['reorder-columns', null]]) {
+    const start = adapter.indexOf(`grid.command('${name} <nodeId>')`);
+    const end = next ? adapter.indexOf(`grid.command('${next} <nodeId>')`, start) : adapter.length;
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runGridTrackReorder\(/);
+    assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutReorderCode\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-track-reorder-command.js'), 'utf8');
+  assert.match(application, /moves = grid\[method\]\(\{ fromIndices:/);
+  assert.match(application, /Fresh Grid track postcondition/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+  assert.doesNotMatch(application, /grid\[method\]\([^)]*\).*grid\[method\]\(/s);
+});
+
 test('the remaining direct Auto Layout Grid write inventory is explicit', () => {
   const adapter = sources.get('grid-layout.js'); const direct = [];
   for (const name of ['set', 'place', 'auto-flow', 'reorder-rows', 'reorder-columns']) {
@@ -1174,8 +1191,8 @@ test('the remaining direct Auto Layout Grid write inventory is explicit', () => 
     const action = adapter.slice(start, end === -1 ? adapter.length : end);
     if (/\brun\(|checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
   }
-  assert.deepEqual(direct, ['set', 'reorder-rows', 'reorder-columns']);
-  assert.equal(direct.length, 3,
+  assert.deepEqual(direct, ['set']);
+  assert.equal(direct.length, 1,
     'STAB-26 Auto Layout Grid Legacy Write count may decrease, but must never increase silently');
 });
 

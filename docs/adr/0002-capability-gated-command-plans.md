@@ -650,6 +650,18 @@ the original parent order, free-layout position or prior Grid cell, spans and
 alignments, then reports verified rollback, bounded residue or unavailable
 verification. Commander and `figma_run` retain no second placement path.
 
+`layout grid reorder-rows|reorder-columns` owns the irreversible native track
+permutation slice. Its closed request bounds the source indices and insertion
+index before dispatch. One shared non-retrying Application calls the selected
+native reorder method once, validates its complete permutation, then freshly
+proves the reordered track definitions, every child anchor and span, and all
+unchanged Grid facts. The Plugin API exposes no generally safe inverse for
+non-contiguous or spanning moves, so this seam does not invent rollback: a
+thrown call is `no-mutation` only when exact fresh state proves the prior Grid;
+confirmed differences are `partial-residue`, and unreadable post-state remains
+`verification-unavailable`. Commander and `figma_run` retain no second track
+reorder path. The measured remaining Auto Layout Grid legacy write is `set`.
+
 All migrated Command Applications now share one Command Failure Outcome
 projection. It validates the closed terminal Dispatch state and version-1
 mutation report, accepts only the reviewed mutation outcomes and bounded
