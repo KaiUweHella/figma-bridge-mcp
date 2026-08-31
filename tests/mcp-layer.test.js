@@ -2772,6 +2772,35 @@ test('figma_run rejects malformed Annotation Clear before readiness', async () =
   }
 });
 
+test('figma_run routes Annotation Remove through the index-exact mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationRemoveRoute = annotationRemovePlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationRemovePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Remove must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Remove before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'remove'],
+    ['annotate', 'remove', '1:2'],
+    ['annotate', 'remove', '1:2', '-1'],
+    ['annotate', 'remove', '1:2', '0', 'extra'],
+    ['annotate', 'remove', 'not-a-node', '0'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Section Inventory before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

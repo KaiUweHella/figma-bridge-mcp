@@ -10,7 +10,7 @@ import { normalizeNodeId } from '../lib/node-id.js';
 import {
   annotationAddCode, annotationCategoryCreateCode,
   annotationCategoryEditCode, annotationCategoryRemoveCode, annotationEditCode,
-  annotationRemoveCode, parseProperties,
+  parseProperties,
 } from '../lib/annotation-management.js';
 import {
   program,
@@ -97,6 +97,10 @@ import {
   annotationClearPlanningArgvFromRequest,
   executeAnnotationClearPlan,
 } from '../application/annotation-clear-command.js';
+import {
+  annotationRemovePlanningArgvFromRequest,
+  executeAnnotationRemovePlan,
+} from '../application/annotation-remove-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1079,9 +1083,29 @@ annotateCmd.command('edit <nodeId> <index>')
 
 annotateCmd.command('remove <nodeId> <index>')
   .description('Remove one zero-based annotation index')
+  .allowExcessArguments(false)
   .action(async (nodeId, index) => {
-    try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationRemoveCode({ nodeId, index }) }), null, 2)); }
-    catch (e) { handleEvalError(e); }
+    try {
+      const plan = planFigmaCommand(annotationRemovePlanningArgvFromRequest({ nodeId, index }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationRemovePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Remove failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 annotateCmd.command('categories')

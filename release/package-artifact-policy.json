@@ -20,6 +20,8 @@
     "engine/src/application/annotation-clear-request.js",
     "engine/src/application/annotation-read-command.js",
     "engine/src/application/annotation-read-request.js",
+    "engine/src/application/annotation-remove-command.js",
+    "engine/src/application/annotation-remove-request.js",
     "engine/src/application/asset-export-command.js",
     "engine/src/application/asset-export-request.js",
     "engine/src/application/canvas-awareness-command.js",

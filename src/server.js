@@ -494,6 +494,10 @@ import {
   executeAnnotationClearPlan,
 } from "../engine/src/application/annotation-clear-command.js";
 import {
+  annotationRemovePlanRoute,
+  executeAnnotationRemovePlan,
+} from "../engine/src/application/annotation-remove-command.js";
+import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
@@ -4112,6 +4116,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeAnnotationClearPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationRemoveRoute = annotationRemovePlanRoute(plan);
+      if (annotationRemoveRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationRemovePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
