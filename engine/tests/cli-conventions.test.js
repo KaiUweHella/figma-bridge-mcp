@@ -438,11 +438,29 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
     }
   }
   assert.deepEqual(direct.sort(), [
-    'bind', 'boolean', 'flatten', 'group', 'rename',
+    'bind', 'boolean', 'flatten', 'group',
     'reparent', 'resize', 'set', 'set-fill', 'set-image', 'ungroup',
   ]);
-  assert.equal(direct.length, 11,
+  assert.equal(direct.length, 10,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('node rename delegates one Plan-bound rollback-owned Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('rename <nodeId> <name>')");
+  const end = adapter.indexOf('function renderNodeTextRows', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeRenamePlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeRenamePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|node\.name\s*=/,
+    'Commander must not retain Node Rename preflight, mutation, rollback, or formatting');
 });
 
 test('component main delegates one Plan-bound bounded-read Command Application', () => {

@@ -199,6 +199,16 @@ _Avoid_: generated font binding eval, setter-result success, retryable binding, 
 The bounded, non-retrying placement of one explicit canvas node at an absolute-canvas X/Y coordinate, with optional top-level Page reparenting. Its closed request distinguishes signed numeric positionals from unknown options before readiness, shares the coordinate validator used by Node Property mutation, and preserves Figma URL targeting independently of option order. Success is claimed only after a fresh absolute-position readback matches the requested coordinates; CLI and MCP execute the same Command Plan and Application without re-entering Commander.
 _Avoid_: Commander move handler, parent-relative placement claim, setter-only success, implicit page selection
 
+**Node Rename**:
+The bounded, non-retrying replacement of one exact Node Reference's native
+name. Its closed request preserves empty and dash-prefixed names and projects
+Figma URL identity only from the node field. A matching name is an explicit
+no-op; otherwise success requires a fresh exact-id readback. A thrown setter
+acknowledgement may still succeed when that readback matches. Every mismatch
+attempts to restore the previous name and reports verified rollback, bounded
+residue or unavailable verification through the shared mutation outcome.
+_Avoid_: Commander rename handler, setter-result success, retryable rename, unverified rollback
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation
@@ -970,6 +980,10 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** What happens if duplicating a node fails after Figma creates the copy?
 >
 > **Domain expert:** Node Duplicate never retries `clone()`. The Command Application owns only the new copy, removes it on a failed postcondition and freshly verifies both affected parent orders. Free-layout offsets are exact; Row, Column and Grid parents report `auto-layout-managed` coordinates because Figma owns child placement there. Its bounded mutation report distinguishes a complete rollback, remaining residue and unavailable verification without changing any supported placement, naming or offset option.
+
+> **Developer:** Is a successful `node rename` just a setter acknowledgement?
+>
+> **Domain expert:** No. Node Rename reads the exact node again and succeeds only when the requested name is observed. A thrown setter may still have committed, so the readback decides. A mismatch triggers one restoration of the previous name; the report distinguishes verified rollback, remaining name residue and unavailable verification.
 
 > **Developer:** Does the renderer need to parse JSX again after structural validation?
 >

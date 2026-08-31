@@ -35,6 +35,8 @@
     "engine/src/application/node-text-command.js",
     "engine/src/application/node-duplicate-command.js",
     "engine/src/application/node-duplicate-request.js",
+    "engine/src/application/node-rename-command.js",
+    "engine/src/application/node-rename-request.js",
     "engine/src/application/node-to-component-command.js",
     "engine/src/application/node-to-component-request.js",
     "engine/src/application/semantic-render-request.js",

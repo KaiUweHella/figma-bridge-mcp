@@ -39,6 +39,10 @@ import {
   nodeDuplicatePlanningArgvFromRequest,
 } from '../application/node-duplicate-command.js';
 import {
+  executeNodeRenamePlan,
+  nodeRenamePlanningArgvFromRequest,
+} from '../application/node-rename-command.js';
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
@@ -519,20 +523,27 @@ node
 node
   .command('rename <nodeId> <name>')
   .description('Rename a node')
+  .allowExcessArguments(false)
   .action(async (nodeId, name) => {
-    await checkConnection();
-    const code = `(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
-      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-      const oldName = node.name;
-      node.name = ${JSON.stringify(String(name))};
-      return { id: node.id, oldName, name: node.name };
-    })()`;
     try {
-      const r = await fastEval(code);
-      console.log(chalk.green('✓'), `Renamed "${r.oldName}" → "${r.name}"`);
-    } catch (e) {
-      console.log(chalk.red('✗ Rename failed: ' + e.message));
+      const plan = planFigmaCommand(nodeRenamePlanningArgvFromRequest({ nodeId, name }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeRenamePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Rename failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

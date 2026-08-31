@@ -371,3 +371,13 @@ object it created where Figma permits and reports bounded possible residue
 otherwise. Page creation declares `editor: write` only when its closed switch
 intent makes the new page current; `--no-switch` and page-divider creation
 declare `editor: none`.
+
+The incremental Legacy Write migration now also owns `node rename`. Its closed
+request preserves empty and dash-prefixed names, projects URL target identity
+only from the Node Reference and feeds one non-retrying Command Plan to the
+same Application from Commander and `figma_run`. A matching name is a no-op;
+otherwise a fresh exact-id readback, rather than the setter acknowledgement,
+decides success. Mismatches restore the previous name once and emit the shared
+bounded mutation outcome as verified rollback, partial residue or unavailable
+verification. This reduces the explicit direct Node Write inventory without
+changing another Legacy Command's compatibility behavior.
