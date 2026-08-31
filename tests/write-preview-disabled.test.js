@@ -31,6 +31,11 @@ test('explicit preview remains non-mutating when write confirmation is disabled'
     'confirm:false is policy input, not preview intent');
   assert.equal(commandPreviewReason({ preview: true, confirm: true }, plan), 'explicit-preview');
 
+  const collectionDelete = planFigmaRunCommand(['col', 'delete', 'Disposable']);
+  assert.equal(collectionDelete.confirmation, 'required');
+  assert.equal(commandPreviewReason({}, collectionDelete), 'command-confirm-policy');
+  assert.equal(commandPreviewReason({ confirm: true }, collectionDelete), null);
+
   const result = await handleTool('figma_run', {
     args: ['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', '-v', '12', 'must-not-be-created'],
     preview: true,
@@ -41,4 +46,12 @@ test('explicit preview remains non-mutating when write confirmation is disabled'
   assert.match(result.content[0].text, /effective confirmation policy: disabled/);
   assert.match(result.content[0].text, /dispatched: no/);
   assert.doesNotMatch(result.content[0].text, /must-not-be-created/);
+
+  const guardedDelete = await handleTool('figma_run', {
+    args: ['col', 'delete', 'Disposable'],
+  });
+  assert.equal(guardedDelete.isError, undefined);
+  assert.match(guardedDelete.content[0].text, /Command requires confirmation/);
+  assert.match(guardedDelete.content[0].text, /effective confirmation policy: required/);
+  assert.match(guardedDelete.content[0].text, /dispatched: no/);
 });

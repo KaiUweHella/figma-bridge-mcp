@@ -832,10 +832,14 @@ test('Collection Mode actions close policy-identical non-retrying writes', () =>
 test('Collection Delete closes one irreversible policy-identical non-retrying write', () => {
   const cli = planFigmaCommand(['col', 'delete', 'Disposable'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['col', 'delete', '--', 'Disposable'], { adapter: 'mcp' });
+  const guarded = planFigmaCommand([
+    'col', 'delete', '--only-if-empty', '--', 'Disposable',
+  ], { adapter: 'mcp' });
   assert.equal(cli.allowed, true); assert.equal(mcp.allowed, true);
   assert.deepEqual(cli.argv, mcp.argv); assert.deepEqual(cli.effects, mcp.effects);
+  assert.equal(guarded.allowed, true);
   assert.equal(cli.effects.figma, 'write'); assert.equal(cli.execution.retry, 'never');
-  assert.equal(cli.confirmation, 'configured'); assert.equal(cli.audit.capability, 'col.delete');
+  assert.equal(cli.confirmation, 'required'); assert.equal(cli.audit.capability, 'col.delete');
   for (const argv of [
     ['col', 'delete'], ['col', 'delete', 'one', 'two'],
     ['col', 'delete', '--future', 'private-value'],

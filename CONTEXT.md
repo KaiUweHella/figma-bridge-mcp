@@ -585,9 +585,12 @@ _Avoid_: collection mode eval, implicit mode match, retryable mode write, revers
 The bounded, non-retrying and irreversible removal of one resolved local
 Variable Collection and every member Variable. It validates complete Collection
 Facts and exact local membership before removal, then proves both Collection and
-member ids absent. Failure distinguishes unchanged, partial residue and an
-applied irreversible deletion whose complete postcondition projection failed.
-_Avoid_: collection delete eval, inferred membership, retryable removal, rollback claim
+member ids absent. MCP dispatch always requires an explicit second-step
+confirmation regardless of global write policy. `--only-if-empty` narrows the
+contract further by refusing a populated Collection immediately before the
+native removal. Failure distinguishes unchanged, partial residue and an applied
+irreversible deletion whose complete postcondition projection failed.
+_Avoid_: collection delete eval, inferred membership, implicit confirmation, retryable removal, rollback claim
 
 **Collection Extension**:
 The bounded, non-retrying creation of one Enterprise Extended Variable

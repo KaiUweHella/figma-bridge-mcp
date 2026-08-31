@@ -26,6 +26,7 @@ export function collectionDeleteCommandCode(request) {
   const input = normalizedRequest(request);
   return `(async () => {
     const query = ${JSON.stringify(input.collection)};
+    const onlyIfEmpty = ${input.onlyIfEmpty === true};
     ${collectionMutationPluginRuntimeCode()}
     const resolved = __bridgeResolveCollection(query);
     const collection = resolved.collection;
@@ -45,6 +46,10 @@ export function collectionDeleteCommandCode(request) {
     if (memberIds.size !== members.length || memberIds.size !== facts.variableIds.length
       || !facts.variableIds.every((id) => memberIds.has(id))) {
       throw new Error('Collection Delete encountered inconsistent Variable membership.');
+    }
+    if (onlyIfEmpty && members.length !== 0) {
+      throw new Error('Collection Delete --only-if-empty refused "' + collection.name
+        + '" because it contains ' + members.length + ' Variable(s).');
     }
     const deleted = { id: collection.id, name: collection.name, variableCount: members.length };
     const bounded = (payload) => {

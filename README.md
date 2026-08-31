@@ -1364,6 +1364,11 @@ rollback or residue without oversizing the Plugin response.
 
 `var delete-all` is also disabled. Use exact `var delete <names...>` or
 ambiguity-aware `col delete <collection>` so destructive scope is explicit.
+Collection deletion always returns a non-mutating confirmation preview before
+dispatch, even when global write confirmation is disabled. Prefer
+`col delete <collection> --only-if-empty` when cleanup must never remove member
+Variables: the Plugin verifies empty membership immediately before the native
+irreversible removal and refuses a populated Collection without mutation.
 
 A colour takes a hex or `var:<name>`. The difference is not cosmetic: a hex is
 frozen, a `var:` reference stays **bound**, so a later `tokens rebind` can still

@@ -7,6 +7,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Added
 
+- `col delete --only-if-empty` provides an atomic cleanup path that refuses a
+  populated Variable Collection before native removal. Collection deletion now
+  also always requires an explicit MCP confirmation preview regardless of the
+  global write-confirm setting; intentional deletion with contents remains
+  available after confirmation.
 - Component authoring now includes rollback-verified sublayer bindings for
   TEXT, BOOLEAN and INSTANCE_SWAP properties, explicit exposure of primary
   nested Instance properties and preferred values for INSTANCE_SWAP controls.

@@ -584,6 +584,7 @@ const UNKNOWN = Object.freeze({
   timeoutClass: 'default',
   execution: 'foreground',
   pathPolicy: 'none',
+  confirmation: null,
   summary: 'Unknown command',
   options: Object.freeze({ terminatorIndex: null, entries: Object.freeze([]) }),
 });
@@ -598,6 +599,7 @@ const TOP_LEVEL_HELP = Object.freeze({
   timeoutClass: 'default',
   execution: 'foreground',
   pathPolicy: 'none',
+  confirmation: null,
   summary: 'List available Figma Commands',
   options: Object.freeze({ terminatorIndex: null, entries: Object.freeze([]) }),
 });
@@ -685,6 +687,7 @@ function specializedPolicy(name, entry, args, actionId) {
   let timeoutClass = entry.timeout || 'default';
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
+  let confirmation = null;
   if (name === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'design-source-import-input';
@@ -784,7 +787,10 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'col' && ['mode-add', 'mode-rename', 'mode-remove'].includes(sub)) {
     pathPolicy = 'collection-mode-input';
   }
-  if (name === 'col' && sub === 'delete') pathPolicy = 'collection-delete-input';
+  if (name === 'col' && sub === 'delete') {
+    pathPolicy = 'collection-delete-input';
+    confirmation = 'required';
+  }
   if (name === 'col' && sub === 'extend') pathPolicy = 'collection-extend-input';
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
@@ -880,7 +886,7 @@ function specializedPolicy(name, entry, args, actionId) {
     if (sub === 'inspect') retry = 'safe-read';
     pathPolicy = 'slides-reference-input';
   }
-  return { execution, timeoutClass, pathPolicy, retry };
+  return { execution, timeoutClass, pathPolicy, retry, confirmation };
 }
 
 /** Resolve the private policy for one concrete argv. */
@@ -1216,6 +1222,7 @@ function commandCapability(args) {
     timeoutClass: specialized.timeoutClass,
     execution: specialized.execution,
     pathPolicy: specialized.pathPolicy,
+    confirmation: specialized.confirmation || null,
     summary: entry.summary,
     options: action.options,
   });
@@ -2422,7 +2429,9 @@ export function planFigmaCommand(rawArgs, {
     argv,
     target,
     effects,
-    confirmation: capability.mutatesDesign ? 'configured' : 'none',
+    confirmation: capability.mutatesDesign
+      ? capability.confirmation || 'configured'
+      : 'none',
     mutationPolicy: capability.actionId === 'var.set-value-batch'
       ? Object.freeze({ rollback: VARIABLE_SET_VALUE_BATCH_ROLLBACK_POLICY })
       : null,

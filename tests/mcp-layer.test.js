@@ -1156,7 +1156,7 @@ test('figma_run confirms Collection Delete and rejects malformed input before re
   const { handleTool } = await import('../src/server.js');
   const preview = await handleTool('figma_run', { args: ['col', 'delete', 'Disposable'] });
   assert.equal(preview.isError, undefined);
-  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  assert.match(preview.content[0].text, /Command requires confirmation/);
   for (const args of [
     ['col', 'delete'], ['col', 'delete', 'one', 'two'],
     ['col', 'delete', '--future', 'private-value'],

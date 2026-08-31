@@ -1539,7 +1539,9 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
       retry: execution.retry || "never",
       pluginDispatch: execution.pluginDispatch || "none",
     }),
-    confirmationPolicy: writeExecutionPolicyFacts().confirmation,
+    confirmationPolicy: plan.confirmation === "required"
+      ? "required"
+      : writeExecutionPolicyFacts().confirmation,
     mutationPolicy: plan.mutationPolicy?.rollback
       ? Object.freeze({ rollback: plan.mutationPolicy.rollback })
       : null,
@@ -1549,6 +1551,9 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
 
 export function commandPreviewReason(input, plan, { writeConfirm = WRITE_CONFIRM } = {}) {
   if (input?.preview === true) return "explicit-preview";
+  if (plan?.confirmation === "required" && input?.confirm !== true) {
+    return "command-confirm-policy";
+  }
   if (writeConfirm && plan?.confirmation === "configured" && input?.confirm !== true) {
     return "write-confirm-policy";
   }
@@ -1559,11 +1564,13 @@ function previewResult(plan, { reason = "explicit-preview" } = {}) {
   const facts = commandPlanPreviewFacts(plan, reason);
   const heading = reason === "write-confirm-policy"
     ? "Write-confirm mode is on. Guaranteed non-mutating Command Preview:"
-    : "Guaranteed non-mutating Command Preview:";
+    : reason === "command-confirm-policy"
+      ? "Command requires confirmation. Guaranteed non-mutating Command Preview:"
+      : "Guaranteed non-mutating Command Preview:";
   const effectText = Object.entries(facts.effects)
     .map(([name, value]) => `${name}=${value}`)
     .join(", ");
-  const next = reason === "write-confirm-policy"
+  const next = reason === "write-confirm-policy" || reason === "command-confirm-policy"
     ? "Re-run with confirm:true to execute. Use preview:true whenever non-mutation is required."
     : "No Command Application dispatch was started. Remove preview:true to use the effective confirmation policy.";
   return textResult([

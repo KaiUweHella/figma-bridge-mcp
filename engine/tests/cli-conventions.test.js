@@ -1165,6 +1165,7 @@ test('col delete delegates one Plan-bound irreversible non-retrying Application'
   const end = adapter.indexOf("collections.command('extend <collection> <name>')", start);
   const action = adapter.slice(start, end);
   assert.match(action, /collectionDeletePlanningArgvFromRequest/);
+  assert.match(action, /--only-if-empty/);
   assert.match(action, /\.allowExcessArguments\(false\)/);
   assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(action, /executeCollectionDeletePlan\(plan/);
