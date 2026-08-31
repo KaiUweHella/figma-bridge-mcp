@@ -436,3 +436,15 @@ unchanged non-destination parent order. Because arbitrary source geometry
 cannot be reconstructed losslessly, a mismatch reports freshly unchanged
 state, bounded Vector/source/parent residue or unavailable verification rather
 than fabricating rollback.
+
+`node boolean` owns the adjacent Boolean Operation replacement. Its closed
+request bounds and canonicalizes the operation, ordered source Node References,
+optional destination, final index, name and JSON projection; URL identities
+must name one file. Commander and `figma_run` execute one non-retrying
+Application whose executable branch is selected only from the four closed
+operations. Success requires fresh proof of a `BOOLEAN_OPERATION`, the matching
+official operation enum, exact ordered source membership and exact replacement
+in every affected parent. A thrown or mismatched native operation reports
+freshly unchanged state, bounded Boolean/parent/member residue or unavailable
+verification instead of trusting the returned node or claiming synthetic
+reconstruction.

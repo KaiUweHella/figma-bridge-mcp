@@ -58,6 +58,10 @@ import {
   executeNodeUngroupPlan,
   nodeUngroupPlanningArgvFromRequest,
 } from '../application/node-ungroup-command.js';
+import {
+  executeNodeBooleanPlan,
+  nodeBooleanPlanningArgvFromRequest,
+} from '../application/node-boolean-command.js';
 import { executeNodeFlattenPlan, nodeFlattenPlanningArgvFromRequest } from '../application/node-flatten-command.js';
 import {
   executeNodeDeletePlan,
@@ -210,42 +214,12 @@ node
     }
   });
 
-function normalizedNodeIds(values) {
-  return values.map((value) => normalizeNodeId(String(value)).id);
-}
-
 function structuralParentOptions(command) {
   return command
     .option('--parent <nodeId>', 'Use this parent instead of the first node\'s current parent')
     .option('--index <n>', 'Insert at this child index')
     .option('--name <name>', 'Name the resulting node')
     .option('--json', 'Output as JSON');
-}
-
-function structuralRequest(nodeIds, options, minimum = 1) {
-  const ids = normalizedNodeIds(nodeIds);
-  if (ids.length < minimum) throw new Error(`Provide at least ${minimum} node id${minimum === 1 ? '' : 's'}`);
-  if (new Set(ids).size !== ids.length) throw new Error('Node ids must be unique');
-  const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
-  const index = options.index === undefined ? null : Number(options.index);
-  if (index !== null && (!Number.isInteger(index) || index < 0)) {
-    throw new Error('--index must be a non-negative integer');
-  }
-  return { ids, parentId, index };
-}
-
-function structuralPrelude({ ids, parentId, index }) {
-  return `const ids = ${JSON.stringify(ids)};
-const nodes = [];
-for (const id of ids) {
-  const candidate = await figma.getNodeByIdAsync(id);
-  if (!candidate || candidate.type === 'DOCUMENT' || candidate.type === 'PAGE') throw new Error('Canvas node not found: ' + id);
-  nodes.push(candidate);
-}
-let parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'nodes[0].parent'};
-if (!parent || typeof parent.appendChild !== 'function') throw new Error('Target parent cannot contain children');
-${parentId ? '' : `if (nodes.some(candidate => !candidate.parent || candidate.parent.id !== parent.id)) throw new Error('Nodes must share one parent unless --parent is provided');`}
-${index === null ? 'const insertionIndex = undefined;' : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index}); const insertionIndex = ${index};`}`;
 }
 
 structuralParentOptions(node
@@ -296,21 +270,22 @@ structuralParentOptions(node
   .description('Combine explicit nodes with union, subtract, intersect, or exclude'))
   .action(async (operation, nodeIds, options) => {
     try {
-      const method = String(operation).toLowerCase();
-      if (!['union', 'subtract', 'intersect', 'exclude'].includes(method)) {
-        throw new Error('Operation must be union, subtract, intersect, or exclude');
-      }
-      const request = structuralRequest(nodeIds, options, 2);
-      await checkConnection();
-      const result = await fastEval(`(async () => {
-${structuralPrelude(request)}
-const result = figma[${JSON.stringify(method)}](nodes, parent, insertionIndex);
-${options.name ? `result.name = ${JSON.stringify(options.name)};` : ''}
-return { id: result.id, name: result.name, type: result.type, operation: result.booleanOperation, parentId: result.parent ? result.parent.id : null };
-})()`);
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `${result.operation} created as "${result.name}" (${result.id})`);
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(nodeBooleanPlanningArgvFromRequest({
+        operation, nodeIds, parentId: options.parent || null, index: options.index ?? null,
+        name: options.name ?? null, json: options.json === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeBooleanPlan(plan, { evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())) });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Boolean failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 structuralParentOptions(node

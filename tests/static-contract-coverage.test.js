@@ -41,6 +41,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/node-group-request.js',
   'engine/src/application/node-ungroup-command.js',
   'engine/src/application/node-ungroup-request.js',
+  'engine/src/application/node-boolean-command.js',
+  'engine/src/application/node-boolean-request.js',
   'engine/src/application/node-flatten-command.js',
   'engine/src/application/node-flatten-request.js',
   'engine/src/application/node-to-component-command.js',

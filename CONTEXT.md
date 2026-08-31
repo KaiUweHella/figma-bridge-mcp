@@ -252,6 +252,18 @@ verified unchanged state, bounded group/parent/child residue, or unavailable
 verification instead of fabricating restoration.
 _Avoid_: Commander ungroup handler, returned-array success, recreated Transform Group claim, unbounded residue
 
+**Node Boolean**:
+The bounded, non-retrying combination of two or more distinct exact canvas
+Nodes through one closed union, subtract, intersect or exclude operation. Its
+request keeps ordered source identity, optional destination, final index and
+name together and rejects cross-file placement before readiness. Success
+requires a fresh Boolean Operation identity with the official operation enum,
+exact ordered membership and exact replacement across every affected parent.
+Because a mismatched native Boolean result may have already changed geometry
+and hierarchy, failure reports verified unchanged state, bounded Boolean and
+hierarchy residue, or unavailable verification without claiming reconstruction.
+_Avoid_: Commander boolean handler, dynamic method input, returned-node success, synthetic rollback
+
 **Node Flatten**:
 The bounded, non-retrying irreversible replacement of one or more exact canvas
 Nodes with one native Vector. Its closed request keeps every source identity,
