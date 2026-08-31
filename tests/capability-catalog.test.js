@@ -1977,6 +1977,28 @@ test('Create Frame owns one canonical cross-Adapter write Plan', () => {
   assert.equal(planFigmaCommand(['create', 'frame', 'Card', '--future'], { adapter: 'mcp' }).allowed, false);
 });
 
+test('solid Shape creation owns canonical cross-Adapter write Plans', () => {
+  const cases = [
+    [['create', 'rectangle', 'Card', '--fill', '#abc'], 'create.rect', ['create', 'rect', 'Card', '--fill=#AABBCC']],
+    [['create', 'circle', '--width', '80'], 'create.ellipse', ['create', 'ellipse', '--width=80']],
+    [['create', 'polygon', '--points', '6'], 'create.polygon', ['create', 'polygon', '--points=6']],
+    [['create', 'star', '--inner-radius', '.25'], 'create.star', ['create', 'star', '--inner-radius=0.25']],
+  ];
+  for (const [argv, id, canonical] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.argv, canonical);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.deepEqual(mcp.target, cli.target);
+    assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'polygon', '--points', '2']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'ellipse', '--radius', '2']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

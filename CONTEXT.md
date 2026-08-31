@@ -1151,3 +1151,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Does `create frame` still disappear behind a generic Commander timeout after Figma has created something?
 >
 > **Domain expert:** No. Frame creation is a Plan-bound Command Application in both Adapters. It resolves the target parent and any explicit `var:` fill before the factory call, creates once, and freshly verifies identity, hierarchy, geometry, fill, radius and selection. A mismatch removes only the new frame, restores the prior selection and reports verified rollback, exact residue or unavailable verification. The remaining public Create-family legacy writes are counted separately and may only decrease.
+
+> **Developer:** Do Rectangle, Ellipse, Polygon and Star use the same truthful creation outcome?
+>
+> **Domain expert:** Yes. Their shared Shape Application closes each action's valid options, resolves explicit fill and stroke Variables without first-match ambiguity, selects only the matching native factory, and verifies shape-specific geometry and properties after one dispatch. Failure removes only the created Shape and reports the same rollback/residue facts. The public Create-family legacy budget is now five: Vector, Slice, Text, Line and Auto Layout.

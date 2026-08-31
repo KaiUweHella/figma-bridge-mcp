@@ -135,6 +135,8 @@
     "engine/src/application/legacy-raster-export-request.js",
     "engine/src/application/create-frame-command.js",
     "engine/src/application/create-frame-request.js",
+    "engine/src/application/create-shape-command.js",
+    "engine/src/application/create-shape-request.js",
     "engine/src/application/node-coordinate.js",
     "engine/src/application/node-delete-command.js",
     "engine/src/application/node-delete-request.js",

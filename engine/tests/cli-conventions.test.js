@@ -497,10 +497,36 @@ test('the remaining public direct Create write inventory is explicit and cannot 
     direct.push('polygon', 'star');
   }
   assert.deepEqual(direct.sort(), [
-    'autolayout', 'ellipse', 'line', 'polygon', 'rect', 'slice', 'star', 'text', 'vector',
+    'autolayout', 'line', 'slice', 'text', 'vector',
   ]);
-  assert.equal(direct.length, 9,
+  assert.equal(direct.length, 5,
     'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('public solid Shape factories delegate one shared Plan-bound Command Application', () => {
+  const adapter = sources.get('create.js');
+  const application = readFileSync(join(
+    COMMANDS_DIR, '..', 'application', 'create-shape-command.js',
+  ), 'utf8');
+  for (const marker of [
+    ".command('rect [name]')", ".command('ellipse [name]')",
+  ]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('.command(', start + marker.length);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runCreateShape\(/);
+    assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|createRectangle\(|createEllipse\(/);
+  }
+  const radialStart = adapter.indexOf('function registerRadialPrimitive');
+  const radialEnd = adapter.indexOf(".command('vector [name]')", radialStart);
+  const radial = adapter.slice(radialStart, radialEnd);
+  assert.match(radial, /runCreateShape\(command/);
+  assert.doesNotMatch(radial, /checkConnection\(|daemonExec\(|createPolygon\(|createStar\(/);
+  assert.match(application, /figma\.createRectangle\(\)/);
+  assert.match(application, /figma\.createEllipse\(\)/);
+  assert.match(application, /figma\.createPolygon\(\)/);
+  assert.match(application, /figma\.createStar\(\)/);
 });
 
 test('node set-fill delegates one Plan-bound readback-verified Command Application', () => {

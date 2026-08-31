@@ -21,6 +21,10 @@ import {
   createFramePlanningArgvFromRequest,
   executeCreateFramePlan,
 } from '../application/create-frame-command.js';
+import {
+  createShapePlanningArgvFromRequest,
+  executeCreateShapePlan,
+} from '../application/create-shape-command.js';
 
 // ============ CREATE ============
 
@@ -63,6 +67,30 @@ function finiteNumber(value, label, { min = -Infinity, max = Infinity } = {}) {
 function positionCode({ target, useSmart, gap, explicitX }) {
   if (target.parentId) return `const smartX = ${explicitX === undefined ? 0 : explicitX};`;
   return useSmart ? smartPosCode(gap) : `const smartX = ${explicitX};`;
+}
+
+async function runCreateShape(kind, name, options) {
+  try {
+    const plan = planFigmaCommand(createShapePlanningArgvFromRequest({
+      kind, name, width: options.width, height: options.height,
+      x: options.x, y: options.y, fill: options.fill, stroke: options.stroke,
+      radius: options.radius, opacity: options.opacity, points: options.points,
+      innerRadius: options.innerRadius, parentId: options.parent, index: options.index,
+    }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeCreateShapePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Create Shape failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
 }
 
 create
@@ -200,44 +228,8 @@ create
   .option('--opacity <n>', 'Opacity 0-1')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (name, options) => {
-    await checkConnection();
-    const rectName = name || 'Rectangle';
-    const target = childTarget(options);
-    const width = finiteNumber(options.width, '--width', { min: 0.01 });
-    const height = finiteNumber(options.height, '--height', { min: 0.01 });
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const radius = options.radius === undefined ? null : finiteNumber(options.radius, '--radius', { min: 0 });
-    const opacity = options.opacity === undefined ? null : finiteNumber(options.opacity, '--opacity', { min: 0, max: 1 });
-    const useSmartPos = x === undefined;
-    const usesVars = isVarRef(options.fill) || (options.stroke && isVarRef(options.stroke));
-
-    const fillCode = generateFillCode(options.fill, 'rect');
-    const strokeCode = options.stroke ? generateStrokeCode(options.stroke, 'rect') : null;
-
-    let code = `
-(async () => {
-${usesVars ? varLoadingCode() : ''}
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: useSmartPos, gap: 100, explicitX: x })}
-const rect = figma.createRectangle();
-rect.name = ${JSON.stringify(rectName)};
-rect.x = smartX;
-rect.y = ${y};
-rect.resize(${width}, ${height});
-${fillCode.code}
-${radius === null ? '' : `rect.cornerRadius = ${radius};`}
-${opacity === null ? '' : `rect.opacity = ${opacity};`}
-${strokeCode ? strokeCode.code : ''}
-${attachToChildTarget('rect', target)}
-figma.currentPage.selection = [rect];
-return ${JSON.stringify(rectName)} + ' created (' + rect.id + ') in ' + (rect.parent ? rect.parent.id : 'none') + ' at (' + rect.x + ', ' + rect.y + ')';
-})()
-`;
-    const result = await daemonExec('eval', { code });
-    console.log(result);
-  });
+  .allowExcessArguments(false)
+  .action(async (name, options) => runCreateShape('rect', name, options));
 
 create
   .command('ellipse [name]')
@@ -251,42 +243,10 @@ create
   .option('--stroke <color>', 'Stroke color (hex or var:name)')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (name, options) => {
-    await checkConnection();
-    const ellipseName = name || 'Ellipse';
-    const target = childTarget(options);
-    const width = finiteNumber(options.width, '--width', { min: 0.01 });
-    const height = finiteNumber(options.height === undefined ? options.width : options.height, '--height', { min: 0.01 });
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const useSmartPos = x === undefined;
-    const usesVars = isVarRef(options.fill) || (options.stroke && isVarRef(options.stroke));
+  .allowExcessArguments(false)
+  .action(async (name, options) => runCreateShape('ellipse', name, options));
 
-    const fillCode = generateFillCode(options.fill, 'ellipse');
-    const strokeCode = options.stroke ? generateStrokeCode(options.stroke, 'ellipse') : null;
-
-    let code = `
-(async () => {
-${usesVars ? varLoadingCode() : ''}
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: useSmartPos, gap: 100, explicitX: x })}
-const ellipse = figma.createEllipse();
-ellipse.name = ${JSON.stringify(ellipseName)};
-ellipse.x = smartX;
-ellipse.y = ${y};
-ellipse.resize(${width}, ${height});
-${fillCode.code}
-${strokeCode ? strokeCode.code : ''}
-${attachToChildTarget('ellipse', target)}
-figma.currentPage.selection = [ellipse];
-return ${JSON.stringify(ellipseName)} + ' created (' + ellipse.id + ') in ' + (ellipse.parent ? ellipse.parent.id : 'none') + ' at (' + ellipse.x + ', ' + ellipse.y + ')';
-})()
-`;
-    const result = await daemonExec('eval', { code });
-    console.log(result);
-  });
-
-function registerRadialPrimitive({ command, description, factory, defaultName, extraOptions = [], extraCode = () => '' }) {
+function registerRadialPrimitive({ command, description, defaultName, extraOptions = [] }) {
   let primitive = create
     .command(`${command} [name]`)
     .description(description)
@@ -299,68 +259,26 @@ function registerRadialPrimitive({ command, description, factory, defaultName, e
     .option('--parent <nodeId>', 'Create inside this existing parent')
     .option('--index <n>', 'Insert at this child index (default: append)');
   for (const option of extraOptions) primitive = primitive.option(...option);
-  primitive.action(async (name, options) => {
-    await checkConnection();
-    const nodeName = name || defaultName;
-    const target = childTarget(options);
-    const width = finiteNumber(options.width, '--width', { min: 0.01 });
-    const height = finiteNumber(options.height, '--height', { min: 0.01 });
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const useSmartPos = x === undefined;
-    const usesVars = isVarRef(options.fill) || (options.stroke && isVarRef(options.stroke));
-    const fillCode = generateFillCode(options.fill, 'shape');
-    const strokeCode = options.stroke ? generateStrokeCode(options.stroke, 'shape') : null;
-    const customCode = extraCode(options, finiteNumber);
-    const code = `(async () => {
-${usesVars ? varLoadingCode() : ''}
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: useSmartPos, gap: 100, explicitX: x })}
-const shape = figma.${factory}();
-shape.name = ${JSON.stringify(nodeName)};
-shape.x = smartX;
-shape.y = ${y};
-shape.resize(${width}, ${height});
-${customCode}
-${fillCode.code}
-${strokeCode ? strokeCode.code : ''}
-${attachToChildTarget('shape', target)}
-figma.currentPage.selection = [shape];
-return { id: shape.id, name: shape.name, type: shape.type, parentId: shape.parent ? shape.parent.id : null };
-})()`;
-    const result = await daemonExec('eval', { code });
-    console.log(chalk.green('✓'), `${result.type} "${result.name}" created (${result.id}) in ${result.parentId}`);
+  primitive.allowExcessArguments(false).action(async (name, options) => {
+    await runCreateShape(command, name || defaultName, options);
   });
 }
 
 registerRadialPrimitive({
   command: 'polygon',
   description: 'Create a regular polygon',
-  factory: 'createPolygon',
   defaultName: 'Polygon',
   extraOptions: [['--points <n>', 'Number of sides (3 or more)', '3']],
-  extraCode: (options, number) => {
-    const points = number(options.points, '--points', { min: 3 });
-    if (!Number.isInteger(points)) throw new Error('--points must be an integer');
-    return `shape.pointCount = ${points};`;
-  },
 });
 
 registerRadialPrimitive({
   command: 'star',
   description: 'Create a star',
-  factory: 'createStar',
   defaultName: 'Star',
   extraOptions: [
     ['--points <n>', 'Number of outer points (3 or more)', '5'],
     ['--inner-radius <n>', 'Inner radius from 0 to 1', '0.382'],
   ],
-  extraCode: (options, number) => {
-    const points = number(options.points, '--points', { min: 3 });
-    if (!Number.isInteger(points)) throw new Error('--points must be an integer');
-    const innerRadius = number(options.innerRadius, '--inner-radius', { min: 0, max: 1 });
-    return `shape.pointCount = ${points}; shape.innerRadius = ${innerRadius};`;
-  },
 });
 
 create

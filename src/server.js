@@ -94,6 +94,10 @@ import {
   executeCreateFramePlan,
 } from "../engine/src/application/create-frame-command.js";
 import {
+  createShapePlanRoute,
+  executeCreateShapePlan,
+} from "../engine/src/application/create-shape-command.js";
+import {
   executeNodeRenamePlan,
   nodeRenamePlanRoute,
 } from "../engine/src/application/node-rename-command.js";
@@ -2209,6 +2213,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeCreateFramePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createShapeRoute = createShapePlanRoute(plan);
+      if (createShapeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCreateShapePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

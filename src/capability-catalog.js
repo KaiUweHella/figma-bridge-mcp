@@ -66,6 +66,12 @@ import {
   parseCreateFrameRequest,
 } from '../engine/src/application/create-frame-request.js';
 import {
+  acceptsCreateShapeArgv,
+  createShapeArgvFromRequest,
+  createShapeFigmaUrlFileKeyFromArgv,
+  parseCreateShapeRequest,
+} from '../engine/src/application/create-shape-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -566,6 +572,7 @@ const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
   'import',
   'create.frame',
+  'create.rect', 'create.ellipse', 'create.polygon', 'create.star',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -761,6 +768,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'node' && sub === 'to-component') pathPolicy = 'node-to-component-input';
   if (name === 'node' && sub === 'duplicate') pathPolicy = 'node-duplicate-input';
   if (name === 'create' && sub === 'frame') pathPolicy = 'create-frame-input';
+  if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(actionId)) {
+    pathPolicy = 'create-shape-input';
+  }
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -961,6 +971,10 @@ function commandCapability(args) {
   }
   if (name === 'create' && args[1] === 'frame'
     && !action.help && !acceptsCreateFrameArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(action.actionId)
+    && !action.help && !acceptsCreateShapeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1908,6 +1922,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...createFrameArgvFromRequest(parseCreateFrameRequest(args)));
+      break;
+    }
+    case 'create-shape-input': {
+      const closedFileKey = createShapeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createShapeArgvFromRequest(parseCreateShapeRequest(args)));
       break;
     }
     case 'component-main-input': {

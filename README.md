@@ -290,7 +290,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
   and migrated `figma_run` actions execute directly through value-returning
   **Command Application Modules**. `export assets`, `node set-text`,
-  `create frame`, bounded
+  `create frame|rect|ellipse|polygon|star`, bounded
   `node tree`, current-page Node Discovery through `find`, direct
   `node bindings`, native Inspect `node css`, exact Prototype Inspection,
   Component Identity Facts, Style Facts through `style show`, bounded Style

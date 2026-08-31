@@ -510,3 +510,14 @@ frame and restores selection, then reports verified rollback, exact created-
 node/membership/selection residue or unavailable verification. A mechanical
 public Create-family legacy-write budget records the remaining actions and may
 only decrease as adjacent primitives migrate.
+
+Rectangle, Ellipse, Polygon and Star form the adjacent solid-Shape creation
+Application. One closed union preserves their aliases, defaults and distinct
+options while allowing only the four corresponding native factory calls.
+Literal and explicit Variable fill/stroke resources resolve before creation;
+duplicate exact Variable names are a no-mutation refusal. The shared
+Application freshly verifies factory type, parent order, geometry, Paints,
+Rectangle radius/opacity and Polygon/Star point geometry, then removes only its
+new Shape and restores selection on failure. Both Adapters consume the same
+non-retrying Plan and bounded outcome. The mechanically pinned public Create
+legacy-write count consequently falls from nine to five.

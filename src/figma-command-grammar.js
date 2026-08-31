@@ -11,6 +11,10 @@ const ACTION_VALUE_HELP_TOKENS = Object.freeze({
   // Treating it as help would erase a real write from Capability policy.
   'component.create': new Set(['-h']),
   'create.frame': new Set(['-h']),
+  'create.rect': new Set(['-h']),
+  'create.ellipse': new Set(['-h']),
+  'create.polygon': new Set(['-h']),
+  'create.star': new Set(['-h']),
 });
 
 const EMPTY_OPTION_FACTS = Object.freeze({
