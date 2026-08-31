@@ -107,6 +107,11 @@ import {
   parseLibraryImportRequest,
 } from '../engine/src/application/library-import-request.js';
 import {
+  acceptsLibraryReadArgv,
+  libraryReadArgvFromRequest,
+  parseLibraryReadRequest,
+} from '../engine/src/application/library-read-request.js';
+import {
   acceptsShaderMutationArgv,
   parseShaderMutationRequest,
   shaderMutationArgvFromRequest,
@@ -639,7 +644,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
-  'component.prop.list', 'draw.inspect',
+  'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -669,6 +674,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'measure.add', 'measure.edit', 'measure.delete',
   'library.import-variable', 'library.import-style',
   'library.import-component', 'library.import-component-set',
+  'library.collections', 'library.variables',
   'shader.import', 'shader.apply',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
@@ -884,6 +890,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'measurement-mutation-input';
   }
   if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
+  if (['library.collections', 'library.variables'].includes(actionId)) pathPolicy = 'library-read-input';
   if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
   if (actionId.startsWith('draw.')) pathPolicy = 'draw-input';
   if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
@@ -1123,6 +1130,10 @@ function commandCapability(args) {
   }
   if (action.actionId.startsWith('library.import-')
     && !action.help && !acceptsLibraryImportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['library.collections', 'library.variables'].includes(action.actionId)
+    && !action.help && !acceptsLibraryReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (['shader.import', 'shader.apply'].includes(action.actionId)
@@ -2147,6 +2158,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'library-import-input': {
       args.splice(0, args.length,
         ...libraryImportArgvFromRequest(parseLibraryImportRequest(args)));
+      break;
+    }
+    case 'library-read-input': {
+      args.splice(0, args.length,
+        ...libraryReadArgvFromRequest(parseLibraryReadRequest(args)));
       break;
     }
     case 'shader-mutation-input': {

@@ -43,6 +43,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/measurement-mutation-request.js',
   'engine/src/application/library-import-command.js',
   'engine/src/application/library-import-request.js',
+  'engine/src/application/library-read-command.js',
+  'engine/src/application/library-read-request.js',
   'engine/src/application/shader-mutation-command.js',
   'engine/src/application/shader-mutation-request.js',
   'engine/src/application/draw-command.js',

@@ -126,6 +126,10 @@ import {
   libraryImportPlanRoute,
 } from "../engine/src/application/library-import-command.js";
 import {
+  executeLibraryReadPlan,
+  libraryReadPlanRoute,
+} from "../engine/src/application/library-read-command.js";
+import {
   executeShaderMutationPlan,
   shaderMutationPlanRoute,
 } from "../engine/src/application/shader-mutation-command.js";
@@ -2397,6 +2401,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeLibraryImportPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const libraryReadRoute = libraryReadPlanRoute(plan);
+      if (libraryReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeLibraryReadPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

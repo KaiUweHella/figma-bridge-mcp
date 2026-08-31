@@ -576,6 +576,38 @@ test('the remaining direct Library Import write inventory is explicit and cannot
     'STAB-26 Library Import Legacy Write count may decrease, but must never increase silently');
 });
 
+test('Library discovery delegates both reads to one Plan-bound bounded Application', () => {
+  const adapter = sources.get('library.js');
+  for (const name of ['collections', 'variables']) {
+    const marker = `command('${name}`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runLibraryRead\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|library(?:Collections|Variables)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'library-read-command.js'), 'utf8');
+  assert.match(application, /getAvailableLibraryVariableCollectionsAsync\(\)/);
+  assert.match(application, /getVariablesInLibraryCollectionAsync\(matches\[0\]\.facts\.key\)/);
+  assert.doesNotMatch(application, /setTimeout\(|18000/,
+    'the safe-read Plan, not generated Plugin code, owns the timeout');
+});
+
+test('the remaining direct Library Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('library.js'); const direct = [];
+  for (const name of ['collections', 'variables']) {
+    const marker = `command('${name}`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Library Read Legacy Action count may decrease, but must never increase silently');
+});
+
 test('Shader writes delegate one Plan-bound verified Application', () => {
   const adapter = sources.get('shaders.js');
   for (const marker of ["command('import <shaderId>')", "command('apply <nodeId> <shaderId>')"]) {

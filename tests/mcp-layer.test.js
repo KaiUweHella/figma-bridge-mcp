@@ -663,6 +663,36 @@ test('figma_run rejects malformed Library imports before readiness or dispatch',
   }
 });
 
+test('figma_run routes Library reads through the shared bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const libraryReadRoute = libraryReadPlanRoute(plan)');
+  const end = source.indexOf('const shaderMutationRoute = shaderMutationPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeLibraryReadPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Library Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Library reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['library', 'collections', 'extra'],
+    ['library', 'collections', '--future', 'private-value'],
+    ['library', 'variables'],
+    ['library', 'variables', 'Brand', '--type', 'NUMBER'],
+    ['library', 'variables', 'Brand', '--type', 'COLOR', '--type', 'FLOAT'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Shader writes through the verified mutation Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const shaderMutationRoute = shaderMutationPlanRoute(plan)');
