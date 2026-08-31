@@ -15,7 +15,7 @@ import {
   MAX_ANNOTATION_LABEL_CODE_UNITS,
   MAX_ANNOTATION_READ_ITEMS,
   MAX_ANNOTATION_READ_PROPERTIES,
-} from './annotation-read-command.js';
+} from './annotation-facts.js';
 
 export {
   annotationRemoveArgvFromRequest,

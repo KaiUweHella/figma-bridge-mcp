@@ -1584,6 +1584,24 @@ test('annotate remove delegates one Plan-bound index-exact rollback Application'
     'Commander must not retain Annotation Remove preflight, mutation, rollback, or formatting');
 });
 
+test('annotate edit delegates one Plan-bound patch-exact rollback Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf("annotateCmd.command('edit <nodeId> <index>')");
+  const end = adapter.indexOf("annotateCmd.command('remove <nodeId> <index>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationEditPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationEditPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|annotationEditCode|\.annotations\s*=/,
+    'Commander must not retain Annotation Edit resolution, mutation, rollback, or formatting');
+});
+
 test('annotate list delegates one Plan-bound bounded node-or-selection read Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

@@ -9,7 +9,7 @@ import {
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   annotationAddCode, annotationCategoryCreateCode,
-  annotationCategoryEditCode, annotationCategoryRemoveCode, annotationEditCode,
+  annotationCategoryEditCode, annotationCategoryRemoveCode,
   parseProperties,
 } from '../lib/annotation-management.js';
 import {
@@ -101,6 +101,10 @@ import {
   annotationRemovePlanningArgvFromRequest,
   executeAnnotationRemovePlan,
 } from '../application/annotation-remove-command.js';
+import {
+  annotationEditPlanningArgvFromRequest,
+  executeAnnotationEditPlan,
+} from '../application/annotation-edit-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1076,9 +1080,36 @@ annotateCmd.command('edit <nodeId> <index>')
   .description('Edit one zero-based annotation index')
   .option('-t, --text <text>').option('-m, --markdown').option('-c, --category <idOrLabel>', 'Pass an empty string to clear')
   .option('-p, --properties <list>', 'Comma-separated properties; pass an empty string to clear')
+  .allowExcessArguments(false)
   .action(async (nodeId, index, options) => {
-    try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationEditCode({ nodeId, index, text: options.text, markdown: options.markdown, category: options.category, properties: options.properties }) }), null, 2)); }
-    catch (e) { handleEvalError(e); }
+    try {
+      const plan = planFigmaCommand(annotationEditPlanningArgvFromRequest({
+        nodeId,
+        index,
+        text: options.text,
+        markdown: options.markdown === true,
+        category: options.category,
+        properties: options.properties,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationEditPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Edit failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 annotateCmd.command('remove <nodeId> <index>')

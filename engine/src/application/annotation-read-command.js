@@ -10,6 +10,19 @@ import {
   annotationReadPlanningArgvFromRequest,
   parseAnnotationReadRequest,
 } from './annotation-read-request.js';
+import {
+  ANNOTATION_PROPERTY_TYPES,
+  MAX_ANNOTATION_LABEL_CODE_UNITS,
+  MAX_ANNOTATION_READ_ITEMS,
+  MAX_ANNOTATION_READ_PROPERTIES,
+} from './annotation-facts.js';
+
+export {
+  ANNOTATION_PROPERTY_TYPES,
+  MAX_ANNOTATION_LABEL_CODE_UNITS,
+  MAX_ANNOTATION_READ_ITEMS,
+  MAX_ANNOTATION_READ_PROPERTIES,
+} from './annotation-facts.js';
 
 export {
   annotationReadArgvFromRequest,
@@ -17,22 +30,10 @@ export {
 } from './annotation-read-request.js';
 
 const APPLICATION_ID = 'annotate.list';
-export const MAX_ANNOTATION_READ_ITEMS = 4_096;
-export const MAX_ANNOTATION_READ_PROPERTIES = 64;
 export const MAX_ANNOTATION_READ_RESULT_CODE_UNITS = 2_000_000;
-export const MAX_ANNOTATION_LABEL_CODE_UNITS = 65_536;
 const MAX_NODE_NAME_CODE_UNITS = 1_024;
 const MAX_NODE_TYPE_CODE_UNITS = 64;
 const MAX_CATEGORY_ID_CODE_UNITS = 1_024;
-export const ANNOTATION_PROPERTY_TYPES = Object.freeze([
-  'width', 'height', 'maxWidth', 'minWidth', 'maxHeight', 'minHeight',
-  'fills', 'strokes', 'effects', 'strokeWeight', 'cornerRadius', 'textStyleId',
-  'textAlignHorizontal', 'fontFamily', 'fontStyle', 'fontSize', 'fontWeight',
-  'lineHeight', 'letterSpacing', 'itemSpacing', 'padding', 'layoutMode', 'alignItems',
-  'opacity', 'mainComponent', 'gridRowGap', 'gridColumnGap', 'gridRowCount',
-  'gridColumnCount', 'gridRowAnchorIndex', 'gridColumnAnchorIndex', 'gridRowSpan',
-  'gridColumnSpan',
-]);
 const PROPERTY_TYPES = new Set(ANNOTATION_PROPERTY_TYPES);
 const UNSAFE_TEXT_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g;
 const normalized = (request) => parseAnnotationReadRequest(annotationReadArgvFromRequest(request));

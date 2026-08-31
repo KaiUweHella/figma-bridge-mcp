@@ -625,6 +625,12 @@ import {
   parseAnnotationRemoveRequest,
 } from '../engine/src/application/annotation-remove-request.js';
 import {
+  acceptsAnnotationEditArgv,
+  annotationEditArgvFromRequest,
+  annotationEditFigmaUrlFileKeyFromArgv,
+  parseAnnotationEditRequest,
+} from '../engine/src/application/annotation-edit-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -841,6 +847,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'annotate.list',
   'annotate.clear',
   'annotate.remove',
+  'annotate.edit',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1187,6 +1194,7 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'annotate' && sub === 'clear') pathPolicy = 'annotation-clear-input';
   if (name === 'annotate' && sub === 'remove') pathPolicy = 'annotation-remove-input';
+  if (name === 'annotate' && sub === 'edit') pathPolicy = 'annotation-edit-input';
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -1625,6 +1633,10 @@ function commandCapability(args) {
   }
   if (name === 'annotate' && args[1] === 'remove'
     && !action.help && !acceptsAnnotationRemoveArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'edit'
+    && !action.help && !acceptsAnnotationEditArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2611,6 +2623,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...annotationRemoveArgvFromRequest(parseAnnotationRemoveRequest(args)));
+      break;
+    }
+    case 'annotation-edit-input': {
+      const closedFileKey = annotationEditFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationEditArgvFromRequest(parseAnnotationEditRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {
