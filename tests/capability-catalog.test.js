@@ -1299,6 +1299,41 @@ test('Node Resize closes one policy-identical rollback-owned write', () => {
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
 });
 
+test('Node Set closes one policy-identical journaled multi-property write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Set-Lab?node-id=12-34';
+  const mcp = planFigmaCommand([
+    'node', 'set', '--name', 'Card', url, '--opacity=.5',
+    '--fill=var:brand/base', '--collection', 'Tokens',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand([
+    'node', 'set', url, '--fill', 'var:brand/base', '--opacity', '0.5',
+    '--name=Card', '--collection=Tokens',
+  ], { adapter: 'cli' });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, [
+    'node', 'set', '12:34', '--fill=var:brand/base', '--opacity=0.5',
+    '--name=Card', '--collection=Tokens',
+  ]);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.set');
+  for (const args of [
+    ['node', 'set'], ['node', 'set', '1:2'],
+    ['node', 'set', '1:2', '--width=20'],
+    ['node', 'set', '1:2', '--visible=perhaps'],
+    ['node', 'set', '1:2', '--fill=#fff'],
+    ['node', 'set', '1:2', '--batch=[]'],
+    ['node', 'set', 'not-a-node', '--name=Card'],
+    ['node', 'set', '1:2', '--name=Card', '--future=value'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
 test('Node Set Fill closes one policy-identical rollback-owned write', () => {
   const url = 'https://www.figma.com/design/FILEA/Fill-Lab?node-id=12-34';
   const mcp = planFigmaCommand(['node', 'set-fill', url, '#aBcDeF'], { adapter: 'mcp' });

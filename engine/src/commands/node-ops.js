@@ -7,13 +7,9 @@ import {
 } from '../../../src/engine.js';
 import {
   program,
-  checkConnection,
   daemonExec,
   daemonTypedRead,
-  fastEval
 } from '../lib/cli-core.js';
-import { normalizeNodeId } from '../lib/node-id.js';
-import { generateFillCode, isVarRef, varLoadingCode, varResolverCode } from '../lib/eval-snippets.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 import {
   executeNodeCssPlan,
@@ -76,6 +72,11 @@ import {
   nodeSetImagePlanningArgvFromRequest,
   prepareNodeSetImagePlan,
 } from '../application/node-set-image-command.js';
+import {
+  executeNodeSetPlan,
+  nodeSetPlanningArgvFromRequest,
+} from '../application/node-set-command.js';
+import { NODE_SET_PROPERTIES, parseSetRequest as parseNodeSetEntry } from '../application/node-set-request.js';
 import { executeNodeFlattenPlan, nodeFlattenPlanningArgvFromRequest } from '../application/node-flatten-command.js';
 import {
   executeNodeDeletePlan,
@@ -86,7 +87,6 @@ import {
   executeNodeToComponentPlan,
   nodeToComponentPlanningArgvFromRequest,
 } from '../application/node-to-component-command.js';
-import { finiteNodeCoordinate } from '../application/node-coordinate.js';
 import {
   executeNodeTreePlan,
   nodeTreePlanningArgvFromRequest,
@@ -634,285 +634,12 @@ node
 
 // ============ SET (properties, by node id) ============
 //
-// Rebuilt from the deleted `set-batch`, which was registered top-level rather
-// than under `variables` — so the allowlisted `var` alias never reached it and
-// nothing could call it.
-//
-// The point of the batch form is one eval instead of N round-trips: renaming
-// forty layers used to be forty daemon calls. `node rename`, `node move` and
-// `node resize` still exist for the single-property case.
-//
-// Colours accept a hex OR `var:<name>`; a var: reference stays BOUND, so a
-// later `tokens rebind` can still move it. Resolution goes through the same
-// helper as `node bind`, which means an ambiguous name is reported instead of
-// silently resolved to whichever collection came first.
-
-const SET_ENUMS = Object.freeze({
-  blendMode: ['PASS_THROUGH', 'NORMAL', 'DARKEN', 'MULTIPLY', 'LINEAR_BURN', 'COLOR_BURN', 'LIGHTEN', 'SCREEN', 'LINEAR_DODGE', 'COLOR_DODGE', 'OVERLAY', 'SOFT_LIGHT', 'HARD_LIGHT', 'DIFFERENCE', 'EXCLUSION', 'HUE', 'SATURATION', 'COLOR', 'LUMINOSITY'],
-  strokeAlign: ['CENTER', 'INSIDE', 'OUTSIDE'],
-  strokeCap: ['NONE', 'ROUND', 'SQUARE', 'ARROW_LINES', 'ARROW_EQUILATERAL', 'DIAMOND_FILLED', 'TRIANGLE_FILLED', 'CIRCLE_FILLED'],
-  strokeJoin: ['MITER', 'BEVEL', 'ROUND'],
-  maskType: ['ALPHA', 'VECTOR', 'LUMINANCE'],
-  layoutMode: ['NONE', 'HORIZONTAL', 'VERTICAL', 'GRID'],
-  layoutWrap: ['NO_WRAP', 'WRAP'],
-  primaryAxisAlign: ['MIN', 'MAX', 'CENTER', 'SPACE_BETWEEN'],
-  counterAxisAlign: ['MIN', 'MAX', 'CENTER', 'BASELINE'],
-  layoutSizingHorizontal: ['FIXED', 'HUG', 'FILL'],
-  layoutSizingVertical: ['FIXED', 'HUG', 'FILL'],
-  layoutAlign: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'INHERIT'],
-  layoutPositioning: ['AUTO', 'ABSOLUTE'],
-  constraintsHorizontal: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE'],
-  constraintsVertical: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'SCALE'],
-});
-
-const SET_PROPS = Object.freeze({
-  fill: 'paint', stroke: 'paint', effects: 'json-array',
-  strokeWidth: 'number', strokeTopWidth: 'number', strokeRightWidth: 'number',
-  strokeBottomWidth: 'number', strokeLeftWidth: 'number', strokeMiterLimit: 'number',
-  strokeAlign: 'enum', strokeCap: 'enum', strokeJoin: 'enum', dashPattern: 'number-list',
-  radius: 'number', radii: 'radii', cornerSmoothing: 'number',
-  opacity: 'number', blendMode: 'enum', visible: 'boolean', locked: 'boolean',
-  isMask: 'boolean', maskType: 'enum', clip: 'boolean', constrainProportions: 'boolean',
-  x: 'number', y: 'number', width: 'number', height: 'number', rotation: 'number',
-  minWidth: 'nullable-number', maxWidth: 'nullable-number', minHeight: 'nullable-number', maxHeight: 'nullable-number',
-  name: 'string',
-  constraintsHorizontal: 'enum', constraintsVertical: 'enum',
-  layoutMode: 'enum', layoutWrap: 'enum', primaryAxisAlign: 'enum', counterAxisAlign: 'enum',
-  layoutSizingHorizontal: 'enum', layoutSizingVertical: 'enum', layoutAlign: 'enum',
-  layoutPositioning: 'enum', layoutGrow: 'number', itemSpacing: 'number', counterAxisSpacing: 'nullable-number',
-  padding: 'number', paddingTop: 'number', paddingRight: 'number', paddingBottom: 'number', paddingLeft: 'number',
-  pointCount: 'number', innerRadius: 'number', sectionContentsHidden: 'boolean',
-});
-
-/**
- * Normalize one set request. Pure — exported for tests.
- * Tolerates the spellings an LLM reaches for: id/nodeId/node, w/h for
- * width/height, newName/label for name.
- */
-export function parseSetRequest(entry) {
-  const rawId = entry.node ?? entry.nodeId ?? entry.id;
-  if (!rawId) throw new Error('missing node id');
-
-  const alias = {
-    w: 'width', h: 'height',
-    newName: 'name', label: 'name',
-    cornerRadius: 'radius', strokeWeight: 'strokeWidth',
-    rotate: 'rotation', clipsContent: 'clip',
-  };
-  const props = {};
-  for (const [rawKey, value] of Object.entries(entry)) {
-    if (['node', 'nodeId', 'id'].includes(rawKey)) continue;
-    if (value === undefined) continue;
-    const key = alias[rawKey] ?? rawKey;
-    if (!(key in SET_PROPS)) {
-      throw new Error(`unknown property "${rawKey}". Known: ${Object.keys(SET_PROPS).join(', ')}`);
-    }
-    const want = SET_PROPS[key];
-    if (want === 'number') {
-      let n;
-      try {
-        n = key === 'x' || key === 'y'
-          ? finiteNodeCoordinate(value, key)
-          : Number(value);
-      } catch (error) {
-        throw new Error(error.message);
-      }
-      if (!Number.isFinite(n)) throw new Error(`${key} must be a number, got ${JSON.stringify(value)}`);
-      props[key] = n;
-    } else if (want === 'nullable-number') {
-      if (value === null || /^(none|null)$/i.test(String(value))) props[key] = null;
-      else {
-        const n = Number(value);
-        if (!Number.isFinite(n)) throw new Error(`${key} must be a number or null, got ${JSON.stringify(value)}`);
-        props[key] = n;
-      }
-    } else if (want === 'boolean') {
-      if (value === true || value === false) props[key] = value;
-      else if (/^(true|false)$/i.test(String(value))) props[key] = String(value).toLowerCase() === 'true';
-      else throw new Error(`${key} must be true or false`);
-    } else if (want === 'enum') {
-      let normalized = String(value).trim().toUpperCase().replace(/[ -]+/g, '_');
-      if (key === 'layoutMode' && normalized === 'ROW') normalized = 'HORIZONTAL';
-      if (key === 'layoutMode' && ['COL', 'COLUMN'].includes(normalized)) normalized = 'VERTICAL';
-      if (!SET_ENUMS[key].includes(normalized)) throw new Error(`${key} must be one of: ${SET_ENUMS[key].join(', ')}`);
-      props[key] = normalized;
-    } else if (want === 'number-list' || want === 'radii') {
-      const values = Array.isArray(value) ? value : String(value).split(',');
-      const numbers = values.map((item) => Number(item));
-      if (numbers.some((number) => !Number.isFinite(number) || number < 0)) throw new Error(`${key} must contain non-negative numbers`);
-      if (want === 'radii' && numbers.length !== 4) throw new Error('radii must contain four values: top-left, top-right, bottom-right, bottom-left');
-      props[key] = numbers;
-    } else if (want === 'json-array') {
-      let parsed = value;
-      if (typeof value === 'string') {
-        try { parsed = JSON.parse(value); }
-        catch (error) { throw new Error(`${key} must be valid JSON: ${error.message}`); }
-      }
-      if (!Array.isArray(parsed) || parsed.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
-        throw new Error(`${key} must be a JSON array of Figma effect objects`);
-      }
-      props[key] = parsed;
-    } else {
-      props[key] = String(value);
-    }
-  }
-  if (Object.keys(props).length === 0) throw new Error('no properties to set');
-  // width and height must move together: resize() takes both.
-  if (('width' in props) !== ('height' in props)) {
-    throw new Error('width and height must be set together (Figma resizes in one call)');
-  }
-  if ('opacity' in props && (props.opacity < 0 || props.opacity > 1)) throw new Error('opacity must be between 0 and 1');
-  if ('cornerSmoothing' in props && (props.cornerSmoothing < 0 || props.cornerSmoothing > 1)) throw new Error('cornerSmoothing must be between 0 and 1');
-  if ('innerRadius' in props && (props.innerRadius < 0 || props.innerRadius > 1)) throw new Error('innerRadius must be between 0 and 1');
-  if ('pointCount' in props && (!Number.isInteger(props.pointCount) || props.pointCount < 3)) throw new Error('pointCount must be an integer of at least 3');
-  return { nodeId: normalizeNodeId(String(rawId)).id, props };
-}
-
-/** Build the eval for a batch of already-parsed set requests. Exported for tests. */
-export function setCode(requests, collection) {
-  return `(async () => {
-${varResolverCode()}
-const requests = ${JSON.stringify(requests)};
-const collection = ${JSON.stringify(collection ?? null)};
-
-const hexToRgb = (hex) => {
-  const m = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(String(hex));
-  return m ? { r: parseInt(m[1], 16) / 255, g: parseInt(m[2], 16) / 255, b: parseInt(m[3], 16) / 255 } : null;
-};
-
-// hex → frozen paint; var:<name> → BOUND paint (survives a later rebind).
-const toPaint = (input) => {
-  if (typeof input === 'string' && input.startsWith('var:')) {
-    const ref = input.slice(4);
-    const res = __resolveVar(ref, collection);
-    if (res.badCollection) return { _err: 'no collection matching "' + res.badCollection + '"' };
-    if (!res.variable) {
-      if (res.matches.length === 0) return { _err: 'no variable named "' + ref + '"' };
-      return { _err: res.matches.length + ' variables match "' + ref + '" — narrow with --collection: '
-                     + res.matches.map(m => m.name + ' in ' + m.collection).join(', ') };
-    }
-    if (res.variable.resolvedType !== 'COLOR') {
-      return { _err: '"' + ref + '" is ' + res.variable.resolvedType + ', not a COLOR' };
-    }
-    return figma.variables.setBoundVariableForPaint(
-      { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', res.variable);
-  }
-  const rgb = hexToRgb(input);
-  return rgb ? { type: 'SOLID', color: rgb } : { _err: 'not a hex colour or var: reference: ' + input };
-};
-
-const done = [];
-const failed = [];
-
-for (const req of requests) {
-  const node = await figma.getNodeByIdAsync(req.nodeId);
-  if (!node) { failed.push({ nodeId: req.nodeId, reason: 'node not found' }); continue; }
-
-  const applied = [];
-  const skipped = [];
-  const p = req.props;
-
-  for (const key of ['fill', 'stroke']) {
-    if (!(key in p)) continue;
-    const field = key === 'fill' ? 'fills' : 'strokes';
-    if (!(field in node)) { skipped.push(key + ' (' + node.type + ' has no ' + field + ')'); continue; }
-    const paint = toPaint(p[key]);
-    if (paint._err) { failed.push({ nodeId: req.nodeId, reason: key + ': ' + paint._err }); continue; }
-    node[field] = [paint];
-    applied.push(key);
-  }
-
-  const scalars = [
-    ['strokeWidth', 'strokeWeight'], ['strokeTopWidth', 'strokeTopWeight'],
-    ['strokeRightWidth', 'strokeRightWeight'], ['strokeBottomWidth', 'strokeBottomWeight'],
-    ['strokeLeftWidth', 'strokeLeftWeight'], ['strokeMiterLimit', 'strokeMiterLimit'],
-    ['strokeAlign', 'strokeAlign'], ['strokeCap', 'strokeCap'], ['strokeJoin', 'strokeJoin'],
-    ['radius', 'cornerRadius'], ['cornerSmoothing', 'cornerSmoothing'],
-    ['opacity', 'opacity'], ['blendMode', 'blendMode'], ['visible', 'visible'], ['locked', 'locked'],
-    ['isMask', 'isMask'], ['maskType', 'maskType'], ['clip', 'clipsContent'],
-    ['constrainProportions', 'constrainProportions'],
-    ['x', 'x'], ['y', 'y'], ['rotation', 'rotation'], ['name', 'name'],
-    ['minWidth', 'minWidth'], ['maxWidth', 'maxWidth'], ['minHeight', 'minHeight'], ['maxHeight', 'maxHeight'],
-    ['layoutMode', 'layoutMode'], ['layoutWrap', 'layoutWrap'],
-    ['primaryAxisAlign', 'primaryAxisAlignItems'], ['counterAxisAlign', 'counterAxisAlignItems'],
-    ['layoutSizingHorizontal', 'layoutSizingHorizontal'], ['layoutSizingVertical', 'layoutSizingVertical'],
-    ['layoutAlign', 'layoutAlign'], ['layoutPositioning', 'layoutPositioning'], ['layoutGrow', 'layoutGrow'],
-    ['itemSpacing', 'itemSpacing'], ['counterAxisSpacing', 'counterAxisSpacing'],
-    ['paddingTop', 'paddingTop'], ['paddingRight', 'paddingRight'], ['paddingBottom', 'paddingBottom'], ['paddingLeft', 'paddingLeft'],
-    ['pointCount', 'pointCount'], ['innerRadius', 'innerRadius'], ['sectionContentsHidden', 'sectionContentsHidden'],
-  ];
-  for (const [key, field] of scalars) {
-    if (!(key in p)) continue;
-    if (!(field in node)) { skipped.push(key + ' (' + node.type + ' has no ' + field + ')'); continue; }
-    try { node[field] = p[key]; applied.push(key); }
-    catch (e) { failed.push({ nodeId: req.nodeId, reason: key + ': ' + e.message }); }
-  }
-
-  if ('padding' in p) {
-    const fields = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
-    if (fields.some(field => !(field in node))) skipped.push('padding (' + node.type + ' has no Auto Layout padding)');
-    else {
-      try { for (const field of fields) node[field] = p.padding; applied.push('padding'); }
-      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'padding: ' + e.message }); }
-    }
-  }
-
-  if ('radii' in p) {
-    const fields = ['topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius'];
-    if (fields.some(field => !(field in node))) skipped.push('radii (' + node.type + ' has no individual corners)');
-    else {
-      try { fields.forEach((field, index) => { node[field] = p.radii[index]; }); applied.push('radii'); }
-      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'radii: ' + e.message }); }
-    }
-  }
-
-  if ('dashPattern' in p) {
-    if (!('dashPattern' in node)) skipped.push('dashPattern (' + node.type + ' has no strokes)');
-    else {
-      try { node.dashPattern = p.dashPattern; applied.push('dashPattern'); }
-      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'dashPattern: ' + e.message }); }
-    }
-  }
-
-  if ('effects' in p) {
-    if (!('effects' in node)) skipped.push('effects (' + node.type + ' has no effects)');
-    else {
-      try { node.effects = p.effects; applied.push('effects'); }
-      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'effects: ' + e.message }); }
-    }
-  }
-
-  if ('constraintsHorizontal' in p || 'constraintsVertical' in p) {
-    if (!('constraints' in node)) skipped.push('constraints (' + node.type + ' has no constraints)');
-    else {
-      try {
-        node.constraints = {
-          horizontal: p.constraintsHorizontal || node.constraints.horizontal,
-          vertical: p.constraintsVertical || node.constraints.vertical,
-        };
-        applied.push('constraints');
-      } catch (e) { failed.push({ nodeId: req.nodeId, reason: 'constraints: ' + e.message }); }
-    }
-  }
-
-  if ('width' in p && 'height' in p) {
-    if (!('resize' in node)) skipped.push('size (' + node.type + ' cannot resize)');
-    else {
-      try { node.resize(p.width, p.height); applied.push('size'); }
-      catch (e) { failed.push({ nodeId: req.nodeId, reason: 'resize: ' + e.message }); }
-    }
-  }
-
-  if (applied.length) done.push({ nodeId: req.nodeId, name: node.name, applied, skipped });
-  else if (skipped.length) failed.push({ nodeId: req.nodeId, reason: 'nothing applied — ' + skipped.join(', ') });
-}
-return { done, failed };
-})()`;
-}
+// The single-node surface delegates its complete typed request to one
+// journaled Application. The legacy batch form remains gated separately.
 
 node
   .command('set [nodeId]')
-  .description(`Set properties on a node, or on many at once with --batch. Properties: ${Object.keys(SET_PROPS).join(', ')}. Colours take a hex or var:<name> — a var: reference stays bound.`)
+  .description(`Set properties on one node. Properties: ${Object.keys(NODE_SET_PROPERTIES).join(', ')}. Colours take a hex or var:<name> — a var: reference stays bound.`)
   .option('--fill <color>', 'Hex ("#ff0000") or var:<name>')
   .option('--stroke <color>', 'Hex or var:<name>')
   .option('--effects <json>', 'Figma Effect[] JSON')
@@ -970,6 +697,7 @@ node
   .option('--section-contents-hidden <bool>', 'Hide or reveal section contents')
   .option('-c, --collection <name>', 'Which collection var:<name> resolves in')
   .option('--batch <json>', 'Temporarily disabled until bounded typed batch mutation is available')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     if (options.batch) {
       console.error(chalk.red('✗ node set --batch is temporarily disabled.'));
@@ -977,43 +705,26 @@ node
       process.exitCode = 1;
       return;
     }
-    await checkConnection();
-
-    if (!nodeId) {
-      console.error(chalk.red('✗'), 'Name one explicit node id.');
-      process.exitCode = 1;
-      return;
-    }
-    const single = { node: nodeId };
-    for (const key of Object.keys(SET_PROPS)) {
-      if (options[key] !== undefined) single[key] = options[key];
-    }
-    const entries = [single];
-
-    let requests;
     try {
-      requests = entries.map((e, i) => {
-        try { return parseSetRequest(e); }
-        catch (err) { throw new Error(`entry ${i}: ${err.message}`); }
+      if (!nodeId) throw new Error('Name one explicit node id.');
+      const single = { node: nodeId, collection: options.collection ?? null };
+      for (const key of Object.keys(NODE_SET_PROPERTIES)) {
+        if (options[key] !== undefined) single[key] = options[key];
+      }
+      const request = parseNodeSetEntry(single);
+      const plan = planFigmaCommand(nodeSetPlanningArgvFromRequest(request), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
-    }
-
-    try {
-      const r = await fastEval(setCode(requests, options.collection));
-      for (const d of r.done) {
-        console.log(chalk.green('✓') + ` ${d.name} (${d.nodeId}): ${d.applied.join(', ')}`);
-        for (const s of d.skipped) console.log(chalk.gray(`    skipped ${s}`));
-      }
-      for (const f of r.failed) {
-        console.error(chalk.red('✗') + ` ${f.nodeId}: ${f.reason}`);
-      }
-      if (r.failed.length) process.exit(1);
-      if (r.done.length === 0) console.log(chalk.gray('Nothing set.'));
-    } catch (e) {
-      console.error(chalk.red('✗ Set failed: ' + e.message));
-      process.exit(1);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeSetPlan(plan, { evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())) });
+        });
+      console.log(chalk.green('✓'), result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Set failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });

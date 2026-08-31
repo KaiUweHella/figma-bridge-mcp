@@ -4,7 +4,8 @@
 // `node --check` and only surfaces once Figma runs it.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSetRequest, setCode } from '../src/commands/node-ops.js';
+import { nodeSetCode } from '../src/application/node-set-command.js';
+import { parseSetRequest } from '../src/application/node-set-request.js';
 import { lintCode } from '../src/commands/analyze.js';
 import { isWrite } from '../../src/server.js';
 
@@ -52,39 +53,41 @@ describe('parseSetRequest', () => {
   });
 });
 
-describe('setCode', () => {
+describe('nodeSetCode', () => {
   test('generated eval parses for hex, var: and scalar properties', () => {
-    parses(setCode([
-      { nodeId: '1:2', props: { fill: 'var:sage/50', radius: 8, name: 'Card' } },
-      { nodeId: '3:4', props: { stroke: '#ff8800', width: 10, height: 20, visible: false } },
-    ], 'TARGET_COLLECTION'), 'setCode');
+    parses(nodeSetCode({
+      nodeId: '1:2', props: { fill: 'var:sage/50', radius: 8, name: 'Card' }, collection: 'TARGET_COLLECTION',
+    }), 'nodeSetCode');
+    parses(nodeSetCode({
+      nodeId: '3:4', props: { stroke: '#ff8800', width: 10, height: 20, visible: false }, collection: null,
+    }), 'nodeSetCode');
   });
 
   test('works without a collection pin', () => {
-    parses(setCode([{ nodeId: '1:2', props: { fill: '#fff' } }], null), 'setCode unscoped');
+    parses(nodeSetCode({ nodeId: '1:2', props: { fill: '#ffffff' }, collection: null }), 'nodeSetCode unscoped');
   });
 
   // The reason var: exists at all: a frozen hex cannot be re-themed later.
   test('a var: fill is BOUND, a hex is not', () => {
-    const code = setCode([{ nodeId: '1:2', props: { fill: 'var:x' } }], null);
+    const code = nodeSetCode({ nodeId: '1:2', props: { fill: 'var:x' }, collection: null });
     assert.ok(code.includes('setBoundVariableForPaint'), 'var: goes through the binding API');
     assert.ok(code.includes("input.startsWith('var:')"), 'and only var: does');
   });
 
   test('colour lookup reports ambiguity instead of taking the first match', () => {
-    const code = setCode([{ nodeId: '1:2', props: { fill: 'var:radius/lg' } }], null);
-    assert.ok(code.includes('__resolveVar'), 'shares the resolver with node bind');
+    const code = nodeSetCode({ nodeId: '1:2', props: { fill: 'var:radius/lg' }, collection: null });
+    assert.ok(code.includes('const resolvePaint'), 'uses the closed ambiguity-aware resolver');
     assert.ok(code.includes('narrow with --collection'));
   });
 
   test('a FLOAT variable is refused for a colour before the plugin call', () => {
-    const code = setCode([{ nodeId: '1:2', props: { fill: 'var:space/4' } }], null);
+    const code = nodeSetCode({ nodeId: '1:2', props: { fill: 'var:space/4' }, collection: null });
     assert.ok(code.includes("resolvedType !== 'COLOR'"), 'the type is checked');
   });
 
   test('a quoted payload cannot break out of the eval', () => {
-    const code = setCode([{ nodeId: '1:2', props: { name: 'a"); figma.root.remove(); //' } }], null);
-    parses(code, 'setCode with a quoted name');
+    const code = nodeSetCode({ nodeId: '1:2', props: { name: 'a"); figma.root.remove(); //' }, collection: null });
+    parses(code, 'nodeSetCode with a quoted name');
     assert.ok(!code.includes('a"); figma.root.remove()'), 'payload must not land unescaped');
   });
 });

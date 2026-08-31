@@ -1143,3 +1143,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can the pinned Figma typings prove that every live runtime field exists?
 >
 > **Domain expert:** No. Release checks keep official typings, the Bridge projection contract and a content-free live-runtime exception policy independent. New union values, missing required fields and wrong runtime types fail until reviewed; an unavailable sample stays unsampled rather than becoming assumed compatibility.
+
+> **Developer:** If `node set` changes several properties and a later setter fails, are the earlier changes still reported as success?
+>
+> **Domain expert:** No. Generic Node Set is one journaled mutation. It preflights every supported property and resource, writes once, then freshly verifies the complete effective result. Any failure restores all journaled fields in reverse order and reports verified rollback, exact remaining property residue or unavailable verification. Unsupported properties remain explicit skips; ambiguous Variables stop before the first write.

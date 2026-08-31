@@ -482,3 +482,18 @@ is explicit. A mismatch restores and verifies the prior Paint and annotation
 fields; because Figma has no Image-resource deletion operation, every failure
 after `createImage()` still reports possible Image-resource residue instead of
 claiming complete rollback. Commander and `figma_run` share this exact seam.
+
+Generic `node set` completes the direct Node Write migration without widening
+its disabled batch surface. Its closed request owns one Node Reference, the
+legacy typed property vocabulary, optional Collection query and deterministic
+property order. Commander and `figma_run` execute one non-retrying Command
+Application. Before the first setter, the Application resolves every supported
+Paint Variable without first-match ambiguity and journals every supported
+scalar, Paint list, effect list, corner, constraint, padding and size field.
+Unsupported properties remain bounded `skipped` facts; a request with no
+supported property is a no-mutation refusal. Success requires one fresh read
+matching every effective property. A setter failure or mismatch restores the
+complete journal in reverse order and reports verified rollback, exact
+property residue or unavailable verification. Explicit `var:` bindings remain
+native aliases, literal colours remain literal, and `--batch` stays gated until
+it has its own bounded typed mutation contract.

@@ -550,7 +550,11 @@ and have their overrides reset or compacted without relying on the current
 selection. The direct `node set` surface covers geometry, visibility/locking,
 fills/strokes/effects, blend and mask settings, individual corners, constraints,
 Auto Layout container/child properties, polygon/star geometry, and Section
-visibility. Legacy selection-based and network-backed `create` subcommands
+visibility. The single-node command preflights all supported properties and
+Variable references, freshly verifies the complete result, and restores its
+full field journal if any setter or postcondition fails. Unsupported fields
+remain explicit skips, while ambiguous Variables stop before mutation. Legacy
+selection-based and network-backed `create` subcommands
 remain unreachable through `figma_run`.
 
 `component main <instanceId>` is the bounded identity read for reuse. Commander

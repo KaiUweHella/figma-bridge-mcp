@@ -110,6 +110,7 @@ import { executeNodeBooleanPlan, nodeBooleanPlanRoute } from "../engine/src/appl
 import { executeNodeBindPlan, nodeBindPlanRoute } from "../engine/src/application/node-bind-command.js";
 import { executeNodeSetFillPlan, nodeSetFillPlanRoute } from "../engine/src/application/node-set-fill-command.js";
 import { executePreparedNodeSetImage, nodeSetImagePlanRoute, prepareNodeSetImagePlan } from "../engine/src/application/node-set-image-command.js";
+import { executeNodeSetPlan, nodeSetPlanRoute } from "../engine/src/application/node-set-command.js";
 import { executeNodeFlattenPlan, nodeFlattenPlanRoute } from "../engine/src/application/node-flatten-command.js";
 import {
   executeNodeDeletePlan,
@@ -2339,6 +2340,18 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeNodeBindPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+            fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+          }) });
+        });
+        return resultFromCli(res);
+      }
+      const nodeSetRoute = nodeSetPlanRoute(plan);
+      if (nodeSetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeSetPlan(plan, { evaluate: (code) => evaluateFigma(code, {
             fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
           }) });
         });

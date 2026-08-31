@@ -438,6 +438,17 @@ test('figma_run routes Node Bind through the readback-verified Command Applicati
   assert.match(slice, /executeNodeBindPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/);
 });
+test('figma_run routes Node Set through the journaled multi-property Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeSetRoute = nodeSetPlanRoute(plan)');
+  const end = source.indexOf('const nodeSetFillRoute = nodeSetFillPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeSetPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
 test('figma_run routes Node Set Fill through the readback-verified Command Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeSetFillRoute = nodeSetFillPlanRoute(plan)');

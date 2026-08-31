@@ -424,6 +424,21 @@ test('node duplicate delegates one Plan-bound rollback-verified non-retrying App
     'the Application must own best-effort rollback of only its new copy');
 });
 
+test('node set delegates one Plan-bound journaled multi-property Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('set [nodeId]')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeSetPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeSetPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|setCode\(/,
+    'Commander must not retain Node Set preflight, mutation, rollback, or formatting');
+});
+
 test('the remaining direct Node write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('node-ops.js');
   assert.ok(adapter, 'node-ops.js exists');
@@ -437,10 +452,8 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
       direct.push(matches[index][1].split(/[ <\[]/, 1)[0]);
     }
   }
-  assert.deepEqual(direct.sort(), [
-    'set',
-  ]);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct.sort(), []);
+  assert.equal(direct.length, 0,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
 });
 
@@ -1806,6 +1819,7 @@ test('unsafe legacy bulk writes stop before connection or generated mutation cod
 
   const setStart = nodes.indexOf(".command('set [nodeId]')");
   const set = nodes.slice(setStart);
-  assert.ok(set.indexOf('if (options.batch)') < set.indexOf('await checkConnection()'));
+  assert.ok(set.indexOf('if (options.batch)') < set.indexOf('planFigmaCommand('));
   assert.match(set, /process\.exitCode = 1/);
+  assert.doesNotMatch(set, /checkConnection\(|fastEval\(/);
 });
