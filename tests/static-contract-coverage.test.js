@@ -45,6 +45,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/library-import-request.js',
   'engine/src/application/shader-mutation-command.js',
   'engine/src/application/shader-mutation-request.js',
+  'engine/src/application/slot-configuration-command.js',
+  'engine/src/application/slot-configuration-request.js',
   'engine/src/application/prototype-mutation-command.js',
   'engine/src/application/prototype-mutation-request.js',
   'engine/src/application/node-text-command.js',

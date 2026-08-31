@@ -113,6 +113,12 @@ import {
   shaderMutationFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/shader-mutation-request.js';
 import {
+  acceptsSlotConfigurationArgv,
+  parseSlotConfigurationRequest,
+  slotConfigurationArgvFromRequest,
+  slotConfigurationFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slot-configuration-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -628,6 +634,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'library.import-variable', 'library.import-style',
   'library.import-component', 'library.import-component-set',
   'shader.import', 'shader.apply',
+  'slot.create', 'slot.edit',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -837,6 +844,7 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
   if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
+  if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1070,6 +1078,10 @@ function commandCapability(args) {
   }
   if (['shader.import', 'shader.apply'].includes(action.actionId)
     && !action.help && !acceptsShaderMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['slot.create', 'slot.edit'].includes(action.actionId)
+    && !action.help && !acceptsSlotConfigurationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -2071,6 +2083,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = shaderMutationFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length,
         ...shaderMutationArgvFromRequest(parseShaderMutationRequest(args)));
+      break;
+    }
+    case 'slot-configuration-input': {
+      if (projectUrlTarget) figmaUrlFileKey = slotConfigurationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...slotConfigurationArgvFromRequest(parseSlotConfigurationRequest(args)));
       break;
     }
     case 'component-main-input': {

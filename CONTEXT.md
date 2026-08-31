@@ -736,6 +736,16 @@ share one non-retrying CLI/MCP Command Application and report verified state,
 rollback, residue or unavailable verification explicitly.
 _Avoid_: shader write eval, implicit Shader import, optimistic field assignment, retry after dispatch
 
+**Slot Configuration**:
+The closed creation of one native Slot inside a local Component or edit of one
+exact Slot property definition. It preserves bounded SlotSettings, preferred
+published Component keys and description facts, verifies the fresh Slot and
+definition topology, and removes or restores only identities owned by the
+request when verification fails. Slot reset is a separate irreversible
+operation because Figma exposes neither its intended default subtree nor a safe
+inverse.
+_Avoid_: slot configuration eval, optimistic property rename, inferred reset postcondition
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -1210,3 +1220,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can Shader import or apply still bypass the Plan boundary, or can apply silently import a missing Shader?
 >
 > **Domain expert:** No. Import and apply share one closed, non-retrying Shader Mutation Application. Import calls the native materializer once and verifies the exact id, imported state and type against a fresh bounded Shader inventory; because it has no safe inverse, uncertain verification reports possible residue. Apply accepts only a uniquely available, already imported, type-compatible Shader, journals the complete target field, performs one assignment and verifies fresh exact placement or restores that journal. It never calls the import API. CLI and MCP preserve the same bounded outcome, and the mechanically measured direct Shader legacy-write count is zero.
+
+> **Developer:** Can Slot creation and definition editing share one safe outcome with `resetSlot()`?
+>
+> **Domain expert:** Only the configuration actions do. `slot create` snapshots existing Slot and definition identities, calls `createSlot()` once, and proves the exact new descendant and requested configuration; failure removes only the new identities. `slot edit` journals the effective definition, preserves unspecified settings, and proves a rename/configuration through fresh readback or restores that definition. Both Adapters use one non-retrying Application. `resetSlot()` exposes neither the intended default child subtree nor an inverse in Figma's Plugin API, so it remains a separately measured irreversible migration seam instead of receiving a false rollback claim. The direct Slot legacy-write count falls from three to one.

@@ -1567,9 +1567,12 @@ use the current selection when the id is omitted. It preserves `gridStyleId`,
 all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count
 is returned as `{ "$figmaScalar": "Infinity" }`, never the lossy JSON value
 `null`; text output renders that value as `Auto`.
-Slots expose GA `SlotSettings`, preferred values, reset, and limit violations;
-JSX `<Slot>` now uses `ComponentNode.createSlot()` and validates configured
-limits after rendering. Draw commands cover text paths, repeat transform
+Slots expose GA `SlotSettings`, preferred values, reset, and limit violations.
+Create and edit share one non-retrying, freshly verified mutation path in CLI
+and MCP; failures remove only newly created Slot identities or restore the
+prior effective definition when Figma permits it. JSX `<Slot>` uses
+`ComponentNode.createSlot()` and validates configured limits after rendering.
+Draw commands cover text paths, repeat transform
 groups, stretch/scatter/dynamic strokes, variable-width profiles, and async
 pattern fill/stroke setters. Run the corresponding `inspect`/`validate` read
 before writes when modifying an unfamiliar document.

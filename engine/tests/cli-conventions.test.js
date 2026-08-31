@@ -606,6 +606,43 @@ test('the remaining direct Shader write inventory is explicit and cannot grow si
     'STAB-26 Shader-family Legacy Write count may decrease, but must never increase silently');
 });
 
+test('Slot create and edit delegate one Plan-bound rollback-owned Application', () => {
+  const adapter = sources.get('slots.js');
+  for (const marker of [
+    "command('create <componentId> <name>')",
+    "command('edit <componentId> <propertyName>')",
+  ]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('slot.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runSlotConfiguration\(/);
+    assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|slot(?:Create|Edit)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'slot-configuration-command.js'), 'utf8');
+  assert.match(application, /component\.createSlot\(\)/);
+  assert.match(application, /component\.editComponentProperty\(/);
+  assert.match(application, /current\.deleteComponentProperty\(/);
+});
+
+test('the remaining direct Slot write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('slots.js'); const direct = [];
+  const markers = {
+    create: "command('create <componentId> <name>')",
+    edit: "command('edit <componentId> <propertyName>')",
+    reset: "command('reset <nodeId>')",
+  };
+  for (const [name, marker] of Object.entries(markers)) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('slot.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/\brun\(|checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, ['reset']);
+  assert.equal(direct.length, 1,
+    'STAB-26 Slot-family Legacy Write count may decrease, but must never increase silently');
+});
+
 test('the remaining direct Prototype write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('prototype.js'); const direct = [];
   for (const name of ['add', 'set', 'clear']) {

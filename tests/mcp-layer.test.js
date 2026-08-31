@@ -693,6 +693,35 @@ test('figma_run rejects malformed Shader writes before readiness or dispatch', a
   }
 });
 
+test('figma_run routes Slot create/edit through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slotConfigurationRoute = slotConfigurationPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeSlotConfigurationPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slot Configuration must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Slot create/edit before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['slot', 'create', '1:1'],
+    ['slot', 'create', '1:1', 'Content', '--settings', '{"future":true}'],
+    ['slot', 'edit', '1:1', 'Content#1:1'],
+    ['slot', 'edit', '1:1', 'Content#1:1', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Prototype Inspection before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

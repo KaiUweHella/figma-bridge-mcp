@@ -607,3 +607,19 @@ A mismatch restores the journal when possible and otherwise reports exact field
 residue. CLI and MCP share one decreasing deadline, bounded response and
 non-retrying Plan; the mechanically pinned direct Shader legacy-write count
 reaches zero.
+
+Slot creation and Slot-property editing form one configuration Application,
+while reset remains a distinct irreversible seam. The closed request bounds the
+Component Node Reference, generated property name, `SlotSettings`, preferred
+published Component keys and description. Create snapshots existing Slot and
+definition identities, calls `createSlot()` once, optionally edits the newly
+created definition, and freshly proves one exact descendant plus one definition.
+Failure removes only those new identities and reports any remaining or missing
+topology. Edit resolves one exact full property name, journals its effective
+configuration, preserves unspecified settings, and freshly proves the returned
+name and definition; failure restores the journal when possible. CLI and MCP
+share one decreasing deadline and non-retrying Plan without Commander re-entry.
+The mechanically pinned direct Slot legacy-write count falls from three to one.
+`resetSlot()` is not included because the Plugin API exposes neither the target
+default subtree nor a safe inverse; a later irreversible Application must state
+that evidence boundary explicitly rather than claim rollback.
