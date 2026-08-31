@@ -31,7 +31,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
 
   const entries = readFileSync(auditFile, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(entries.length, 2);
-  assert.equal(entries[0].schema, 4);
+  assert.equal(entries[0].schema, 5);
   assert.equal(entries[0].event, 'start');
   assert.equal(entries[0].capability, 'export.code-spec');
   assert.equal(entries[0].operation, 'read');
@@ -42,7 +42,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
   const serialized = JSON.stringify(entries.map(({ ts, ...entry }) => entry));
   assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec/);
   assert.deepEqual(entries[1], {
-    schema: 4,
+    schema: 5,
     id: entries[0].id,
     ts: entries[1].ts,
     event: 'done',

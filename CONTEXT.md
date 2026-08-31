@@ -22,8 +22,15 @@ Closed protocol discriminants must have matching validation branches.
 _Avoid_: mixed global type environment, whole-legacy typecheck, optional seam
 
 **Command Capability**:
-The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma/workspace/external-network/shared-local-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity. External network excludes the authenticated localhost Bridge transport, which is recorded separately as availability.
+The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma-document/editor-context/workspace/external-network/shared-local-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity. External network excludes the authenticated localhost Bridge transport, which is recorded separately as availability.
 _Avoid_: allowlist entry, command metadata
+
+**Editor Context Effect**:
+The closed `none|read|write` **Command Capability** effect for selection,
+viewport, focus and current-page state, separate from the `figma` document
+effect. Editor writes are non-retrying and auditable but do not by themselves
+require document-mutation confirmation.
+_Avoid_: document write, harmless read, implicit UI side effect
 
 **Figma Command Grammar**:
 The closed recursive set of exposed Figma Command action paths and documented aliases. It resolves argv to a stable payload-free action id and syntactic option facts from before the first `--` terminator before capability policy, confirmation, audit or Adapter dispatch. Migrated Command Applications own a closed request Interface; policy-relevant Legacy Commands instead have a small compatibility option schema that rejects unknown, duplicate, valueless or conflicting policy options while preserving Commander short and inline value forms. Unknown nested actions are not commands and later tokens are payload.
@@ -606,7 +613,8 @@ _Avoid_: canvas eval, document layout dump, placement guess
 The bounded listing of current-document pages and the explicit non-retrying
 switch of Figma's current editor page through one shared Command Application.
 It changes editor context, not document content, and never creates, deletes,
-renames, or guesses a page when a query is ambiguous.
+renames, or guesses a page when a query is ambiguous. Its Command Plan keeps
+`figma: read` and declares `editor: write` without document-write confirmation.
 _Avoid_: page eval, document mutation, implicit page selection
 
 **Page Structure**:

@@ -35,7 +35,7 @@ test('runCli with label writes an enriched audit line plus a completion entry', 
   await runCli(['--help'], { label: 'discoverability check' });
   const lines = parseAuditLines(readFileSync(AUDIT, 'utf8'));
   const entry = lines.findLast((e) => e.event === 'start');
-  assert.equal(entry.schema, 4);
+  assert.equal(entry.schema, 5);
   assert.equal(entry.capability, 'help');
   assert.equal(entry.data.arguments.count, 1);
   assert.equal(entry.data.label.bytes, Buffer.byteLength('discoverability check'));
@@ -120,6 +120,32 @@ test('schema-2 structured Audit Trail records remain readable after the network-
   const [folded] = foldCompletions(entries);
   assert.equal(folded.ok, true);
   assert.match(formatHistory([{ ...folded, source: 'design' }]), /inspect \[read\]/);
+});
+
+test('schema-4 Audit Trail records remain readable after the editor-effect schema upgrade', () => {
+  const entries = [
+    {
+      schema: 4,
+      id: 'schema-four',
+      ts: '2026-08-30T00:00:00.000Z',
+      event: 'start',
+      capability: 'canvas.page',
+      operation: 'read',
+      effects: { figma: 'read', workspace: 'none', network: 'none', shared: 'none' },
+      target: { kind: 'plugin-file' },
+      data: { arguments: { count: 3, bytes: 24, sha256: 'b'.repeat(64) } },
+    },
+    {
+      schema: 4,
+      id: 'schema-four',
+      ts: '2026-08-30T00:00:01.000Z',
+      event: 'done',
+      outcome: { ok: true, durationMs: 2, code: 0 },
+    },
+  ];
+  const [folded] = foldCompletions(entries);
+  assert.equal(folded.ok, true);
+  assert.match(formatHistory([{ ...folded, source: 'design' }]), /canvas\.page \[read\]/);
 });
 
 test('buildHistory reads the rotated audit.log.1 generation too', () => {

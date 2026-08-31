@@ -2279,6 +2279,12 @@ test('explicit Command Preview is payload-free and wins over confirm:true', asyn
   assert.equal(facts.dispatched, false);
   assert.equal(facts.capability, 'var.create');
   assert.equal(facts.effects.figma, 'write');
+  assert.equal(facts.effects.editor, 'none');
+  const navigationFacts = commandPlanPreviewFacts(planFigmaRunCommand([
+    'canvas', 'page', 'Components',
+  ]));
+  assert.equal(navigationFacts.effects.figma, 'read');
+  assert.equal(navigationFacts.effects.editor, 'write');
   assert.equal(facts.confirmationPolicy, 'required');
   assert.equal(JSON.stringify(facts).includes('private-variable-name'), false);
   const plan = planFigmaRunCommand(['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'name']);

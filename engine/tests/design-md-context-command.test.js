@@ -97,6 +97,7 @@ test("repository-only context Plan has no Figma target, confirmation, or dispatc
   assert.equal(plan.allowed, true);
   assert.deepEqual(plan.effects, {
     figma: "none",
+    editor: "none",
     workspace: "read",
     network: "none",
     shared: "none",

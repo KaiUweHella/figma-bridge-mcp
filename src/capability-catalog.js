@@ -13,7 +13,10 @@ import {
   parseAssetExportRequest,
 } from '../engine/src/application/asset-export-request.js';
 import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
-import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
+import {
+  acceptsDesignLinkArgv,
+  parseDesignLinkRequest,
+} from '../engine/src/application/design-link-request.js';
 import {
   acceptsCodeSpecArgv,
   codeSpecArgvFromRequest,
@@ -505,6 +508,22 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list',
+]);
+// Editor context is deliberately separate from document content. Keep these
+// action ids closed and source-audited: they are the commands that directly
+// read or write selection, viewport, focus, or the current page.
+const EDITOR_CONTEXT_READ_ACTIONS = new Set([
+  'canvas.info', 'canvas.next', 'canvas.pages',
+  'slides.inspect',
+  'export.screenshot',
+  'dev.list', 'annotate.list', 'a11y.vision', 'a11y.focus',
+  'jam.board', 'jam.arrange',
+]);
+const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
+  'sizes', 'var.visualize', 'gradient.mesh',
+  'slides.create', 'slides.duplicate',
+  'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.table',
+  'canvas.page',
 ]);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
@@ -2284,6 +2303,39 @@ function sharedEffect(args, artifactOutputs, capability) {
   return 'none';
 }
 
+function editorEffect(args, capability) {
+  if (!capability.available || capability.help || capability.target === 'none') return 'none';
+  const { actionId } = capability;
+  if (actionId === 'canvas.page-create') {
+    return hasOption(capability.options, '--no-switch') ? 'none' : 'write';
+  }
+  if (actionId === 'combos') {
+    if (!hasOption(capability.options, '--dry-run')) return 'write';
+    const [nodeIndex] = positionalIndexes(args, 1, ['-g', '--gap']);
+    return nodeIndex === undefined ? 'read' : 'none';
+  }
+  if (actionId?.startsWith('create.')) return 'write';
+  if (EDITOR_CONTEXT_WRITE_ACTIONS.has(actionId)) return 'write';
+  if (actionId === 'extract' && hasOption(capability.options, '--selection')) return 'read';
+  if (actionId === 'verify' && !parseScreenshotRequest(args).nodeId) return 'read';
+  if (actionId === 'export.code-spec' && !parseCodeSpecRequest(args).nodeId) return 'read';
+  if (actionId === 'node.bindings' && !parseNodeBindingsRequest(args).nodeId) return 'read';
+  if (actionId === 'component.prop.list'
+    && !parseComponentPropertyListRequest(args).componentId) return 'read';
+  if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
+  if (actionId === 'link.inspect'
+    && !parseDesignLinkRequest(args, { requireManifest: false }).nodeId) return 'read';
+  if (actionId === 'gradient.extract'
+    && String(flagValue(args, '--apply-to', capability.options)).toLowerCase() === 'selected') {
+    return 'read';
+  }
+  if (actionId === 'pin'
+    && !hasOption(capability.options, '--node')
+    && !hasOption(capability.options, '--query')) return 'read';
+  if (EDITOR_CONTEXT_READ_ACTIONS.has(actionId)) return 'read';
+  return 'none';
+}
+
 function availabilityFor(args, capability) {
   if (!capability.available) return { transport: 'none', editor: 'either', feature: null };
   if (capability.target === 'none') {
@@ -2344,6 +2396,7 @@ export function planFigmaCommand(rawArgs, {
   }
   const effects = Object.freeze({
     figma: capability.mutatesDesign ? 'write' : capability.target === 'none' ? 'none' : 'read',
+    editor: editorEffect(prepared.args, capability),
     workspace: capability.help ? 'none' : prepared.workspace,
     network: capability.help ? 'none' : networkEffect(prepared.args, capability),
     shared: capability.help ? 'none'
@@ -2372,7 +2425,7 @@ export function planFigmaCommand(rawArgs, {
       ? 'read'
       : 'none';
   const jobKey = backgroundJobIdentity(argv, target.fileKey);
-  const retry = capability.mutatesDesign ? 'never' : capability.retry;
+  const retry = capability.mutatesDesign || effects.editor === 'write' ? 'never' : capability.retry;
   const plan = {
     id: capability.actionId || 'unknown',
     adapter,

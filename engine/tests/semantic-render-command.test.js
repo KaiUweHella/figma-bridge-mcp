@@ -459,7 +459,7 @@ test('compound assets and verification are explicit Command Plan effects', async
   const cli = planFigmaCommand(argv, { ...options, adapter: 'cli' });
   assert.equal(semanticRenderPlanRoute(mcp), 'compound-command-application');
   assert.deepEqual(mcp.effects, {
-    figma: 'write', workspace: 'read', network: 'read', shared: 'write',
+    figma: 'write', editor: 'none', workspace: 'read', network: 'read', shared: 'write',
   });
   assert.equal(mcp.outputs.length, 2);
   assert.deepEqual(mcp.outputs.map((output) => basename(output.path)), [

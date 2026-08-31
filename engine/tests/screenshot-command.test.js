@@ -263,7 +263,7 @@ test('default screenshot persistence is an exact private Plan artifact', async (
   });
   assert.equal(screenshotPlanRoute(plan), 'command-application');
   assert.deepEqual(plan.effects, {
-    figma: 'read', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'read', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.equal(plan.outputs.length, 1);
   assert.equal(plan.outputs[0].scope, 'private-temporary');
@@ -319,7 +319,7 @@ test('workspace and inline screenshot plans declare only their real effects', as
   const workspace = planFigmaCommand(['verify', '1:2', '--save', 'shot.png'], options);
   assert.equal(workspace.argv.at(-1), join(root, 'shot.png'));
   assert.deepEqual(workspace.effects, {
-    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(workspace.outputs, [{
     role: 'verification-image-output', path: join(root, 'shot.png'), scope: 'workspace', cleanup: 'caller-owned',
@@ -332,7 +332,7 @@ test('workspace and inline screenshot plans declare only their real effects', as
   assert.deepEqual(readFileSync(join(root, 'shot.png')), PNG);
   const inline = planFigmaCommand(['verify', '1:2', '--base64'], options);
   assert.deepEqual(inline.effects, {
-    figma: 'read', workspace: 'none', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'none', network: 'none', shared: 'none',
   });
   assert.deepEqual(inline.outputs, []);
 });

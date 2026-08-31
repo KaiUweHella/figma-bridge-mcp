@@ -379,7 +379,9 @@ export async function ensureSafeConnect({
   const auditHandle = auditTrail.begin({
     capability: "bridge.connect",
     operation: "write",
-    effects: { figma: "none", workspace: "none", network: "none", shared: "write" },
+    effects: {
+      figma: "none", editor: "none", workspace: "none", network: "none", shared: "write",
+    },
     target: { kind: "local-bridge" },
     arguments: args,
   });

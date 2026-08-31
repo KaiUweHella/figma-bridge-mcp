@@ -1088,7 +1088,7 @@ test('policy options reject unknown, duplicate, missing, and conflicting forms b
     assert.equal(plan.allowed, false, args.join(' '));
     assert.equal(plan.id, 'unknown', args.join(' '));
     assert.deepEqual(plan.effects, {
-      figma: 'none', workspace: 'none', network: 'none', shared: 'none',
+      figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'none',
     }, args.join(' '));
     assert.equal(plan.target.kind, 'none', args.join(' '));
   }
@@ -1480,13 +1480,13 @@ test('CLI and MCP decide identical policy for the Design Link tracer only', () =
   const cases = [
     {
       argv: ['link', 'inspect', '1:2', '--manifest', '/work/figma-bridge.json'],
-      effects: { figma: 'read', workspace: 'read', network: 'none', shared: 'none' },
+      effects: { figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
       confirmation: 'none',
       retry: 'safe-read',
     },
     {
       argv: ['link', 'set', '1:2', 'ui.button', '--manifest', '/work/figma-bridge.json'],
-      effects: { figma: 'write', workspace: 'write', network: 'none', shared: 'none' },
+      effects: { figma: 'write', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
       confirmation: 'configured',
       retry: 'never',
     },
@@ -1548,12 +1548,12 @@ test('CLI and MCP decide identical policy and accepted outcomes for Design Contr
   const cases = [
     {
       argv: ['contract', 'capture', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
-      effects: { figma: 'read', workspace: 'write', network: 'none', shared: 'none' },
+      effects: { figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
       okExitCodes: [0],
     },
     {
       argv: ['contract', 'check', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
-      effects: { figma: 'read', workspace: 'read', network: 'none', shared: 'none' },
+      effects: { figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
       okExitCodes: [0, 1],
     },
   ];
@@ -1668,36 +1668,36 @@ test('catalog prepares every known project-relative path policy', () => {
 
 test('catalog reports workspace, network and shared-state effects independently from Figma effects', () => {
   assert.deepEqual(planFigmaCommand(['spec', 'Button', '--file', 'DESIGN.md'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], { workspaceDir: '/work' }).effects.workspace, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot']).effects.shared, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot', '--json']).effects.shared, 'none');
   assert.equal(planFigmaCommand(['history', 'list']).effects.shared, 'read');
   assert.deepEqual(planFigmaCommand(['api', 'setup']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(planFigmaCommand(['api', 'index']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(planFigmaCommand(['api', 'context']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   assert.deepEqual(planFigmaCommand(['api', 'SceneNode']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   const apiPlan = planFigmaCommand(['api', 'setup']);
   assert.match(apiPlan.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
   assert.doesNotMatch(JSON.stringify(apiPlan.audit), /https?:|node_modules|figma-api[\\/]/i);
   assert.deepEqual(planFigmaCommand(['api']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'none',
   });
   assert.equal(planFigmaCommand(['map', 'storybook', 'http://localhost:6006']).effects.network, 'read');
   assert.equal(planFigmaCommand(['map', 'storybook', './storybook-static']).effects.network, 'none');
   assert.equal(planFigmaCommand(['import', 'https://storybook.example.com']).effects.network, 'read');
   assert.deepEqual(
     planFigmaCommand(['import', './tokens.css', '--print-context'], { workspaceDir: '/work' }).effects,
-    { figma: 'none', workspace: 'read', network: 'none', shared: 'none' },
+    { figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
   );
   assert.equal(
     planFigmaCommand(['import', './tokens.css', '--print-context'], { workspaceDir: '/work' })
@@ -1708,37 +1708,70 @@ test('catalog reports workspace, network and shared-state effects independently 
     planFigmaCommand([
       'import', './tokens.css', '--print-context', '--save', './converted.md',
     ], { workspaceDir: '/work' }).effects,
-    { figma: 'none', workspace: 'write', network: 'none', shared: 'none' },
+    { figma: 'none', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
   );
   assert.equal(planFigmaCommand(['kit', 'init', '.', '--storybook=https://storybook.example.com']).effects.network, 'read');
   assert.deepEqual(planFigmaCommand(['link', 'set', '1:2', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'write', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'write', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'list'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'accept', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'context', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'configure', '--tokens', 'tokens.json'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['export', 'node-json', '1:2', '-o', 'facts.json'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
+});
+
+test('catalog classifies editor selection, viewport, focus, and current-page effects explicitly', () => {
+  const cases = [
+    { argv: ['canvas', 'pages'], effect: 'read' },
+    { argv: ['canvas', 'page', 'Components'], effect: 'write' },
+    { argv: ['canvas', 'page-create', 'Draft'], effect: 'write' },
+    { argv: ['canvas', 'page-create', '--no-switch', 'Draft'], effect: 'none' },
+    { argv: ['create', 'frame'], effect: 'write' },
+    { argv: ['sizes', '1:2'], effect: 'write' },
+    { argv: ['combos', '--dry-run'], effect: 'read' },
+    { argv: ['combos', '1:2', '--dry-run'], effect: 'none' },
+    { argv: ['var', 'visualize', 'Collection'], effect: 'write' },
+    { argv: ['gradient', 'mesh', '#ffffff'], effect: 'write' },
+    { argv: ['slides', 'inspect'], effect: 'read' },
+    { argv: ['slides', 'create', 'Intro'], effect: 'write' },
+    { argv: ['jam', 'sticky', 'Note'], effect: 'write' },
+    { argv: ['jam', 'board'], effect: 'read' },
+    { argv: ['node', 'bindings'], effect: 'read' },
+    { argv: ['node', 'bindings', '1:2'], effect: 'none' },
+    { argv: ['link', 'inspect'], effect: 'read' },
+    { argv: ['link', 'inspect', '1:2'], effect: 'none' },
+    { argv: ['verify'], effect: 'read' },
+    { argv: ['verify', '1:2'], effect: 'none' },
+    { argv: ['pin', 'left'], effect: 'read' },
+    { argv: ['pin', 'left', '--node', '1:2'], effect: 'none' },
+  ];
+  for (const { argv, effect } of cases) {
+    const plan = planFigmaCommand(argv);
+    assert.equal(plan.allowed, true, argv.join(' '));
+    assert.equal(plan.effects.editor, effect, argv.join(' '));
+    if (effect === 'write') assert.equal(plan.execution.retry, 'never', argv.join(' '));
+  }
 });
 
 test('API reference plans expose only private-state effects and stable material provenance', () => {
   const setup = planFigmaCommand(['api', 'setup']);
   const lookup = planFigmaCommand(['api', 'show', 'FrameNode']);
   assert.deepEqual(setup.effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(lookup.effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   assert.equal(setup.audit.materialVersion, lookup.audit.materialVersion);
   assert.match(setup.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
@@ -1811,7 +1844,7 @@ test('Asset Export canonicalizes defaults into one cross-Adapter tracked-job pol
     assert.equal(plan.allowed, true);
     assert.equal(cli.allowed, true);
     assert.deepEqual(plan.effects, {
-      figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+      figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
     });
     assert.equal(plan.confirmation, 'none');
     assert.equal(plan.execution.mode, 'tracked-job');
@@ -1833,7 +1866,7 @@ test('each capability supplies a closed audit projection without user payloads o
   assert.deepEqual(plan.audit, {
     capability: 'render',
     operation: 'write',
-    effects: { figma: 'write', workspace: 'read', network: 'none', shared: 'none' },
+    effects: { figma: 'write', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
     targetKind: 'plugin-file',
     outputRoles: [],
   });

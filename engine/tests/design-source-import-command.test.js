@@ -98,7 +98,7 @@ test('print-context Plan owns one repository-only read with no Figma target or d
   assert.equal(cli.id, 'import');
   assert.equal(designSourceImportPlanRoute(cli), 'command-application');
   assert.deepEqual(cli.effects, {
-    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.equal(cli.target.kind, 'none');
   assert.equal(cli.confirmation, 'none');

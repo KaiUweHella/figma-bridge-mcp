@@ -1512,6 +1512,7 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
     capability: plan.id,
     effects: Object.freeze({
       figma: effects.figma || "none",
+      editor: effects.editor || "none",
       workspace: effects.workspace || "none",
       network: effects.network || "none",
       shared: effects.shared || "none",

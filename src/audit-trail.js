@@ -10,7 +10,7 @@ import { constants as fsConstants } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { AUDIT_LOG_PATH, STATE_DIR } from "./config.js";
 
-export const AUDIT_SCHEMA_VERSION = 4;
+export const AUDIT_SCHEMA_VERSION = 5;
 export const AUDIT_ROTATE_BYTES = 5 * 1024 * 1024;
 
 const PRIVATE_DIRECTORY_MODE = 0o700;
@@ -137,6 +137,7 @@ function writeJsonLine(auditPath, entry, { rotateBytes, manageDirectory }) {
 function normalizedEffects(effects) {
   return Object.freeze({
     figma: safeEffect(effects?.figma),
+    editor: safeEffect(effects?.editor),
     workspace: safeEffect(effects?.workspace),
     network: safeEffect(effects?.network),
     shared: safeEffect(effects?.shared),

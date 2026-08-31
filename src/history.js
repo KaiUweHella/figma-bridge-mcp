@@ -9,7 +9,7 @@ import { AUDIT_LOG_PATH } from "./config.js";
 import { extractNodeIds } from "./engine.js";
 import { AUDIT_SCHEMA_VERSION, summarizeSensitive } from "./audit-trail.js";
 
-const STRUCTURED_AUDIT_SCHEMAS = new Set([2, 3, AUDIT_SCHEMA_VERSION]);
+const STRUCTURED_AUDIT_SCHEMAS = new Set([2, 3, 4, AUDIT_SCHEMA_VERSION]);
 
 function isStructuredAuditEntry(entry) {
   return STRUCTURED_AUDIT_SCHEMAS.has(entry?.schema);

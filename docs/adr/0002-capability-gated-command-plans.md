@@ -5,13 +5,16 @@ execution. Unknown commands default to denied, mutating and non-retryable so
 adding a command cannot accidentally bypass confirmation, targeting, path
 normalization or audit policy.
 
-Effects use one closed four-axis vocabulary: `figma`, `workspace`, `network`
-and `shared`, each with `none`, `read` or `write`. `network` records external
-outbound access; the authenticated localhost Bridge transport remains an
-availability fact. `shared` records persistent local state outside the
-workspace, including downloaded reference material. Adapters may translate a
-Capability-owned timeout class into deployment milliseconds, but they cannot
-replace that class or the accepted outcome codes after planning.
+Effects use one closed five-axis vocabulary: `figma`, `editor`, `workspace`,
+`network` and `shared`, each with `none`, `read` or `write`. `figma` describes
+document content; `editor` describes selection, viewport, focus and current-page
+context. An editor write is auditable and non-retrying but does not by itself
+require document-write confirmation. `network` records external outbound
+access; the authenticated localhost Bridge transport remains an availability
+fact. `shared` records persistent local state outside the workspace, including
+downloaded reference material. Adapters may translate a Capability-owned
+timeout class into deployment milliseconds, but they cannot replace that class
+or the accepted outcome codes after planning.
 
 The Capability Catalog resolves a closed recursive Figma Command Grammar before
 those decisions. Every exposed nested action and documented alias has an
@@ -349,12 +352,13 @@ validated before projection, and placement options select static generated
 code rather than crossing the Plugin seam as executable input.
 
 Page Navigation is adjacent but separate. `canvas pages` is a bounded safe
-read, while `canvas page` changes only the current editor page and is therefore
-never retried. Their closed request Interface preserves literal dash-prefixed
-queries after `--`; Commander and `figma_run` share one authentic Plan,
-deterministic id/exact-name/unique-substring resolution, bounded ambiguity and
-result validation, and control-safe text projection. Page creation and other
-document mutations remain outside this Application.
+read with `editor: read`, while `canvas page` retains `figma: read`, declares
+`editor: write`, requires no document-write confirmation and is never retried.
+Their closed request Interface preserves literal dash-prefixed queries after
+`--`; Commander and `figma_run` share one authentic Plan, deterministic
+id/exact-name/unique-substring resolution, bounded ambiguity and result
+validation, and control-safe text projection. Page creation and other document
+mutations remain outside this Application.
 
 The mutating `canvas page-create` and `canvas page-divider` actions form a
 separate Page Structure Application. Their closed request owns page names,
@@ -364,4 +368,6 @@ divider indexes are checked before creation, and optional divider names must
 retain Figma's native all-asterisk, all-dash or all-space semantics. If a later
 rename, page switch or divider insertion fails, the Application removes the
 object it created where Figma permits and reports bounded possible residue
-otherwise.
+otherwise. Page creation declares `editor: write` only when its closed switch
+intent makes the new page current; `--no-switch` and page-divider creation
+declare `editor: none`.
