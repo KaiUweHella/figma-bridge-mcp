@@ -8,7 +8,7 @@ import {
 } from '../../../src/engine.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
-  annotationAddCode, annotationCategoriesCode, annotationCategoryCreateCode,
+  annotationAddCode, annotationCategoryCreateCode,
   annotationCategoryEditCode, annotationCategoryRemoveCode, annotationEditCode,
   annotationRemoveCode, parseProperties,
 } from '../lib/annotation-management.js';
@@ -85,6 +85,10 @@ import {
   executeSectionInventoryPlan,
   sectionInventoryArgvFromRequest,
 } from '../application/section-inventory-command.js';
+import {
+  annotationCategoryInventoryArgvFromRequest,
+  executeAnnotationCategoryInventoryPlan,
+} from '../application/annotation-category-inventory-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1072,10 +1076,32 @@ annotateCmd.command('remove <nodeId> <index>')
     catch (e) { handleEvalError(e); }
   });
 
-annotateCmd.command('categories').description('List annotation categories in the open file').action(async () => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoriesCode() }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
+annotateCmd.command('categories')
+  .description('List annotation categories in the open file')
+  .allowExcessArguments(false)
+  .action(async () => {
+    try {
+      const plan = planFigmaCommand(annotationCategoryInventoryArgvFromRequest({}), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationCategoryInventoryPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Category Inventory failed: '
+        + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
 
 annotateCmd.command('category-add <label>').requiredOption('--color <color>').action(async (label, options) => {
   try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryCreateCode({ label, color: options.color }) }), null, 2)); }

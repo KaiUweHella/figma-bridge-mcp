@@ -14,6 +14,8 @@
     "engine/LICENSE",
     "engine/package.json",
     "engine/src/api-docs.js",
+    "engine/src/application/annotation-category-inventory-command.js",
+    "engine/src/application/annotation-category-inventory-request.js",
     "engine/src/application/asset-export-command.js",
     "engine/src/application/asset-export-request.js",
     "engine/src/application/canvas-awareness-command.js",

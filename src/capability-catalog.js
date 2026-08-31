@@ -602,6 +602,11 @@ import {
   sectionInventoryArgvFromRequest,
 } from '../engine/src/application/section-inventory-request.js';
 import {
+  acceptsAnnotationCategoryInventoryArgv,
+  annotationCategoryInventoryArgvFromRequest,
+  parseAnnotationCategoryInventoryRequest,
+} from '../engine/src/application/annotation-category-inventory-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -709,7 +714,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
-  'shader.list', 'dev.list', 'section.list',
+  'shader.list', 'dev.list', 'section.list', 'annotate.categories',
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
 ]);
@@ -814,6 +819,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
+  'annotate.categories',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1149,6 +1155,10 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'section' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'section-inventory-input';
+  }
+  if (name === 'annotate' && sub === 'categories') {
+    retry = 'safe-read';
+    pathPolicy = 'annotation-category-inventory-input';
   }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
@@ -1572,6 +1582,10 @@ function commandCapability(args) {
   }
   if (name === 'section' && args[1] === 'list'
     && !action.help && !acceptsSectionInventoryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'categories'
+    && !action.help && !acceptsAnnotationCategoryInventoryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2532,6 +2546,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'section-inventory-input': {
       args.splice(0, args.length,
         ...sectionInventoryArgvFromRequest(parseSectionInventoryRequest(args)));
+      break;
+    }
+    case 'annotation-category-inventory-input': {
+      args.splice(0, args.length, ...annotationCategoryInventoryArgvFromRequest(
+        parseAnnotationCategoryInventoryRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {
