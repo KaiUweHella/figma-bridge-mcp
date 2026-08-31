@@ -1491,6 +1491,30 @@ test('grid list delegates one Plan-bound bounded-read Command Application', () =
     'Commander must not retain Layout Grid Facts readiness, capture, or formatting logic');
 });
 
+test('grid set and clear delegate one Plan-bound rollback-owned Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const grid = adapter.indexOf(".command('grid')");
+  const setStart = adapter.indexOf(".command('set <nodeId>')", grid);
+  const listStart = adapter.indexOf(".command('list [nodeId]')", setStart);
+  const clearStart = adapter.indexOf(".command('clear <nodeId>')", listStart);
+  const componentStart = adapter.indexOf(".command('component')", clearStart);
+  for (const action of [
+    adapter.slice(setStart, listStart),
+    adapter.slice(clearStart, componentStart),
+  ]) {
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /planFigmaCommand\(layoutGuideMutationPlanningArgvFromRequest\(/);
+    assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+    assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+    assert.match(action, /executeLayoutGuideMutationPlan\(plan/);
+    assert.match(action, /daemonExec\('eval'/);
+    assert.match(action, /process\.exitCode = 1/);
+    assert.doesNotMatch(action, /checkConnection\(|n\.layoutGrids|handleEvalError\(/,
+      'Commander must not retain Layout Guide mutation or rollback logic');
+  }
+});
+
 test('dev list delegates one Plan-bound bounded-read Command Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

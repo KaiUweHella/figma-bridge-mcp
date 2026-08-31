@@ -470,6 +470,10 @@ import {
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
 import {
+  executeLayoutGuideMutationPlan,
+  layoutGuideMutationPlanRoute,
+} from "../engine/src/application/layout-guide-mutation-command.js";
+import {
   devResourceReadPlanRoute,
   executeDevResourceReadPlan,
 } from "../engine/src/application/dev-resource-read-command.js";
@@ -4030,6 +4034,25 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeLayoutGridFactsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const layoutGuideMutationRoute = layoutGuideMutationPlanRoute(plan);
+      if (layoutGuideMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeLayoutGuideMutationPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

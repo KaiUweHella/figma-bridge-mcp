@@ -989,6 +989,28 @@ test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   assert.equal(cli.audit.capability, 'grid.list');
 });
 
+test('Layout Guide mutations close policy-identical non-retrying CLI/MCP writes', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [
+      ['grid', 'set', '10-3', '--columns=12', '--gutter=20'],
+      ['grid', 'set', '-g20', '-c12', '--', '10:3'],
+      'grid.set',
+    ],
+    [['grid', 'clear', '10-3'], ['grid', 'clear', '--', '10:3'], 'grid.clear'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
 test('Dev Resource Read closes one policy-identical CLI/MCP safe read', () => {
   const cli = planFigmaCommand(['dev', 'list', '10-3'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['dev', 'list', '--', '10:3'], { adapter: 'mcp' });

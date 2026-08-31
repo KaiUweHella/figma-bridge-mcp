@@ -69,6 +69,10 @@ import {
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
 import {
+  executeLayoutGuideMutationPlan,
+  layoutGuideMutationPlanningArgvFromRequest,
+} from '../application/layout-guide-mutation-command.js';
+import {
   devResourceReadPlanningArgvFromRequest,
   executeDevResourceReadPlan,
 } from '../application/dev-resource-read-command.js';
@@ -404,41 +408,39 @@ gridCmd
   .option('--color <hex>', 'Grid color (hex)', '#FF008B')
   .option('--opacity <n>', 'Grid opacity (0-1)', parseFloat, 0.1)
   .option('--append', 'Append to existing grids instead of replacing')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    if (!options.columns && !options.rows) {
-      console.error(chalk.red('✗'), 'Specify at least --columns or --rows');
-      process.exit(1);
-    }
-    const alignmentMap = { stretch: 'STRETCH', min: 'MIN', center: 'CENTER', max: 'MAX' };
-    const alignment = alignmentMap[options.alignment.toLowerCase()] || 'STRETCH';
-    const hex = options.color.replace('#', '');
-    const r = parseInt(hex.slice(0, 2), 16) / 255;
-    const g = parseInt(hex.slice(2, 4), 16) / 255;
-    const b = parseInt(hex.slice(4, 6), 16) / 255;
-    const colorObj = `{r:${r.toFixed(4)},g:${g.toFixed(4)},b:${b.toFixed(4)},a:${options.opacity}}`;
-
-    const grids = [];
-    if (options.columns) {
-      grids.push(`{pattern:'COLUMNS',alignment:'${alignment}',count:${options.columns},gutterSize:${options.gutter},offset:${options.margin},color:${colorObj},visible:true}`);
-    }
-    if (options.rows) {
-      grids.push(`{pattern:'ROWS',alignment:'${alignment}',count:${options.rows},gutterSize:${options.gutter},offset:${options.margin},color:${colorObj},visible:true}`);
-    }
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support Layout Guides (must be FRAME, COMPONENT, or COMPONENT_SET)');
-      const newGrids = [${grids.join(',')}];
-      n.layoutGrids = ${options.append ? '[...n.layoutGrids, ...newGrids]' : 'newGrids'};
-      return { id: n.id, name: n.name, count: n.layoutGrids.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Set grid on ${r.name} (${r.id})`);
-      console.log(chalk.gray(`  Total grids: ${r.count}`));
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(layoutGuideMutationPlanningArgvFromRequest({
+        action: 'set', nodeId,
+        columns: options.columns ?? null,
+        rows: options.rows ?? null,
+        gutter: options.gutter,
+        margin: options.margin,
+        alignment: options.alignment,
+        color: options.color,
+        opacity: options.opacity,
+        append: options.append === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeLayoutGuideMutationPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Layout Guide mutation failed: '
+        + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -477,20 +479,31 @@ gridCmd
 gridCmd
   .command('clear <nodeId>')
   .description('Remove all Layout Guides from a frame')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support Layout Guides');
-      n.layoutGrids = [];
-      return { id: n.id, name: n.name };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Cleared grids on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(layoutGuideMutationPlanningArgvFromRequest({
+        action: 'clear', nodeId,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeLayoutGuideMutationPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Layout Guide mutation failed: '
+        + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

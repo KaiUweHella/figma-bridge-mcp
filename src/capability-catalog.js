@@ -585,6 +585,12 @@ import {
   parseLayoutGridFactsRequest,
 } from '../engine/src/application/layout-grid-facts-request.js';
 import {
+  acceptsLayoutGuideMutationArgv,
+  layoutGuideMutationArgvFromRequest,
+  layoutGuideMutationFigmaUrlFileKeyFromArgv,
+  parseLayoutGuideMutationRequest,
+} from '../engine/src/application/layout-guide-mutation-request.js';
+import {
   acceptsDevResourceReadArgv,
   devResourceReadArgvFromRequest,
   devResourceReadFigmaUrlFileKeyFromArgv,
@@ -875,7 +881,9 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'style.consumers',
   'style.publish-status',
   'style.show',
+  'grid.set',
   'grid.list',
+  'grid.clear',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1214,6 +1222,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'layout-grid-facts-input';
+  }
+  if (name === 'grid' && ['set', 'clear'].includes(sub)) {
+    pathPolicy = 'layout-guide-mutation-input';
   }
   if (name === 'dev' && sub === 'list') {
     retry = 'safe-read';
@@ -1656,6 +1667,10 @@ function commandCapability(args) {
   }
   if (name === 'grid' && args[1] === 'list'
     && !action.help && !acceptsLayoutGridFactsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'grid' && ['set', 'clear'].includes(args[1])
+    && !action.help && !acceptsLayoutGuideMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'dev' && args[1] === 'list'
@@ -2654,6 +2669,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...layoutGridFactsArgvFromRequest(parseLayoutGridFactsRequest(args)));
+      break;
+    }
+    case 'layout-guide-mutation-input': {
+      const closedFileKey = layoutGuideMutationFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...layoutGuideMutationArgvFromRequest(parseLayoutGuideMutationRequest(args)));
       break;
     }
     case 'dev-resource-read-input': {
