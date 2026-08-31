@@ -162,6 +162,10 @@ import {
   gridAutoFlowPlanRoute,
 } from "../engine/src/application/grid-auto-flow-command.js";
 import {
+  executeGridInspectPlan,
+  gridInspectPlanRoute,
+} from "../engine/src/application/grid-inspect-command.js";
+import {
   executeGridSetPlan,
   gridSetPlanRoute,
 } from "../engine/src/application/grid-set-command.js";
@@ -2549,6 +2553,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeSlotReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridInspectRoute = gridInspectPlanRoute(plan);
+      if (gridInspectRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGridInspectPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

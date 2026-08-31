@@ -2210,6 +2210,19 @@ test('Slot reset owns one URL-targeted irreversible non-retrying Plan', () => {
   assert.equal(planFigmaCommand(['slot', 'reset']).allowed, false);
 });
 
+test('Grid Inspect owns one URL-targeted cross-Adapter safe-read Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const mcp = planFigmaCommand(['layout', 'grid', 'inspect', url], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.inspect');
+  assert.deepEqual(mcp.argv, ['layout', 'grid', 'inspect', '--', '2:1']);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.execution.retry, 'safe-read');
+  assert.equal(mcp.target.fileKey, 'FILEA'); assert.equal(mcp.effects.figma, 'read');
+  assert.equal(planFigmaCommand(['layout', 'grid', 'inspect']).allowed, false);
+  assert.equal(planFigmaCommand(['layout', 'grid', 'inspect', '2:1', '3:1']).allowed, false);
+});
+
 test('Grid Auto Flow owns one URL-targeted rollback-capable non-retrying Plan', () => {
   const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
   const mcp = planFigmaCommand([

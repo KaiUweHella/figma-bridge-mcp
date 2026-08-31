@@ -1257,6 +1257,31 @@ test('grid command vocabulary separates Layout Guides from Auto Layout Grid', ()
   assert.match(autoLayout, /command\('layout'\).*Manage native Auto Layout features/s);
 });
 
+test('Grid Inspect delegates one Plan-bound bounded safe-read Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('inspect <nodeId>')");
+  const end = adapter.indexOf("grid.command('set <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGridInspect\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutInspectCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-inspect-command.js'), 'utf8');
+  assert.match(application, /node\.layoutMode !== 'GRID'/);
+  assert.match(application, /Grid Inspect result exceeded its bounded response limit/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+});
+
+test('the remaining direct Auto Layout Grid Read inventory is explicit', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('inspect <nodeId>')");
+  const end = adapter.indexOf("grid.command('set <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  const direct = /\brun\(|checkConnection\(\)|fastEval\(/.test(action) ? ['inspect'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Auto Layout Grid Legacy Read count may decrease, but must never increase silently');
+});
+
 test('Grid Set delegates one Plan-bound journaled Application', () => {
   const adapter = sources.get('grid-layout.js');
   const start = adapter.indexOf("grid.command('set <nodeId>')");

@@ -65,6 +65,8 @@
     "engine/src/application/slot-reset-request.js",
     "engine/src/application/grid-auto-flow-command.js",
     "engine/src/application/grid-auto-flow-request.js",
+    "engine/src/application/grid-inspect-command.js",
+    "engine/src/application/grid-inspect-request.js",
     "engine/src/application/grid-place-command.js",
     "engine/src/application/grid-place-request.js",
     "engine/src/application/grid-set-command.js",

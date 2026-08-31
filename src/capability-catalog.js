@@ -159,6 +159,12 @@ import {
   parseGridAutoFlowRequest,
 } from '../engine/src/application/grid-auto-flow-request.js';
 import {
+  acceptsGridInspectArgv,
+  gridInspectArgvFromRequest,
+  gridInspectFigmaUrlFileKeyFromArgv,
+  parseGridInspectRequest,
+} from '../engine/src/application/grid-inspect-request.js';
+import {
   acceptsGridPlaceArgv,
   gridPlaceArgvFromRequest,
   gridPlaceFigmaUrlFileKeyFromArgv,
@@ -664,6 +670,7 @@ const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
   'shader.list',
   'slot.inspect', 'slot.validate',
+  'layout.grid.inspect',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -703,6 +710,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'slot.create', 'slot.edit',
   'slot.reset',
   'slot.inspect', 'slot.validate',
+  'layout.grid.inspect',
   'layout.grid.set', 'layout.grid.auto-flow', 'layout.grid.place',
   'layout.grid.reorder-rows', 'layout.grid.reorder-columns',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
@@ -921,6 +929,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
   if (actionId === 'slot.reset') pathPolicy = 'slot-reset-input';
   if (['slot.inspect', 'slot.validate'].includes(actionId)) pathPolicy = 'slot-read-input';
+  if (actionId === 'layout.grid.inspect') pathPolicy = 'grid-inspect-input';
   if (actionId === 'layout.grid.auto-flow') pathPolicy = 'grid-auto-flow-input';
   if (actionId === 'layout.grid.place') pathPolicy = 'grid-place-input';
   if (actionId === 'layout.grid.set') pathPolicy = 'grid-set-input';
@@ -1184,6 +1193,10 @@ function commandCapability(args) {
   }
   if (['slot.inspect', 'slot.validate'].includes(action.actionId)
     && !action.help && !acceptsSlotReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'layout.grid.inspect'
+    && !action.help && !acceptsGridInspectArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'layout.grid.auto-flow'
@@ -2237,6 +2250,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'slot-read-input': {
       if (projectUrlTarget) figmaUrlFileKey = slotReadFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length, ...slotReadArgvFromRequest(parseSlotReadRequest(args)));
+      break;
+    }
+    case 'grid-inspect-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridInspectFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...gridInspectArgvFromRequest(parseGridInspectRequest(args)));
       break;
     }
     case 'grid-auto-flow-input': {

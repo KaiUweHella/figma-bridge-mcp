@@ -5,6 +5,10 @@ import {
   gridAutoFlowArgvFromRequest,
 } from '../application/grid-auto-flow-command.js';
 import {
+  executeGridInspectPlan,
+  gridInspectArgvFromRequest,
+} from '../application/grid-inspect-command.js';
+import {
   executeGridPlacePlan,
   gridPlaceArgvFromRequest,
 } from '../application/grid-place-command.js';
@@ -16,13 +20,30 @@ import {
   executeGridTrackReorderPlan,
   gridTrackReorderArgvFromRequest,
 } from '../application/grid-track-reorder-command.js';
-import { checkConnection, daemonExec, fastEval, handleEvalError, program } from '../lib/cli-core.js';
-import { gridLayoutInspectCode } from '../lib/grid-layout-management.js';
+import { daemonExec, handleEvalError, program } from '../lib/cli-core.js';
 
-const print = (value) => console.log(JSON.stringify(value, null, 2));
-const run = async (code) => { await checkConnection(); return fastEval(code); };
 const layout = program.command('layout').description('Manage native Auto Layout features');
 const grid = layout.command('grid').description('Manage Auto Layout Grid containers (not Layout Guides)');
+
+async function runGridInspect(request) {
+  try {
+    const plan = planFigmaCommand(gridInspectArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeGridInspectPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
 
 async function runGridAutoFlow(request) {
   try {
@@ -104,7 +125,9 @@ async function runGridSet(request) {
   }
 }
 
-grid.command('inspect <nodeId>').action(async (nodeId) => { try { print(await run(gridLayoutInspectCode({ nodeId }))); } catch (error) { handleEvalError(error); } });
+grid.command('inspect <nodeId>')
+  .allowExcessArguments(false)
+  .action(async (nodeId) => runGridInspect({ nodeId }));
 grid.command('set <nodeId>')
   .option('--rows <count>').option('--columns <count>').option('--row-gap <pixels>').option('--column-gap <pixels>')
   .option('--row-sizes <json>', 'Track array, e.g. [{"type":"FIXED","value":100}]')
