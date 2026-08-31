@@ -620,6 +620,12 @@ import {
   sectionAddFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/section-add-request.js';
 import {
+  acceptsSectionCreateArgv,
+  parseSectionCreateRequest,
+  sectionCreateArgvFromRequest,
+  sectionCreateFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-create-request.js';
+import {
   acceptsAnnotationCategoryInventoryArgv,
   annotationCategoryInventoryArgvFromRequest,
   parseAnnotationCategoryInventoryRequest,
@@ -780,6 +786,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slides.inspect',
   'export.screenshot',
   'section.list', 'a11y.vision', 'a11y.focus',
+  'section.create',
   'jam.board', 'jam.arrange',
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
@@ -875,6 +882,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'section.fit',
   'section.arrange',
   'section.add',
+  'section.create',
   'annotate.categories',
   'annotate.list',
   'annotate.clear',
@@ -1221,6 +1229,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'section' && sub === 'fit') pathPolicy = 'section-fit-input';
   if (name === 'section' && sub === 'arrange') pathPolicy = 'section-arrange-input';
   if (name === 'section' && sub === 'add') pathPolicy = 'section-add-input';
+  if (name === 'section' && sub === 'create') pathPolicy = 'section-create-input';
   if (name === 'annotate' && sub === 'categories') {
     retry = 'safe-read';
     pathPolicy = 'annotation-category-inventory-input';
@@ -1671,6 +1680,10 @@ function commandCapability(args) {
   }
   if (name === 'section' && args[1] === 'add'
     && !action.help && !acceptsSectionAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'create'
+    && !action.help && !acceptsSectionCreateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'annotate' && args[1] === 'categories'
@@ -2681,6 +2694,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...sectionAddArgvFromRequest(parseSectionAddRequest(args)));
+      break;
+    }
+    case 'section-create-input': {
+      const closedFileKey = sectionCreateFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionCreateArgvFromRequest(parseSectionCreateRequest(args)));
       break;
     }
     case 'annotation-category-inventory-input': {

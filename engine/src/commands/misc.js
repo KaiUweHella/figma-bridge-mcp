@@ -93,6 +93,10 @@ import {
   sectionAddPlanningArgvFromRequest,
 } from '../application/section-add-command.js';
 import {
+  executeSectionCreatePlan,
+  sectionCreatePlanningArgvFromRequest,
+} from '../application/section-create-command.js';
+import {
   annotationCategoryInventoryArgvFromRequest,
   executeAnnotationCategoryInventoryPlan,
 } from '../application/annotation-category-inventory-command.js';
@@ -223,57 +227,35 @@ const sectionCmd = program
   .command('section')
   .description('Manage Figma sections (organize frames into named groups)');
 
-// The one place the section geometry lives: wrap section `s` around its
-// children (relative coords) with PAD margin + HEADER allowance, shifting
-// the children by the inverse so nothing moves on the canvas. Shared by
-// `create` and `fit` — two copies of this math drift, and a drifted copy
-// means sections that jump or overlap on every reflow.
-const SECTION_HEADER = 40;
-function sectionFitSnippet(padExpr) {
-  return `
-      const PAD = ${padExpr}, HEADER = ${SECTION_HEADER};
-      const minX = Math.min(...s.children.map(c => c.x));
-      const minY = Math.min(...s.children.map(c => c.y));
-      const maxX = Math.max(...s.children.map(c => c.x + c.width));
-      const maxY = Math.max(...s.children.map(c => c.y + c.height));
-      const dx = minX - PAD;
-      const dy = minY - PAD - HEADER;
-      s.x += dx;
-      s.y += dy;
-      s.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
-      for (const c of s.children) { c.x -= dx; c.y -= dy; }
-`;
-}
-
 sectionCmd
   .command('create <name> [nodeIds]')
   .description('Create a section, optionally moving comma-separated node IDs into it')
+  .allowExcessArguments(false)
   .action(async (name, nodeIds) => {
-    await checkConnection();
-    const ids = nodeIds ? JSON.stringify(nodeIds.split(',').map(s => s.trim())) : '[]';
-    const code = `(async () => {
-      const ids = ${ids};
-      const s = figma.createSection();
-      s.name = ${JSON.stringify(name)};
-      for (const id of ids) {
-        const n = await figma.getNodeByIdAsync(id);
-        if (!n) throw new Error('Node not found: ' + id);
-        // Preserve the node's visual position across reparenting: appendChild
-        // keeps x/y numbers, which become section-relative.
-        const b = n.absoluteBoundingBox;
-        s.appendChild(n);
-        if (b) { n.x = b.x - s.x; n.y = b.y - s.y; }
-      }
-      if (s.children.length > 0) {
-        ${sectionFitSnippet(64)}
-      }
-      return { id: s.id, name: s.name, count: ids.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Created section "${r.name}" (${r.id}) with ${r.count} child(ren)`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionCreatePlanningArgvFromRequest({
+        name,
+        nodeIds: nodeIds === undefined
+          ? [] : nodeIds.split(',').map((value) => value.trim()),
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionCreatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Create failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
