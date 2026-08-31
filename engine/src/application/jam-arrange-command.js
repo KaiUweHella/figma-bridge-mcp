@@ -18,6 +18,7 @@ export const JAM_ARRANGE_VERIFY_EPSILON = 0.01;
 export const MAX_JAM_ARRANGE_CANDIDATES = 4_096;
 export const MAX_JAM_ARRANGE_PAGE_CHILDREN = 20_000;
 export const MAX_JAM_ARRANGE_SELECTION = 4_096;
+export const MAX_JAM_ARRANGE_SNAPSHOT_CODE_UNITS = 1_500_000;
 export const MAX_JAM_ARRANGE_RESULT_CODE_UNITS = 4_000_000;
 const MAX_TYPE_CODE_UNITS = 64;
 const MAX_FAILURE_CODE_UNITS = 1_024;
@@ -195,6 +196,9 @@ export function jamArrangeCode(request = {}) {
       const nodes = movable.map(({ value }) => value);
       refs = movable.map(({ node }) => node);
       before = { context: initialContext, nodes };
+      if (JSON.stringify(before).length > ${MAX_JAM_ARRANGE_SNAPSHOT_CODE_UNITS}) {
+        throw new Error('Jam Arrange preflight snapshot exceeded its bounded limit.');
+      }
       expected = expectedState(before);
     } catch (error) {
       return refused(error);
@@ -306,7 +310,8 @@ function validState(value) {
   return exact(value, ['context', 'nodes']) && validContext(value.context)
     && Array.isArray(value.nodes) && value.nodes.length <= MAX_JAM_ARRANGE_CANDIDATES
     && value.nodes.every(validNode)
-    && new Set(value.nodes.map((node) => node.id)).size === value.nodes.length;
+    && new Set(value.nodes.map((node) => node.id)).size === value.nodes.length
+    && JSON.stringify(value).length <= MAX_JAM_ARRANGE_SNAPSHOT_CODE_UNITS;
 }
 function sameFact(left, right) {
   return left.id === right.id && left.type === right.type && left.parentId === right.parentId

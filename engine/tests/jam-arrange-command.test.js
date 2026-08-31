@@ -198,6 +198,21 @@ test('wrong editor and missing explicit targets refuse before mutation', async (
   assert.equal(malformedIgnored.writes(), 0);
 });
 
+test('an oversized preflight snapshot refuses before the first arrangement write', async () => {
+  const live = runtime();
+  live.page.selection = [];
+  live.page.children = Array.from({ length: 3_100 }, (_, index) => ({
+    id: `2:${String(index).padStart(4, '0')}${'9'.repeat(495)}`,
+    type: 'SHAPE_WITH_TEXT', parent: live.page,
+    x: index, y: 0, width: 10, height: 10,
+  }));
+  await assert.rejects(() => executeJamArrange({}, {
+    evaluate: evaluate(live.figma),
+  }), (error) => error.mutationOutcome === 'no-mutation'
+    && /preflight snapshot exceeded/.test(error.message));
+  assert.equal(live.writes(), 0);
+});
+
 test('one non-retrying Jam Arrange Plan owns identical CLI and MCP policy', async () => {
   const cli = planFigmaCommand([
     'jam', 'arrange', '--columns=2', '--gap=10', '--ids=1-1,1:3',
