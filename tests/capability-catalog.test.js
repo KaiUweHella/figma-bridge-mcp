@@ -175,6 +175,27 @@ test('Slides Duplicate owns one canonical cross-Adapter non-retrying write Plan'
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Slides Move owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const cli = planFigmaCommand(['slides', 'move', 'label:Body', '1', '0'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['slides', 'move', 'label:Body', '1', '0'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'slides.move');
+  assert.deepEqual(cli.argv, ['slides', 'move', 'label:Body', '1', '0']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['slides', 'move', 'Body', '0'],
+    ['slides', 'move', 'Body', '-1', '0'],
+    ['slides', 'move', 'Body', '0', '1.5'],
+    ['slides', 'move', 'Body', '0', '1', 'extra'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });

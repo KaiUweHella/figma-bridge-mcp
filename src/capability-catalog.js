@@ -324,6 +324,12 @@ import {
   slidesDuplicateFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slides-duplicate-request.js';
 import {
+  acceptsSlidesMoveArgv,
+  parseSlidesMoveRequest,
+  slidesMoveArgvFromRequest,
+  slidesMoveFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-move-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -926,7 +932,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'analyze.lint',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
-  'slides.inspect', 'slides.create', 'slides.duplicate',
+  'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1322,7 +1328,8 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'slides') {
     if (sub === 'inspect') retry = 'safe-read';
     pathPolicy = sub === 'create' ? 'slides-create-input'
-      : sub === 'duplicate' ? 'slides-duplicate-input' : 'slides-reference-input';
+      : sub === 'duplicate' ? 'slides-duplicate-input'
+        : sub === 'move' ? 'slides-move-input' : 'slides-reference-input';
   }
   return { execution, timeoutClass, pathPolicy, retry };
 }
@@ -1545,7 +1552,11 @@ function commandCapability(args) {
     && !action.help && !acceptsSlidesDuplicateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'slides' && !['create', 'duplicate'].includes(args[1])
+  if (name === 'slides' && args[1] === 'move'
+    && !action.help && !acceptsSlidesMoveArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && !['create', 'duplicate', 'move'].includes(args[1])
     && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2907,6 +2918,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...slidesDuplicateArgvFromRequest(parseSlidesDuplicateRequest(args)));
+      break;
+    }
+    case 'slides-move-input': {
+      const closedFileKey = slidesMoveFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesMoveArgvFromRequest(parseSlidesMoveRequest(args)));
       break;
     }
     case 'node-discovery-input': {

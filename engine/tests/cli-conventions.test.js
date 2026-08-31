@@ -126,6 +126,23 @@ test('slides duplicate delegates one rollback-owned Slides Application', () => {
     'Commander must not retain Slides resolution, cloning, verification, or rollback');
 });
 
+test('slides move delegates one rollback-owned Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('move <slide> <row> <col>')");
+  const end = adapter.indexOf(".command('transition <slide> <style>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesMovePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesMovePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.move|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides resolution, movement, verification, or rollback');
+});
+
 test('the remaining direct Slides write inventory is explicit', () => {
   const adapter = sources.get('slides.js');
   const commands = ['create', 'duplicate', 'move', 'transition', 'skip', 'delete'];
@@ -134,8 +151,8 @@ test('the remaining direct Slides write inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await run\(/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['move', 'transition', 'skip', 'delete']);
-  assert.equal(direct.length, 4,
+  assert.deepEqual(direct, ['transition', 'skip', 'delete']);
+  assert.equal(direct.length, 3,
     'STAB-06 Slides Legacy Write count may decrease, but must never increase silently');
 });
 

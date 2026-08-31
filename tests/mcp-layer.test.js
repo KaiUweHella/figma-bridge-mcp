@@ -2718,6 +2718,20 @@ test('figma_run routes Slides Duplicate through the rollback-owned Application',
     'Slides Duplicate must not re-enter Commander');
 });
 
+test('figma_run routes Slides Move through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesMoveRoute = slidesMovePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesMovePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Move must not re-enter Commander');
+});
+
 test('figma_run routes Dev Resource Read through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)');

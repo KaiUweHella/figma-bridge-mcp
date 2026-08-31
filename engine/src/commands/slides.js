@@ -29,6 +29,10 @@ import {
   executeSlidesDuplicatePlan,
   slidesDuplicatePlanningArgvFromRequest,
 } from '../application/slides-duplicate-command.js';
+import {
+  executeSlidesMovePlan,
+  slidesMovePlanningArgvFromRequest,
+} from '../application/slides-move-command.js';
 
 const slides = program
   .command('slides')
@@ -53,16 +57,6 @@ async function run(code, onOk) {
     process.exit(1);
   }
   onOk(result);
-}
-
-function index(value, label, { optional = false } = {}) {
-  if ((value === undefined || value === null || value === '') && optional) return null;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    console.error(chalk.red(`✗ ${label} must be a zero-based non-negative integer.`));
-    process.exit(1);
-  }
-  return parsed;
 }
 
 slides
@@ -168,13 +162,31 @@ slides
 slides
   .command('move <slide> <row> <col>')
   .description('Move one slide to a zero-based grid coordinate')
+  .allowExcessArguments(false)
   .action(async (slide, rowValue, colValue) => {
-    const reference = unionReferenceExecutionValue(slide);
-    const row = index(rowValue, 'row');
-    const col = index(colValue, 'col');
-    await run(snippets.move(reference, row, col), (result) => {
-      console.log(chalk.green('✓'), `Slide ${result.id} moved to ${result.row},${result.col}`);
-    });
+    try {
+      const plan = planFigmaCommand(slidesMovePlanningArgvFromRequest({
+        reference: slide, row: rowValue, col: colValue,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesMovePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides move failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 slides

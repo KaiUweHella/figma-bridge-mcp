@@ -270,6 +270,8 @@
     "engine/src/application/slides-duplicate-command.js",
     "engine/src/application/slides-duplicate-request.js",
     "engine/src/application/slides-inspect-command.js",
+    "engine/src/application/slides-move-command.js",
+    "engine/src/application/slides-move-request.js",
     "engine/src/application/slides-reference-request.js",
     "engine/src/application/node-tree-command.js",
     "engine/src/application/node-tree-request.js",
