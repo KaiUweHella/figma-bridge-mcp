@@ -8,10 +8,6 @@ import {
 } from '../../../src/engine.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
-  annotationAddCode,
-  parseProperties,
-} from '../lib/annotation-management.js';
-import {
   program,
   checkConnection,
   daemonExec,
@@ -108,6 +104,10 @@ import {
   annotationCategoryMutationArgvFromRequest,
   executeAnnotationCategoryMutationPlan,
 } from '../application/annotation-category-mutation-command.js';
+import {
+  annotationAddPlanningArgvFromRequest,
+  executeAnnotationAddPlan,
+} from '../application/annotation-add-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1022,60 +1022,35 @@ annotateCmd
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern> (case-insensitive)')
   .option('-c, --category <idOrLabel>', 'Annotation category ID or label')
   .option('-p, --properties <list>', 'Comma-separated Figma annotation property names')
+  .allowExcessArguments(false)
   .action(async (text, options) => {
-    await checkConnection();
-    if (!options.node && !options.query) {
-      console.error(chalk.red('✗'), 'Provide either --node <id> or --query <pattern>');
-      process.exit(1);
-    }
-    if (options.node) {
-      try {
-        const r = await daemonExec('eval', { code: annotationAddCode({ nodeId: options.node, text, markdown: options.markdown, category: options.category, properties: options.properties }) });
-        console.log(chalk.green('✓'), `Annotated ${r.name} (${r.id}) at index ${r.index}`);
-      } catch (e) { handleEvalError(e); }
-      return;
-    }
-    const labelKey = options.markdown ? 'labelMarkdown' : 'label';
-    const properties = parseProperties(options.properties);
-    const targetSelector = options.query
-      ? `(figma.currentPage.findAll(n => 'annotations' in n && typeof n.name === 'string' && n.name.toLowerCase().includes(${JSON.stringify(options.query.toLowerCase())})))`
-      : `[await figma.getNodeByIdAsync(${JSON.stringify(options.node)})].filter(Boolean)`;
-    const code = `(async () => {
-      const nodes = ${targetSelector};
-      if (nodes.length === 0) throw new Error(${options.query ? `'No nodes matched query: ${options.query}'` : `'Node not found: ${options.node}'`});
-      let category = null;
-      if (${JSON.stringify(options.category || null)}) {
-        const query = ${JSON.stringify(options.category || null)};
-        category = await figma.annotations.getAnnotationCategoryByIdAsync(query);
-        if (!category) {
-          const categories = await figma.annotations.getAnnotationCategoriesAsync();
-          const matches = categories.filter(c => c.label === query || c.label.toLowerCase().includes(query.toLowerCase()));
-          if (matches.length !== 1) throw new Error(matches.length ? 'Ambiguous annotation category: ' + query : 'Annotation category not found: ' + query);
-          category = matches[0];
-        }
-      }
-      const results = [];
-      for (const n of nodes) {
-        if (!('annotations' in n)) continue;
-        const existing = (n.annotations || []).map(a => {
-          const c = {};
-          if (a.labelMarkdown) c.labelMarkdown = a.labelMarkdown;
-          else if (a.label) c.label = a.label;
-          if (a.categoryId) c.categoryId = a.categoryId;
-          if (a.properties) c.properties = a.properties;
-          return c;
-        });
-        n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)}, ...(category ? { categoryId: category.id } : {})${properties === undefined ? '' : `, properties: ${JSON.stringify(properties)}`} }];
-        results.push({ id: n.id, name: n.name });
-      }
-      return results;
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Annotated ${r.length} node(s):`);
-      r.forEach(n => console.log(chalk.gray(`  ${n.name} (${n.id})`)));
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(annotationAddPlanningArgvFromRequest({
+        text,
+        markdown: options.markdown === true,
+        nodeId: options.node || null,
+        query: options.query,
+        category: options.category,
+        properties: options.properties,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationAddPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Add failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

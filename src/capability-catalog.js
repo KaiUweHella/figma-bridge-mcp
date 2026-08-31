@@ -636,6 +636,12 @@ import {
   parseAnnotationCategoryMutationRequest,
 } from '../engine/src/application/annotation-category-mutation-request.js';
 import {
+  acceptsAnnotationAddArgv,
+  annotationAddArgvFromRequest,
+  annotationAddFigmaUrlFileKeyFromArgv,
+  parseAnnotationAddRequest,
+} from '../engine/src/application/annotation-add-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -854,6 +860,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'annotate.remove',
   'annotate.edit',
   'annotate.category-add', 'annotate.category-edit', 'annotate.category-remove',
+  'annotate.add',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1205,6 +1212,7 @@ function specializedPolicy(name, entry, args, actionId) {
     && ['category-add', 'category-edit', 'category-remove'].includes(sub)) {
     pathPolicy = 'annotation-category-mutation-input';
   }
+  if (name === 'annotate' && sub === 'add') pathPolicy = 'annotation-add-input';
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -1652,6 +1660,10 @@ function commandCapability(args) {
   if (name === 'annotate'
     && ['category-add', 'category-edit', 'category-remove'].includes(args[1])
     && !action.help && !acceptsAnnotationCategoryMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'add'
+    && !action.help && !acceptsAnnotationAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2652,6 +2664,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         parseAnnotationCategoryMutationRequest(args)));
       break;
     }
+    case 'annotation-add-input': {
+      const closedFileKey = annotationAddFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...annotationAddArgvFromRequest(
+        parseAnnotationAddRequest(args)));
+      break;
+    }
     case 'canvas-awareness-input': {
       args.splice(0, args.length,
         ...canvasAwarenessArgvFromRequest(parseCanvasAwarenessRequest(args)));
@@ -3065,6 +3084,9 @@ function editorEffect(args, capability) {
   if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
   if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.list' && !parseAnnotationReadRequest(args).nodeId) return 'read';
+  if (actionId === 'annotate.add' && parseAnnotationAddRequest(args).selector === 'query') {
+    return 'read';
+  }
   if (actionId === 'link.inspect'
     && !parseDesignLinkRequest(args, { requireManifest: false }).nodeId) return 'read';
   if (actionId === 'gradient.extract'

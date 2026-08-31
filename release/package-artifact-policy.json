@@ -19,6 +19,8 @@
     "engine/src/application/annotation-category-facts.js",
     "engine/src/application/annotation-category-mutation-command.js",
     "engine/src/application/annotation-category-mutation-request.js",
+    "engine/src/application/annotation-add-command.js",
+    "engine/src/application/annotation-add-request.js",
     "engine/src/application/annotation-clear-command.js",
     "engine/src/application/annotation-clear-request.js",
     "engine/src/application/annotation-edit-command.js",

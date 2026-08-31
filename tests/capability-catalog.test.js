@@ -1144,6 +1144,29 @@ test('Annotation Category mutations close policy-identical non-retrying file wri
   }
 });
 
+test('Annotation Add closes node/query policy and declares only real editor-context reads', () => {
+  const cli = planFigmaCommand([
+    'annotate', 'add', '--node=1-1', '--category=Review', '--', 'New',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'annotate', 'add', '--category=Review', '--node=1:1', '--', 'New',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'annotate.add');
+
+  const query = planFigmaCommand([
+    'annotate', 'add', '--query=Card', '--', 'New',
+  ], { adapter: 'mcp' });
+  assert.equal(query.effects.editor, 'read');
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 

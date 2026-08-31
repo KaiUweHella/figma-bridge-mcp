@@ -1623,6 +1623,37 @@ test('annotation category writes delegate one discriminated Plan-bound mutation 
     'Commander must not retain Category resolution, mutation, rollback, or formatting');
 });
 
+test('annotate add delegates single-node and query journals to one Plan-bound Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('add')", adapter.indexOf('const annotateCmd'));
+  const end = adapter.indexOf("annotateCmd.command('edit <nodeId> <index>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationAddPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationAddPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|annotationAddCode|figma\.currentPage|findAll\(|\.annotations\s*=/,
+    'Commander must not retain Annotation Add selection, preflight, journal, or formatting');
+});
+
+test('the remaining direct Annotation command inventory is empty', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('// ============ ANNOTATIONS ============');
+  const end = adapter.indexOf('// ============ PLUGINS ============', start);
+  const annotationAdapter = adapter.slice(start, end);
+  assert.doesNotMatch(annotationAdapter, /\.\.\/lib\/annotation-management\.js/);
+  assert.doesNotMatch(annotationAdapter,
+    /annotation(?:Add|Edit|Remove|Categories|CategoryCreate|CategoryEdit|CategoryRemove)Code/);
+  assert.doesNotMatch(annotationAdapter, /checkConnection\(/);
+});
+
 test('annotate list delegates one Plan-bound bounded node-or-selection read Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');
