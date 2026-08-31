@@ -506,6 +506,10 @@ import {
   slidesMovePlanRoute,
 } from "../engine/src/application/slides-move-command.js";
 import {
+  executeSlidesPropertyPlan,
+  slidesPropertyPlanRoute,
+} from "../engine/src/application/slides-property-command.js";
+import {
   devResourceReadPlanRoute,
   executeDevResourceReadPlan,
 } from "../engine/src/application/dev-resource-read-command.js";
@@ -4237,6 +4241,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeSlidesMovePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesPropertyRoute = slidesPropertyPlanRoute(plan);
+      if (slidesPropertyRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesPropertyPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

@@ -96,6 +96,8 @@ test('Slides and Component Set plans derive targets only from typed node referen
     ['slides', 'inspect', `node:${NODE_URL}`],
     ['slides', 'duplicate', `node:${NODE_URL}`],
     ['slides', 'move', `node:${NODE_URL}`, '0', '1'],
+    ['slides', 'transition', `node:${NODE_URL}`, 'DISSOLVE'],
+    ['slides', 'skip', `node:${NODE_URL}`, 'on'],
     ['component', 'add-variant', `node:${NODE_URL}`, 'State=Hover'],
   ]) {
     const plan = planFigmaCommand(argv, { adapter: 'mcp' });
@@ -108,6 +110,8 @@ test('Slides and Component Set plans derive targets only from typed node referen
     ['slides', 'inspect', `label:${NODE_URL}`],
     ['slides', 'duplicate', `label:${NODE_URL}`],
     ['slides', 'move', `label:${NODE_URL}`, '0', '1'],
+    ['slides', 'transition', `label:${NODE_URL}`, 'DISSOLVE'],
+    ['slides', 'skip', `label:${NODE_URL}`, 'on'],
     ['slides', 'inspect', NODE_URL],
     ['component', 'add-variant', `name:${NODE_URL}`, 'State=Hover'],
     ['component', 'add-variant', NODE_URL, 'State=Hover'],
@@ -125,6 +129,8 @@ test('Union-reference Commands produce policy-identical CLI and MCP plans', () =
     ['slides', 'inspect', `label:${NODE_URL}`],
     ['slides', 'duplicate', `label:${NODE_URL}`],
     ['slides', 'move', 'query:Agenda', '0', '1'],
+    ['slides', 'transition', 'query:Agenda', 'DISSOLVE'],
+    ['slides', 'skip', 'query:Agenda', 'off'],
     ['component', 'add-variant', 'name:Button', 'State=Hover', '--json'],
   ]) {
     const cli = planFigmaCommand(argv, { adapter: 'cli' });
@@ -134,7 +140,7 @@ test('Union-reference Commands produce policy-identical CLI and MCP plans', () =
     assert.equal(mcp.allowed, true, argv.join(' '));
     assert.equal(cli.allowed,
       argv[0] === 'canvas' || argv[0] === 'component'
-        || ['inspect', 'duplicate', 'move'].includes(argv[1]),
+        || ['inspect', 'duplicate', 'move', 'transition', 'skip'].includes(argv[1]),
       argv.join(' '));
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
     assert.deepEqual(cli.audit, mcp.audit, argv.join(' '));

@@ -33,6 +33,11 @@ import {
   executeSlidesMovePlan,
   slidesMovePlanningArgvFromRequest,
 } from '../application/slides-move-command.js';
+import {
+  executeSlidesPropertyPlan,
+  parseSlidesPropertyRequest,
+  slidesPropertyPlanningArgvFromRequest,
+} from '../application/slides-property-command.js';
 
 const slides = program
   .command('slides')
@@ -196,54 +201,62 @@ slides
   .option('--curve <curve>', `One of: ${snippets.TRANSITION_CURVES.join(', ')}`, 'EASE_IN_AND_OUT')
   .option('--timing <timing>', `One of: ${snippets.TRANSITION_TIMINGS.join(', ')}`, 'ON_CLICK')
   .option('--delay <seconds>', 'Delay for AFTER_DELAY timing', '0')
+  .allowExcessArguments(false)
   .action(async (slide, styleValue, options) => {
-    const reference = unionReferenceExecutionValue(slide);
-    const style = String(styleValue).toUpperCase();
-    const curve = String(options.curve).toUpperCase();
-    const timing = String(options.timing).toUpperCase();
-    const duration = Number(options.duration);
-    const delay = Number(options.delay);
-    if (!snippets.TRANSITION_STYLES.includes(style)) {
-      console.error(chalk.red(`✗ Unknown transition style "${styleValue}".`));
-      process.exit(1);
+    try {
+      const plan = planFigmaCommand(slidesPropertyPlanningArgvFromRequest({
+        action: 'transition', reference: slide, style: styleValue,
+        duration: options.duration, curve: options.curve,
+        timing: options.timing, delay: options.delay,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesPropertyPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides transition failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    if (!snippets.TRANSITION_CURVES.includes(curve)) {
-      console.error(chalk.red(`✗ Unknown transition curve "${options.curve}".`));
-      process.exit(1);
-    }
-    if (!snippets.TRANSITION_TIMINGS.includes(timing)) {
-      console.error(chalk.red(`✗ Unknown transition timing "${options.timing}".`));
-      process.exit(1);
-    }
-    if (!Number.isFinite(duration) || duration < 0 || !Number.isFinite(delay) || delay < 0) {
-      console.error(chalk.red('✗ Duration and delay must be non-negative numbers.'));
-      process.exit(1);
-    }
-    const transition = {
-      style,
-      duration,
-      curve,
-      timing: timing === 'AFTER_DELAY' ? { type: timing, delay } : { type: timing },
-    };
-    await run(snippets.transition(reference, transition), (result) => {
-      console.log(chalk.green('✓'), `Slide ${result.id} transition: ${result.transition.style}`);
-    });
   });
 
 slides
   .command('skip <slide> [state]')
   .description('Include or skip a slide in presentation playback (on/off; default on)')
+  .allowExcessArguments(false)
   .action(async (slide, state = 'on') => {
-    const reference = unionReferenceExecutionValue(slide);
-    const normalized = String(state).toLowerCase();
-    if (!['on', 'off', 'true', 'false'].includes(normalized)) {
-      console.error(chalk.red('✗ State must be on or off.'));
-      process.exit(1);
+    try {
+      const request = parseSlidesPropertyRequest(['slides', 'skip', slide, state]);
+      const plan = planFigmaCommand(slidesPropertyPlanningArgvFromRequest(request), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesPropertyPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides skip failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    const skipped = normalized === 'on' || normalized === 'true';
-    await run(snippets.skip(reference, skipped), (result) => {
-      console.log(chalk.green('✓'), `Slide ${result.id} is ${result.skipped ? 'skipped' : 'included'}`);
-    });
   });
 
 slides

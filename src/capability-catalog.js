@@ -330,6 +330,12 @@ import {
   slidesMoveFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slides-move-request.js';
 import {
+  acceptsSlidesPropertyArgv,
+  parseSlidesPropertyRequest,
+  slidesPropertyArgvFromRequest,
+  slidesPropertyFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-property-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -933,6 +939,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
+  'slides.transition', 'slides.skip',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1329,7 +1336,9 @@ function specializedPolicy(name, entry, args, actionId) {
     if (sub === 'inspect') retry = 'safe-read';
     pathPolicy = sub === 'create' ? 'slides-create-input'
       : sub === 'duplicate' ? 'slides-duplicate-input'
-        : sub === 'move' ? 'slides-move-input' : 'slides-reference-input';
+        : sub === 'move' ? 'slides-move-input'
+          : ['transition', 'skip'].includes(sub)
+            ? 'slides-property-input' : 'slides-reference-input';
   }
   return { execution, timeoutClass, pathPolicy, retry };
 }
@@ -1556,7 +1565,12 @@ function commandCapability(args) {
     && !action.help && !acceptsSlidesMoveArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'slides' && !['create', 'duplicate', 'move'].includes(args[1])
+  if (name === 'slides' && ['transition', 'skip'].includes(args[1])
+    && !action.help && !acceptsSlidesPropertyArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides'
+    && !['create', 'duplicate', 'move', 'transition', 'skip'].includes(args[1])
     && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2925,6 +2939,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...slidesMoveArgvFromRequest(parseSlidesMoveRequest(args)));
+      break;
+    }
+    case 'slides-property-input': {
+      const closedFileKey = slidesPropertyFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesPropertyArgvFromRequest(parseSlidesPropertyRequest(args)));
       break;
     }
     case 'node-discovery-input': {
