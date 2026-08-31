@@ -85,6 +85,10 @@ import {
   sectionFitPlanningArgvFromRequest,
 } from '../application/section-fit-command.js';
 import {
+  executeSectionArrangePlan,
+  sectionArrangePlanningArgvFromRequest,
+} from '../application/section-arrange-command.js';
+import {
   annotationCategoryInventoryArgvFromRequest,
   executeAnnotationCategoryInventoryPlan,
 } from '../application/annotation-category-inventory-command.js';
@@ -308,44 +312,34 @@ sectionCmd
   .option('-g, --gap <n>', 'Gap between children', '48')
   .option('--pad <n>', 'Padding around children', '64')
   .option('--group-rows', 'Start a new row per node type (component sets, then components, instances, frames), sorted by name within each group')
+  .allowExcessArguments(false)
   .action(async (sectionId, options) => {
-    await checkConnection();
-    const cols = Math.max(1, parseInt(options.cols) || 4);
-    const gap = Number(options.gap) || 48;
-    const pad = Number(options.pad) || 64;
-    const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(sectionId).id)});
-      if (!s) throw new Error('Section not found: ${sectionId}');
-      if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
-      if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
-      const COLS = ${cols}, GAP = ${gap}, PAD = ${pad}, HEADER = ${SECTION_HEADER};
-      const GROUP = ${options.groupRows === true};
-      // --group-rows: one row per node type keeps a design-system section
-      // scannable (variant sets together, loose components together).
-      const rank = t => ({ COMPONENT_SET: 0, COMPONENT: 1, INSTANCE: 2, FRAME: 3 })[t] ?? 4;
-      const kids = GROUP
-        ? [...s.children].sort((a, b) => (rank(a.type) - rank(b.type)) || a.name.localeCompare(b.name))
-        : [...s.children].sort((a, b) => (a.y - b.y) || (a.x - b.x));
-      let x = PAD, y = PAD + HEADER, rowH = 0, col = 0, maxRight = 0, prevType = null;
-      for (const c of kids) {
-        const typeBreak = GROUP && prevType !== null && c.type !== prevType;
-        if (col === COLS || typeBreak) { col = 0; x = PAD; y += rowH + GAP; rowH = 0; }
-        c.x = x; c.y = y;
-        maxRight = Math.max(maxRight, x + c.width);
-        rowH = Math.max(rowH, c.height);
-        x += c.width + GAP;
-        col++;
-        prevType = c.type;
-      }
-      s.resizeWithoutConstraints(maxRight + PAD, y + rowH + PAD);
-      return { id: s.id, name: s.name, width: s.width, height: s.height, count: kids.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (r.empty) console.log(chalk.yellow('⚠'), `Section "${r.name}" is empty — nothing to arrange`);
-      else console.log(chalk.green('✓'), `Arranged ${r.count} children in "${r.name}" (${Math.round(r.width)}×${Math.round(r.height)})`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionArrangePlanningArgvFromRequest({
+        sectionId,
+        cols: options.cols,
+        gap: options.gap,
+        pad: options.pad,
+        groupRows: options.groupRows === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionArrangePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Arrange failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
