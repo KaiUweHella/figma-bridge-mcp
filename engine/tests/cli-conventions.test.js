@@ -497,10 +497,23 @@ test('the remaining public direct Create write inventory is explicit and cannot 
     direct.push('polygon', 'star');
   }
   assert.deepEqual(direct.sort(), [
-    'autolayout', 'text',
+    'text',
   ]);
-  assert.equal(direct.length, 2,
+  assert.equal(direct.length, 1,
     'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Auto Layout creation delegates one Plan-bound rollback-verified Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('autolayout [name]')");
+  const end = adapter.indexOf('.command(', start + 30);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runCreateAutoLayout\(name, options\)/);
+  assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|figma\.createFrame\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'create-auto-layout-command.js'), 'utf8');
+  assert.match(application, /figma\.createFrame\(\)/);
+  assert.match(application, /frame\.layoutMode = request\.layoutMode/);
 });
 
 test('Line creation delegates one Plan-bound rollback-verified Application', () => {

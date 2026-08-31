@@ -1163,3 +1163,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Does `create line` retain endpoint and Variable-stroke semantics outside the shared execution contract?
 >
 > **Domain expert:** No. One Line Application preserves the established smart-position gap and endpoint-derived length/rotation rules, resolves an explicit `var:` stroke without ambiguous first-match selection, and freshly verifies hierarchy, geometry, Paint, stroke weight and selection. Failure removes only the created Line and reports rollback or exact residue. Text and Auto Layout are the two remaining public Create-family legacy writes.
+
+> **Developer:** Is `create autolayout` just a Frame alias with an optimistic success string?
+>
+> **Domain expert:** No. Its own closed Application preserves the `al` alias, row/column intent, hug sizing, uniform gap/padding, smart positioning and optional fill/radius. Explicit Variables resolve before creation; fresh readback verifies every requested layout and hierarchy fact. Failure removes only the new Frame and reports rollback or exact residue. Text is the last remaining public Create-family legacy write.

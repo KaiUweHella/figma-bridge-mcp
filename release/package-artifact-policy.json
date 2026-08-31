@@ -141,6 +141,8 @@
     "engine/src/application/create-canvas-node-request.js",
     "engine/src/application/create-line-command.js",
     "engine/src/application/create-line-request.js",
+    "engine/src/application/create-auto-layout-command.js",
+    "engine/src/application/create-auto-layout-request.js",
     "engine/src/application/node-coordinate.js",
     "engine/src/application/node-delete-command.js",
     "engine/src/application/node-delete-request.js",

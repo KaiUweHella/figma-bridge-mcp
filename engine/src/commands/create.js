@@ -32,6 +32,10 @@ import {
   createLinePlanningArgvFromRequest,
   executeCreateLinePlan,
 } from '../application/create-line-command.js';
+import {
+  createAutoLayoutPlanningArgvFromRequest,
+  executeCreateAutoLayoutPlan,
+} from '../application/create-auto-layout-command.js';
 
 // ============ CREATE ============
 
@@ -142,6 +146,29 @@ async function runCreateLine(options) {
     console.log(result.stdout);
   } catch (error) {
     console.error(chalk.red('✗ Create Line failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
+
+async function runCreateAutoLayout(name, options) {
+  try {
+    const plan = planFigmaCommand(createAutoLayoutPlanningArgvFromRequest({
+      name, direction: options.direction, gap: options.gap, padding: options.padding,
+      x: options.x, y: options.y, fill: options.fill, radius: options.radius,
+      spacing: options.spacing, parentId: options.parent, index: options.index,
+    }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeCreateAutoLayoutPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Create Auto Layout failed: ' + (error?.message || String(error))));
     process.exitCode = 1;
   }
 }
@@ -482,46 +509,5 @@ create
   .option('--spacing <n>', 'Gap from other elements', '100')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (name, options) => {
-    await checkConnection();
-    const frameName = name || 'Auto Layout';
-    const layoutMode = options.direction === 'col' ? 'VERTICAL' : 'HORIZONTAL';
-    const target = childTarget(options);
-    const gap = finiteNumber(options.gap, '--gap', { min: 0 });
-    const padding = finiteNumber(options.padding, '--padding', { min: 0 });
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const radius = options.radius === undefined ? null : finiteNumber(options.radius, '--radius', { min: 0 });
-    const spacing = finiteNumber(options.spacing, '--spacing', { min: 0 });
-    const useSmartPos = x === undefined;
-    const usesVars = options.fill && isVarRef(options.fill);
-
-    const fillCode = options.fill ? generateFillCode(options.fill, 'frame') : null;
-
-    let code = `
-(async () => {
-${usesVars ? varLoadingCode() : ''}
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: useSmartPos, gap: spacing, explicitX: x })}
-const frame = figma.createFrame();
-frame.name = ${JSON.stringify(frameName)};
-frame.x = smartX;
-frame.y = ${y};
-frame.layoutMode = '${layoutMode}';
-frame.primaryAxisSizingMode = 'AUTO';
-frame.counterAxisSizingMode = 'AUTO';
-frame.itemSpacing = ${gap};
-frame.paddingTop = ${padding};
-frame.paddingRight = ${padding};
-frame.paddingBottom = ${padding};
-frame.paddingLeft = ${padding};
-${fillCode ? fillCode.code : 'frame.fills = [];'}
-${radius === null ? '' : `frame.cornerRadius = ${radius};`}
-${attachToChildTarget('frame', target)}
-figma.currentPage.selection = [frame];
-return 'Auto-layout frame created (' + frame.id + ') in ' + (frame.parent ? frame.parent.id : 'none') + ' at (' + frame.x + ', ' + frame.y + ')';
-})()
-`;
-    const result = await daemonExec('eval', { code });
-    console.log(result);
-  });
+  .allowExcessArguments(false)
+  .action(async (name, options) => runCreateAutoLayout(name, options));

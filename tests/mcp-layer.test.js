@@ -415,6 +415,18 @@ test('figma_run routes Line creation through the rollback-verified Application',
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Line must not re-enter Commander');
 });
 
+test('figma_run routes Auto Layout creation through the rollback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createAutoLayoutRoute = createAutoLayoutPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateAutoLayoutPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Auto Layout must not re-enter Commander');
+});
+
 test('figma_run routes Node Rename through the rollback-verified Command Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeRenameRoute = nodeRenamePlanRoute(plan)');

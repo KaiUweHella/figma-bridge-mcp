@@ -84,6 +84,12 @@ import {
   parseCreateLineRequest,
 } from '../engine/src/application/create-line-request.js';
 import {
+  acceptsCreateAutoLayoutArgv,
+  createAutoLayoutArgvFromRequest,
+  createAutoLayoutFigmaUrlFileKeyFromArgv,
+  parseCreateAutoLayoutRequest,
+} from '../engine/src/application/create-auto-layout-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -587,6 +593,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'create.rect', 'create.ellipse', 'create.polygon', 'create.star',
   'create.vector', 'create.slice',
   'create.line',
+  'create.autolayout',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -787,6 +794,7 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (['create.vector', 'create.slice'].includes(actionId)) pathPolicy = 'create-canvas-node-input';
   if (actionId === 'create.line') pathPolicy = 'create-line-input';
+  if (actionId === 'create.autolayout') pathPolicy = 'create-auto-layout-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -998,6 +1006,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'create.line' && !action.help && !acceptsCreateLineArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.autolayout'
+    && !action.help && !acceptsCreateAutoLayoutArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1965,6 +1977,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       const closedFileKey = createLineFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...createLineArgvFromRequest(parseCreateLineRequest(args)));
+      break;
+    }
+    case 'create-auto-layout-input': {
+      const closedFileKey = createAutoLayoutFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createAutoLayoutArgvFromRequest(parseCreateAutoLayoutRequest(args)));
       break;
     }
     case 'component-main-input': {

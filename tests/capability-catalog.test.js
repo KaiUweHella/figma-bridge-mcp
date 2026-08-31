@@ -2032,6 +2032,22 @@ test('Line creation owns one canonical cross-Adapter write Plan', () => {
   assert.equal(planFigmaCommand(['create', 'line', '--color', 'red']).allowed, false);
 });
 
+test('Auto Layout creation owns aliases and one canonical cross-Adapter write Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=3-1';
+  const mcp = planFigmaCommand([
+    'create', 'al', 'Stack', '-d', 'col', '-g', '12', '-p', '20',
+    '--fill', 'var:color/surface', '--parent', url,
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'create.autolayout');
+  assert.deepEqual(mcp.argv, ['create', 'autolayout', 'Stack', '--direction=col', '--gap=12', '--padding=20', '--fill=var:color/surface', '--parent', '3:1']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  assert.equal(planFigmaCommand(['create', 'autolayout', '--direction', 'grid']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'autolayout', '--fill', 'red']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

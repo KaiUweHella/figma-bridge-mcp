@@ -542,3 +542,13 @@ selection and reports verified rollback, exact residue or unavailable
 verification. Both Adapters use the same non-retrying Plan and bounded outcome;
 the mechanically pinned public Create legacy-write count falls from three to
 two.
+
+Auto Layout creation remains distinct from generic Frame creation because its
+closed result must prove layout direction, both hug-sizing modes, uniform gap
+and padding as well as its optional Paint and radius. The Application preserves
+the `al` alias and existing smart-position behavior, resolves explicit
+Variables before its one factory call, then freshly verifies hierarchy,
+selection and every requested layout fact. Failure removes only the new Frame
+and reports verified rollback, exact residue or unavailable verification. Both
+Adapters use the same non-retrying Plan and bounded outcome; the mechanically
+pinned public Create legacy-write count falls from two to one.
