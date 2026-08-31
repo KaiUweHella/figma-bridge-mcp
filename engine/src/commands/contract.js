@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import { resolve } from 'node:path';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
-import { runInProcessCommandPlan } from '../../../src/engine.js';
-import { program, checkConnection, daemonExec, handleEvalError } from '../lib/cli-core.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import { program, daemonExec, handleEvalError } from '../lib/cli-core.js';
 import { DESIGN_LINK_REGISTRY_FILE } from '../lib/design-link-registry.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 import {
@@ -49,8 +49,10 @@ async function runContract(request) {
   });
   let domainResult = null;
   const execution = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
-    async ({ fileKey, deadline }) => {
-      await checkConnection();
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({
+        deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+      });
       domainResult = await executeDesignContractPlan(plan, {
         workspaceIO: io,
         evaluate: (code) => daemonExec('eval', {

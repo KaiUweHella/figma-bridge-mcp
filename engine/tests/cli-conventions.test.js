@@ -214,6 +214,20 @@ test('the remaining direct History write inventory is explicit', () => {
     'STAB-06 History Legacy Write count may decrease, but must never increase silently');
 });
 
+test('Design Contract delegates target-bound readiness and execution to its Command Plan', () => {
+  const adapter = sources.get('contract.js');
+  assert.ok(adapter, 'contract.js exists');
+  const helperStart = adapter.indexOf('async function runContract');
+  const actionStart = adapter.indexOf("contract\n  .command('capture <entityId>')", helperStart);
+  const helper = adapter.slice(helperStart, actionStart);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeDesignContractPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(adapter, /checkConnection\(|fastEval\(/,
+    'Design Contract must not regain Legacy Adapter readiness or eval');
+});
+
 test('asset export Adapter delegates one Command Application to Manifest v2', () => {
   const adapter = sources.get('export-eval.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'asset-export-command.js'), 'utf8');

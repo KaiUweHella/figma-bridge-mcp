@@ -2281,9 +2281,16 @@ export async function handleTool(name, rawArgs) {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
           compatibilityFallback: false,
-        }, async ({ fileKey, expectedEditor, timeoutMs }) => {
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
           const result = await executeDesignContractPlan(plan, {
-            evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
             workspaceIO: WORKSPACE_IO,
           });
           return {

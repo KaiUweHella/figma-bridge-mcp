@@ -322,10 +322,17 @@ test('figma_run routes the accepted Design Link tracer without a family-wide cap
 
 test('figma_run routes Design Contract capture/check through the shared Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
-  assert.match(source, /designContractPlanRoute\(plan\)/);
-  assert.match(source, /executeDesignContractPlan\(plan/);
-  assert.match(source, /formatDesignContractAdapterResult\(result\)/);
-  assert.match(source, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
+  const start = source.indexOf('const designContractRoute = designContractPlanRoute(plan)');
+  const end = source.indexOf('const createFrameRoute = createFramePlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeDesignContractPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(route, /formatDesignContractAdapterResult\(result\)/);
+  assert.match(route, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'Design Contract must not re-enter Commander');
 });
 
 test('figma_run routes Node Text through the shared non-retrying Application', () => {
