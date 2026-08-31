@@ -46,14 +46,14 @@ function runtime() {
 const evaluate = (figma) => async (code) => new Function('figma', `return ${code}`)(figma);
 
 test('Slides Inspect closes typed requests and preserves URL target identity only for node references', () => {
-  const url = 'https://www.figma.com/design/ARGUMENTPLACEHOLDERKEY/FILE_NAME?node-id=1-2';
+  const url = 'https://www.figma.com/design/TARGETPLACEHOLDERKEY/FILE_NAME?node-id=1-2';
   assert.deepEqual(slidesInspectArgvFromRequest({ reference: `node:${url}` }), [
     'slides', 'inspect', 'node:1:2',
   ]);
   const planning = slidesInspectPlanningArgvFromRequest({ reference: `node:${url}` });
-  assert.equal(slidesReferenceFigmaUrlFileKeyFromArgv(planning), 'ARGUMENTPLACEHOLDERKEY');
+  assert.equal(slidesReferenceFigmaUrlFileKeyFromArgv(planning), 'TARGETPLACEHOLDERKEY');
   assert.equal(planFigmaCommand(planning, { adapter: 'mcp' }).target.fileKey,
-    'ARGUMENTPLACEHOLDERKEY');
+    'TARGETPLACEHOLDERKEY');
   assert.deepEqual(slidesInspectArgvFromRequest({ reference: `label:${url}` }), [
     'slides', 'inspect', `label:${url}`,
   ]);
