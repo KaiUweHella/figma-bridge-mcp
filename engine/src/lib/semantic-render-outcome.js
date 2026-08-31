@@ -193,8 +193,14 @@ function numericReport(value, label, fields) {
 function projectVariableReport(value) {
   const report = numericReport(value, 'variableReport', VARIABLE_REPORT_FIELDS);
   const unbound = report ? report.references - report.bound : 0;
+  // `literal` is an effective-application fact. Resolution diagnostics may
+  // overlap it when an ambiguous or incompatible generated resource safely
+  // falls back to the exact authored literal.
   if (report && (report.bound > report.references
-    || report.literal + report.ambiguous + report.unsupported !== unbound
+    || report.literal > unbound
+    || report.ambiguous > report.literal
+    || report.unsupported > unbound
+    || report.literal + report.unsupported < unbound
     || report.reused + report.created > report.bound)) {
     throw resultError('Semantic Render returned an inconsistent variableReport.');
   }

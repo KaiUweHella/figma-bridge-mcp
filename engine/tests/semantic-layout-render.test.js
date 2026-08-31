@@ -191,4 +191,49 @@ describe('semantic Grid renderer', () => {
     assert.equal(result.scopeQuestions[0].name, 'surface/runtime-test');
     assert.ok(result.scopeQuestions[0].allowedScopes.includes('FRAME_FILL'));
   });
+
+  it('compatibility reports ambiguous generated Variables and their applied literal fallback separately', async () => {
+    const client = new FigmaClient();
+    const code = await client.parseJSX('<Frame name="Literal padding" p="16" />');
+    const collections = [
+      { id: 'collection:tokens', name: 'Tokens', modes: [{ modeId: 'mode:tokens' }] },
+      { id: 'collection:product', name: 'Product', modes: [{ modeId: 'mode:product' }] },
+    ];
+    const variables = collections.map((collection) => ({
+      id: `variable:${collection.name}`,
+      name: 'space/16px',
+      resolvedType: 'FLOAT',
+      variableCollectionId: collection.id,
+      valuesByMode: { [collection.modes[0].modeId]: 16 },
+    }));
+    const frame = {
+      id: 'frame:literal', name: '', width: 0, height: 0, children: [],
+      resize(width, height) { this.width = width; this.height = height; },
+      setBoundVariable(field, variable) { this.boundVariables ||= {}; this.boundVariables[field] = variable.id || variable; },
+      remove() {},
+    };
+    const figma = {
+      loadFontAsync: async () => {},
+      currentPage: { children: [] },
+      createFrame: () => frame,
+      variables: {
+        getLocalVariableCollectionsAsync: async () => collections,
+        getLocalVariablesAsync: async () => variables,
+      },
+    };
+    for (const key of [
+      '__spaceCache', '__spaceCacheTime', '__variableReport', '__createdVariableIds',
+      '__reusedVariableIds', '__createdVars', '__variableScopeQuestions', '__unresolvedVars',
+    ]) delete globalThis[key];
+
+    const result = await new Function('figma', `return ${code.trim()}`)(figma);
+    assert.deepEqual([
+      frame.paddingTop, frame.paddingRight, frame.paddingBottom, frame.paddingLeft,
+    ], [16, 16, 16, 16]);
+    assert.deepEqual(frame.boundVariables || {}, {});
+    assert.deepEqual(result.variableReport, {
+      references: 4, reused: 0, created: 0, bound: 0,
+      literal: 4, ambiguous: 4, unsupported: 0,
+    });
+  });
 });

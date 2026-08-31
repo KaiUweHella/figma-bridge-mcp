@@ -1453,7 +1453,7 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual(frame.boundVariables, {});
     assert.deepEqual(result.variableReport, {
       references: 4, reused: 0, created: 0, bound: 0,
-      literal: 0, ambiguous: 4, unsupported: 0,
+      literal: 4, ambiguous: 4, unsupported: 0,
     });
   });
 
@@ -1498,7 +1498,7 @@ describe('structured Semantic Render Plan executor', () => {
     assert.deepEqual(frame.boundVariables, {});
     assert.deepEqual(result.variableReport, {
       references: 4, reused: 0, created: 0, bound: 0,
-      literal: 0, ambiguous: 0, unsupported: 4,
+      literal: 4, ambiguous: 0, unsupported: 4,
     });
   });
 
@@ -1524,7 +1524,7 @@ describe('structured Semantic Render Plan executor', () => {
       && Object.keys(frame.boundVariables).length === 0), true);
     assert.deepEqual(result.variableReport, {
       references: 8, reused: 0, created: 0, bound: 0,
-      literal: 0, ambiguous: 8, unsupported: 0,
+      literal: 8, ambiguous: 8, unsupported: 0,
     });
   });
 
