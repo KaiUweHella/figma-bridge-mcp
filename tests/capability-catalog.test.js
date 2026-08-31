@@ -1081,6 +1081,20 @@ test('Section Arrange closes one policy-identical non-retrying geometry write', 
   assert.equal(cli.audit.capability, 'section.arrange');
 });
 
+test('Section Add closes one policy-identical non-retrying batch write', () => {
+  const cli = planFigmaCommand(['section', 'add', '10-3', '11-1,11:2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'add', '--', '10:3', '11:1,11-2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'section.add');
+});
+
 test('Annotation Category Inventory closes one policy-identical file safe read', () => {
   const cli = planFigmaCommand(['annotate', 'categories'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['annotate', 'categories', '--'], { adapter: 'mcp' });

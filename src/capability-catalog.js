@@ -614,6 +614,12 @@ import {
   sectionArrangeFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/section-arrange-request.js';
 import {
+  acceptsSectionAddArgv,
+  parseSectionAddRequest,
+  sectionAddArgvFromRequest,
+  sectionAddFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-add-request.js';
+import {
   acceptsAnnotationCategoryInventoryArgv,
   annotationCategoryInventoryArgvFromRequest,
   parseAnnotationCategoryInventoryRequest,
@@ -868,6 +874,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'section.list',
   'section.fit',
   'section.arrange',
+  'section.add',
   'annotate.categories',
   'annotate.list',
   'annotate.clear',
@@ -1213,6 +1220,7 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'section' && sub === 'fit') pathPolicy = 'section-fit-input';
   if (name === 'section' && sub === 'arrange') pathPolicy = 'section-arrange-input';
+  if (name === 'section' && sub === 'add') pathPolicy = 'section-add-input';
   if (name === 'annotate' && sub === 'categories') {
     retry = 'safe-read';
     pathPolicy = 'annotation-category-inventory-input';
@@ -1659,6 +1667,10 @@ function commandCapability(args) {
   }
   if (name === 'section' && args[1] === 'arrange'
     && !action.help && !acceptsSectionArrangeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'add'
+    && !action.help && !acceptsSectionAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'annotate' && args[1] === 'categories'
@@ -2662,6 +2674,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...sectionArrangeArgvFromRequest(parseSectionArrangeRequest(args)));
+      break;
+    }
+    case 'section-add-input': {
+      const closedFileKey = sectionAddFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionAddArgvFromRequest(parseSectionAddRequest(args)));
       break;
     }
     case 'annotation-category-inventory-input': {

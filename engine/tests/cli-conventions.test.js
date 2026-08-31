@@ -1588,6 +1588,26 @@ test('section arrange delegates sorting, geometry, readback, and rollback to one
     'Commander must not retain Section Arrange sorting, geometry, verification, or rollback');
 });
 
+test('section add delegates batch preflight, position preservation, and rollback to one Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('add <sectionId> <nodeIds>')", section);
+  const end = adapter.indexOf('// ============ LAYOUT GUIDES', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sectionAddPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionAddPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|absoluteBoundingBox|appendChild|getNodeByIdAsync/,
+    'Commander must not retain Section Add preflight, mutation, verification, or rollback');
+});
+
 test('annotate categories delegates one Plan-bound bounded file inventory Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

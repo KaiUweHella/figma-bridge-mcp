@@ -169,6 +169,8 @@
     "engine/src/application/section-fit-request.js",
     "engine/src/application/section-arrange-command.js",
     "engine/src/application/section-arrange-request.js",
+    "engine/src/application/section-add-command.js",
+    "engine/src/application/section-add-request.js",
     "engine/src/application/create-frame-command.js",
     "engine/src/application/create-frame-request.js",
     "engine/src/application/create-shape-command.js",

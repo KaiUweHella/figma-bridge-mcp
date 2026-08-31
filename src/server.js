@@ -490,6 +490,10 @@ import {
   sectionArrangePlanRoute,
 } from "../engine/src/application/section-arrange-command.js";
 import {
+  executeSectionAddPlan,
+  sectionAddPlanRoute,
+} from "../engine/src/application/section-add-command.js";
+import {
   annotationCategoryInventoryPlanRoute,
   executeAnnotationCategoryInventoryPlan,
 } from "../engine/src/application/annotation-category-inventory-command.js";
@@ -4117,6 +4121,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeSectionArrangePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sectionAddRoute = sectionAddPlanRoute(plan);
+      if (sectionAddRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSectionAddPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

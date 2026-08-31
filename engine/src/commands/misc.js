@@ -89,6 +89,10 @@ import {
   sectionArrangePlanningArgvFromRequest,
 } from '../application/section-arrange-command.js';
 import {
+  executeSectionAddPlan,
+  sectionAddPlanningArgvFromRequest,
+} from '../application/section-add-command.js';
+import {
   annotationCategoryInventoryArgvFromRequest,
   executeAnnotationCategoryInventoryPlan,
 } from '../application/annotation-category-inventory-command.js';
@@ -373,33 +377,30 @@ sectionCmd
 sectionCmd
   .command('add <sectionId> <nodeIds>')
   .description('Add comma-separated nodes into an existing section')
+  .allowExcessArguments(false)
   .action(async (sectionId, nodeIds) => {
-    await checkConnection();
-    const ids = JSON.stringify(nodeIds.split(',').map(s => s.trim()));
-    const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(sectionId)});
-      if (!s) throw new Error('Section not found: ${sectionId}');
-      if (s.type !== 'SECTION') throw new Error('Not a section: ${sectionId}');
-      const ids = ${ids};
-      for (const id of ids) {
-        const n = await figma.getNodeByIdAsync(id);
-        if (!n) throw new Error('Node not found: ' + id);
-        // Preserve the node's visual position across reparenting — x/y are
-        // parent-relative, so a raw appendChild makes the node jump.
-        const b = n.absoluteBoundingBox;
-        s.appendChild(n);
-        if (b && s.absoluteBoundingBox) {
-          n.x = b.x - s.absoluteBoundingBox.x;
-          n.y = b.y - s.absoluteBoundingBox.y;
-        }
-      }
-      return { id: s.id, name: s.name, count: s.children.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Added to section "${r.name}" (${r.id}). Total children: ${r.count}`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionAddPlanningArgvFromRequest({
+        sectionId, nodeIds: nodeIds.split(',').map((value) => value.trim()),
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionAddPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Add failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
