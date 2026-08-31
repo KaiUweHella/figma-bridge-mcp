@@ -15,7 +15,7 @@ const { handleTool } = await import("../src/server.js");
 test("MCP command utility survives degraded audit storage and reports recovery", async () => {
   const degraded = await handleTool("figma_run", { args: ["--help"] });
   assert.equal(degraded.isError, undefined, "the engine command still succeeds");
-  assert.match(degraded.content[0].text, /Usage:/);
+  assert.match(degraded.content[0].text, /Figma Commands available through figma_run:/);
   assert.match(degraded.content[0].text, /\[audit warning\]/);
   assert.equal(degraded._meta["figma-bridge-mcp"].auditTrail.status, "degraded");
 

@@ -1292,14 +1292,67 @@ function optionNameFromArgv(args) {
 }
 
 function acceptedForm(actionId) {
+  if (actionId === 'find') {
+    return '["find","<query>","--type","<FIGMA_NODE_TYPE>","--limit","<1-200>"]';
+  }
   if (actionId === 'var.list') {
     return '["var","list","--limit","<1-1000>","--json"]';
   }
   if (actionId === 'var.find') {
     return '["var","find","<pattern>","--limit","<1-1000>","--json"]';
   }
+  if (actionId === 'style.consumers') {
+    return '["style","consumers","<style>","--type","PAINT|TEXT|EFFECT|GRID","--limit","<1-500>"]';
+  }
+  if (actionId === 'style.apply') {
+    return '["style","apply","<style>","<nodeIds>","--field","fill|stroke|text|effect|grid"]';
+  }
   const [root, action] = actionId.split('.');
   return action ? `["${root}","${action}","--help"]` : `["${root}","--help"]`;
+}
+
+function payloadFreeTypedRequestDetail(raw, prefix) {
+  const detail = String(raw).replace(prefix, '').replace(/\.$/, '');
+  if (/^unknown option /.test(detail)) return { kind: 'unknown-option', detail: null };
+  if (/^unexpected argument /.test(detail)) {
+    return { kind: 'malformed', detail: 'too many positional arguments' };
+  }
+  const safePatterns = [
+    /^(?:query|style|nodeIds|style and nodeIds) (?:is|are) required$/,
+    /^only one query is accepted$/,
+    /^(?:type|limit) (?:may be provided only once|must be .+)$/,
+    /^--?(?:field|type|limit|cursor) (?:is required|may be provided only once|requires .+|must be .+)$/,
+    /^cursor (?:is malformed or too long|does not match this Style Consumer scope)$/,
+    /^each nodeId must be a Figma node id or URL containing node-id$/,
+    /^nodeIds (?:exceed \d+ code units|must not contain duplicates|reference multiple Figma files)$/,
+    /^at most \d+ nodes are supported$/,
+    /^(?:query|style) (?:must not exceed|exceeds) \d+ code units$/,
+    /^style contains unsafe control characters$/,
+  ];
+  return safePatterns.some((pattern) => pattern.test(detail))
+    ? { kind: 'malformed', detail }
+    : { kind: 'malformed', detail: 'arguments do not match the typed command contract' };
+}
+
+function explainTypedRequestRejection({
+  normalized, actionId, label, parse, errorPrefix, responseIsStructured = false,
+}) {
+  try {
+    parse(normalized);
+  } catch (error) {
+    const failure = payloadFreeTypedRequestDetail(error?.message || String(error), errorPrefix);
+    const option = optionNameFromArgv(normalized);
+    if (failure.kind === 'unknown-option') {
+      const structured = option === '--json' && responseIsStructured
+        ? '; figma_run already returns structured JSON'
+        : '';
+      return `Unsupported option${option ? ` ${option}` : ''} for ${label}${structured}. `
+        + `Accepted form: ${acceptedForm(actionId)}.`;
+    }
+    return `Malformed request for ${label}: ${failure.detail}. `
+      + `Accepted form: ${acceptedForm(actionId)}.`;
+  }
+  return `Malformed request for ${label}. Accepted form: ${acceptedForm(actionId)}.`;
 }
 
 /**
@@ -1330,6 +1383,41 @@ export function explainFigmaCommandRejection(rawArgs) {
   }
 
   const actionId = action.actionId.replace(/\.help$/, '');
+  if (actionId === 'find') {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: 'find',
+        parse: parseNodeDiscoveryRequest,
+        errorPrefix: /^Invalid find command: /,
+        responseIsStructured: true,
+      }),
+    );
+  }
+  if (actionId === 'style.consumers') {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: 'style consumers',
+        parse: parseStyleConsumerRequest,
+        errorPrefix: /^Invalid style consumers command: /,
+        responseIsStructured: true,
+      }),
+    );
+  }
+  if (actionId === 'style.apply') {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: 'style apply',
+        parse: parseStyleApplyRequest,
+        errorPrefix: /^Invalid style apply command: /,
+      }),
+    );
+  }
   if (actionId === 'var.list' || actionId === 'var.find') {
     const label = actionId.replace('.', ' ');
     const option = optionNameFromArgv(normalized);

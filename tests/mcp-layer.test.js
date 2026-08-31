@@ -50,6 +50,19 @@ test('help flags pass the allowlist gate (discoverability), connect stays blocke
   await assert.rejects(() => runCli(['connect', '--safe']), /Command not allowed/);
 });
 
+test('figma_run top-level help is generated from the MCP capability catalog', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const flag of ['--help', '-h']) {
+    const result = await handleTool('figma_run', { args: [flag] });
+    assert.notEqual(result.isError, true, flag);
+    const help = result.content[0].text;
+    assert.match(help, /Figma Commands available through figma_run:/);
+    assert.match(help, /^var — Manage local variables/m);
+    assert.match(help, /^component — Manage component properties and variants/m);
+    assert.doesNotMatch(help, /^\s*(?:connect|daemon|eval|run)\b/m);
+  }
+});
+
 test('runCli rejects non-array / empty / non-string args', async () => {
   const { runCli } = await import('../src/engine.js');
   await assert.rejects(() => runCli([]), /non-empty array/);

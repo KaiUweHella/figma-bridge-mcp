@@ -26,6 +26,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Top-level `figma_run --help` now comes from the MCP Capability Catalog and
+  no longer advertises engine-only commands such as `connect`, `daemon`,
+  `eval`, or `run`. Rejected `find`, `style consumers`, and `style apply`
+  requests now project their typed parser errors into bounded, payload-free
+  guidance, including the fact that MCP results are already structured JSON.
 - `component add-variant --from` now restores and freshly verifies TEXT,
   BOOLEAN, INSTANCE_SWAP and SLOT sublayer references plus nested Instance
   exposure after Figma's native clone drops those fields. Component Property

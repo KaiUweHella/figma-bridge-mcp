@@ -73,6 +73,29 @@ test('Variable command aliases canonicalize and rejection facts stay precise and
   }
 });
 
+test('typed discovery and Style rejection guidance explains the actual contract without payloads', () => {
+  const cases = [
+    {
+      args: ['find', 'private-query', '--json'],
+      pattern: /Unsupported option --json for find.*already returns structured JSON.*Accepted form:/,
+    },
+    {
+      args: ['style', 'consumers', 'private-style', '--json'],
+      pattern: /Unsupported option --json for style consumers.*already returns structured JSON.*Accepted form:/,
+    },
+    {
+      args: ['style', 'apply', 'private-style', 'private-node'],
+      pattern: /Malformed request for style apply: --field is required.*Accepted form:/,
+    },
+  ];
+  for (const { args, pattern } of cases) {
+    const message = explainFigmaCommandRejection(args);
+    assert.match(message, pattern, args.join(' '));
+    assert.ok(message.length <= 700, args.join(' '));
+    assert.doesNotMatch(message, /private-(?:query|style|node)/, args.join(' '));
+  }
+});
+
 test('catalog owns the full read/write matrix including special flag semantics', () => {
   for (const args of [
     ['render', '<Frame/>'], ['combos', '1:2'], ['node', 'delete', '1:2'],

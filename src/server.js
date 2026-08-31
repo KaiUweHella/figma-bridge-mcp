@@ -2152,6 +2152,19 @@ export async function handleTool(name, rawArgs) {
       if (previewReason) {
         return previewResult(plan, { reason: previewReason });
       }
+      if (plan.id === "help") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async () => ({
+          stdout: "Figma Commands available through figma_run:\n\n"
+            + listFigmaCapabilities({ formatted: true })
+            + "\n\nFor command-specific syntax, call figma_run with "
+            + '["<command>","--help"].',
+          stderr: "",
+        }));
+        return resultFromCli(res);
+      }
       if (plan.execution.mode === "tracked-job") {
         return await runAssetExport(plan, input.label, { force: input.force === true });
       }
