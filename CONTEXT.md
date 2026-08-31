@@ -231,6 +231,17 @@ freshly verifies the prior parent, order and local position, otherwise reports
 bounded hierarchy/position residue or unavailable verification.
 _Avoid_: Commander reparent handler, parent-id-only success, implicit Auto Layout position claim, unverified rollback
 
+**Node Group**:
+The bounded, non-retrying grouping of two or more distinct exact canvas Nodes.
+Its closed request keeps variadic Node References, optional destination, final
+index and name together and rejects cross-file identity before readiness. The
+Application snapshots every affected parent order and selected local position,
+then requires a fresh Group identity, exact selected membership and exact
+affected-parent readback. A mismatch ungroups the created object, restores all
+original parents, indices and positions, and reports verified rollback,
+bounded structural residue or unavailable verification.
+_Avoid_: Commander group handler, count-only success, partial parent verification, unverified ungroup rollback
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation

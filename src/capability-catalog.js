@@ -78,6 +78,12 @@ import {
   parseNodeReparentRequest,
 } from '../engine/src/application/node-reparent-request.js';
 import {
+  acceptsNodeGroupArgv,
+  nodeGroupArgvFromRequest,
+  nodeGroupFigmaUrlFileKeyFromArgv,
+  parseNodeGroupRequest,
+} from '../engine/src/application/node-group-request.js';
+import {
   acceptsNodeDeleteArgv,
   nodeDeleteArgvFromRequest,
   nodeDeleteFigmaUrlFileKeyFromArgv,
@@ -552,7 +558,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.duplicate', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set-text',
+  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.duplicate', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set-text',
   'node.to-component', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
@@ -956,6 +962,9 @@ function commandCapability(args) {
   }
   if (name === 'node' && args[1] === 'reparent'
     && !action.help && !acceptsNodeReparentArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'group' && !action.help && !acceptsNodeGroupArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
@@ -1811,6 +1820,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         if (projectUrlTarget) figmaUrlFileKey = closedNodeReparentFileKey;
         args.splice(0, args.length,
           ...nodeReparentArgvFromRequest(parseNodeReparentRequest(args)));
+      } else if (args[1] === 'group') {
+        const closedNodeGroupFileKey = nodeGroupFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeGroupFileKey;
+        args.splice(0, args.length, ...nodeGroupArgvFromRequest(parseNodeGroupRequest(args)));
       } else if (args[1] === 'delete') {
         const closedNodeDeleteFileKey = nodeDeleteFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeDeleteFileKey;

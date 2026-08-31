@@ -102,6 +102,10 @@ import {
   nodeReparentPlanRoute,
 } from "../engine/src/application/node-reparent-command.js";
 import {
+  executeNodeGroupPlan,
+  nodeGroupPlanRoute,
+} from "../engine/src/application/node-group-command.js";
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanRoute,
@@ -2281,6 +2285,20 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeNodeReparentPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeGroupRoute = nodeGroupPlanRoute(plan);
+      if (nodeGroupRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeGroupPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }),

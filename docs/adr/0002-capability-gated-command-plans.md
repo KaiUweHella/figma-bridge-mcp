@@ -403,3 +403,14 @@ preservation remains a separate observed result because Auto Layout can make
 it inapplicable. A mismatch restores the original parent, child index and local
 position and then reports verified rollback, bounded residue or unavailable
 verification rather than trusting the mutation acknowledgement.
+
+`node group` is the adjacent multi-parent structural slice. Its closed request
+bounds and canonicalizes every selected Node Reference plus optional parent,
+final index, name and JSON projection; any URL identities must name one file.
+Commander and `figma_run` execute one non-retrying Application. Preflight
+captures every affected parent order and selected local position, including
+cross-parent grouping behind an explicit destination. Success requires fresh
+Group identity, exact selected membership and exact readback of every affected
+parent. A mismatch uses the new Group as the rollback boundary, ungroups it,
+restores original parents, indices and positions, and reports verified
+rollback, bounded residue or unavailable verification.

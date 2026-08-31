@@ -51,6 +51,10 @@ import {
   nodeReparentPlanningArgvFromRequest,
 } from '../application/node-reparent-command.js';
 import {
+  executeNodeGroupPlan,
+  nodeGroupPlanningArgvFromRequest,
+} from '../application/node-group-command.js';
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
@@ -244,17 +248,27 @@ structuralParentOptions(node
   .description('Group two or more explicit node IDs'))
   .action(async (nodeIds, options) => {
     try {
-      const request = structuralRequest(nodeIds, options, 2);
-      await checkConnection();
-      const result = await fastEval(`(async () => {
-${structuralPrelude(request)}
-const result = figma.group(nodes, parent, insertionIndex);
-${options.name ? `result.name = ${JSON.stringify(options.name)};` : ''}
-return { id: result.id, name: result.name, type: result.type, parentId: result.parent ? result.parent.id : null, childIds: result.children.map(child => child.id) };
-})()`);
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Grouped ${result.childIds.length} nodes as "${result.name}" (${result.id})`);
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(nodeGroupPlanningArgvFromRequest({
+        nodeIds, parentId: options.parent || null,
+        index: options.index === undefined ? null : options.index,
+        name: options.name === undefined ? null : options.name,
+        json: options.json === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeGroupPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Group failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 node
