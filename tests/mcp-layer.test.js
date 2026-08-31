@@ -418,6 +418,7 @@ test('figma_run routes Node Ungroup through the hierarchy-verified Command Appli
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8'); const start = source.indexOf('const nodeUngroupRoute = nodeUngroupPlanRoute(plan)'); const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start); const slice = source.slice(start, end);
   assert.match(slice, /runInProcessCommandPlan\(plan/); assert.match(slice, /compatibilityFallback: false/); assert.match(slice, /executeNodeUngroupPlan\(plan/); assert.doesNotMatch(slice, /runCliPlan\(/);
 });
+test('figma_run routes Node Flatten through the irreversible verified Command Application', () => { const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8'); const start = source.indexOf('const nodeFlattenRoute = nodeFlattenPlanRoute(plan)'); const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start); const slice = source.slice(start, end); assert.match(slice, /runInProcessCommandPlan\(plan/); assert.match(slice, /compatibilityFallback: false/); assert.match(slice, /executeNodeFlattenPlan\(plan/); assert.doesNotMatch(slice, /runCliPlan\(/); });
 
 test('figma_run routes Node Delete through the shared hierarchy-verified Command Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');

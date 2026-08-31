@@ -425,3 +425,14 @@ throws or verification disagrees, a freshly unchanged hierarchy is explicit;
 otherwise the Application reports bounded group, parent-order and child-parent
 residue or unavailable verification. It does not recreate a lossy stand-in for
 an arbitrary Transform Group.
+
+`node flatten` owns the adjacent irreversible Vector replacement. Its closed
+request bounds all source Node References plus optional destination, final
+index, name and JSON projection, rejecting duplicate or cross-file identities
+before readiness. One non-retrying Application snapshots every affected
+parent order and accepts success only after fresh proof of the native Vector,
+its exact destination replacement, removal of obsolete source identities and
+unchanged non-destination parent order. Because arbitrary source geometry
+cannot be reconstructed losslessly, a mismatch reports freshly unchanged
+state, bounded Vector/source/parent residue or unavailable verification rather
+than fabricating rollback.

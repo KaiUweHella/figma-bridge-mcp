@@ -252,6 +252,17 @@ verified unchanged state, bounded group/parent/child residue, or unavailable
 verification instead of fabricating restoration.
 _Avoid_: Commander ungroup handler, returned-array success, recreated Transform Group claim, unbounded residue
 
+**Node Flatten**:
+The bounded, non-retrying irreversible replacement of one or more exact canvas
+Nodes with one native Vector. Its closed request keeps every source identity,
+optional destination, final index and name together. Preflight snapshots every
+affected parent order and rejects detached, duplicate, cross-file or cyclic
+placement. Success requires a fresh Vector identity, exact replacement in the
+destination, removal of obsolete source identities and exact unaffected parent
+orders. A mismatch reports verified unchanged state, bounded irreversible
+Vector/source/parent residue, or unavailable verification.
+_Avoid_: Commander flatten handler, returned-vector success, synthetic rollback, partial parent verification
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation

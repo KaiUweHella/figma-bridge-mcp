@@ -45,6 +45,8 @@
     "engine/src/application/node-group-request.js",
     "engine/src/application/node-ungroup-command.js",
     "engine/src/application/node-ungroup-request.js",
+    "engine/src/application/node-flatten-command.js",
+    "engine/src/application/node-flatten-request.js",
     "engine/src/application/node-to-component-command.js",
     "engine/src/application/node-to-component-request.js",
     "engine/src/application/semantic-render-request.js",

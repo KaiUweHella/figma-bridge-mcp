@@ -58,6 +58,7 @@ import {
   executeNodeUngroupPlan,
   nodeUngroupPlanningArgvFromRequest,
 } from '../application/node-ungroup-command.js';
+import { executeNodeFlattenPlan, nodeFlattenPlanningArgvFromRequest } from '../application/node-flatten-command.js';
 import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
@@ -317,17 +318,10 @@ structuralParentOptions(node
   .description('Flatten one or more explicit nodes into one vector'))
   .action(async (nodeIds, options) => {
     try {
-      const request = structuralRequest(nodeIds, options, 1);
-      await checkConnection();
-      const result = await fastEval(`(async () => {
-${structuralPrelude(request)}
-const result = figma.flatten(nodes, parent, insertionIndex);
-${options.name ? `result.name = ${JSON.stringify(options.name)};` : ''}
-return { id: result.id, name: result.name, type: result.type, parentId: result.parent ? result.parent.id : null };
-})()`);
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Flattened to "${result.name}" (${result.id})`);
-    } catch (error) { handleEvalError(error); }
+      const plan = planFigmaCommand(nodeFlattenPlanningArgvFromRequest({ nodeIds, parentId: options.parent || null, index: options.index ?? null, name: options.name ?? null, json: options.json === true }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false }, async ({ fileKey, deadline }) => { await ensurePluginReadiness({ deadline, maxWaitMs: 8000 }); return executeNodeFlattenPlan(plan, { evaluate: (code) => daemonExec('eval', { code, ...(fileKey ? { fileKey } : {}) }, Math.max(1, deadline - Date.now())) }); });
+      console.log(result.stdout);
+    } catch (error) { console.error(chalk.red('✗ Flatten failed: ' + (error?.message || String(error)))); process.exitCode = 1; }
   });
 
 node

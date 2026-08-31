@@ -84,6 +84,7 @@ import {
   parseNodeGroupRequest,
 } from '../engine/src/application/node-group-request.js';
 import { acceptsNodeUngroupArgv, nodeUngroupArgvFromRequest, nodeUngroupFigmaUrlFileKeyFromArgv, parseNodeUngroupRequest } from '../engine/src/application/node-ungroup-request.js';
+import { acceptsNodeFlattenArgv, nodeFlattenArgvFromRequest, nodeFlattenFigmaUrlFileKeyFromArgv, parseNodeFlattenRequest } from '../engine/src/application/node-flatten-request.js';
 import {
   acceptsNodeDeleteArgv,
   nodeDeleteArgvFromRequest,
@@ -559,7 +560,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.duplicate', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set-text', 'node.ungroup',
+  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
@@ -969,6 +970,7 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'ungroup' && !action.help && !acceptsNodeUngroupArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'flatten' && !action.help && !acceptsNodeFlattenArgv(args)) return Object.freeze({ ...UNKNOWN, name });
   if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -1830,6 +1832,9 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         const closedNodeUngroupFileKey = nodeUngroupFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeUngroupFileKey;
         args.splice(0, args.length, ...nodeUngroupArgvFromRequest(parseNodeUngroupRequest(args)));
+      } else if (args[1] === 'flatten') {
+        const closedNodeFlattenFileKey = nodeFlattenFigmaUrlFileKeyFromArgv(args); if (projectUrlTarget) figmaUrlFileKey = closedNodeFlattenFileKey;
+        args.splice(0, args.length, ...nodeFlattenArgvFromRequest(parseNodeFlattenRequest(args)));
       } else if (args[1] === 'delete') {
         const closedNodeDeleteFileKey = nodeDeleteFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeDeleteFileKey;
