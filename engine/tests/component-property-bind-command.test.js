@@ -10,7 +10,7 @@ import {
 } from '../src/application/component-property-bind-command.js';
 import { parseComponentPropertyBindRequest } from '../src/application/component-property-bind-request.js';
 
-function fixture({ throwAfterSet = false } = {}) {
+function fixture({ throwAfterSet = false, canonicalizeReferences = false } = {}) {
   const component = {
     id: '2:1', type: 'COMPONENT', name: 'Card', remote: false,
     componentPropertyDefinitions: {
@@ -27,7 +27,11 @@ function fixture({ throwAfterSet = false } = {}) {
     id: '2:2', type: 'TEXT', name: 'Title', parent: component,
     get componentPropertyReferences() { return references; },
     set componentPropertyReferences(value) {
-      references = value;
+      references = canonicalizeReferences && value
+        ? Object.fromEntries(['visible', 'characters', 'mainComponent']
+          .filter((field) => Object.prototype.hasOwnProperty.call(value, field))
+          .map((field) => [field, value[field]]))
+        : value;
       writes += 1;
       if (throwAfterSet && writes === 1) throw new Error('injected setter failure');
     },
@@ -106,6 +110,22 @@ test('TEXT, BOOLEAN and INSTANCE_SWAP bind to their only compatible native field
   assert.deepEqual(live.icon.componentPropertyReferences, { mainComponent: 'Icon#2:2' });
 });
 
+test('one layer can retain multiple compatible property references when Figma reorders their keys', async () => {
+  const live = fixture({ canonicalizeReferences: true });
+  live.text.componentPropertyReferences = { characters: 'Title#2:0' };
+
+  const result = await executeComponentPropertyBind({
+    componentId: '2:1', propertyName: 'Show badge', nodeId: '2:2',
+    remove: false, replace: false, json: false,
+  }, { evaluate: evaluate(live.figma) });
+
+  assert.equal(result.result.status, 'bound');
+  assert.deepEqual(live.text.componentPropertyReferences, {
+    visible: 'Show badge#2:1',
+    characters: 'Title#2:0',
+  });
+});
+
 test('binding refuses incompatible targets and native VARIANT or SLOT definitions', async () => {
   const live = fixture();
   for (const request of [
@@ -167,4 +187,3 @@ test('one authentic non-retrying component.prop.bind plan crosses the Applicatio
   assert.equal(result.result.status, 'bound');
   assert.equal(evaluations, 1);
 });
-

@@ -208,6 +208,12 @@ Omitting `FIGMA_BRIDGE_PROFILE` retains the normal released profile and its
    but its plugin iframe no longer answers a read-only probe, `figma_connect`
    reloads just that iframe and it reconnects with the stored key.
 
+If a timed-out compatibility command leaves only the execution lane uncertain
+while health reads still answer, call `figma_connect` with
+`{forceRecovery:true,fileKey:"<exact-file-key>"}`. This explicitly reloads only
+that authenticated Plugin UI; it refuses an unknown file and never reloads
+while another Figma operation is still active.
+
 The plugin keeps looking for the local bridge if it was opened first. It uses a
 small bounded WebSocket burst for instant startup, then a quiet localhost health
 probe every three seconds and opens a socket only after the daemon is present.
@@ -422,7 +428,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 
 | Tool               | Purpose                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `figma_connect`    | Ensure Safe Mode is available without replacing a healthy daemon/socket; self-heal a single unresponsive plugin iframe; generate/show the access key and print plugin setup steps.                                                                                                                                                                                                                    |
+| `figma_connect`    | Ensure Safe Mode is available without replacing a healthy daemon/socket; self-heal a single unresponsive plugin iframe; explicitly recover one exact split execution lane with `{forceRecovery:true,fileKey}`; generate/show the access key and print plugin setup steps.                                                                                                                             |
 | `figma_status`     | Report local daemon/plugin/file/key state and, by default, run one bounded closed Figma main-thread responsiveness probe per target; `probePlugin:false` checks sockets only and `validateRest:true` explicitly checks the optional REST token.                                                                                                                                                       |
 | `figma_pairing`    | Show the access key; `{rotate:true}` generates a fresh one.                                                                                                                                                                                                                                                                                                                                           |
 | `figma_run`        | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`.                                                                                                                                                                                                                                                                                         |

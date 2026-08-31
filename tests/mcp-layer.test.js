@@ -63,6 +63,53 @@ test('figma_run top-level help is generated from the MCP capability catalog', as
   }
 });
 
+test('forced figma_connect recovery bypasses a responsive health probe for one exact file', async () => {
+  const { recoverPluginForConnect, TOOLS } = await import('../src/server.js');
+  const connect = TOOLS.find((tool) => tool.name === 'figma_connect');
+  assert.equal(connect.inputSchema.properties.forceRecovery.type, 'boolean');
+  assert.equal(connect.inputSchema.properties.fileKey.type, 'string');
+
+  let probes = 0;
+  const recoveries = [];
+  const note = await recoverPluginForConnect({
+    forceRecovery: true,
+    fileKey: 'FILE',
+    current: {
+      plugin: true,
+      raw: {
+        inFlightExecs: 0,
+        connections: [{ fileKey: 'FILE', editorType: 'figma' }],
+      },
+    },
+    adapters: {
+      probe: async () => { probes++; return { responsive: true }; },
+      recover: async (...args) => { recoveries.push(args); return { reloaded: 1 }; },
+    },
+  });
+
+  assert.equal(probes, 0, 'explicit recovery must not be vetoed by the read-only health lane');
+  assert.deepEqual(recoveries, [['FILE', 6500]]);
+  assert.match(note, /explicitly reloaded/i);
+
+  const missing = await recoverPluginForConnect({
+    forceRecovery: true,
+    fileKey: 'OTHER',
+    current: {
+      plugin: true,
+      raw: {
+        inFlightExecs: 0,
+        connections: [{ fileKey: 'FILE', editorType: 'figma' }],
+      },
+    },
+    adapters: {
+      probe: async () => { probes++; return { responsive: true }; },
+      recover: async (...args) => { recoveries.push(args); return { reloaded: 1 }; },
+    },
+  });
+  assert.match(missing, /could not find that connected Figma file/i);
+  assert.deepEqual(recoveries, [['FILE', 6500]], 'an unknown file must never be reloaded');
+});
+
 test('runCli rejects non-array / empty / non-string args', async () => {
   const { runCli } = await import('../src/engine.js');
   await assert.rejects(() => runCli([]), /non-empty array/);

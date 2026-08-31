@@ -65,7 +65,12 @@ export function componentPropertyBindCode(request) {
       }
       return copy;
     };
-    const sameReferences = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+    const sameReferences = (left, right) => {
+      if (left === null || right === null) return left === right;
+      return ['visible', 'characters', 'mainComponent'].every((field) =>
+        own(left, field) === own(right, field)
+        && (!own(left, field) || Object.is(left[field], right[field])));
+    };
     const applyReferences = (node, references) => {
       node.componentPropertyReferences = references;
     };

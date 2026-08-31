@@ -445,12 +445,12 @@ function toolAnnotations({
 
 const TARGET_FIGMA_FILE_PROPERTY = Object.freeze({
   type: "string",
-  description: "Target connected file: bare key or Figma URL.",
+  description: "Connected Figma key/URL.",
 });
 
 const REQUIRED_FIGMA_NODE_PROPERTY = Object.freeze({
   type: "string",
-  description: "Figma node id (\"1:2\"), URL form (\"1-2\"), or a full Figma URL.",
+  description: "Figma node id or URL.",
 });
 
 const SPEC_REQUEST_PROPERTIES = {
@@ -498,7 +498,20 @@ export const TOOLS = [
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        forceRecovery: {
+          type: "boolean",
+          description: "Reload one exact Plugin UI after an uncertain execution.",
+        },
+        fileKey: {
+          type: "string",
+          description: "Exact connected file key.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "figma_status",
@@ -790,7 +803,7 @@ export const TOOLS = [
       properties: {
         nodeId: {
           ...REQUIRED_FIGMA_NODE_PROPERTY,
-          description: `${REQUIRED_FIGMA_NODE_PROPERTY.description} Omit to use the current selection.`,
+          description: "Figma node id/URL; omit for selection.",
         },
         scale: {
           type: "number",
@@ -1917,6 +1930,75 @@ function semanticRenderToolArgv(input) {
     : args;
 }
 
+/**
+ * Recover the exact connected Plugin UI for figma_connect. The explicit path
+ * intentionally bypasses the health probe: typed health reads can stay
+ * responsive while a timed-out compatibility execution has quarantined its
+ * separate lane.
+ */
+export async function recoverPluginForConnect({
+  forceRecovery = false,
+  fileKey = null,
+  current,
+  adapters = {},
+} = {}) {
+  const connections = Array.isArray(current?.raw?.connections)
+    ? current.raw.connections
+    : [];
+  if (!current?.plugin) return "";
+  const inFlightExecs = Number(current.raw?.inFlightExecs || 0);
+  if (inFlightExecs !== 0) {
+    return forceRecovery
+      ? "\nExplicit plugin recovery was not started because a Figma operation is still active. Wait for it to settle, then retry forceRecovery.\n"
+      : "";
+  }
+
+  const probe = adapters.probe || probePluginResponsiveness;
+  const recover = adapters.recover || recoverPluginConnection;
+  let target = fileKey;
+  let connection = null;
+  if (target) {
+    connection = connections.find((candidate) => candidate.fileKey === target) || null;
+  } else if (connections.length === 1) {
+    connection = connections[0];
+    target = connection.fileKey;
+  }
+
+  if (forceRecovery && (!target || !connection)) {
+    return connections.length > 1 && !target
+      ? "\nExplicit plugin recovery needs fileKey when several Figma windows are connected. Nothing was reloaded.\n"
+      : "\nExplicit plugin recovery could not find that connected Figma file. Nothing was reloaded.\n";
+  }
+  if (!forceRecovery && (!connection || connections.length !== 1)) return "";
+
+  if (!forceRecovery) {
+    const probeResult = await probe(
+      connection.fileKey,
+      3000,
+      connection.editorType || "figma",
+    );
+    if (probeResult.responsive) return "";
+  }
+
+  try {
+    const recovery = await recover(target, 6500);
+    if (forceRecovery) {
+      return recovery.reloaded > 0
+        ? "\nPlugin UI explicitly reloaded; quiet discovery is reconnecting it automatically.\n"
+        : recovery.forcedClosed > 0
+          ? "\nPlugin socket explicitly reset; quiet discovery is reconnecting it automatically.\n"
+          : "\nExplicit plugin recovery completed without an active socket change.\n";
+    }
+    return recovery.reloaded > 0
+      ? "\nPlugin socket was open but unresponsive; its UI was reloaded and is reconnecting automatically.\n"
+      : recovery.forcedClosed > 0
+        ? "\nPlugin UI did not answer; its stale socket was reset and quiet discovery is reconnecting it automatically.\n"
+        : "";
+  } catch (error) {
+    return `\n${forceRecovery ? "Explicit" : "Automatic"} plugin recovery could not complete: ${error.message}\n`;
+  }
+}
+
 export async function handleTool(name, rawArgs) {
   const input = rawArgs || {};
   const paramError = unknownParamError(name, input);
@@ -1928,31 +2010,15 @@ export async function handleTool(name, rawArgs) {
       // reads the key file at startup and rejects the plugin without it.
       const { key, created } = ensureKey();
       const res = await ensureSafeConnect();
-      let recoveryNote = "";
-      // A new AI session must preserve a healthy socket. Only attempt the
-      // iframe self-heal when exactly one socket exists, no command is active,
-      // and a real read-only round-trip proves that socket is wedged.
       const current = await health();
-      const connections = Array.isArray(current.raw?.connections) ? current.raw.connections : [];
-      if (current.plugin && connections.length === 1 && Number(current.raw?.inFlightExecs || 0) === 0) {
-        const probe = await probePluginResponsiveness(
-          connections[0].fileKey,
-          3000,
-          connections[0].editorType || 'figma',
-        );
-        if (!probe.responsive) {
-          try {
-            const recovery = await recoverPluginConnection(connections[0].fileKey, 6500);
-            recoveryNote = recovery.reloaded > 0
-              ? "\nPlugin socket was open but unresponsive; its UI was reloaded and is reconnecting automatically.\n"
-              : recovery.forcedClosed > 0
-                ? "\nPlugin UI did not answer; its stale socket was reset and quiet discovery is reconnecting it automatically.\n"
-                : "";
-          } catch (error) {
-            recoveryNote = `\nAutomatic plugin recovery could not complete: ${error.message}\n`;
-          }
-        }
-      }
+      // A normal new AI session preserves a healthy socket. Explicit recovery
+      // is available for the rarer split-lane case where health still answers
+      // after an uncertain compatibility execution.
+      const recoveryNote = await recoverPluginForConnect({
+        forceRecovery: input.forceRecovery === true,
+        fileKey: typeof input.fileKey === "string" && input.fileKey ? input.fileKey : null,
+        current,
+      });
       const keyBlock =
         "\n────────────────────────────────────────\n" +
         `  Plugin access key${created ? " (newly generated)" : ""}:\n\n` +

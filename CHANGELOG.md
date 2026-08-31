@@ -31,6 +31,15 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- `figma_connect {forceRecovery:true,fileKey}` can now recover one exact
+  authenticated Plugin UI after a timed-out compatibility execution leaves its
+  execution lane quarantined while the independent health lane still answers.
+  It bypasses that misleading health probe, refuses unknown files and defers
+  while any Figma operation remains active.
+- Component Property binding now compares the native reference map by field
+  value instead of JavaScript key order. A layer can therefore retain multiple
+  valid references such as `characters` plus `visible`, or `visible` plus
+  `mainComponent`, even when Figma canonicalizes their order during writeback.
 - Top-level `figma_run --help` now comes from the MCP Capability Catalog and
   no longer advertises engine-only commands such as `connect`, `daemon`,
   `eval`, or `run`. Rejected `find`, `style consumers`, and `style apply`
