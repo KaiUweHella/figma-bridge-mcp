@@ -637,7 +637,18 @@ exact fresh result is `verified-after-error`; every other mismatch restores
 and re-reads both prior fields, then reports verified rollback, exact field
 residue or unavailable verification. Commander and `figma_run` retain no
 second auto-flow write path. The measured remaining Auto Layout Grid legacy
-writes are `set`, `place`, `reorder-rows`, and `reorder-columns`.
+writes are `set`, `reorder-rows`, and `reorder-columns`.
+
+`layout grid place` owns the neighbouring child-placement slice. Its closed
+request binds one Grid and Scene child to one Figma target, validates manual
+positioning, finite Grid bounds, requested spans, alignment values, ancestry
+and occupied cells before the first write. The shared non-retrying Application
+performs one native `appendChildAt`, applies only explicit child fields and
+accepts a thrown acknowledgement only when fresh hierarchy and Grid readback
+prove the complete requested result. Any other post-dispatch mismatch restores
+the original parent order, free-layout position or prior Grid cell, spans and
+alignments, then reports verified rollback, bounded residue or unavailable
+verification. Commander and `figma_run` retain no second placement path.
 
 All migrated Command Applications now share one Command Failure Outcome
 projection. It validates the closed terminal Dispatch state and version-1

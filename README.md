@@ -1566,6 +1566,10 @@ management.
 auto-track and item-positioning settings as one intent, verifies both through
 a fresh node read, and restores both prior values on a mismatched result or
 reports the exact remaining field residue.
+`layout grid place` likewise shares one non-retrying CLI/MCP path. It validates
+manual Grid bounds and occupied cells before moving the child, freshly proves
+the resulting hierarchy, cell, spans and alignment, and restores the complete
+prior parent/free-layout or Grid state when the postcondition fails.
 `grid list [nodeId]` is the exact bounded read for those layout guides and may
 use the current selection when the id is omitted. It preserves `gridStyleId`,
 all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count

@@ -756,6 +756,14 @@ non-retrying Command Application and report verified-after-error, rollback,
 exact field residue or unavailable verification without changing Grid policy.
 _Avoid_: Grid auto-flow eval, optimistic two-field assignment, partial field success
 
+**Grid Child Placement**:
+The closed, rollback-owned placement of one Scene child into one native manual
+Auto Layout Grid cell. It preflights hierarchy, dimensions, spans, alignment
+and occupancy, freshly proves the resulting parent, cell and requested fields,
+and restores the prior parent order plus free-layout or Grid placement state on
+failure. CLI and MCP share one non-retrying Command Application.
+_Avoid_: Grid placement eval, unverified reparenting, retry after `appendChildAt`
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -1247,4 +1255,4 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 
 > **Developer:** Can `layout grid auto-flow` leave one of its two native fields changed after reporting failure?
 >
-> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan, and four separate Auto Layout Grid legacy writes remain measured for later migration.
+> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan. Grid child placement now has the same authoritative seam, leaving `set` and the two track-reorder actions as the three measured Auto Layout Grid legacy writes.

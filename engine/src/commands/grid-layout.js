@@ -4,9 +4,13 @@ import {
   executeGridAutoFlowPlan,
   gridAutoFlowArgvFromRequest,
 } from '../application/grid-auto-flow-command.js';
+import {
+  executeGridPlacePlan,
+  gridPlaceArgvFromRequest,
+} from '../application/grid-place-command.js';
 import { checkConnection, daemonExec, fastEval, handleEvalError, program } from '../lib/cli-core.js';
 import {
-  gridLayoutInspectCode, gridLayoutPlaceCode, gridLayoutReorderCode, gridLayoutSetCode,
+  gridLayoutInspectCode, gridLayoutReorderCode, gridLayoutSetCode,
 } from '../lib/grid-layout-management.js';
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
@@ -34,6 +38,26 @@ async function runGridAutoFlow(request) {
   }
 }
 
+async function runGridPlace(request) {
+  try {
+    const plan = planFigmaCommand(gridPlaceArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeGridPlacePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
 grid.command('inspect <nodeId>').action(async (nodeId) => { try { print(await run(gridLayoutInspectCode({ nodeId }))); } catch (error) { handleEvalError(error); } });
 grid.command('set <nodeId>')
   .option('--rows <count>').option('--columns <count>').option('--row-gap <pixels>').option('--column-gap <pixels>')
@@ -48,15 +72,12 @@ grid.command('place <gridId> <childId>')
   .option('--row-span <count>').option('--column-span <count>')
   .option('--horizontal-align <value>', 'auto, min, center, or max')
   .option('--vertical-align <value>', 'auto, min, center, or max')
-  .action(async (gridId, childId, options) => {
-    try {
-      print(await run(gridLayoutPlaceCode({
-        gridId, childId, row: options.row, column: options.column,
-        rowSpan: options.rowSpan, columnSpan: options.columnSpan,
-        horizontalAlign: options.horizontalAlign, verticalAlign: options.verticalAlign,
-      })));
-    } catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (gridId, childId, options) => runGridPlace({
+    gridId, childId, row: options.row, column: options.column,
+    rowSpan: options.rowSpan, columnSpan: options.columnSpan,
+    horizontalAlign: options.horizontalAlign, verticalAlign: options.verticalAlign,
+  }));
 grid.command('auto-flow <nodeId>')
   .requiredOption('--auto-tracks <mode>', 'none or rows').requiredOption('--positioning <mode>', 'manual or row_auto_flow')
   .allowExcessArguments(false)

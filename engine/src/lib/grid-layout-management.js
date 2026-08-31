@@ -65,32 +65,6 @@ ${parsedColumnSizes === undefined ? '' : `if (node.gridColumnSizes.length !== ${
 return { before, after: __gridFacts(node) };`);
 }
 
-function gridLayoutPlaceCode({ gridId, childId, row, column, rowSpan, columnSpan, horizontalAlign, verticalAlign }) {
-  const parsedRow = Number(row), parsedColumn = Number(column);
-  if (!Number.isInteger(parsedRow) || parsedRow < 0 || !Number.isInteger(parsedColumn) || parsedColumn < 0) throw new Error('Row and column must be zero-based integers');
-  const parsedRowSpan = rowSpan === undefined ? undefined : parsePositiveInteger(rowSpan, '--row-span');
-  const parsedColumnSpan = columnSpan === undefined ? undefined : parsePositiveInteger(columnSpan, '--column-span');
-  const parseAlign = (value, label) => {
-    if (value === undefined) return undefined;
-    const normalized = String(value).toUpperCase();
-    if (!['AUTO', 'MIN', 'CENTER', 'MAX'].includes(normalized)) throw new Error(`${label} must be auto, min, center, or max`);
-    return normalized;
-  };
-  const parsedHorizontalAlign = parseAlign(horizontalAlign, '--horizontal-align');
-  const parsedVerticalAlign = parseAlign(verticalAlign, '--vertical-align');
-  return gridNodeCode(gridId, `if (node.layoutMode !== 'GRID' || typeof node.appendChildAt !== 'function') throw new Error('Node is not an Auto Layout Grid container');
-const child = await figma.getNodeByIdAsync(${JSON.stringify(childId)}); if (!child || !('x' in child)) throw new Error('Scene child not found: ${String(childId)}');
-node.appendChildAt(child, ${parsedRow}, ${parsedColumn});
-${parsedRowSpan === undefined ? '' : `child.gridRowSpan = ${parsedRowSpan};`}
-${parsedColumnSpan === undefined ? '' : `child.gridColumnSpan = ${parsedColumnSpan};`}
-${parsedHorizontalAlign === undefined ? '' : `child.gridChildHorizontalAlign = ${JSON.stringify(parsedHorizontalAlign)};`}
-${parsedVerticalAlign === undefined ? '' : `child.gridChildVerticalAlign = ${JSON.stringify(parsedVerticalAlign)};`}
-return { grid: __gridFacts(node), child: { id: child.id, name: child.name,
-  row: child.gridRowAnchorIndex, column: child.gridColumnAnchorIndex,
-  rowSpan: child.gridRowSpan || 1, columnSpan: child.gridColumnSpan || 1,
-  horizontalAlign: child.gridChildHorizontalAlign || 'AUTO', verticalAlign: child.gridChildVerticalAlign || 'AUTO' } };`);
-}
-
 function gridLayoutReorderCode({ nodeId, axis, from, insertionIndex }) {
   const normalizedAxis = String(axis).toLowerCase();
   if (!['rows', 'columns'].includes(normalizedAxis)) throw new Error('Axis must be rows or columns');
@@ -102,6 +76,6 @@ function gridLayoutReorderCode({ nodeId, axis, from, insertionIndex }) {
 }
 
 export {
-  gridLayoutInspectCode, gridLayoutPlaceCode, gridLayoutReorderCode,
+  gridLayoutInspectCode, gridLayoutReorderCode,
   gridLayoutSetCode, parseIndices, parseTrackSizes,
 };

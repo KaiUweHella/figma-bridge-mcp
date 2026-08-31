@@ -51,6 +51,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/slot-reset-request.js',
   'engine/src/application/grid-auto-flow-command.js',
   'engine/src/application/grid-auto-flow-request.js',
+  'engine/src/application/grid-place-command.js',
+  'engine/src/application/grid-place-request.js',
   'engine/src/application/prototype-mutation-command.js',
   'engine/src/application/prototype-mutation-request.js',
   'engine/src/application/node-text-command.js',
