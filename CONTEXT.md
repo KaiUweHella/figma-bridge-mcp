@@ -1147,3 +1147,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** If `node set` changes several properties and a later setter fails, are the earlier changes still reported as success?
 >
 > **Domain expert:** No. Generic Node Set is one journaled mutation. It preflights every supported property and resource, writes once, then freshly verifies the complete effective result. Any failure restores all journaled fields in reverse order and reports verified rollback, exact remaining property residue or unavailable verification. Unsupported properties remain explicit skips; ambiguous Variables stop before the first write.
+
+> **Developer:** Does `create frame` still disappear behind a generic Commander timeout after Figma has created something?
+>
+> **Domain expert:** No. Frame creation is a Plan-bound Command Application in both Adapters. It resolves the target parent and any explicit `var:` fill before the factory call, creates once, and freshly verifies identity, hierarchy, geometry, fill, radius and selection. A mismatch removes only the new frame, restores the prior selection and reports verified rollback, exact residue or unavailable verification. The remaining public Create-family legacy writes are counted separately and may only decrease.

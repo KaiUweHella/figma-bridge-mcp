@@ -10,6 +10,7 @@ const ACTION_VALUE_HELP_TOKENS = Object.freeze({
   // Commander already assigns -h to --height for this concrete action.
   // Treating it as help would erase a real write from Capability policy.
   'component.create': new Set(['-h']),
+  'create.frame': new Set(['-h']),
 });
 
 const EMPTY_OPTION_FACTS = Object.freeze({

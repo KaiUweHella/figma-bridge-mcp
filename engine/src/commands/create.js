@@ -1,5 +1,7 @@
 // Commands: create (extracted from index.js)
 import chalk from 'chalk';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
   progress,
@@ -15,6 +17,10 @@ import {
   spinnerSucceed,
   varLoadingCode
 } from '../lib/cli-core.js';
+import {
+  createFramePlanningArgvFromRequest,
+  executeCreateFramePlan,
+} from '../application/create-frame-command.js';
 
 // ============ CREATE ============
 
@@ -72,39 +78,36 @@ create
   .option('-g, --gap <n>', 'Gap for smart positioning', '100')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
-    await checkConnection();
-    const target = childTarget(options);
-    const width = finiteNumber(options.width, '--width', { min: 0.01 });
-    const height = finiteNumber(options.height, '--height', { min: 0.01 });
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const gap = finiteNumber(options.gap, '--gap', { min: 0 });
-    const radius = options.radius === undefined ? null : finiteNumber(options.radius, '--radius', { min: 0 });
-    const useSmartPos = options.smart || x === undefined;
-    const usesVars = options.fill && isVarRef(options.fill);
-
-    const fillCode = options.fill ? generateFillCode(options.fill, 'frame') : null;
-
-    let code = `
-(async () => {
-${usesVars ? varLoadingCode() : ''}
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: useSmartPos, gap, explicitX: x })}
-const frame = figma.createFrame();
-frame.name = ${JSON.stringify(name)};
-frame.x = smartX;
-frame.y = ${y};
-frame.resize(${width}, ${height});
-${fillCode ? fillCode.code : ''}
-${radius === null ? '' : `frame.cornerRadius = ${radius};`}
-${attachToChildTarget('frame', target)}
-figma.currentPage.selection = [frame];
-return ${JSON.stringify(name)} + ' created (' + frame.id + ') in ' + (frame.parent ? frame.parent.id : 'none') + ' at (' + frame.x + ', ' + frame.y + ')';
-})()
-`;
-    const result = await daemonExec('eval', { code });
-    console.log(result);
+    try {
+      const plan = planFigmaCommand(createFramePlanningArgvFromRequest({
+        name,
+        width: options.width,
+        height: options.height,
+        x: options.x,
+        y: options.y,
+        fill: options.fill,
+        radius: options.radius,
+        smart: options.smart === true,
+        gap: options.gap,
+        parentId: options.parent,
+        index: options.index,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCreateFramePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Create Frame failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 // (create icon removed: it fetched artwork from an external icon CDN.

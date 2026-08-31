@@ -497,3 +497,16 @@ complete journal in reverse order and reports verified rollback, exact
 property residue or unavailable verification. Explicit `var:` bindings remain
 native aliases, literal colours remain literal, and `--batch` stays gated until
 it has its own bounded typed mutation contract.
+
+`create frame` is the first primitive-creation tracer off the compatibility
+process seam. Its closed request canonicalizes bounded geometry, smart
+positioning, optional parent/index, literal fill or explicit `var:` fill and
+corner radius; a parent URL contributes target identity but never reaches the
+Plugin payload. Commander and `figma_run` execute one non-retrying Application
+under the Plan deadline. Resource and hierarchy preflight happen before the
+single `createFrame()` call, and success requires fresh identity, membership,
+geometry, Paint, radius and selection readback. Failure removes only the new
+frame and restores selection, then reports verified rollback, exact created-
+node/membership/selection residue or unavailable verification. A mechanical
+public Create-family legacy-write budget records the remaining actions and may
+only decrease as adjacent primitives migrate.

@@ -457,6 +457,52 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
 });
 
+test('create frame delegates one Plan-bound rollback-verified Command Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('frame <name>')");
+  const end = adapter.indexOf(".command('image <url>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /createFramePlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeCreateFramePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|generateFillCode\(|createFrame\(\)|\.resize\(/,
+    'Commander must not retain Create Frame preflight, mutation, rollback, or formatting');
+});
+
+test('the remaining public direct Create write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('create.js');
+  assert.ok(adapter, 'create.js exists');
+  const direct = [];
+  const named = [
+    ['frame', ".command('frame <name>')"], ['rect', ".command('rect [name]')"],
+    ['ellipse', ".command('ellipse [name]')"], ['vector', ".command('vector [name]')"],
+    ['slice', ".command('slice [name]')"], ['text', ".command('text <content>')"],
+    ['line', ".command('line')"], ['autolayout', ".command('autolayout [name]')"],
+  ];
+  for (const [name, marker] of named) {
+    const start = adapter.indexOf(marker);
+    const next = adapter.indexOf('.command(', start + marker.length);
+    const end = next === -1 ? adapter.length : next;
+    const slice = adapter.slice(start, end);
+    if (/checkConnection\(\)/.test(slice)) direct.push(name);
+  }
+  const radialStart = adapter.indexOf('function registerRadialPrimitive');
+  const radialEnd = adapter.indexOf(".command('vector [name]')", radialStart);
+  if (/checkConnection\(\)/.test(adapter.slice(radialStart, radialEnd))) {
+    direct.push('polygon', 'star');
+  }
+  assert.deepEqual(direct.sort(), [
+    'autolayout', 'ellipse', 'line', 'polygon', 'rect', 'slice', 'star', 'text', 'vector',
+  ]);
+  assert.equal(direct.length, 9,
+    'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
 test('node set-fill delegates one Plan-bound readback-verified Command Application', () => {
   const adapter = sources.get('node-ops.js');
   const start = adapter.indexOf(".command('set-fill <nodeId> <color>')");

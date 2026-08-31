@@ -90,6 +90,10 @@ import {
   nodeDuplicatePlanRoute,
 } from "../engine/src/application/node-duplicate-command.js";
 import {
+  createFramePlanRoute,
+  executeCreateFramePlan,
+} from "../engine/src/application/create-frame-command.js";
+import {
   executeNodeRenamePlan,
   nodeRenamePlanRoute,
 } from "../engine/src/application/node-rename-command.js";
@@ -2194,6 +2198,23 @@ export async function handleTool(name, rawArgs) {
             stderr: "",
             code: result.action === "check" && !result.check.ok ? 1 : 0,
           };
+        });
+        return resultFromCli(res);
+      }
+      const createFrameRoute = createFramePlanRoute(plan);
+      if (createFrameRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCreateFramePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
         });
         return resultFromCli(res);
       }

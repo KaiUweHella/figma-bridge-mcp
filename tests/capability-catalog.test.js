@@ -1883,7 +1883,7 @@ test('catalog classifies editor selection, viewport, focus, and current-page eff
     { argv: ['canvas', 'page', 'Components'], effect: 'write' },
     { argv: ['canvas', 'page-create', 'Draft'], effect: 'write' },
     { argv: ['canvas', 'page-create', '--no-switch', 'Draft'], effect: 'none' },
-    { argv: ['create', 'frame'], effect: 'write' },
+    { argv: ['create', 'frame', 'Frame'], effect: 'write' },
     { argv: ['sizes', '1:2'], effect: 'write' },
     { argv: ['combos', '--dry-run'], effect: 'read' },
     { argv: ['combos', '1:2', '--dry-run'], effect: 'none' },
@@ -1952,6 +1952,29 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
   assert.equal(planFigmaCommand(['future-command']).allowed, false);
+});
+
+test('Create Frame owns one canonical cross-Adapter write Plan', () => {
+  const variants = [
+    ['create', 'frame', 'Card'],
+    ['create', 'frame', 'Card', '-w', '100', '-h', '100', '-y', '0'],
+    ['create', 'frame', '--height=100', '--width=100', 'Card'],
+  ];
+  const plans = variants.map((argv) => planFigmaCommand(argv, {
+    adapter: 'mcp', fileKey: 'FILE_A',
+  }));
+  for (const plan of plans) {
+    const cli = planFigmaCommand(plan.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(plan.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.equal(plan.id, 'create.frame');
+    assert.deepEqual(plan.argv, ['create', 'frame', 'Card', '--width=100', '--height=100', '--y=0']);
+    assert.deepEqual(plan.effects, cli.effects);
+    assert.deepEqual(plan.target, cli.target);
+    assert.equal(plan.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'frame'], { adapter: 'mcp' }).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'frame', 'Card', '--future'], { adapter: 'mcp' }).allowed, false);
 });
 
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {

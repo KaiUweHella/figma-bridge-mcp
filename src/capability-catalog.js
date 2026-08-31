@@ -60,6 +60,12 @@ import {
   parseNodeDuplicateRequest,
 } from '../engine/src/application/node-duplicate-request.js';
 import {
+  acceptsCreateFrameArgv,
+  createFrameArgvFromRequest,
+  createFrameFigmaUrlFileKeyFromArgv,
+  parseCreateFrameRequest,
+} from '../engine/src/application/create-frame-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -559,6 +565,7 @@ const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
   'import',
+  'create.frame',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -753,6 +760,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
   if (name === 'node' && sub === 'to-component') pathPolicy = 'node-to-component-input';
   if (name === 'node' && sub === 'duplicate') pathPolicy = 'node-duplicate-input';
+  if (name === 'create' && sub === 'frame') pathPolicy = 'create-frame-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -949,6 +957,10 @@ function commandCapability(args) {
   }
   if (name === 'export' && ['css', 'dtcg'].includes(args[1])
     && !action.help && !acceptsTokenExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'create' && args[1] === 'frame'
+    && !action.help && !acceptsCreateFrameArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1889,6 +1901,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...nodeDuplicateArgvFromRequest(parseNodeDuplicateRequest(args)));
+      break;
+    }
+    case 'create-frame-input': {
+      const closedFileKey = createFrameFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createFrameArgvFromRequest(parseCreateFrameRequest(args)));
       break;
     }
     case 'component-main-input': {
