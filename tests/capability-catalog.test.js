@@ -2100,6 +2100,23 @@ test('Prototype mutations own canonical cross-Adapter write Plans', () => {
   assert.equal(planFigmaCommand(['prototype', 'set', '1:2', '--json', '{}']).allowed, false);
 });
 
+test('Library imports own canonical cross-Adapter irreversible write Plans', () => {
+  for (const subcommand of [
+    'import-variable', 'import-style', 'import-component', 'import-component-set',
+  ]) {
+    const raw = ['library', subcommand, ' PUBLISHED_KEY '];
+    const mcp = planFigmaCommand(raw, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(raw, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(cli.argv, ['library', subcommand, '--', 'PUBLISHED_KEY']);
+    assert.deepEqual(mcp.argv, cli.argv);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.equal(mcp.effects.figma, 'write');
+    assert.equal(mcp.execution.retry, 'never');
+  }
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

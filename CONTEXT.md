@@ -717,6 +717,15 @@ readback before reporting verified application, verified-after-error, rollback
 or exact reaction residue through the same CLI/MCP Command Application.
 _Avoid_: reaction eval, optimistic prototype write, retry after dispatch
 
+**Library Import**:
+The closed irreversible materialization of one published Variable, Style,
+Component or Component Set by its exact stable key. One native import call is
+followed by a fresh ID lookup that verifies key, resource kind and remote
+identity through the same CLI/MCP Command Application. Figma exposes no safe
+inverse and a resource may already have been materialized, so verification
+failure reports possible residue without deleting or retrying the import.
+_Avoid_: library import eval, optimistic imported identity, import retry
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -1183,3 +1192,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Do Dev Mode Measurement writes still return only whatever the direct eval happened to print?
 >
 > **Domain expert:** No. Add, edit and delete share a closed Measurement Mutation Application. It preflights Dev Mode, endpoints or exact Measurement identity and bounded page facts, then freshly verifies the whole collection. Failed add removes only the new Measurement; failed edit restores its prior offset and text; delete is irreversible and distinguishes verified deletion, unchanged state and partial residue. Both Adapters preserve the same bounded outcome without retry.
+
+> **Developer:** Can a Library import be retried when its terminal response or returned metadata is incomplete?
+>
+> **Domain expert:** No. Variable, Style, Component and Component Set imports share one closed irreversible Application. It calls the selected native import exactly once, freshly verifies the returned id against the requested published key, kind and remote identity, and keeps descriptions bounded. A native error or unavailable readback remains `verification-unavailable`; a mismatched fresh resource is `partial-residue`. Neither Adapter guesses whether the resource existed beforehand, deletes it, or retries the import. The mechanically measured direct Library Import legacy-write count is zero.

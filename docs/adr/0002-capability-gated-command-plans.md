@@ -579,3 +579,16 @@ Measurement on failure; edit restores the prior offset and text; irreversible
 delete distinguishes verified deletion, unchanged state, partial residue and
 unavailable verification. Both Adapters consume the same non-retrying Plan and
 bounded outcome without Commander re-entry.
+
+Published Variable, Style, Component and Component Set imports form one closed
+irreversible Library Import Application. The request admits exactly one bounded
+stable key and selects exactly one corresponding native import method. After
+that single call, a fresh lookup by returned id must prove the requested key,
+resource kind and remote identity; Variable imports also prove their remote
+Collection. Descriptions are bounded before crossing the Plugin seam. Because
+Figma exposes no safe inverse and the imported resource may have existed before
+the call, a native error or unavailable lookup reports possible unknown residue,
+while a mismatched fresh identity reports partial residue. Neither case deletes
+or retries the resource. CLI and MCP share the same decreasing deadline and
+non-retrying Plan; the mechanically pinned direct Library Import legacy-write
+count reaches zero.

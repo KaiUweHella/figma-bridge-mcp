@@ -118,6 +118,10 @@ import {
   measurementMutationPlanRoute,
 } from "../engine/src/application/measurement-mutation-command.js";
 import {
+  executeLibraryImportPlan,
+  libraryImportPlanRoute,
+} from "../engine/src/application/library-import-command.js";
+import {
   executeNodeRenamePlan,
   nodeRenamePlanRoute,
 } from "../engine/src/application/node-rename-command.js";
@@ -2339,6 +2343,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeMeasurementMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const libraryImportRoute = libraryImportPlanRoute(plan);
+      if (libraryImportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeLibraryImportPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

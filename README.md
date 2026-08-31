@@ -1475,10 +1475,15 @@ figma_run ["library", "import-component-set", "<published-component-set-key>"]
 
 `collections` and `variables` are reads. The four `import-*` commands
 materialize published assets in the current file and are therefore writes in
-the Capability Catalog. Figma only exposes discovery for variable collections
-and variables. Published styles, components and component sets can be imported
-when their stable key is already known, but the Plugin API cannot enumerate
-them.
+the Capability Catalog. They share one non-retrying Command Application in CLI
+and MCP: the selected native import runs once, then a fresh lookup verifies the
+returned id, exact published key, resource kind and remote identity. Figma does
+not expose a safe inverse and an imported resource may have existed already, so
+failed or unavailable verification reports possible residue without deleting
+or retrying the import. Resource descriptions are bounded in the structured
+result. Figma only exposes discovery for variable collections and variables.
+Published styles, components and component sets can be imported when their
+stable key is already known, but the Plugin API cannot enumerate them.
 
 Libraries must be enabled for the current file in Figma's UI before
 `library collections` can see them; the Plugin API cannot enable a library.

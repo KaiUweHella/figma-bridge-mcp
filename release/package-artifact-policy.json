@@ -149,6 +149,8 @@
     "engine/src/application/create-text-request.js",
     "engine/src/application/measurement-mutation-command.js",
     "engine/src/application/measurement-mutation-request.js",
+    "engine/src/application/library-import-command.js",
+    "engine/src/application/library-import-request.js",
     "engine/src/application/node-coordinate.js",
     "engine/src/application/node-delete-command.js",
     "engine/src/application/node-delete-request.js",

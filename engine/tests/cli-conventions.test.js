@@ -545,6 +545,37 @@ test('Prototype writes delegate one Plan-bound rollback-owned Application', () =
   assert.match(application, /await node\.setReactionsAsync\(before\)/);
 });
 
+test('Library imports delegate one Plan-bound irreversible verified Application', () => {
+  const adapter = sources.get('library.js');
+  for (const name of ['variable', 'style', 'component', 'component-set']) {
+    const marker = `command('import-${name} <key>')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runLibraryImport\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|import(?:Variable|Style|Component)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'library-import-command.js'), 'utf8');
+  assert.match(application, /await importResource\(request\.key\)/);
+  assert.match(application, /const fresh = await readResource\(imported\.id\)/);
+});
+
+test('the remaining direct Library Import write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('library.js');
+  const direct = [];
+  for (const name of ['variable', 'style', 'component', 'component-set']) {
+    const marker = `command('import-${name} <key>')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Library Import Legacy Write count may decrease, but must never increase silently');
+});
+
 test('the remaining direct Prototype write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('prototype.js'); const direct = [];
   for (const name of ['add', 'set', 'clear']) {
