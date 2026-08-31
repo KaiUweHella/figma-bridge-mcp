@@ -412,6 +412,34 @@ test('Jam Connector owns one canonical URL-targeted non-retrying creation Plan',
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Jam Table owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'table', '2rest', '2', '--data=[["A",1]]', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'table', '2', '2', '--at', '10,-20', '--data', '[["A","1"]]',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.table');
+  assert.deepEqual(cli.argv, [
+    'jam', 'table', '2', '2', '--data=[["A","1"]]', '--at=10,-20',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'table'],
+    ['jam', 'table', '2'],
+    ['jam', 'table', '2', '2', 'extra'],
+    ['jam', 'table', '1000', '1000'],
+    ['jam', 'table', '2', '2', '--data={}'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });

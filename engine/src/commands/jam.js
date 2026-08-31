@@ -44,6 +44,10 @@ import {
   executeJamConnectorPlan,
   jamConnectorPlanningArgvFromRequest,
 } from '../application/jam-connector-command.js';
+import {
+  executeJamTablePlan,
+  jamTableArgvFromRequest,
+} from '../application/jam-table-command.js';
 
 const jam = program
   .command('jam')
@@ -190,24 +194,27 @@ jam
   .description('Add a table, optionally filled from a JSON array of rows')
   .option('--data <json>', 'JSON array of rows, e.g. [["a","b"],["c","d"]]')
   .option('--at <x,y>', 'Place at absolute coordinates')
+  .allowExcessArguments(false)
   .action(async (rows, cols, options) => {
-    const r = Math.max(1, parseInt(rows, 10) || 1);
-    const c = Math.max(1, parseInt(cols, 10) || 1);
-    let data = [];
-    if (options.data) {
-      try { data = JSON.parse(options.data); } catch (e) {
-        console.error(chalk.red(`✗ --data is not valid JSON: ${e.message}`));
-        process.exit(1);
-      }
-      if (!Array.isArray(data)) {
-        console.error(chalk.red('✗ --data must be an array of rows, e.g. [["a","b"],["c","d"]].'));
-        process.exit(1);
-      }
+    try {
+      const plan = planFigmaCommand(jamTableArgvFromRequest({
+        rows, cols, data: options.data, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamTablePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam table failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    await run(
-      snippets.table(r, c, { data, at: options.at }),
-      (res) => console.log(chalk.green('✓'), `Table ${res.id} (${res.rows}×${res.cols})`),
-    );
   });
 
 jam

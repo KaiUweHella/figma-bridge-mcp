@@ -373,6 +373,11 @@ import {
   parseJamConnectorRequest,
 } from '../engine/src/application/jam-connector-request.js';
 import {
+  acceptsJamTableArgv,
+  jamTableArgvFromRequest,
+  parseJamTableRequest,
+} from '../engine/src/application/jam-table-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -979,6 +984,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
   'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
+  'jam.table',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1389,6 +1395,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'jam' && sub === 'stickies') pathPolicy = 'jam-stickies-input';
   if (name === 'jam' && sub === 'shape') pathPolicy = 'jam-shape-input';
   if (name === 'jam' && sub === 'connector') pathPolicy = 'jam-connector-input';
+  if (name === 'jam' && sub === 'table') pathPolicy = 'jam-table-input';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -1644,6 +1651,10 @@ function commandCapability(args) {
   }
   if (name === 'jam' && args[1] === 'connector'
     && !action.help && !acceptsJamConnectorArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'table'
+    && !action.help && !acceptsJamTableArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
@@ -3056,6 +3067,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       const closedFileKey = jamConnectorFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...jamConnectorArgvFromRequest(parseJamConnectorRequest(args)));
+      break;
+    }
+    case 'jam-table-input': {
+      args.splice(0, args.length, ...jamTableArgvFromRequest(parseJamTableRequest(args)));
       break;
     }
     case 'node-discovery-input': {

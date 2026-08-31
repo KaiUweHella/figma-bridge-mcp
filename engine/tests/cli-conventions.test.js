@@ -279,6 +279,23 @@ test('jam connector delegates one Plan-bound rollback-owned FigJam Application',
     'Commander must not retain FigJam Connector parsing, creation, validation, or rollback');
 });
 
+test('jam table delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('table");
+  const end = adapter.indexOf(".command('section", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamTableArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamTablePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.table|JSON\.parse|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam Table parsing, creation, validation, or rollback');
+});
+
 test('jam arrange delegates one Plan-bound rollback-owned FigJam Application', () => {
   const adapter = sources.get('jam.js');
   assert.ok(adapter, 'jam.js exists');
@@ -303,8 +320,8 @@ test('the remaining direct FigJam action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await run\(/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['table', 'section', 'code']);
-  assert.equal(direct.length, 3,
+  assert.deepEqual(direct, ['section', 'code']);
+  assert.equal(direct.length, 2,
     'STAB-06 FigJam Legacy Action count may decrease, but must never increase silently');
 });
 
