@@ -1510,6 +1510,25 @@ test('dev list delegates one Plan-bound bounded-read Command Application', () =>
     'Commander must not retain Dev Resource readiness, capture, or formatting logic');
 });
 
+test('dev link, unlink, and edit delegate one rollback-owned mutation Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('async function runDevResourceMutationCommand');
+  const end = adapter.indexOf('// ============ SECTIONS ============', start);
+  const slice = adapter.slice(start, end);
+
+  assert.equal((slice.match(/\.allowExcessArguments\(false\)/g) || []).length, 4);
+  assert.match(slice, /planFigmaCommand\(devResourceMutationPlanningArgvFromRequest\(request\)/);
+  assert.match(slice, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeDevResourceMutationPlan\(plan/);
+  assert.match(slice, /daemonExec\('eval'/);
+  assert.match(slice, /process\.exitCode = 1/);
+  assert.doesNotMatch(slice,
+    /checkConnection\(|addDevResourceAsync|deleteDevResourceAsync|editDevResourceAsync|getDevResourcesAsync/,
+    'Commander must not retain Dev Resource preflight, mutation, verification, or rollback logic');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

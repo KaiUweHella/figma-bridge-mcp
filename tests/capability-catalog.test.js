@@ -1005,6 +1005,37 @@ test('Dev Resource Read closes one policy-identical CLI/MCP safe read', () => {
   assert.equal(selection.effects.editor, 'read');
 });
 
+test('Dev Resource mutations close policy-identical non-retrying writes', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [
+      ['dev', 'link', '10-3', 'https://example.test/storybook', '--name', 'Storybook'],
+      ['dev', 'link', '--name=Storybook', '--', '10:3', 'https://example.test/storybook'],
+      'dev.link',
+    ],
+    [
+      ['dev', 'unlink', '10-3', 'https://example.test/storybook'],
+      ['dev', 'unlink', '--', '10:3', 'https://example.test/storybook'],
+      'dev.unlink',
+    ],
+    [
+      ['dev', 'edit', '10-3', 'https://example.test/old', 'https://example.test/new', '-n', 'Docs'],
+      ['dev', 'edit', '--name=Docs', '--', '10:3', 'https://example.test/old', 'https://example.test/new'],
+      'dev.edit',
+    ],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 

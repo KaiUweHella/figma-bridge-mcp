@@ -77,6 +77,10 @@ import {
   devResourceReadPlanningArgvFromRequest,
   executeDevResourceReadPlan,
 } from '../application/dev-resource-read-command.js';
+import {
+  devResourceMutationPlanningArgvFromRequest,
+  executeDevResourceMutationPlan,
+} from '../application/dev-resource-mutation-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -84,6 +88,30 @@ import {
 
 // ============ DEV RESOURCES ============
 // Link Figma nodes to dev artifacts (Storybook, GitHub, docs, etc.)
+
+async function runDevResourceMutationCommand(request) {
+  try {
+    const plan = planFigmaCommand(devResourceMutationPlanningArgvFromRequest(request), {
+      adapter: 'cli',
+      fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+        return executeDevResourceMutationPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Dev Resource Mutation failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
 
 const devCmd = program
   .command('dev')
@@ -93,23 +121,11 @@ devCmd
   .command('link <nodeId> <url>')
   .description('Add a dev resource link to a node')
   .option('-n, --name <name>', 'Display name for the link')
+  .allowExcessArguments(false)
   .action(async (nodeId, url, options) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (typeof n.addDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
-      await n.addDevResourceAsync(${JSON.stringify(url)}, ${JSON.stringify(options.name || '')});
-      const all = await n.getDevResourcesAsync();
-      return { id: n.id, name: n.name, count: all.length };
-    })()`;
-    try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Linked: ${r.name} (${r.id}) → ${url}`);
-      console.log(chalk.gray(`  Total dev resources: ${r.count}`));
-    } catch (e) {
-      handleEvalError(e);
-    }
+    await runDevResourceMutationCommand({
+      action: 'link', nodeId, url, name: options.name || null,
+    });
   });
 
 devCmd
@@ -145,46 +161,20 @@ devCmd
 devCmd
   .command('unlink <nodeId> <url>')
   .description('Remove a dev resource link from a node')
+  .allowExcessArguments(false)
   .action(async (nodeId, url) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (typeof n.deleteDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
-      await n.deleteDevResourceAsync(${JSON.stringify(url)});
-      const all = await n.getDevResourcesAsync();
-      return { id: n.id, name: n.name, count: all.length };
-    })()`;
-    try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Unlinked from ${r.name} (${r.id})`);
-      console.log(chalk.gray(`  Remaining dev resources: ${r.count}`));
-    } catch (e) {
-      handleEvalError(e);
-    }
+    await runDevResourceMutationCommand({ action: 'unlink', nodeId, url });
   });
 
 devCmd
   .command('edit <nodeId> <currentUrl> <newUrl>')
   .description('Edit an existing dev resource (replace URL and/or name)')
   .option('-n, --name <name>', 'New display name')
+  .allowExcessArguments(false)
   .action(async (nodeId, currentUrl, newUrl, options) => {
-    await checkConnection();
-    const updateObj = { url: newUrl };
-    if (options.name) updateObj.name = options.name;
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (typeof n.editDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
-      await n.editDevResourceAsync(${JSON.stringify(currentUrl)}, ${JSON.stringify(updateObj)});
-      return { id: n.id, name: n.name };
-    })()`;
-    try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Edited dev resource on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
-    }
+    await runDevResourceMutationCommand({
+      action: 'edit', nodeId, currentUrl, newUrl, name: options.name || null,
+    });
   });
 
 // ============ SECTIONS ============

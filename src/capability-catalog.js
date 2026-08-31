@@ -591,6 +591,12 @@ import {
   parseDevResourceReadRequest,
 } from '../engine/src/application/dev-resource-read-request.js';
 import {
+  acceptsDevResourceMutationArgv,
+  devResourceMutationArgvFromRequest,
+  devResourceMutationFigmaUrlFileKeyFromArgv,
+  parseDevResourceMutationRequest,
+} from '../engine/src/application/dev-resource-mutation-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -801,6 +807,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'style.show',
   'grid.list',
   'dev.list',
+  'dev.link', 'dev.unlink', 'dev.edit',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1129,6 +1136,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'dev' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'dev-resource-read-input';
+  }
+  if (name === 'dev' && ['link', 'unlink', 'edit'].includes(sub)) {
+    pathPolicy = 'dev-resource-mutation-input';
   }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
@@ -1544,6 +1554,10 @@ function commandCapability(args) {
   }
   if (name === 'dev' && args[1] === 'list'
     && !action.help && !acceptsDevResourceReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'dev' && ['link', 'unlink', 'edit'].includes(args[1])
+    && !action.help && !acceptsDevResourceMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2492,6 +2506,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...devResourceReadArgvFromRequest(parseDevResourceReadRequest(args)));
+      break;
+    }
+    case 'dev-resource-mutation-input': {
+      const closedFileKey = devResourceMutationFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...devResourceMutationArgvFromRequest(parseDevResourceMutationRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {
