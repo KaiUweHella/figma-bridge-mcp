@@ -1550,9 +1550,24 @@ test('the remaining direct Analyze inventory is explicit', () => {
     const slice = adapter.slice(start, end === -1 ? adapter.length : end);
     if (/checkConnection\(\)|fastEval\(/.test(slice)) direct.push(action);
   }
-  assert.deepEqual(direct, ['lint']);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
     'STAB-06 Analyze Legacy Action count may decrease, but must never increase silently');
+});
+
+test('Analyze lint delegates one Plan-bound bounded-read Command Application', () => {
+  const adapter = sources.get('analyze.js');
+  const start = adapter.indexOf(".command('lint')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /analysisLintPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnalysisLintPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = result\.code/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.variables|new Map\(/,
+    'Commander must not retain Analyze lint traversal, Variable resolution, or result logic');
 });
 
 test('dev list delegates one Plan-bound bounded-read Command Application', () => {

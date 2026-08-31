@@ -596,6 +596,12 @@ import {
   parseAnalysisCensusRequest,
 } from '../engine/src/application/analysis-census-request.js';
 import {
+  acceptsAnalysisLintArgv,
+  analysisLintArgvFromRequest,
+  analysisLintFigmaUrlFileKeyFromArgv,
+  parseAnalysisLintRequest,
+} from '../engine/src/application/analysis-lint-request.js';
+import {
   acceptsDevResourceReadArgv,
   devResourceReadArgvFromRequest,
   devResourceReadFigmaUrlFileKeyFromArgv,
@@ -788,6 +794,7 @@ const SAFE_READ_ACTIONS = new Set([
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
+  'analyze.lint',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -892,6 +899,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'grid.list',
   'grid.clear',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
+  'analyze.lint',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1238,6 +1246,7 @@ function specializedPolicy(name, entry, args, actionId) {
     .includes(actionId)) {
     pathPolicy = 'analysis-census-input';
   }
+  if (actionId === 'analyze.lint') pathPolicy = 'analysis-lint-input';
   if (name === 'dev' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'dev-resource-read-input';
@@ -1812,6 +1821,8 @@ function acceptedExitCodes(args) {
   // Exit 1 is a valid verify report containing findings, not a transport
   // failure. MCP callers need the report in order to fix those findings.
   if (args?.[0] === 'verify-build') return [0, 1];
+  if (args?.[0] === 'analyze' && args?.[1] === 'lint'
+    && acceptsAnalysisLintArgv(args) && parseAnalysisLintRequest(args).failOnIssues) return [0, 1];
   if ((args?.[0] === 'render' || args?.[0] === 'render-batch') && acceptsSemanticRenderArgv(args)) {
     const route = semanticRenderArgvRoute(args);
     if (route.kind === 'simple' || route.kind === 'compound' || route.reason === 'structural-gate') return [0, 1];
@@ -2699,6 +2710,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...analysisCensusArgvFromRequest(parseAnalysisCensusRequest(args)));
       break;
     }
+    case 'analysis-lint-input': {
+      const closedFileKey = analysisLintFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...analysisLintArgvFromRequest(parseAnalysisLintRequest(args)));
+      break;
+    }
     case 'dev-resource-read-input': {
       const closedFileKey = devResourceReadFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -3202,6 +3220,7 @@ function editorEffect(args, capability) {
   if (actionId === 'component.prop.list'
     && !parseComponentPropertyListRequest(args).componentId) return 'read';
   if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
+  if (actionId === 'analyze.lint' && !parseAnalysisLintRequest(args).nodeId) return 'read';
   if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.list' && !parseAnnotationReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.add' && parseAnnotationAddRequest(args).selector === 'query') {
