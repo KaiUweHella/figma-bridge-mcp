@@ -367,6 +367,12 @@ import {
   parseJamShapeRequest,
 } from '../engine/src/application/jam-shape-request.js';
 import {
+  acceptsJamConnectorArgv,
+  jamConnectorArgvFromRequest,
+  jamConnectorFigmaUrlFileKeyFromArgv,
+  parseJamConnectorRequest,
+} from '../engine/src/application/jam-connector-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -875,7 +881,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'section.list',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'section.create',
-  'jam.board', 'jam.arrange',
+  'jam.board', 'jam.arrange', 'jam.connector',
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
   'sizes', 'var.visualize', 'gradient.mesh',
@@ -972,7 +978,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
-  'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape',
+  'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1382,6 +1388,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'jam' && sub === 'sticky') pathPolicy = 'jam-sticky-input';
   if (name === 'jam' && sub === 'stickies') pathPolicy = 'jam-stickies-input';
   if (name === 'jam' && sub === 'shape') pathPolicy = 'jam-shape-input';
+  if (name === 'jam' && sub === 'connector') pathPolicy = 'jam-connector-input';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -1633,6 +1640,10 @@ function commandCapability(args) {
   }
   if (name === 'jam' && args[1] === 'shape'
     && !action.help && !acceptsJamShapeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'connector'
+    && !action.help && !acceptsJamConnectorArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
@@ -3039,6 +3050,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'jam-shape-input': {
       args.splice(0, args.length, ...jamShapeArgvFromRequest(parseJamShapeRequest(args)));
+      break;
+    }
+    case 'jam-connector-input': {
+      const closedFileKey = jamConnectorFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...jamConnectorArgvFromRequest(parseJamConnectorRequest(args)));
       break;
     }
     case 'node-discovery-input': {

@@ -382,6 +382,36 @@ test('Jam Shape owns one canonical cross-Adapter non-retrying creation Plan', ()
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Jam Connector owns one canonical URL-targeted non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'connector',
+    'https://www.figma.com/board/BOARDPLACEHOLDERKEY/FILE_NAME?node-id=1-1',
+    '1-2', '--text=yes', '--line=straight',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'connector', '1:1', '1:2', '--line', 'STRAIGHT', '--text', 'yes',
+  ], { adapter: 'mcp', fileKey: 'BOARDPLACEHOLDERKEY' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.connector');
+  assert.equal(cli.target.fileKey, 'BOARDPLACEHOLDERKEY');
+  assert.deepEqual(cli.argv, [
+    'jam', 'connector', '1:1', '1:2', '--text=yes', '--line=STRAIGHT',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'connector'],
+    ['jam', 'connector', '1:1'],
+    ['jam', 'connector', '1:1', '1:2', '1:3'],
+    ['jam', 'connector', '1:1', '1:2', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });

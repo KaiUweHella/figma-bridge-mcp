@@ -40,6 +40,10 @@ import {
   executeJamShapePlan,
   jamShapeArgvFromRequest,
 } from '../application/jam-shape-command.js';
+import {
+  executeJamConnectorPlan,
+  jamConnectorPlanningArgvFromRequest,
+} from '../application/jam-connector-command.js';
 
 const jam = program
   .command('jam')
@@ -158,12 +162,27 @@ jam
   .description('Connect two nodes with an arrow')
   .option('--text <label>', 'Label on the connector')
   .option('--line <type>', 'ELBOWED or STRAIGHT', 'ELBOWED')
+  .allowExcessArguments(false)
   .action(async (fromId, toId, options) => {
-    const line = String(options.line).toUpperCase() === 'STRAIGHT' ? 'STRAIGHT' : 'ELBOWED';
-    await run(
-      snippets.connector(fromId, toId, { text: options.text, line }),
-      (r) => console.log(chalk.green('✓'), `Connector ${r.id}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamConnectorPlanningArgvFromRequest({
+        fromId, toId, text: options.text, line: options.line,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamConnectorPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam connector failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
