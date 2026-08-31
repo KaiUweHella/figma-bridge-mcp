@@ -313,6 +313,11 @@ import {
   slidesReferenceFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slides-reference-request.js';
 import {
+  acceptsSlidesCreateArgv,
+  parseSlidesCreateRequest,
+  slidesCreateArgvFromRequest,
+} from '../engine/src/application/slides-create-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -915,7 +920,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'analyze.lint',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
-  'slides.inspect',
+  'slides.inspect', 'slides.create',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1310,7 +1315,7 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'slides') {
     if (sub === 'inspect') retry = 'safe-read';
-    pathPolicy = 'slides-reference-input';
+    pathPolicy = sub === 'create' ? 'slides-create-input' : 'slides-reference-input';
   }
   return { execution, timeoutClass, pathPolicy, retry };
 }
@@ -1525,7 +1530,12 @@ function commandCapability(args) {
     && !action.help && !acceptsComponentPropertyListArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
+  if (name === 'slides' && args[1] === 'create'
+    && !action.help && !acceptsSlidesCreateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] !== 'create'
+    && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'find' && !action.help && !acceptsNodeDiscoveryArgv(args)) {
@@ -2874,6 +2884,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...slidesReferenceArgvFromRequest(parseSlidesReferenceRequest(args)));
+      break;
+    }
+    case 'slides-create-input': {
+      args.splice(0, args.length,
+        ...slidesCreateArgvFromRequest(parseSlidesCreateRequest(args)));
       break;
     }
     case 'node-discovery-input': {

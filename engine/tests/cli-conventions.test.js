@@ -92,6 +92,36 @@ test('slides inspect delegates one Plan-bound bounded Slides Application', () =>
     'Commander must not retain Slides grid capture, resolution, or result formatting');
 });
 
+test('slides create delegates one rollback-owned Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('create [label]')");
+  const end = adapter.indexOf(".command('duplicate <slide>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesCreatePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesCreatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.create|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides creation, verification, or rollback');
+});
+
+test('the remaining direct Slides write inventory is explicit', () => {
+  const adapter = sources.get('slides.js');
+  const commands = ['create', 'duplicate', 'move', 'transition', 'skip', 'delete'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /await run\(/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, ['duplicate', 'move', 'transition', 'skip', 'delete']);
+  assert.equal(direct.length, 5,
+    'STAB-06 Slides Legacy Write count may decrease, but must never increase silently');
+});
+
 test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
   const offenders = [];
   for (const [file, source] of sources) {

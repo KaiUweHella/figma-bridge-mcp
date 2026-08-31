@@ -120,6 +120,32 @@ test('catalog owns the full read/write matrix including special flag semantics',
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');
 });
 
+test('Slides Create owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const cli = planFigmaCommand(
+    ['slides', 'create', '--row=1', '--col', '0', 'Agenda'], { adapter: 'cli' },
+  );
+  const mcp = planFigmaCommand(
+    ['slides', 'create', 'Agenda', '--col=0', '--row', '1'], { adapter: 'mcp' },
+  );
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'slides.create');
+  assert.deepEqual(cli.argv, ['slides', 'create', '--row=1', '--col=0', 'Agenda']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  for (const argv of [
+    ['slides', 'create', '--col=0'],
+    ['slides', 'create', '--row=-1'],
+    ['slides', 'create', '--row=1', '--row=2'],
+    ['slides', 'create', 'one', 'two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });
