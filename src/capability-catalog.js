@@ -607,6 +607,12 @@ import {
   parseAnnotationCategoryInventoryRequest,
 } from '../engine/src/application/annotation-category-inventory-request.js';
 import {
+  acceptsAnnotationReadArgv,
+  annotationReadArgvFromRequest,
+  annotationReadFigmaUrlFileKeyFromArgv,
+  parseAnnotationReadRequest,
+} from '../engine/src/application/annotation-read-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -714,7 +720,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
-  'shader.list', 'dev.list', 'section.list', 'annotate.categories',
+  'shader.list', 'dev.list', 'section.list', 'annotate.categories', 'annotate.list',
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
 ]);
@@ -726,7 +732,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slot.validate',
   'slides.inspect',
   'export.screenshot',
-  'section.list', 'annotate.list', 'a11y.vision', 'a11y.focus',
+  'section.list', 'a11y.vision', 'a11y.focus',
   'jam.board', 'jam.arrange',
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
@@ -820,6 +826,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
   'annotate.categories',
+  'annotate.list',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1159,6 +1166,10 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'annotate' && sub === 'categories') {
     retry = 'safe-read';
     pathPolicy = 'annotation-category-inventory-input';
+  }
+  if (name === 'annotate' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'annotation-read-input';
   }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
@@ -1586,6 +1597,10 @@ function commandCapability(args) {
   }
   if (name === 'annotate' && args[1] === 'categories'
     && !action.help && !acceptsAnnotationCategoryInventoryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'list'
+    && !action.help && !acceptsAnnotationReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2553,6 +2568,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         parseAnnotationCategoryInventoryRequest(args)));
       break;
     }
+    case 'annotation-read-input': {
+      const closedFileKey = annotationReadFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationReadArgvFromRequest(parseAnnotationReadRequest(args)));
+      break;
+    }
     case 'canvas-awareness-input': {
       args.splice(0, args.length,
         ...canvasAwarenessArgvFromRequest(parseCanvasAwarenessRequest(args)));
@@ -2965,6 +2987,7 @@ function editorEffect(args, capability) {
     && !parseComponentPropertyListRequest(args).componentId) return 'read';
   if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
   if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
+  if (actionId === 'annotate.list' && !parseAnnotationReadRequest(args).nodeId) return 'read';
   if (actionId === 'link.inspect'
     && !parseDesignLinkRequest(args, { requireManifest: false }).nodeId) return 'read';
   if (actionId === 'gradient.extract'

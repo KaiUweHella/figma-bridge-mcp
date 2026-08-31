@@ -89,6 +89,10 @@ import {
   annotationCategoryInventoryArgvFromRequest,
   executeAnnotationCategoryInventoryPlan,
 } from '../application/annotation-category-inventory-command.js';
+import {
+  annotationReadPlanningArgvFromRequest,
+  executeAnnotationReadPlan,
+} from '../application/annotation-read-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1119,30 +1123,30 @@ annotateCmd.command('category-remove <category>').action(async (category) => {
 annotateCmd
   .command('list [nodeId]')
   .description('List annotations on a node (or current selection)')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const target = nodeId
-      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
-      : `figma.currentPage.selection[0]`;
-    const code = `(async () => {
-      const n = ${target};
-      if (!n) throw new Error('No node found');
-      if (!('annotations' in n)) throw new Error('Node does not support annotations');
-      return { id: n.id, name: n.name, annotations: n.annotations || [] };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.bold(`${r.name} (${r.id})`));
-      if (!r.annotations || r.annotations.length === 0) {
-        console.log(chalk.gray('  (no annotations)'));
-        return;
-      }
-      r.annotations.forEach((a, i) => {
-        const label = a.label || a.labelMarkdown || '(empty)';
-        console.log(`  ${i + 1}. ${label}`);
+      const plan = planFigmaCommand(annotationReadPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationReadPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Read failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

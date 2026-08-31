@@ -1566,6 +1566,24 @@ test('annotate categories delegates one Plan-bound bounded file inventory Applic
     'Commander must not retain Annotation Category readiness, capture, or formatting logic');
 });
 
+test('annotate list delegates one Plan-bound bounded node-or-selection read Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('list [nodeId]')", adapter.indexOf('const annotateCmd'));
+  const end = adapter.indexOf(".command('clear <nodeId>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationReadPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationReadPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.currentPage|\.annotations|labelMarkdown/,
+    'Commander must not retain Annotation Read readiness, capture, or formatting logic');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

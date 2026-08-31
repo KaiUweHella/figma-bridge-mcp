@@ -1062,6 +1062,22 @@ test('Annotation Category Inventory closes one policy-identical file safe read',
   assert.equal(cli.audit.capability, 'annotate.categories');
 });
 
+test('Annotation Read closes one policy-identical node-or-selection safe read', () => {
+  const cli = planFigmaCommand(['annotate', 'list', '1-2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['annotate', 'list', '--', '1:2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.audit.capability, 'annotate.list');
+
+  const selection = planFigmaCommand(['annotate', 'list'], { adapter: 'mcp' });
+  assert.equal(selection.effects.editor, 'read');
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 
