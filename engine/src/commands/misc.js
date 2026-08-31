@@ -81,6 +81,10 @@ import {
   devResourceMutationPlanningArgvFromRequest,
   executeDevResourceMutationPlan,
 } from '../application/dev-resource-mutation-command.js';
+import {
+  executeSectionInventoryPlan,
+  sectionInventoryArgvFromRequest,
+} from '../application/section-inventory-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -313,23 +317,27 @@ sectionCmd
 sectionCmd
   .command('list')
   .description('List all sections on the current page')
+  .allowExcessArguments(false)
   .action(async () => {
-    await checkConnection();
-    const code = `(async () => {
-      const sections = figma.currentPage.findAll(n => n.type === 'SECTION');
-      return sections.map(s => ({ id: s.id, name: s.name, count: s.children.length }));
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (!r || r.length === 0) {
-        console.log(chalk.gray('(no sections on this page)'));
-        return;
-      }
-      r.forEach(s => {
-        console.log(`  ${s.name}  ${chalk.gray('(' + s.id + ')')}  ${chalk.gray(s.count + ' children')}`);
+      const plan = planFigmaCommand(sectionInventoryArgvFromRequest({}), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionInventoryPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Inventory failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

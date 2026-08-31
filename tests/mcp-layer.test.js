@@ -2676,6 +2676,33 @@ test('figma_run routes Dev Resource mutations through the rollback-owned Applica
     'Dev Resource Mutation must not re-enter Commander');
 });
 
+test('figma_run routes Section Inventory through the bounded current-page Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sectionInventoryRoute = sectionInventoryPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSectionInventoryPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Section Inventory must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Section Inventory before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['section', 'list', 'private'],
+    ['section', 'list', '--future'],
+    ['section', 'list', '--', 'private'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Dev Resource mutations before confirmation or readiness', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

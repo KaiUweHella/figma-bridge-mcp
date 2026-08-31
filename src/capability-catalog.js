@@ -597,6 +597,11 @@ import {
   parseDevResourceMutationRequest,
 } from '../engine/src/application/dev-resource-mutation-request.js';
 import {
+  acceptsSectionInventoryArgv,
+  parseSectionInventoryRequest,
+  sectionInventoryArgvFromRequest,
+} from '../engine/src/application/section-inventory-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -704,7 +709,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
-  'shader.list', 'dev.list',
+  'shader.list', 'dev.list', 'section.list',
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
 ]);
@@ -716,7 +721,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slot.validate',
   'slides.inspect',
   'export.screenshot',
-  'annotate.list', 'a11y.vision', 'a11y.focus',
+  'section.list', 'annotate.list', 'a11y.vision', 'a11y.focus',
   'jam.board', 'jam.arrange',
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
@@ -808,6 +813,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'grid.list',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
+  'section.list',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1139,6 +1145,10 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'dev' && ['link', 'unlink', 'edit'].includes(sub)) {
     pathPolicy = 'dev-resource-mutation-input';
+  }
+  if (name === 'section' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'section-inventory-input';
   }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
@@ -1558,6 +1568,10 @@ function commandCapability(args) {
   }
   if (name === 'dev' && ['link', 'unlink', 'edit'].includes(args[1])
     && !action.help && !acceptsDevResourceMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'list'
+    && !action.help && !acceptsSectionInventoryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2513,6 +2527,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...devResourceMutationArgvFromRequest(parseDevResourceMutationRequest(args)));
+      break;
+    }
+    case 'section-inventory-input': {
+      args.splice(0, args.length,
+        ...sectionInventoryArgvFromRequest(parseSectionInventoryRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {

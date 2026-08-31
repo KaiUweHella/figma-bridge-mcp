@@ -1036,6 +1036,19 @@ test('Dev Resource mutations close policy-identical non-retrying writes', () => 
   }
 });
 
+test('Section Inventory closes one policy-identical current-page safe read', () => {
+  const cli = planFigmaCommand(['section', 'list'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'list', '--'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.audit.capability, 'section.list');
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 

@@ -1529,6 +1529,25 @@ test('dev link, unlink, and edit delegate one rollback-owned mutation Applicatio
     'Commander must not retain Dev Resource preflight, mutation, verification, or rollback logic');
 });
 
+test('section list delegates one Plan-bound bounded current-page Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('list')", section);
+  const end = adapter.indexOf(".command('add <sectionId> <nodeIds>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(sectionInventoryArgvFromRequest\(\{\}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionInventoryPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.currentPage|findAll\(/,
+    'Commander must not retain Section Inventory readiness, capture, or formatting logic');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');
