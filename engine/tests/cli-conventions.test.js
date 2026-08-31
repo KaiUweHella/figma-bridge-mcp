@@ -497,10 +497,28 @@ test('the remaining public direct Create write inventory is explicit and cannot 
     direct.push('polygon', 'star');
   }
   assert.deepEqual(direct.sort(), [
-    'autolayout', 'line', 'slice', 'text', 'vector',
+    'autolayout', 'line', 'text',
   ]);
-  assert.equal(direct.length, 5,
+  assert.equal(direct.length, 3,
     'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Vector and Slice delegate one shared Plan-bound Canvas Node Application', () => {
+  const adapter = sources.get('create.js');
+  const application = readFileSync(join(
+    COMMANDS_DIR, '..', 'application', 'create-canvas-node-command.js',
+  ), 'utf8');
+  for (const marker of [".command('vector [name]')", ".command('slice [name]')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('.command(', start + marker.length);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runCreateCanvasNode\(/);
+    assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|createVector\(|createSlice\(/);
+  }
+  assert.match(application, /figma\.createVector\(\)/);
+  assert.match(application, /figma\.createSlice\(\)/);
+  assert.match(application, /await node\.setVectorNetworkAsync\(request\.network\)/);
 });
 
 test('public solid Shape factories delegate one shared Plan-bound Command Application', () => {

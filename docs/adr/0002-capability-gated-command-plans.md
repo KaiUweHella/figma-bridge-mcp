@@ -521,3 +521,13 @@ Rectangle radius/opacity and Polygon/Star point geometry, then removes only its
 new Shape and restores selection on failure. Both Adapters consume the same
 non-retrying Plan and bounded outcome. The mechanically pinned public Create
 legacy-write count consequently falls from nine to five.
+
+Vector and Slice share the adjacent Canvas Node creation Application. Its
+closed union preserves their distinct options and existing smart-position gap;
+VectorNetwork JSON is bounded before dispatch and compared exactly after the
+asynchronous setter. Slice geometry and both kinds' identity, hierarchy,
+position and selection require fresh readback after one native factory call.
+Failure removes only the newly created node, restores selection and reports
+verified rollback, exact residue or unavailable verification. Both Adapters
+consume the same non-retrying Plan and bounded outcome. The mechanically pinned
+public Create legacy-write count consequently falls from five to three.

@@ -98,6 +98,10 @@ import {
   executeCreateShapePlan,
 } from "../engine/src/application/create-shape-command.js";
 import {
+  createCanvasNodePlanRoute,
+  executeCreateCanvasNodePlan,
+} from "../engine/src/application/create-canvas-node-command.js";
+import {
   executeNodeRenamePlan,
   nodeRenamePlanRoute,
 } from "../engine/src/application/node-rename-command.js";
@@ -2230,6 +2234,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeCreateShapePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createCanvasNodeRoute = createCanvasNodePlanRoute(plan);
+      if (createCanvasNodeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeCreateCanvasNodePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

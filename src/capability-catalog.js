@@ -72,6 +72,12 @@ import {
   parseCreateShapeRequest,
 } from '../engine/src/application/create-shape-request.js';
 import {
+  acceptsCreateCanvasNodeArgv,
+  createCanvasNodeArgvFromRequest,
+  createCanvasNodeFigmaUrlFileKeyFromArgv,
+  parseCreateCanvasNodeRequest,
+} from '../engine/src/application/create-canvas-node-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -573,6 +579,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'import',
   'create.frame',
   'create.rect', 'create.ellipse', 'create.polygon', 'create.star',
+  'create.vector', 'create.slice',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -771,6 +778,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(actionId)) {
     pathPolicy = 'create-shape-input';
   }
+  if (['create.vector', 'create.slice'].includes(actionId)) pathPolicy = 'create-canvas-node-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -975,6 +983,10 @@ function commandCapability(args) {
   }
   if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(action.actionId)
     && !action.help && !acceptsCreateShapeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['create.vector', 'create.slice'].includes(action.actionId)
+    && !action.help && !acceptsCreateCanvasNodeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1929,6 +1941,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...createShapeArgvFromRequest(parseCreateShapeRequest(args)));
+      break;
+    }
+    case 'create-canvas-node-input': {
+      const closedFileKey = createCanvasNodeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createCanvasNodeArgvFromRequest(parseCreateCanvasNodeRequest(args)));
       break;
     }
     case 'component-main-input': {

@@ -1999,6 +1999,23 @@ test('solid Shape creation owns canonical cross-Adapter write Plans', () => {
   assert.equal(planFigmaCommand(['create', 'ellipse', '--radius', '2']).allowed, false);
 });
 
+test('Vector and Slice creation own canonical cross-Adapter write Plans', () => {
+  const network = { vertices: [], segments: [], regions: [] };
+  const cases = [
+    [['create', 'vector', 'Path', '--network', JSON.stringify(network)], 'create.vector', ['create', 'vector', 'Path', `--network=${JSON.stringify(network)}`]],
+    [['create', 'slice', 'Export', '-w', '320', '-h', '180'], 'create.slice', ['create', 'slice', 'Export', '--width=320', '--height=180']],
+  ];
+  for (const [argv, id, canonical] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, id); assert.deepEqual(mcp.argv, canonical);
+    assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'vector', '--network', '{}']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'slice', '--network', JSON.stringify(network)]).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

@@ -25,6 +25,10 @@ import {
   createShapePlanningArgvFromRequest,
   executeCreateShapePlan,
 } from '../application/create-shape-command.js';
+import {
+  createCanvasNodePlanningArgvFromRequest,
+  executeCreateCanvasNodePlan,
+} from '../application/create-canvas-node-command.js';
 
 // ============ CREATE ============
 
@@ -89,6 +93,29 @@ async function runCreateShape(kind, name, options) {
     console.log(result.stdout);
   } catch (error) {
     console.error(chalk.red('✗ Create Shape failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
+
+async function runCreateCanvasNode(kind, name, options) {
+  try {
+    const plan = planFigmaCommand(createCanvasNodePlanningArgvFromRequest({
+      kind, name, width: options.width, height: options.height,
+      x: options.x, y: options.y, network: options.network,
+      parentId: options.parent, index: options.index,
+    }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeCreateCanvasNodePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Create Canvas Node failed: ' + (error?.message || String(error))));
     process.exitCode = 1;
   }
 }
@@ -289,35 +316,8 @@ create
   .option('--network <json>', 'Figma VectorNetwork JSON')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (name, options) => {
-    await checkConnection();
-    const nodeName = name || 'Vector';
-    const target = childTarget(options);
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    let network = null;
-    if (options.network !== undefined) {
-      try { network = JSON.parse(options.network); }
-      catch (error) { throw new Error(`--network must be valid JSON: ${error.message}`); }
-      if (!network || !Array.isArray(network.vertices) || !Array.isArray(network.segments)) {
-        throw new Error('--network must contain vertices and segments arrays');
-      }
-    }
-    const code = `(async () => {
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: x === undefined, gap: 100, explicitX: x })}
-const vector = figma.createVector();
-vector.name = ${JSON.stringify(nodeName)};
-${network ? `await vector.setVectorNetworkAsync(${JSON.stringify(network)});` : ''}
-vector.x = smartX;
-vector.y = ${y};
-${attachToChildTarget('vector', target)}
-figma.currentPage.selection = [vector];
-return { id: vector.id, name: vector.name, type: vector.type, parentId: vector.parent ? vector.parent.id : null };
-})()`;
-    const result = await daemonExec('eval', { code });
-    console.log(chalk.green('✓'), `VECTOR "${result.name}" created (${result.id}) in ${result.parentId}`);
-  });
+  .allowExcessArguments(false)
+  .action(async (name, options) => runCreateCanvasNode('vector', name, options));
 
 create
   .command('slice [name]')
@@ -328,29 +328,8 @@ create
   .option('-y <n>', 'Y position', '0')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (name, options) => {
-    await checkConnection();
-    const nodeName = name || 'Slice';
-    const target = childTarget(options);
-    const width = finiteNumber(options.width, '--width', { min: 0.01 });
-    const height = finiteNumber(options.height, '--height', { min: 0.01 });
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const code = `(async () => {
-${childTargetPrelude(target)}
-${positionCode({ target, useSmart: x === undefined, gap: 100, explicitX: x })}
-const slice = figma.createSlice();
-slice.name = ${JSON.stringify(nodeName)};
-slice.x = smartX;
-slice.y = ${y};
-slice.resize(${width}, ${height});
-${attachToChildTarget('slice', target)}
-figma.currentPage.selection = [slice];
-return { id: slice.id, name: slice.name, type: slice.type, parentId: slice.parent ? slice.parent.id : null };
-})()`;
-    const result = await daemonExec('eval', { code });
-    console.log(chalk.green('✓'), `SLICE "${result.name}" created (${result.id}) in ${result.parentId}`);
-  });
+  .allowExcessArguments(false)
+  .action(async (name, options) => runCreateCanvasNode('slice', name, options));
 
 create
   .command('text <content>')

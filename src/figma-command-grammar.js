@@ -15,6 +15,7 @@ const ACTION_VALUE_HELP_TOKENS = Object.freeze({
   'create.ellipse': new Set(['-h']),
   'create.polygon': new Set(['-h']),
   'create.star': new Set(['-h']),
+  'create.slice': new Set(['-h']),
 });
 
 const EMPTY_OPTION_FACTS = Object.freeze({

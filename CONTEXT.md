@@ -1155,3 +1155,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Do Rectangle, Ellipse, Polygon and Star use the same truthful creation outcome?
 >
 > **Domain expert:** Yes. Their shared Shape Application closes each action's valid options, resolves explicit fill and stroke Variables without first-match ambiguity, selects only the matching native factory, and verifies shape-specific geometry and properties after one dispatch. Failure removes only the created Shape and reports the same rollback/residue facts. The public Create-family legacy budget is now five: Vector, Slice, Text, Line and Auto Layout.
+
+> **Developer:** Are Vector and Slice still unstructured compatibility writes?
+>
+> **Domain expert:** No. They share a closed Canvas Node Application across both Adapters. VectorNetwork JSON is bounded before dispatch and freshly compared after the asynchronous setter; Slice geometry and both kinds' identity, hierarchy, position and selection are verified after one native factory call. Failure removes only the created node and reports rollback or exact residue. The remaining public Create-family legacy budget is three: Text, Line and Auto Layout.

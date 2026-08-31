@@ -542,9 +542,12 @@ and reports possible residue truthfully if Figma cannot remove it.
 
 `node duplicate` works for cloneable design nodes including Sections;
 `node reparent` accepts an explicit child index and preserves canvas position
-when the destination is not Auto Layout. `create frame|rect|ellipse|text|line|autolayout`
-plus `polygon|star|vector|slice` accept an explicit parent where Figma permits
-it, so small children can be added to an existing frame without rebuilding it.
+when the destination is not Auto Layout. `create frame|rect|ellipse|polygon|star`
+and `vector|slice` share action-specific, readback-verified creation Applications
+across CLI and MCP. They accept an explicit parent where Figma permits it, so
+small children can be added to an existing frame without rebuilding it. The
+remaining `create text|line|autolayout` actions retain the same parent surface
+while their structured migration is tracked separately.
 ID-scoped `node group|ungroup|boolean|flatten` replace selection-dependent
 structural edits. Components can be created, instantiated, swapped, detached,
 and have their overrides reset or compacted without relying on the current
@@ -555,8 +558,8 @@ visibility. The single-node command preflights all supported properties and
 Variable references, freshly verifies the complete result, and restores its
 full field journal if any setter or postcondition fails. Unsupported fields
 remain explicit skips, while ambiguous Variables stop before mutation. Legacy
-selection-based and network-backed `create` subcommands
-remain unreachable through `figma_run`.
+selection-based `create` subcommands remain unreachable through `figma_run`;
+VectorNetwork input is bounded inert JSON on its typed route.
 
 `component main <instanceId>` is the bounded identity read for reuse. Commander
 and MCP resolve the same explicit Instance through one safe-read Command
