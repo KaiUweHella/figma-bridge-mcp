@@ -1556,8 +1556,12 @@ figma_run ["draw", "pattern", "12:38", "12:39", "--field", "fill"]
 Video export resolves a selected descendant to its top-level animated frame
 and accepts only Figma's format-specific FPS values. Shader properties are
 keyed by definition ID, not display name, and an available shader must be
-imported before it is applied. `layout grid` means the Auto Layout Grid
-model; the older top-level `grid` command remains Layout Guide management.
+imported before it is applied. Shader import and application use the same
+non-retrying verified mutation path in CLI and MCP: apply never imports
+implicitly, and a failed postcondition either restores the complete prior
+paint/effect field or reports possible residue. `layout grid` means the Auto
+Layout Grid model; the older top-level `grid` command remains Layout Guide
+management.
 `grid list [nodeId]` is the exact bounded read for those layout guides and may
 use the current selection when the id is omitted. It preserves `gridStyleId`,
 all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count

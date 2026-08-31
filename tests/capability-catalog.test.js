@@ -2117,6 +2117,28 @@ test('Library imports own canonical cross-Adapter irreversible write Plans', () 
   }
 });
 
+test('Shader mutations own canonical cross-Adapter non-retrying write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const cases = [
+    [['shader', 'import', ' SH:1 '], ['shader', 'import', '--', 'SH:1'], 'shader.import'],
+    [[
+      'shader', 'apply', url, 'SH:1', '--field=fill', '--properties', '{"power":2}',
+    ], [
+      'shader', 'apply', '--field', 'fill', '--properties', '{"power":2}', '--', '1:2', 'SH:1',
+    ], 'shader.apply'],
+  ];
+  for (const [raw, canonical, id] of cases) {
+    const mcp = planFigmaCommand(raw, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.argv, canonical); assert.deepEqual(cli.effects, mcp.effects);
+    assert.equal(mcp.effects.figma, 'write'); assert.equal(mcp.execution.retry, 'never');
+    if (id === 'shader.apply') assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['shader', 'import']).allowed, false);
+  assert.equal(planFigmaCommand(['shader', 'apply', '1:2', 'SH:1']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

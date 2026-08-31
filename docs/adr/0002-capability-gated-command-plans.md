@@ -592,3 +592,18 @@ while a mismatched fresh identity reports partial residue. Neither case deletes
 or retries the resource. CLI and MCP share the same decreasing deadline and
 non-retrying Plan; the mechanically pinned direct Library Import legacy-write
 count reaches zero.
+
+Shader import and apply form one action-discriminated Shader Mutation
+Application. Its closed request bounds the Shader id and property JSON, admits
+only fill, stroke or effect placement, and projects file identity only from the
+apply target Node Reference. Import invokes `importShaderById` exactly once and
+then verifies exact id, imported state and type against a fresh bounded
+`listAvailableShaders` result. With no safe inverse, native or verification
+uncertainty reports possible residue and is never retried. Apply does not import:
+it requires one uniquely available, already imported and type-compatible
+Shader, journals the complete existing field, assigns once and verifies fresh
+placement while preserving the existing prefix unless replacement was explicit.
+A mismatch restores the journal when possible and otherwise reports exact field
+residue. CLI and MCP share one decreasing deadline, bounded response and
+non-retrying Plan; the mechanically pinned direct Shader legacy-write count
+reaches zero.

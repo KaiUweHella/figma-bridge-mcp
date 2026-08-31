@@ -576,6 +576,36 @@ test('the remaining direct Library Import write inventory is explicit and cannot
     'STAB-26 Library Import Legacy Write count may decrease, but must never increase silently');
 });
 
+test('Shader writes delegate one Plan-bound verified Application', () => {
+  const adapter = sources.get('shaders.js');
+  for (const marker of ["command('import <shaderId>')", "command('apply <nodeId> <shaderId>')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('shader.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runShaderMutation\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|shader(?:Import|Apply)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'shader-mutation-command.js'), 'utf8');
+  assert.match(application, /await figma\.importShaderById\(request\.shaderId\)/);
+  assert.match(application, /const fresh = await figma\.getNodeByIdAsync\(request\.nodeId\)/);
+});
+
+test('the remaining direct Shader write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('shaders.js'); const direct = [];
+  for (const name of ['import', 'apply']) {
+    const marker = name === 'import' ? "command('import <shaderId>')"
+      : "command('apply <nodeId> <shaderId>')";
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('shader.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Shader-family Legacy Write count may decrease, but must never increase silently');
+});
+
 test('the remaining direct Prototype write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('prototype.js'); const direct = [];
   for (const name of ['add', 'set', 'clear']) {

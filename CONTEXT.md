@@ -726,6 +726,16 @@ inverse and a resource may already have been materialized, so verification
 failure reports possible residue without deleting or retrying the import.
 _Avoid_: library import eval, optimistic imported identity, import retry
 
+**Shader Mutation**:
+The closed import or node-field application of one native Figma Shader by its
+exact stable id. Import makes one irreversible native materialization call and
+then verifies fresh inventory identity. Apply requires an already imported,
+type-compatible Shader, journals the complete paint/effect field, assigns once
+and proves exact fresh placement; it never imports implicitly. Both actions
+share one non-retrying CLI/MCP Command Application and report verified state,
+rollback, residue or unavailable verification explicitly.
+_Avoid_: shader write eval, implicit Shader import, optimistic field assignment, retry after dispatch
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -1196,3 +1206,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can a Library import be retried when its terminal response or returned metadata is incomplete?
 >
 > **Domain expert:** No. Variable, Style, Component and Component Set imports share one closed irreversible Application. It calls the selected native import exactly once, freshly verifies the returned id against the requested published key, kind and remote identity, and keeps descriptions bounded. A native error or unavailable readback remains `verification-unavailable`; a mismatched fresh resource is `partial-residue`. Neither Adapter guesses whether the resource existed beforehand, deletes it, or retries the import. The mechanically measured direct Library Import legacy-write count is zero.
+
+> **Developer:** Can Shader import or apply still bypass the Plan boundary, or can apply silently import a missing Shader?
+>
+> **Domain expert:** No. Import and apply share one closed, non-retrying Shader Mutation Application. Import calls the native materializer once and verifies the exact id, imported state and type against a fresh bounded Shader inventory; because it has no safe inverse, uncertain verification reports possible residue. Apply accepts only a uniquely available, already imported, type-compatible Shader, journals the complete target field, performs one assignment and verifies fresh exact placement or restores that journal. It never calls the import API. CLI and MCP preserve the same bounded outcome, and the mechanically measured direct Shader legacy-write count is zero.

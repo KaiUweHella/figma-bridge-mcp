@@ -107,6 +107,12 @@ import {
   parseLibraryImportRequest,
 } from '../engine/src/application/library-import-request.js';
 import {
+  acceptsShaderMutationArgv,
+  parseShaderMutationRequest,
+  shaderMutationArgvFromRequest,
+  shaderMutationFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/shader-mutation-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -621,6 +627,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'measure.add', 'measure.edit', 'measure.delete',
   'library.import-variable', 'library.import-style',
   'library.import-component', 'library.import-component-set',
+  'shader.import', 'shader.apply',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -829,6 +836,7 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'measurement-mutation-input';
   }
   if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
+  if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1058,6 +1066,10 @@ function commandCapability(args) {
   }
   if (action.actionId.startsWith('library.import-')
     && !action.help && !acceptsLibraryImportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['shader.import', 'shader.apply'].includes(action.actionId)
+    && !action.help && !acceptsShaderMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -2053,6 +2065,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'library-import-input': {
       args.splice(0, args.length,
         ...libraryImportArgvFromRequest(parseLibraryImportRequest(args)));
+      break;
+    }
+    case 'shader-mutation-input': {
+      if (projectUrlTarget) figmaUrlFileKey = shaderMutationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...shaderMutationArgvFromRequest(parseShaderMutationRequest(args)));
       break;
     }
     case 'component-main-input': {
