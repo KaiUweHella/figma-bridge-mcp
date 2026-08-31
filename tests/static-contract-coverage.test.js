@@ -41,6 +41,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/create-text-request.js',
   'engine/src/application/measurement-mutation-command.js',
   'engine/src/application/measurement-mutation-request.js',
+  'engine/src/application/prototype-mutation-command.js',
+  'engine/src/application/prototype-mutation-request.js',
   'engine/src/application/node-text-command.js',
   'engine/src/application/node-text-request.js',
   'engine/src/application/node-duplicate-command.js',

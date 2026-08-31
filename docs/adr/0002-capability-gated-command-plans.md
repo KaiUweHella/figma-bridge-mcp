@@ -276,7 +276,14 @@ conditional, variable and transition facts remain complete within explicit
 depth, collection, value, string and serialized-size limits; an excess fails
 instead of returning a plausible partial interaction contract. Safe JSON text
 escapes terminal controls without changing the parsed facts. Mutating
-`prototype add`, `set` and `clear` remain separate non-retrying Commands.
+`prototype add`, `set` and `clear` share a separate action-discriminated
+Prototype Mutation Application. It validates and bounds reaction JSON before
+readiness, journals the complete prior set, invokes `setReactionsAsync()` once,
+and compares a fresh readback. A mismatch restores the journal and reports
+verified rollback, exact reaction residue or unavailable verification. A
+native error followed by exact requested readback remains a successful
+`verified-after-error` outcome. Both Adapters preserve this bounded result
+through one decreasing non-retrying Plan deadline without Commander re-entry.
 
 `var list` and `var find` own one bounded Variable Discovery Application.
 Their closed request owns list/search intent, one optional literal `*`

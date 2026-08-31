@@ -170,6 +170,10 @@ import {
   prototypeInspectionPlanRoute,
 } from "../engine/src/application/prototype-inspection-command.js";
 import {
+  executePrototypeMutationPlan,
+  prototypeMutationPlanRoute,
+} from "../engine/src/application/prototype-mutation-command.js";
+import {
   collectionCatalogPlanRoute,
   executeCollectionCatalogPlan,
 } from "../engine/src/application/collection-catalog-command.js";
@@ -2650,6 +2654,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executePrototypeInspectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const prototypeMutationRoute = prototypeMutationPlanRoute(plan);
+      if (prototypeMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executePrototypeMutationPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

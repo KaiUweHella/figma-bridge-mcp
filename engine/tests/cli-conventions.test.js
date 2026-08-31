@@ -530,6 +530,34 @@ test('Measurement writes delegate one Plan-bound mutation Application', () => {
   assert.match(application, /page\.deleteMeasurement\(/);
 });
 
+test('Prototype writes delegate one Plan-bound rollback-owned Application', () => {
+  const adapter = sources.get('prototype.js');
+  for (const marker of ["command('add <nodeId>')", "command('set <nodeId>')", "command('clear <nodeId>')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('prototype.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runPrototypeMutation\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|prototype(?:Add|Set|Clear)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'prototype-mutation-command.js'), 'utf8');
+  assert.match(application, /await node\.setReactionsAsync\(desired\)/);
+  assert.match(application, /await node\.setReactionsAsync\(before\)/);
+});
+
+test('the remaining direct Prototype write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('prototype.js'); const direct = [];
+  for (const name of ['add', 'set', 'clear']) {
+    const marker = `command('${name} <nodeId>')`; const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('prototype.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Prototype-family Legacy Write count may decrease, but must never increase silently');
+});
+
 test('Auto Layout creation delegates one Plan-bound rollback-verified Application', () => {
   const adapter = sources.get('create.js');
   const start = adapter.indexOf(".command('autolayout [name]')");

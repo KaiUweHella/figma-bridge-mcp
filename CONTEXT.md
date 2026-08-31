@@ -709,6 +709,14 @@ safe-read Command Application; it is interaction evidence, not executable
 application behavior or permission to mutate reactions.
 _Avoid_: reaction dump, prototype eval, application-flow proof
 
+**Prototype Mutation**:
+The closed, bounded and rollback-owned change of one explicit node's native
+prototype reactions. Add, exact replacement and clear all journal the complete
+prior reaction set, call the async native setter once, and compare a fresh
+readback before reporting verified application, verified-after-error, rollback
+or exact reaction residue through the same CLI/MCP Command Application.
+_Avoid_: reaction eval, optimistic prototype write, retry after dispatch
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one

@@ -296,6 +296,12 @@ import {
   prototypeInspectionFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/prototype-inspection-request.js';
 import {
+  acceptsPrototypeMutationArgv,
+  parsePrototypeMutationRequest,
+  prototypeMutationArgvFromRequest,
+  prototypeMutationFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/prototype-mutation-request.js';
+import {
   acceptsVariableDiscoveryArgv,
   parseVariableDiscoveryRequest,
   variableDiscoveryArgvFromRequest,
@@ -616,7 +622,9 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set', 'node.set-fill', 'node.set-image', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
-  'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect',
+  'prototype.add', 'prototype.set', 'prototype.clear',
+  'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
   'var.list', 'var.find',
   'var.create',
   'var.create-batch',
@@ -816,6 +824,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
+  }
+  if (name === 'prototype' && ['add', 'set', 'clear'].includes(sub)) {
+    pathPolicy = 'prototype-mutation-input';
   }
   if (name === 'var' && sub === 'show') {
     retry = 'safe-read';
@@ -1135,6 +1146,10 @@ function commandCapability(args) {
   }
   if (name === 'prototype' && args[1] === 'inspect'
     && !action.help && !acceptsPrototypeInspectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'prototype' && ['add', 'set', 'clear'].includes(args[1])
+    && !action.help && !acceptsPrototypeMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'show'
@@ -2018,8 +2033,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'measurement-mutation-input': {
-      const closedFileKey = measurementMutationFigmaUrlFileKeyFromArgv(args);
-      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      if (projectUrlTarget) figmaUrlFileKey = measurementMutationFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length,
         ...measurementMutationArgvFromRequest(parseMeasurementMutationRequest(args)));
       break;
@@ -2198,6 +2212,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       args.splice(0, args.length,
         ...prototypeInspectionArgvFromRequest(parsePrototypeInspectionRequest(args)));
+      break;
+    }
+    case 'prototype-mutation-input': {
+      if (projectUrlTarget) figmaUrlFileKey = prototypeMutationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...prototypeMutationArgvFromRequest(parsePrototypeMutationRequest(args)));
       break;
     }
     case 'variable-facts-input': {

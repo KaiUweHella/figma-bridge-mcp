@@ -2082,6 +2082,24 @@ test('Measurement mutations own action-specific canonical cross-Adapter write Pl
   assert.equal(planFigmaCommand(['measure', 'add', '1:2:right', '3:4:left', '--relative', '2']).allowed, false);
 });
 
+test('Prototype mutations own canonical cross-Adapter write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const cases = [
+    [['prototype', 'add', url, '--trigger', 'hover', '--navigate-to', '3:4'], 'prototype.add'],
+    [['prototype', 'set', url, '--json', '[{"trigger":null,"actions":[{"type":"BACK"}]}]'], 'prototype.set'],
+    [['prototype', 'clear', url], 'prototype.clear'],
+  ];
+  for (const [argv, id] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+    assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['prototype', 'add', '1:2']).allowed, false);
+  assert.equal(planFigmaCommand(['prototype', 'set', '1:2', '--json', '{}']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

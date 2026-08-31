@@ -1520,6 +1520,13 @@ Plugin protocol cap. Oversized or malformed facts fail rather than being
 silently truncated, and safe JSON escaping keeps terminal controls inert
 without changing the parsed interaction facts.
 
+`prototype add`, `set`, and `clear` use one non-retrying mutation Application
+in both CLI and MCP. Reaction JSON is bounded before dispatch, the previous
+reaction set is journaled, and fresh readback proves the exact requested set.
+Failed verification restores the journal when possible and otherwise reports
+bounded reaction residue; an exact readback after a native setter error remains
+an explicit `verified-after-error` success.
+
 ### 2026 Plugin APIs: video, shaders, grid, slots, and Draw
 
 The current official Plugin API surface is exposed as Figma Commands rather
