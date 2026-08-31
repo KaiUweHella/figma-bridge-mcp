@@ -194,6 +194,36 @@ test('the remaining direct Slides write inventory is explicit', () => {
     'STAB-06 Slides Legacy Write count may decrease, but must never increase silently');
 });
 
+test('jam board delegates one Plan-bound bounded FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('board')");
+  const end = adapter.indexOf(".command('arrange')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamBoardArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamBoardPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.board|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam traversal, bounds, validation, or formatting');
+});
+
+test('the remaining direct FigJam action inventory is explicit', () => {
+  const adapter = sources.get('jam.js');
+  const commands = ['sticky', 'stickies', 'shape', 'connector', 'table', 'section', 'code', 'board', 'arrange'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /await run\(/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, ['sticky', 'stickies', 'shape', 'connector', 'table', 'section', 'code', 'arrange']);
+  assert.equal(direct.length, 8,
+    'STAB-06 FigJam Legacy Action count may decrease, but must never increase silently');
+});
+
 test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
   const offenders = [];
   for (const [file, source] of sources) {

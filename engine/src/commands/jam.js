@@ -13,10 +13,17 @@ import chalk from 'chalk';
 import {
   program,
   checkConnection,
+  daemonExec,
   fastEval,
   handleEvalError,
 } from '../lib/cli-core.js';
 import * as snippets from '../lib/jam-snippets.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executeJamBoardPlan,
+  jamBoardArgvFromRequest,
+} from '../application/jam-board-command.js';
 
 const jam = program
   .command('jam')
@@ -182,22 +189,27 @@ jam
   .command('board')
   .description('Read the board: every sticky, shape, table and section with its text')
   .option('--json', 'Emit JSON instead of the text listing')
+  .allowExcessArguments(false)
   .action(async (options) => {
-    await run(snippets.board(), (r) => {
-      if (options.json) { console.log(JSON.stringify(r, null, 2)); return; }
-      console.log(chalk.white(`${r.page} — ${r.count} node(s)\n`));
-      for (const n of r.nodes) {
-        const readable = n.text || (n.table ? JSON.stringify(n.table.data) : '');
-        const label = readable ? ` "${readable.replace(/\s+/g, ' ')}"` : '';
-        console.log(`  ${chalk.gray(n.id.padEnd(12))} ${n.type.padEnd(16)} ${String(n.x).padStart(6)},${String(n.y).padStart(6)}${label}`);
-      }
-      if (r.connectors.length) {
-        console.log(chalk.white(`\n${r.connectors.length} connector(s)`));
-        for (const c of r.connectors) {
-          console.log(`  ${chalk.gray(c.id.padEnd(12))} ${c.from} → ${c.to}${c.text ? ` "${c.text}"` : ''}`);
-        }
-      }
-    });
+    try {
+      const plan = planFigmaCommand(jamBoardArgvFromRequest({ json: options.json === true }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamBoardPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam board failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
