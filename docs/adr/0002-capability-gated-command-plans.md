@@ -448,3 +448,15 @@ in every affected parent. A thrown or mismatched native operation reports
 freshly unchanged state, bounded Boolean/parent/member residue or unavailable
 verification instead of trusting the returned node or claiming synthetic
 reconstruction.
+
+`node bind` owns the adjacent single-Node Variable mutation while the separate
+`node bindings` Application remains its read-only discovery counterpart. The
+closed request canonicalizes one Node Reference, supported property, Variable
+query and optional Collection query; ambiguous resources and `--batch` fail
+before readiness. One shared non-retrying Application journals the complete
+prior scalar alias topology or Paint list, applies the exact legacy single-
+property outcome and accepts success only from fresh alias readback. Padding
+and independent-corner bindings are verified as multi-field topology. A
+partial setter or postcondition mismatch restores and re-reads the full prior
+topology, otherwise reporting bounded field residue or unavailable
+verification. Commander and `figma_run` do not retain a second binding path.

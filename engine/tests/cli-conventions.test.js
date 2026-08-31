@@ -329,7 +329,7 @@ test('node delete delegates one Plan-bound hierarchy-verified Command Applicatio
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'node-delete-command.js'), 'utf8');
   assert.ok(adapter, 'node-ops.js exists');
   const start = adapter.indexOf(".command('delete <nodeIds...>')");
-  const end = adapter.indexOf('// ============ BIND', start);
+  const end = adapter.indexOf(".command('bind [nodeId] [property] [varName]')", start);
   const action = adapter.slice(start, end);
 
   assert.match(action, /planFigmaCommand\(nodeDeletePlanningArgvFromRequest\(\{ nodeIds \}\)/);
@@ -438,10 +438,24 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
     }
   }
   assert.deepEqual(direct.sort(), [
-    'bind', 'set', 'set-fill', 'set-image',
+    'set', 'set-fill', 'set-image',
   ]);
-  assert.equal(direct.length, 4,
+  assert.equal(direct.length, 3,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('node bind delegates one Plan-bound readback-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('bind [nodeId] [property] [varName]')");
+  const end = adapter.indexOf('// ============ SET (properties, by node id)', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeBindPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeBindPlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|setBoundVariable\(|setBoundVariableForPaint\(/);
 });
 
 test('node group delegates one Plan-bound rollback-owned Command Application', () => {
@@ -1752,14 +1766,15 @@ test('unsafe legacy bulk writes stop before connection or generated mutation cod
     'Commander delegates the page gate and all rebinding work to the closed Application');
 
   const nodes = sources.get('node-ops.js');
-  for (const [action, endMarker] of [
-    [".command('bind [nodeId] [property] [varName]')", 'const SET_ENUMS'],
-    [".command('set [nodeId]')", null],
-  ]) {
-    const start = nodes.indexOf(action);
-    const end = endMarker ? nodes.indexOf(endMarker, start) : nodes.length;
-    const slice = nodes.slice(start, end);
-    assert.ok(slice.indexOf('if (options.batch)') < slice.indexOf('await checkConnection()'));
-    assert.match(slice, /process\.exitCode = 1/);
-  }
+  const bindStart = nodes.indexOf(".command('bind [nodeId] [property] [varName]')");
+  const bindEnd = nodes.indexOf('// ============ SET (properties, by node id)', bindStart);
+  const bind = nodes.slice(bindStart, bindEnd);
+  assert.ok(bind.indexOf('if (options.batch)') < bind.indexOf('planFigmaCommand('));
+  assert.match(bind, /process\.exitCode = 1/);
+  assert.doesNotMatch(bind, /checkConnection\(|fastEval\(/);
+
+  const setStart = nodes.indexOf(".command('set [nodeId]')");
+  const set = nodes.slice(setStart);
+  assert.ok(set.indexOf('if (options.batch)') < set.indexOf('await checkConnection()'));
+  assert.match(set, /process\.exitCode = 1/);
 });

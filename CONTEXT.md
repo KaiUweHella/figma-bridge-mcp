@@ -60,6 +60,16 @@ _Avoid_: implicit full-document load, connection-only freshness claim, unscoped 
 The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. Local identities resolve from one bounded Variable and Collection catalog before any exact remote lookup; an unavailable remote identity remains explicit and unresolved. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
 _Avoid_: binding dump, token proof, complete variable capture
 
+**Node Variable Binding**:
+The bounded, non-retrying attachment of one uniquely resolved local Variable
+to one supported property on one exact canvas Node. Variable and optional
+Collection ambiguity, type compatibility, target support and rollback
+topology are resolved before the first write. Scalar, multi-side padding,
+independent-corner and first-Solid-Paint outcomes are freshly read back; a
+mismatch restores the complete prior binding or Paint topology and reports
+verified rollback, bounded field residue or unavailable verification.
+_Avoid_: Commander bind handler, setter-return success, first collection match, partial padding rollback
+
 **Component Identity Facts**:
 The exact, versioned and deeply bounded resolution of one explicit Figma
 Instance to its main component and optional component set. It preserves native
