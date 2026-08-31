@@ -2064,6 +2064,24 @@ test('Text creation owns one canonical cross-Adapter write Plan', () => {
   assert.equal(planFigmaCommand(['create', 'text', 'Hello', '--weight', 'black']).allowed, false);
 });
 
+test('Measurement mutations own action-specific canonical cross-Adapter write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const cases = [
+    [['measure', 'add', `${url}:right`, '3-4:left', '--relative', '0.5', '--text', 'Gap'], 'measure.add', ['measure', 'add', '1:2:right', '3:4:left', '--relative=0.5', '--text=Gap']],
+    [['measure', 'edit', 'm:1', '--offset', '-8'], 'measure.edit', ['measure', 'edit', 'm:1', '--offset=-8']],
+    [['measure', 'delete', 'm:1'], 'measure.delete', ['measure', 'delete', 'm:1']],
+  ];
+  for (const [argv, id, canonical] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.argv, canonical); assert.deepEqual(mcp.effects, cli.effects);
+    assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['measure', 'edit', 'm:1']).allowed, false);
+  assert.equal(planFigmaCommand(['measure', 'add', '1:2:right', '3:4:left', '--relative', '2']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

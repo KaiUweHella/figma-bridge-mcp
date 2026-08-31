@@ -514,6 +514,22 @@ test('Text creation delegates one Plan-bound font-preflighted Application', () =
   assert.match(application, /figma\.createText\(\)/);
 });
 
+test('Measurement writes delegate one Plan-bound mutation Application', () => {
+  const adapter = sources.get('measurements.js');
+  for (const marker of ["command('add <from> <to>')", "command('edit <id>')", "command('delete <id>')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('measure.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runMeasurementMutation\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|measurement(?:Add|Edit|Delete)Code\(/);
+  }
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'measurement-mutation-command.js'), 'utf8');
+  assert.match(application, /page\.addMeasurement\(/);
+  assert.match(application, /page\.editMeasurement\(/);
+  assert.match(application, /page\.deleteMeasurement\(/);
+});
+
 test('Auto Layout creation delegates one Plan-bound rollback-verified Application', () => {
   const adapter = sources.get('create.js');
   const start = adapter.indexOf(".command('autolayout [name]')");

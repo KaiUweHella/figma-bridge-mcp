@@ -1171,3 +1171,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can `create text` create a node before discovering that its font or Variable is unavailable?
 >
 > **Domain expert:** No. The Text Application bounds content and typography inputs, resolves the explicit fill Variable and loads the exact font before the first factory call. Its single mutation is followed by fresh character, font, Paint, sizing, hierarchy and selection verification; fixed width remains `HEIGHT` auto-resize and intrinsic width remains `WIDTH_AND_HEIGHT`. Failure removes only the new Text node and reports rollback or exact residue. The mechanically measured public Create-family legacy-write count is now zero.
+
+> **Developer:** Do Dev Mode Measurement writes still return only whatever the direct eval happened to print?
+>
+> **Domain expert:** No. Add, edit and delete share a closed Measurement Mutation Application. It preflights Dev Mode, endpoints or exact Measurement identity and bounded page facts, then freshly verifies the whole collection. Failed add removes only the new Measurement; failed edit restores its prior offset and text; delete is irreversible and distinguishes verified deletion, unchanged state and partial residue. Both Adapters preserve the same bounded outcome without retry.

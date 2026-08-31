@@ -1,11 +1,39 @@
-import { checkConnection, fastEval, handleEvalError, program } from '../lib/cli-core.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
-  measurementAddCode, measurementDeleteCode, measurementEditCode, measurementListCode,
+  executeMeasurementMutationPlan,
+  measurementMutationPlanningArgvFromRequest,
+} from '../application/measurement-mutation-command.js';
+import {
+  checkConnection, daemonExec, fastEval, handleEvalError, program,
+} from '../lib/cli-core.js';
+import {
+  measurementListCode,
 } from '../lib/measurement-management.js';
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
 const run = async (code) => { await checkConnection(); return fastEval(code); };
 const measure = program.command('measure').description('Inspect and manage Dev Mode measurements');
+
+async function runMeasurementMutation(request) {
+  try {
+    const plan = planFigmaCommand(measurementMutationPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeMeasurementMutationPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
 
 measure.command('list [nodeId]').action(async (nodeId) => {
   try { print(await run(measurementListCode({ nodeId }))); } catch (error) { handleEvalError(error); }
@@ -14,17 +42,23 @@ measure.command('add <from> <to>')
   .description('Add a measurement, e.g. 1:2:right 3:4:left')
   .option('--offset <pixels>', 'Outer fixed offset').option('--relative <ratio>', 'Inner relative offset, 0..1')
   .option('--text <text>', 'Free text label')
-  .action(async (from, to, options) => {
-    try { print(await run(measurementAddCode({ from, to, offset: options.offset, relative: options.relative, text: options.text }))); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (from, to, options) => runMeasurementMutation({
+    action: 'add', from, to,
+    offset: options.offset === undefined ? options.relative === undefined ? null
+      : { type: 'INNER', relative: options.relative } : { type: 'OUTER', fixed: options.offset },
+    text: options.text,
+  }));
 measure.command('edit <id>')
   .option('--offset <pixels>', 'Outer fixed offset').option('--relative <ratio>', 'Inner relative offset, 0..1')
   .option('--text <text>', 'Free text label; pass an empty string to clear')
-  .action(async (id, options) => {
-    try { print(await run(measurementEditCode({ id, offset: options.offset, relative: options.relative, text: options.text }))); }
-    catch (error) { handleEvalError(error); }
-  });
-measure.command('delete <id>').action(async (id) => {
-  try { print(await run(measurementDeleteCode({ id }))); } catch (error) { handleEvalError(error); }
-});
+  .allowExcessArguments(false)
+  .action(async (id, options) => runMeasurementMutation({
+    action: 'edit', id,
+    offset: options.offset === undefined ? options.relative === undefined ? null
+      : { type: 'INNER', relative: options.relative } : { type: 'OUTER', fixed: options.offset },
+    text: options.text,
+  }));
+measure.command('delete <id>')
+  .allowExcessArguments(false)
+  .action(async (id) => runMeasurementMutation({ action: 'delete', id }));

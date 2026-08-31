@@ -96,6 +96,12 @@ import {
   parseCreateTextRequest,
 } from '../engine/src/application/create-text-request.js';
 import {
+  acceptsMeasurementMutationArgv,
+  measurementMutationArgvFromRequest,
+  measurementMutationFigmaUrlFileKeyFromArgv,
+  parseMeasurementMutationRequest,
+} from '../engine/src/application/measurement-mutation-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -601,6 +607,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'create.line',
   'create.autolayout',
   'create.text',
+  'measure.add', 'measure.edit', 'measure.delete',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -803,6 +810,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (actionId === 'create.line') pathPolicy = 'create-line-input';
   if (actionId === 'create.autolayout') pathPolicy = 'create-auto-layout-input';
   if (actionId === 'create.text') pathPolicy = 'create-text-input';
+  if (['measure.add', 'measure.edit', 'measure.delete'].includes(actionId)) {
+    pathPolicy = 'measurement-mutation-input';
+  }
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1021,6 +1031,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'create.text' && !action.help && !acceptsCreateTextArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['measure.add', 'measure.edit', 'measure.delete'].includes(action.actionId)
+    && !action.help && !acceptsMeasurementMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -2001,6 +2015,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       const closedFileKey = createTextFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...createTextArgvFromRequest(parseCreateTextRequest(args)));
+      break;
+    }
+    case 'measurement-mutation-input': {
+      const closedFileKey = measurementMutationFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...measurementMutationArgvFromRequest(parseMeasurementMutationRequest(args)));
       break;
     }
     case 'component-main-input': {

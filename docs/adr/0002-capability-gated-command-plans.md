@@ -562,3 +562,13 @@ geometry, hierarchy and selection. Failure removes only the new Text node and
 reports verified rollback, exact residue or unavailable verification. Both
 Adapters use the same non-retrying Plan and bounded outcome; the mechanically
 pinned public Create legacy-write count reaches zero.
+
+Dev Mode Measurement add, edit and delete form one action-discriminated write
+Application. Its closed request canonicalizes endpoint sides, URL-derived file
+identity, fixed/relative offsets and bounded free text. Preflight requires Dev
+Mode, exact nodes or Measurement identity and a bounded unique page inventory.
+Fresh collection readback proves every mutation. Add removes only its new
+Measurement on failure; edit restores the prior offset and text; irreversible
+delete distinguishes verified deletion, unchanged state, partial residue and
+unavailable verification. Both Adapters consume the same non-retrying Plan and
+bounded outcome without Commander re-entry.

@@ -560,6 +560,10 @@ remain explicit skips, while ambiguous Variables stop before mutation. Legacy
 selection-based `create` subcommands remain unreachable through `figma_run`;
 VectorNetwork input is bounded inert JSON on its typed route.
 
+Dev Mode `measure add|edit|delete` mutations share one Plan-bound Application
+across CLI and MCP. Add and edit own rollback; delete reports its irreversible
+freshly verified outcome without retrying after dispatch.
+
 `component main <instanceId>` is the bounded identity read for reuse. Commander
 and MCP resolve the same explicit Instance through one safe-read Command
 Application and return its native main component, optional set, publish keys,
