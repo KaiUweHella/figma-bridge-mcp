@@ -3,6 +3,7 @@
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import {
   MAX_SHADER_ID_CODE_UNITS,
+  MAX_SHADER_DEFINITION_DESCRIPTION_CODE_UNITS,
   MAX_SHADER_PROPERTIES_CODE_UNITS,
   MAX_SHADER_PROPERTY_DEPTH,
   MAX_SHADER_PROPERTY_ENTRIES,
@@ -16,7 +17,7 @@ import {
 
 export { shaderMutationArgvFromRequest, shaderMutationPlanningArgvFromRequest } from './shader-mutation-request.js';
 export const MAX_SHADER_MUTATION_RESULT_CODE_UNITS = 500_000;
-export const MAX_SHADER_DEFINITION_DESCRIPTION_CODE_UNITS = 4_096;
+export { MAX_SHADER_DEFINITION_DESCRIPTION_CODE_UNITS } from './shader-mutation-request.js';
 const APPLICATION_IDS = new Set(SHADER_MUTATION_ACTIONS.map((action) => `shader.${action}`));
 const DEFINITION_TYPES = Object.freeze(['BOOLEAN','TEXT','NUMBER','IMAGE','INSTANCE_SWAP','SLOT','COLOR','POINT','LINE','CIRCLE','CIRCLE_POINT','COLOR_POINT','GRADIENT']);
 const normalized = (request) => parseShaderMutationRequest(shaderMutationArgvFromRequest(request));

@@ -124,6 +124,11 @@ import {
   shaderMutationFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/shader-mutation-request.js';
 import {
+  acceptsShaderReadArgv,
+  parseShaderReadRequest,
+  shaderReadArgvFromRequest,
+} from '../engine/src/application/shader-read-request.js';
+import {
   acceptsDrawArgv,
   drawArgvFromRequest,
   drawFigmaUrlFileKeyFromArgv,
@@ -651,6 +656,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
+  'shader.list',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -683,6 +689,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'library.import-component', 'library.import-component-set',
   'library.collections', 'library.variables',
   'shader.import', 'shader.apply',
+  'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
   'slot.create', 'slot.edit',
@@ -900,6 +907,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
   if (['library.collections', 'library.variables'].includes(actionId)) pathPolicy = 'library-read-input';
   if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
+  if (actionId === 'shader.list') pathPolicy = 'shader-read-input';
   if (actionId.startsWith('draw.')) pathPolicy = 'draw-input';
   if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
   if (actionId === 'slot.reset') pathPolicy = 'slot-reset-input';
@@ -1149,6 +1157,9 @@ function commandCapability(args) {
   }
   if (['shader.import', 'shader.apply'].includes(action.actionId)
     && !action.help && !acceptsShaderMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'shader.list' && !action.help && !acceptsShaderReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId.startsWith('draw.') && !action.help && !acceptsDrawArgv(args)) {
@@ -2186,6 +2197,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = shaderMutationFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length,
         ...shaderMutationArgvFromRequest(parseShaderMutationRequest(args)));
+      break;
+    }
+    case 'shader-read-input': {
+      args.splice(0, args.length,
+        ...shaderReadArgvFromRequest(parseShaderReadRequest(args)));
       break;
     }
     case 'draw-input': {

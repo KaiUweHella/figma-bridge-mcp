@@ -2152,6 +2152,17 @@ test('Shader mutations own canonical cross-Adapter non-retrying write Plans', ()
   assert.equal(planFigmaCommand(['shader', 'apply', '1:2', 'SH:1']).allowed, false);
 });
 
+test('Shader list owns one canonical cross-Adapter safe-read Plan', () => {
+  const mcp = planFigmaCommand(['shader', 'list'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true);
+  assert.equal(mcp.id, 'shader.list');
+  assert.deepEqual(mcp.argv, ['shader', 'list']);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.equal(mcp.execution.retry, 'safe-read');
+  assert.equal(planFigmaCommand(['shader', 'list', 'extra']).allowed, false);
+});
+
 test('Slot create and edit own canonical cross-Adapter non-retrying write Plans', () => {
   const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-1';
   const cases = [

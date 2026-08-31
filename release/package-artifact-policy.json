@@ -157,6 +157,8 @@
     "engine/src/application/library-read-request.js",
     "engine/src/application/shader-mutation-command.js",
     "engine/src/application/shader-mutation-request.js",
+    "engine/src/application/shader-read-command.js",
+    "engine/src/application/shader-read-request.js",
     "engine/src/application/draw-command.js",
     "engine/src/application/draw-request.js",
     "engine/src/application/slot-configuration-command.js",

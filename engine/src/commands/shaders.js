@@ -5,13 +5,35 @@ import {
   shaderMutationArgvFromRequest,
 } from '../application/shader-mutation-command.js';
 import {
-  checkConnection, daemonExec, fastEval, handleEvalError, program,
+  executeShaderReadPlan,
+  shaderReadArgvFromRequest,
+} from '../application/shader-read-command.js';
+import {
+  daemonExec, handleEvalError, program,
 } from '../lib/cli-core.js';
-import { parseShaderProperties, shaderListCode } from '../lib/shader-management.js';
+import { parseShaderProperties } from '../lib/shader-management.js';
 
-const print = (value) => console.log(JSON.stringify(value, null, 2));
-const run = async (code) => { await checkConnection(); return fastEval(code); };
 const shader = program.command('shader').description('Discover, import, and apply native Figma shaders');
+
+async function runShaderRead(request) {
+  try {
+    const plan = planFigmaCommand(shaderReadArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeShaderReadPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
 
 async function runShaderMutation(request) {
   try {
@@ -33,7 +55,9 @@ async function runShaderMutation(request) {
   }
 }
 
-shader.command('list').action(async () => { try { print(await run(shaderListCode())); } catch (error) { handleEvalError(error); } });
+shader.command('list')
+  .allowExcessArguments(false)
+  .action(async () => runShaderRead({ action: 'list' }));
 shader.command('import <shaderId>')
   .allowExcessArguments(false)
   .action(async (shaderId) => runShaderMutation({ action: 'import', shaderId }));

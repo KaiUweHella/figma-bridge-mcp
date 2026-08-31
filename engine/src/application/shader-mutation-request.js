@@ -4,6 +4,7 @@ import { NodeReferenceError, parseNodeReference } from './node-reference.js';
 
 export const SHADER_MUTATION_ACTIONS = Object.freeze(['import', 'apply']);
 export const MAX_SHADER_ID_CODE_UNITS = 1_024;
+export const MAX_SHADER_DEFINITION_DESCRIPTION_CODE_UNITS = 4_096;
 export const MAX_SHADER_PROPERTIES_CODE_UNITS = 64_000;
 export const MAX_SHADER_PROPERTY_ENTRIES = 256;
 export const MAX_SHADER_PROPERTY_DEPTH = 16;

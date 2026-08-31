@@ -641,6 +641,23 @@ test('Shader writes delegate one Plan-bound verified Application', () => {
   assert.match(application, /const fresh = await figma\.getNodeByIdAsync\(request\.nodeId\)/);
 });
 
+test('Shader list delegates one Plan-bound bounded read Application', () => {
+  const adapter = sources.get('shaders.js');
+  const start = adapter.indexOf("command('list')");
+  const end = adapter.indexOf("shader.command('import", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runShaderRead\(/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|shaderListCode\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'shader-read-command.js'), 'utf8');
+  assert.match(application, /await figma\.listAvailableShaders\(\)/);
+});
+
+test('the remaining direct Shader Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('shaders.js');
+  assert.deepEqual([...adapter.matchAll(/shaderListCode|fastEval|checkConnection/g)].map((match) => match[0]), []);
+});
+
 test('the remaining direct Shader write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('shaders.js'); const direct = [];
   for (const name of ['import', 'apply']) {
