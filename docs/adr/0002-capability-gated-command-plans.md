@@ -552,3 +552,13 @@ selection and every requested layout fact. Failure removes only the new Frame
 and reports verified rollback, exact residue or unavailable verification. Both
 Adapters use the same non-retrying Plan and bounded outcome; the mechanically
 pinned public Create legacy-write count falls from two to one.
+
+Text creation completes the public Create-family migration. Its closed request
+bounds content without echoing it in the result, normalizes the supported font
+weights, and preserves intrinsic versus fixed-width auto-resize behavior. The
+Application resolves an explicit fill Variable and loads the exact font before
+the first factory call. It then freshly verifies characters, font, size, Paint,
+geometry, hierarchy and selection. Failure removes only the new Text node and
+reports verified rollback, exact residue or unavailable verification. Both
+Adapters use the same non-retrying Plan and bounded outcome; the mechanically
+pinned public Create legacy-write count reaches zero.

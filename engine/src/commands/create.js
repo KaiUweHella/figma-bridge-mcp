@@ -2,19 +2,14 @@
 import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
-import { normalizeNodeId } from '../lib/node-id.js';
 import {
   progress,
   checkConnection,
   daemonExec,
   evalPrint,
-  generateFillCode,
   getVarName,
-  isVarRef,
   program,
-  smartPosCode,
-  spinnerSucceed,
-  varLoadingCode
+  spinnerSucceed
 } from '../lib/cli-core.js';
 import {
   createFramePlanningArgvFromRequest,
@@ -36,49 +31,16 @@ import {
   createAutoLayoutPlanningArgvFromRequest,
   executeCreateAutoLayoutPlan,
 } from '../application/create-auto-layout-command.js';
+import {
+  createTextPlanningArgvFromRequest,
+  executeCreateTextPlan,
+} from '../application/create-text-command.js';
 
 // ============ CREATE ============
 
 const create = program
   .command('create')
   .description('Create Figma elements');
-
-function childTarget(options) {
-  const parentId = options.parent ? normalizeNodeId(String(options.parent)).id : null;
-  const index = options.index === undefined ? null : Number(options.index);
-  if (index !== null && (!Number.isInteger(index) || index < 0)) {
-    throw new Error('--index must be a non-negative integer');
-  }
-  return { parentId, index };
-}
-
-function childTargetPrelude({ parentId, index }) {
-  if (!parentId) return '';
-  return `const __parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
-if (!__parent) throw new Error('Parent not found: ' + ${JSON.stringify(parentId)});
-if (typeof __parent.appendChild !== 'function') throw new Error('Target cannot contain children: ' + __parent.type);
-${index === null ? '' : `if (${index} > __parent.children.length) throw new Error('Index out of range: ' + ${index});`}`;
-}
-
-function attachToChildTarget(nodeVar, { parentId, index }) {
-  if (!parentId) return '';
-  return index === null
-    ? `__parent.appendChild(${nodeVar});`
-    : `__parent.insertChild(${index}, ${nodeVar});`;
-}
-
-function finiteNumber(value, label, { min = -Infinity, max = Infinity } = {}) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < min || number > max) {
-    throw new Error(`${label} must be a number between ${min} and ${max}`);
-  }
-  return number;
-}
-
-function positionCode({ target, useSmart, gap, explicitX }) {
-  if (target.parentId) return `const smartX = ${explicitX === undefined ? 0 : explicitX};`;
-  return useSmart ? smartPosCode(gap) : `const smartX = ${explicitX};`;
-}
 
 async function runCreateShape(kind, name, options) {
   try {
@@ -169,6 +131,30 @@ async function runCreateAutoLayout(name, options) {
     console.log(result.stdout);
   } catch (error) {
     console.error(chalk.red('✗ Create Auto Layout failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
+
+async function runCreateText(content, options) {
+  try {
+    const plan = planFigmaCommand(createTextPlanningArgvFromRequest({
+      content, x: options.x, y: options.y, size: options.size,
+      color: options.color, weight: options.weight, font: options.font,
+      width: options.width, spacing: options.spacing,
+      parentId: options.parent, index: options.index,
+    }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeCreateTextPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Create Text failed: ' + (error?.message || String(error))));
     process.exitCode = 1;
   }
 }
@@ -397,43 +383,8 @@ create
   .option('--spacing <n>', 'Gap from other elements', '100')
   .option('--parent <nodeId>', 'Create inside this existing parent')
   .option('--index <n>', 'Insert at this child index (default: append)')
-  .action(async (content, options) => {
-    await checkConnection();
-    const weightMap = { regular: 'Regular', medium: 'Medium', semibold: 'Semi Bold', bold: 'Bold' };
-    const fontStyle = weightMap[options.weight.toLowerCase()] || 'Regular';
-    const target = childTarget(options);
-    const x = options.x === undefined ? undefined : finiteNumber(options.x, '-x');
-    const y = finiteNumber(options.y, '-y');
-    const size = finiteNumber(options.size, '--size', { min: 0.01 });
-    const width = options.width === undefined ? null : finiteNumber(options.width, '--width', { min: 0.01 });
-    const spacing = finiteNumber(options.spacing, '--spacing', { min: 0 });
-    const useSmartPos = x === undefined;
-    const usesVars = isVarRef(options.color);
-
-    const fillCode = generateFillCode(options.color, 'text');
-
-    let code = `
-(async function() {
-  ${usesVars ? varLoadingCode() : ''}
-  ${childTargetPrelude(target)}
-  ${positionCode({ target, useSmart: useSmartPos, gap: spacing, explicitX: x })}
-  await figma.loadFontAsync({ family: ${JSON.stringify(options.font)}, style: ${JSON.stringify(fontStyle)} });
-  const text = figma.createText();
-  text.fontName = { family: ${JSON.stringify(options.font)}, style: ${JSON.stringify(fontStyle)} };
-  text.characters = ${JSON.stringify(content)};
-  text.fontSize = ${size};
-  ${fillCode.code}
-  text.x = smartX;
-  text.y = ${y};
-  ${width === null ? '' : `text.resize(${width}, text.height); text.textAutoResize = 'HEIGHT';`}
-  ${attachToChildTarget('text', target)}
-  figma.currentPage.selection = [text];
-  return 'Text created (' + text.id + ') in ' + (text.parent ? text.parent.id : 'none') + ' at (' + text.x + ', ' + text.y + ')';
-})()
-`;
-    const result = await daemonExec('eval', { code });
-    console.log(result);
-  });
+  .allowExcessArguments(false)
+  .action(async (content, options) => runCreateText(content, options));
 
 create
   .command('line')

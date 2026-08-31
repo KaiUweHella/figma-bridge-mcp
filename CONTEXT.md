@@ -1167,3 +1167,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Is `create autolayout` just a Frame alias with an optimistic success string?
 >
 > **Domain expert:** No. Its own closed Application preserves the `al` alias, row/column intent, hug sizing, uniform gap/padding, smart positioning and optional fill/radius. Explicit Variables resolve before creation; fresh readback verifies every requested layout and hierarchy fact. Failure removes only the new Frame and reports rollback or exact residue. Text is the last remaining public Create-family legacy write.
+
+> **Developer:** Can `create text` create a node before discovering that its font or Variable is unavailable?
+>
+> **Domain expert:** No. The Text Application bounds content and typography inputs, resolves the explicit fill Variable and loads the exact font before the first factory call. Its single mutation is followed by fresh character, font, Paint, sizing, hierarchy and selection verification; fixed width remains `HEIGHT` auto-resize and intrinsic width remains `WIDTH_AND_HEIGHT`. Failure removes only the new Text node and reports rollback or exact residue. The mechanically measured public Create-family legacy-write count is now zero.

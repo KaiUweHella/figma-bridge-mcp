@@ -496,11 +496,22 @@ test('the remaining public direct Create write inventory is explicit and cannot 
   if (/checkConnection\(\)/.test(adapter.slice(radialStart, radialEnd))) {
     direct.push('polygon', 'star');
   }
-  assert.deepEqual(direct.sort(), [
-    'text',
-  ]);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct.sort(), []);
+  assert.equal(direct.length, 0,
     'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Text creation delegates one Plan-bound font-preflighted Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('text <content>')");
+  const end = adapter.indexOf('.command(', start + 25);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runCreateText\(content, options\)/);
+  assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|figma\.createText\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'create-text-command.js'), 'utf8');
+  assert.match(application, /await figma\.loadFontAsync\(request\.font\)/);
+  assert.match(application, /figma\.createText\(\)/);
 });
 
 test('Auto Layout creation delegates one Plan-bound rollback-verified Application', () => {

@@ -90,6 +90,12 @@ import {
   parseCreateAutoLayoutRequest,
 } from '../engine/src/application/create-auto-layout-request.js';
 import {
+  acceptsCreateTextArgv,
+  createTextArgvFromRequest,
+  createTextFigmaUrlFileKeyFromArgv,
+  parseCreateTextRequest,
+} from '../engine/src/application/create-text-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -594,6 +600,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'create.vector', 'create.slice',
   'create.line',
   'create.autolayout',
+  'create.text',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -795,6 +802,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (['create.vector', 'create.slice'].includes(actionId)) pathPolicy = 'create-canvas-node-input';
   if (actionId === 'create.line') pathPolicy = 'create-line-input';
   if (actionId === 'create.autolayout') pathPolicy = 'create-auto-layout-input';
+  if (actionId === 'create.text') pathPolicy = 'create-text-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1010,6 +1018,9 @@ function commandCapability(args) {
   }
   if (action.actionId === 'create.autolayout'
     && !action.help && !acceptsCreateAutoLayoutArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.text' && !action.help && !acceptsCreateTextArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -1984,6 +1995,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...createAutoLayoutArgvFromRequest(parseCreateAutoLayoutRequest(args)));
+      break;
+    }
+    case 'create-text-input': {
+      const closedFileKey = createTextFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...createTextArgvFromRequest(parseCreateTextRequest(args)));
       break;
     }
     case 'component-main-input': {
