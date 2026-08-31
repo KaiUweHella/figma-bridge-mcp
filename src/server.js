@@ -502,6 +502,10 @@ import {
   executeAnnotationEditPlan,
 } from "../engine/src/application/annotation-edit-command.js";
 import {
+  annotationCategoryMutationPlanRoute,
+  executeAnnotationCategoryMutationPlan,
+} from "../engine/src/application/annotation-category-mutation-command.js";
+import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
@@ -4158,6 +4162,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeAnnotationEditPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationCategoryMutationRoute = annotationCategoryMutationPlanRoute(plan);
+      if (annotationCategoryMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationCategoryMutationPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

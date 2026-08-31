@@ -631,6 +631,11 @@ import {
   parseAnnotationEditRequest,
 } from '../engine/src/application/annotation-edit-request.js';
 import {
+  acceptsAnnotationCategoryMutationArgv,
+  annotationCategoryMutationArgvFromRequest,
+  parseAnnotationCategoryMutationRequest,
+} from '../engine/src/application/annotation-category-mutation-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -848,6 +853,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'annotate.clear',
   'annotate.remove',
   'annotate.edit',
+  'annotate.category-add', 'annotate.category-edit', 'annotate.category-remove',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1195,6 +1201,10 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'annotate' && sub === 'clear') pathPolicy = 'annotation-clear-input';
   if (name === 'annotate' && sub === 'remove') pathPolicy = 'annotation-remove-input';
   if (name === 'annotate' && sub === 'edit') pathPolicy = 'annotation-edit-input';
+  if (name === 'annotate'
+    && ['category-add', 'category-edit', 'category-remove'].includes(sub)) {
+    pathPolicy = 'annotation-category-mutation-input';
+  }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -1637,6 +1647,11 @@ function commandCapability(args) {
   }
   if (name === 'annotate' && args[1] === 'edit'
     && !action.help && !acceptsAnnotationEditArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate'
+    && ['category-add', 'category-edit', 'category-remove'].includes(args[1])
+    && !action.help && !acceptsAnnotationCategoryMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2630,6 +2645,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...annotationEditArgvFromRequest(parseAnnotationEditRequest(args)));
+      break;
+    }
+    case 'annotation-category-mutation-input': {
+      args.splice(0, args.length, ...annotationCategoryMutationArgvFromRequest(
+        parseAnnotationCategoryMutationRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {

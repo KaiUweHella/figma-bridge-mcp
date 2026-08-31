@@ -1124,6 +1124,26 @@ test('Annotation Edit closes one policy-identical non-retrying patch mutation', 
   assert.equal(cli.audit.capability, 'annotate.edit');
 });
 
+test('Annotation Category mutations close policy-identical non-retrying file writes', () => {
+  for (const [argv, action] of [
+    [['annotate', 'category-add', 'Ready', '--color=green'], 'annotate.category-add'],
+    [['annotate', 'category-edit', 'Review', '--label=Ready'], 'annotate.category-edit'],
+    [['annotate', 'category-remove', 'Review'], 'annotate.category-remove'],
+  ]) {
+    const cli = planFigmaCommand(argv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.effects.editor, 'none');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 

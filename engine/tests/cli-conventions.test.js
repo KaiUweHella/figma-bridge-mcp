@@ -1602,6 +1602,27 @@ test('annotate edit delegates one Plan-bound patch-exact rollback Application', 
     'Commander must not retain Annotation Edit resolution, mutation, rollback, or formatting');
 });
 
+test('annotation category writes delegate one discriminated Plan-bound mutation Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('async function runAnnotationCategoryMutationCommand');
+  const end = adapter.indexOf(".command('list [nodeId]')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /annotationCategoryMutationArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationCategoryMutationPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /category-add <label>/);
+  assert.match(action, /category-edit <category>/);
+  assert.match(action, /category-remove <category>/);
+  assert.equal((action.match(/\.allowExcessArguments\(false\)/g) || []).length, 3);
+  assert.doesNotMatch(action,
+    /checkConnection\(|annotationCategory(?:Create|Edit|Remove)Code|getAnnotationCategoriesAsync/,
+    'Commander must not retain Category resolution, mutation, rollback, or formatting');
+});
+
 test('annotate list delegates one Plan-bound bounded node-or-selection read Application', () => {
   const adapter = sources.get('misc.js');
   assert.ok(adapter, 'misc.js exists');

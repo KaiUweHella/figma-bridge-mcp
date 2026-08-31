@@ -8,8 +8,7 @@ import {
 } from '../../../src/engine.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
-  annotationAddCode, annotationCategoryCreateCode,
-  annotationCategoryEditCode, annotationCategoryRemoveCode,
+  annotationAddCode,
   parseProperties,
 } from '../lib/annotation-management.js';
 import {
@@ -105,6 +104,10 @@ import {
   annotationEditPlanningArgvFromRequest,
   executeAnnotationEditPlan,
 } from '../application/annotation-edit-command.js';
+import {
+  annotationCategoryMutationArgvFromRequest,
+  executeAnnotationCategoryMutationPlan,
+} from '../application/annotation-category-mutation-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1166,18 +1169,51 @@ annotateCmd.command('categories')
     }
   });
 
-annotateCmd.command('category-add <label>').requiredOption('--color <color>').action(async (label, options) => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryCreateCode({ label, color: options.color }) }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
-annotateCmd.command('category-edit <category>').option('--label <label>').option('--color <color>').action(async (category, options) => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryEditCode({ category, label: options.label, color: options.color }) }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
-annotateCmd.command('category-remove <category>').action(async (category) => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryRemoveCode({ category }) }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
+async function runAnnotationCategoryMutationCommand(request) {
+  try {
+    const plan = planFigmaCommand(annotationCategoryMutationArgvFromRequest(request), {
+      adapter: 'cli',
+      fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+        return executeAnnotationCategoryMutationPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Annotation Category Mutation failed: '
+      + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
+
+annotateCmd.command('category-add <label>')
+  .requiredOption('--color <color>')
+  .allowExcessArguments(false)
+  .action(async (label, options) => {
+    await runAnnotationCategoryMutationCommand({ action: 'add', label, color: options.color });
+  });
+annotateCmd.command('category-edit <category>')
+  .option('--label <label>')
+  .option('--color <color>')
+  .allowExcessArguments(false)
+  .action(async (category, options) => {
+    await runAnnotationCategoryMutationCommand({
+      action: 'edit', category, label: options.label, color: options.color,
+    });
+  });
+annotateCmd.command('category-remove <category>')
+  .allowExcessArguments(false)
+  .action(async (category) => {
+    await runAnnotationCategoryMutationCommand({ action: 'remove', category });
+  });
 
 annotateCmd
   .command('list [nodeId]')

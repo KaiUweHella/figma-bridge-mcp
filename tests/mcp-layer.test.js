@@ -2830,6 +2830,37 @@ test('figma_run rejects malformed Annotation Edit before readiness', async () =>
   }
 });
 
+test('figma_run routes Annotation Category writes through one mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf(
+    'const annotationCategoryMutationRoute = annotationCategoryMutationPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationCategoryMutationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Category Mutation must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Category writes before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'category-add', 'Ready'],
+    ['annotate', 'category-add', 'Ready', '--color=purple'],
+    ['annotate', 'category-edit', 'Review'],
+    ['annotate', 'category-edit', 'Review', '--label=x', '--label=y'],
+    ['annotate', 'category-remove', 'Review', '--color=blue'],
+    ['annotate', 'category-remove', 'Review', 'extra'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Section Inventory before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

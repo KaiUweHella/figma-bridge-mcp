@@ -5,15 +5,21 @@ import {
   annotationCategoryInventoryArgvFromRequest,
   parseAnnotationCategoryInventoryRequest,
 } from './annotation-category-inventory-request.js';
+import {
+  ANNOTATION_CATEGORY_COLORS,
+  MAX_ANNOTATION_CATEGORY_ID_CODE_UNITS,
+  MAX_ANNOTATION_CATEGORY_ITEMS,
+  MAX_ANNOTATION_CATEGORY_LABEL_CODE_UNITS,
+} from './annotation-category-facts.js';
 
 export { annotationCategoryInventoryArgvFromRequest } from './annotation-category-inventory-request.js';
 
 const APPLICATION_ID = 'annotate.categories';
-export const MAX_ANNOTATION_CATEGORY_INVENTORY_ITEMS = 1_024;
+export const MAX_ANNOTATION_CATEGORY_INVENTORY_ITEMS = MAX_ANNOTATION_CATEGORY_ITEMS;
 export const MAX_ANNOTATION_CATEGORY_INVENTORY_RESULT_CODE_UNITS = 1_000_000;
-const MAX_ID_CODE_UNITS = 1_024;
-const MAX_LABEL_CODE_UNITS = 1_024;
-const COLORS = new Set(['yellow', 'orange', 'red', 'pink', 'violet', 'blue', 'teal', 'green']);
+const MAX_ID_CODE_UNITS = MAX_ANNOTATION_CATEGORY_ID_CODE_UNITS;
+const MAX_LABEL_CODE_UNITS = MAX_ANNOTATION_CATEGORY_LABEL_CODE_UNITS;
+const COLORS = new Set(ANNOTATION_CATEGORY_COLORS);
 
 export function annotationCategoryInventoryCode() {
   return `(async () => {
