@@ -9,12 +9,7 @@
 import { STICKY_COLORS } from './jam-colors.js';
 
 export { STICKY_COLORS } from './jam-colors.js';
-
-/** Named sticky colours, plus whatever hex a caller passes through. */
-export const SHAPE_TYPES = [
-  'SQUARE', 'ELLIPSE', 'ROUNDED_RECTANGLE', 'DIAMOND',
-  'TRIANGLE_UP', 'TRIANGLE_DOWN', 'PARALLELOGRAM_RIGHT', 'PARALLELOGRAM_LEFT',
-];
+export { JAM_SHAPE_TYPES as SHAPE_TYPES } from './jam-shape-types.js';
 
 // FigJam text lives on sublayers that refuse to be written before their font is
 // loaded, and the font a node reports can be figma.mixed. Loading Inter first

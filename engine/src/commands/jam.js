@@ -36,6 +36,10 @@ import {
   executeJamStickiesPlan,
   jamStickiesArgvFromRequest,
 } from '../application/jam-stickies-command.js';
+import {
+  executeJamShapePlan,
+  jamShapeArgvFromRequest,
+} from '../application/jam-shape-command.js';
 
 const jam = program
   .command('jam')
@@ -126,22 +130,27 @@ jam
   .option('--type <shape>', `One of: ${snippets.SHAPE_TYPES.join(', ')}`, 'ROUNDED_RECTANGLE')
   .option('--at <x,y>', 'Place at absolute coordinates')
   .option('--size <w,h>', 'Size in px', '200,140')
+  .allowExcessArguments(false)
   .action(async (text, options) => {
-    const type = String(options.type).toUpperCase();
-    if (!snippets.SHAPE_TYPES.includes(type)) {
-      console.error(chalk.red(`✗ Unknown shape "${options.type}".`));
-      console.error(chalk.yellow(`  Available: ${snippets.SHAPE_TYPES.join(', ')}`));
-      process.exit(1);
+    try {
+      const plan = planFigmaCommand(jamShapeArgvFromRequest({
+        text, type: options.type, at: options.at, size: options.size,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamShapePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam shape failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    const [w, h] = String(options.size).split(',').map((n) => parseFloat(n));
-    await run(
-      snippets.shape(text, {
-        type, at: options.at,
-        width: Number.isFinite(w) ? w : 200,
-        height: Number.isFinite(h) ? h : 140,
-      }),
-      (r) => console.log(chalk.green('✓'), `Shape ${r.id}`),
-    );
   });
 
 jam

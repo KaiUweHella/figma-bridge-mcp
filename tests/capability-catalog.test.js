@@ -355,6 +355,33 @@ test('Jam Stickies owns one canonical cross-Adapter non-retrying batch Plan', ()
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Jam Shape owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'shape', 'Decision', '--type=diamond', '--size=120px,80rest', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'shape', '--at', '10,-20', '--size', '120,80', '--type', 'DIAMOND', '--', 'Decision',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.shape');
+  assert.deepEqual(cli.argv, [
+    'jam', 'shape', '--type=DIAMOND', '--size=120,80', '--at=10,-20', '--', 'Decision',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'shape'],
+    ['jam', 'shape', 'one', '--type=STAR'],
+    ['jam', 'shape', 'one', '--size=0,10'],
+    ['jam', 'shape', 'one', 'two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });
