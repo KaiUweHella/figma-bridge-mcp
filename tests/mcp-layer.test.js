@@ -170,12 +170,12 @@ test('normalizeOutputArgs anchors map storybook output to the client workspace',
   const { normalizeOutputArgs } = await import('../src/engine.js');
   const base = resolve('work', 'project');
   const inWorkspace = (...parts) => join(base, ...parts);
-  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base).slice(-2),
-    ['-o', inWorkspace('figma-map.json')]);
+  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base),
+    ['map', 'storybook', '--output', inWorkspace('figma-map.json'), '--', 'http://localhost:6006']);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '-o', 'maps/m.json'], base),
-    ['map', 'storybook', inWorkspace('u'), '-o', inWorkspace('maps', 'm.json')]);
+    ['map', 'storybook', '--output', inWorkspace('maps', 'm.json'), '--', inWorkspace('u')]);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '--output=m.json'], base),
-    ['map', 'storybook', inWorkspace('u'), `--output=${inWorkspace('m.json')}`]);
+    ['map', 'storybook', '--output', inWorkspace('m.json'), '--', inWorkspace('u')]);
 });
 
 test('Design Link Registry projection tolerates missing/corrupt files and keeps legacy Storybook mappings', async () => {
@@ -3533,6 +3533,39 @@ test('figma_run rejects malformed Component Spec before workspace or Plugin acce
     ['spec', 'Button', '--check', 'bad-node'],
     ['spec', 'Button', '--tolerance', '2px'],
     ['spec', 'Button', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
+test('figma_run routes Storybook Map through source-first in-process execution', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const storybookMapRoute = storybookMapPlanRoute(plan)');
+  const end = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /prepareStorybookMapPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.ok(route.indexOf('prepareStorybookMapPlan') < route.indexOf('ensurePluginReadiness'));
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeStorybookMapPlan\(plan, prepared/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(route, /enrichFigmaMap\(normalized, plan\.target\.fileKey\)/,
+    'the opt-in REST metadata enrichment remains after publication');
+  assert.doesNotMatch(route, /runCliPlan\(/, 'Storybook Map must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Storybook Map argv before workspace, network, or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['map', 'storybook'],
+    ['map', 'storybook', 'one', 'two'],
+    ['map', 'storybook', 'source', '--output'],
+    ['map', 'storybook', 'source', '--json', '--json'],
+    ['map', 'storybook', 'source', '--future', 'private-value'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));

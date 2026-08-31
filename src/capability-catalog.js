@@ -444,6 +444,12 @@ import {
   parseDesignSourceImportRequest,
 } from '../engine/src/application/design-source-import-request.js';
 import {
+  acceptsStorybookMapArgv,
+  parseStorybookMapRequest,
+  storybookMapArgvFromRequest,
+  storybookMapSourceIsRemote,
+} from '../engine/src/application/storybook-map-request.js';
+import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
   variableSetValueArgvFromRequest,
@@ -654,7 +660,7 @@ const COMMANDS = Object.freeze({
   spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'component-spec-input' },
   analyze: { summary: 'Analyze colors, typography and spacing', mutation: 'read' },
   font: readGroup('Inspect typography, bind variables, or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
-  map: { summary: 'Map Figma components to code', mutation: 'read', path: 'map-file' },
+  map: { summary: 'Map Figma components to code', mutation: 'read', path: 'storybook-map-input' },
   link: readGroup('Link durable Design Entities across code and Figma', ['inspect', 'list', 'configure', 'status', 'accept', 'context'], {
     target: 'conditional', path: 'design-link-registry',
   }),
@@ -729,6 +735,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
   'spec',
+  'map.storybook',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect',
@@ -1383,6 +1390,9 @@ function commandCapability(args) {
   if (name === 'import' && !action.help && !acceptsDesignSourceImportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (action.actionId === 'map.storybook' && !action.help && !acceptsStorybookMapArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'tokens' && args[1] === 'overlap'
     && !action.help && !acceptsTokenOverlapArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1967,17 +1977,21 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       break;
     }
-    case 'map-file':
-      if (args[1] === 'storybook') {
-        const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
-        if (typeof args[sourceIndex] === 'string' && !isUrl(args[sourceIndex])) {
-          args[sourceIndex] = absolute(baseDir, args[sourceIndex]);
-          markRead(args[sourceIndex], 'storybook-source', 'any');
-        }
-      }
-      outputPath = outputFlag(args, baseDir, 'figma-map.json', capability.options);
+    case 'storybook-map-input': {
+      const request = parseStorybookMapRequest(args);
+      const source = storybookMapSourceIsRemote(request.source)
+        ? request.source : absolute(baseDir, request.source);
+      const output = absolute(baseDir, request.output);
+      args.splice(0, args.length, ...storybookMapArgvFromRequest({
+        ...request, source, output,
+      }));
+      if (!storybookMapSourceIsRemote(source)) markRead(source, 'storybook-source', 'any');
+      outputPath = output;
+      outputRole = 'component-map-output';
+      markOptionalRead(output, 'component-map-output', 'file');
       markWrite(outputPath, 'component-map-output');
       break;
+    }
     case 'design-link-registry': {
       const supplied = pathFlag(args, ['--manifest'], baseDir, capability.options);
       const manifest = supplied?.value || absolute(baseDir, 'figma-bridge.json');
@@ -2805,9 +2819,8 @@ function flagValue(args, flags, options) {
 
 /** External outbound access only; authenticated localhost transport is separate. */
 function networkEffect(args, capability) {
-  if (args[0] === 'map' && args[1] === 'storybook') {
-    const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
-    if (isUrl(args[sourceIndex] || '')) return 'read';
+  if (acceptsStorybookMapArgv(args)) {
+    if (storybookMapSourceIsRemote(parseStorybookMapRequest(args).source)) return 'read';
   }
   if (args[0] === 'import') {
     const [sourceIndex] = positionalIndexes(args, 1, ['-c', '--collection', '--save']);

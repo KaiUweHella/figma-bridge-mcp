@@ -46,6 +46,8 @@
     "engine/src/application/component-swap-request.js",
     "engine/src/application/component-spec-command.js",
     "engine/src/application/component-spec-request.js",
+    "engine/src/application/storybook-map-command.js",
+    "engine/src/application/storybook-map-request.js",
     "engine/src/application/page-navigation-command.js",
     "engine/src/application/page-navigation-request.js",
     "engine/src/application/page-structure-command.js",

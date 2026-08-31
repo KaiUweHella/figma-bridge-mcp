@@ -51,6 +51,11 @@ import {
   prepareComponentSpecPlan,
 } from "../engine/src/application/component-spec-command.js";
 import {
+  executeStorybookMapPlan,
+  prepareStorybookMapPlan,
+  storybookMapPlanRoute,
+} from "../engine/src/application/storybook-map-command.js";
+import {
   executeInspectPlan,
   inspectPlanningArgvFromRequest,
   inspectPlanRoute,
@@ -4067,6 +4072,31 @@ export async function handleTool(name, rawArgs) {
             }),
           });
         });
+        return resultFromCli(res);
+      }
+      const storybookMapRoute = storybookMapPlanRoute(plan);
+      if (storybookMapRoute === "command-application") {
+        const prepared = await prepareStorybookMapPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeStorybookMapPlan(plan, prepared, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        if (readRestToken()) {
+          const note = await enrichFigmaMap(normalized, plan.target.fileKey);
+          if (note) res.stdout = (res.stdout || "") + "\n" + note;
+        }
         return resultFromCli(res);
       }
       const screenshotRoute = screenshotPlanRoute(plan);

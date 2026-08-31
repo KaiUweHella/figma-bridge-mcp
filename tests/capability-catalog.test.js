@@ -1788,7 +1788,9 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), [`-o=${inWorkspace('facts.json')}`]);
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);
   assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', inWorkspace('video.gif')]);
-  assert.deepEqual(argv(['map', 'storybook', 'url']).slice(-2), ['-o', inWorkspace('figma-map.json')]);
+  assert.deepEqual(argv(['map', 'storybook', 'url']), [
+    'map', 'storybook', '--output', inWorkspace('figma-map.json'), '--', inWorkspace('url'),
+  ]);
   assert.deepEqual(argv(['link', 'list']).slice(-2), ['--manifest', inWorkspace('figma-bridge.json')]);
   assert.deepEqual(argv(['link', 'set', '1:2', 'ui.button', '--manifest=design/links.json']).slice(-1), [
     `--manifest=${inWorkspace('design', 'links.json')}`,

@@ -2145,6 +2145,21 @@ test('component spec delegates repository preparation and optional Figma read to
     'Commander must not retain Component Spec preparation, readiness, measurement, or formatting logic');
 });
 
+test('map storybook delegates source preparation, bounded inventory, and publication to one Application', () => {
+  const adapter = sources.get('map.js');
+  assert.ok(adapter, 'map.js exists');
+  assert.match(adapter, /\.allowExcessArguments\(false\)/);
+  assert.match(adapter, /planFigmaCommand\(storybookMapPlanningArgvFromRequest\(/);
+  assert.match(adapter, /prepareStorybookMapPlan\(plan/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /executeStorybookMapPlan\(plan/);
+  assert.match(adapter, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(adapter,
+    /checkConnection\(|fetchStorybookIndex\(|componentInventoryCode\(|matchComponents\(|mergeMaps\(|workspaceIO\(\)\.write/,
+    'Commander must not retain Storybook source, Figma inventory, matching, or publication logic');
+});
+
 test('verify delegates capture and persistence to one Plan-bound Screenshot Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');

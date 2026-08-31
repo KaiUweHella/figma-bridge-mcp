@@ -155,7 +155,7 @@ test('cache and every inventory consumer use the bounded projection seam', () =>
   assert.doesNotMatch(misc.slice(listStart, listEnd), /checkConnection\(|componentInventoryCode\(/);
 
   for (const file of [
-    'engine/src/commands/map.js',
+    'engine/src/application/storybook-map-command.js',
     'engine/src/commands/render.js',
     'engine/src/application/semantic-render-command.js',
   ]) {
