@@ -165,6 +165,22 @@ test('slides transition and skip delegate one rollback-owned Slides Property App
   }
 });
 
+test('slides delete delegates one irreversible verified Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('delete <slide>')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesDeletePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesDeletePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.remove|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides resolution, irreversible deletion, or verification');
+});
+
 test('the remaining direct Slides write inventory is explicit', () => {
   const adapter = sources.get('slides.js');
   const commands = ['create', 'duplicate', 'move', 'transition', 'skip', 'delete'];
@@ -173,8 +189,8 @@ test('the remaining direct Slides write inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await run\(/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['delete']);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
     'STAB-06 Slides Legacy Write count may decrease, but must never increase silently');
 });
 

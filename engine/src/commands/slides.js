@@ -5,13 +5,9 @@
 import chalk from 'chalk';
 import {
   program,
-  checkConnection,
   daemonExec,
-  fastEval,
-  handleEvalError,
 } from '../lib/cli-core.js';
 import * as snippets from '../lib/slides-snippets.js';
-import { unionReferenceExecutionValue } from '../application/union-reference.js';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import {
   ensurePluginReadiness,
@@ -38,31 +34,14 @@ import {
   parseSlidesPropertyRequest,
   slidesPropertyPlanningArgvFromRequest,
 } from '../application/slides-property-command.js';
+import {
+  executeSlidesDeletePlan,
+  slidesDeletePlanningArgvFromRequest,
+} from '../application/slides-delete-command.js';
 
 const slides = program
   .command('slides')
   .description('Figma Slides beta: inspect, create, duplicate, move, transition, skip, delete');
-
-async function run(code, onOk) {
-  await checkConnection();
-  let result;
-  try {
-    result = await fastEval(code);
-  } catch (error) {
-    handleEvalError(error);
-    return;
-  }
-  if (result && result.error === 'WRONG_EDITOR') {
-    console.error(chalk.red(`✗ This is a ${result.editor} file, not a Figma Slides deck.`));
-    console.error(chalk.yellow('  Open a Slides file in Figma Desktop and relaunch the Figma Bridge plugin there.'));
-    process.exit(1);
-  }
-  if (result && result.error) {
-    console.error(chalk.red(`✗ ${result.error}`));
-    process.exit(1);
-  }
-  onOk(result);
-}
 
 slides
   .command('inspect [slide]')
@@ -262,10 +241,27 @@ slides
 slides
   .command('delete <slide>')
   .description('Delete exactly one slide resolved by typed node:/name:/label: reference or compatible query')
+  .allowExcessArguments(false)
   .action(async (slide) => {
-    const reference = unionReferenceExecutionValue(slide);
-    await run(snippets.remove(reference), (result) => {
-      const labelled = result.label ? ` [${result.label}]` : '';
-      console.log(chalk.green('✓'), `Deleted slide ${result.id}${labelled} (Figma name: "${result.name}")`);
-    });
+    try {
+      const plan = planFigmaCommand(slidesDeletePlanningArgvFromRequest({ reference: slide }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesDeletePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides delete failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });

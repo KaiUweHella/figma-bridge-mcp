@@ -2746,6 +2746,20 @@ test('figma_run routes Slides properties through the rollback-owned Application'
     'Slides properties must not re-enter Commander');
 });
 
+test('figma_run routes Slides Delete through the irreversible verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesDeleteRoute = slidesDeletePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesDeletePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Delete must not re-enter Commander');
+});
+
 test('figma_run routes Dev Resource Read through the shared bounded-read Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)');

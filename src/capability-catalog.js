@@ -336,6 +336,12 @@ import {
   slidesPropertyFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slides-property-request.js';
 import {
+  acceptsSlidesDeleteArgv,
+  parseSlidesDeleteRequest,
+  slidesDeleteArgvFromRequest,
+  slidesDeleteFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-delete-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -939,7 +945,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
-  'slides.transition', 'slides.skip',
+  'slides.transition', 'slides.skip', 'slides.delete',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1338,7 +1344,8 @@ function specializedPolicy(name, entry, args, actionId) {
       : sub === 'duplicate' ? 'slides-duplicate-input'
         : sub === 'move' ? 'slides-move-input'
           : ['transition', 'skip'].includes(sub)
-            ? 'slides-property-input' : 'slides-reference-input';
+            ? 'slides-property-input'
+            : sub === 'delete' ? 'slides-delete-input' : 'slides-reference-input';
   }
   return { execution, timeoutClass, pathPolicy, retry };
 }
@@ -1569,8 +1576,12 @@ function commandCapability(args) {
     && !action.help && !acceptsSlidesPropertyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'slides' && args[1] === 'delete'
+    && !action.help && !acceptsSlidesDeleteArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'slides'
-    && !['create', 'duplicate', 'move', 'transition', 'skip'].includes(args[1])
+    && !['create', 'duplicate', 'move', 'transition', 'skip', 'delete'].includes(args[1])
     && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2946,6 +2957,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...slidesPropertyArgvFromRequest(parseSlidesPropertyRequest(args)));
+      break;
+    }
+    case 'slides-delete-input': {
+      const closedFileKey = slidesDeleteFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesDeleteArgvFromRequest(parseSlidesDeleteRequest(args)));
       break;
     }
     case 'node-discovery-input': {
