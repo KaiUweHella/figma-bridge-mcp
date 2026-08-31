@@ -63,8 +63,6 @@ import {
 import {
   designLinkFileKeyFromArgv,
   designLinkPlanRoute,
-  designLinkRequestFromArgv,
-  executeDesignLink,
   executeDesignLinkPlan,
   formatDesignLinkResult,
 } from "../engine/src/application/design-link-command.js";
@@ -2262,16 +2260,23 @@ export async function handleTool(name, rawArgs) {
       if (designLinkRoute !== "not-design-link") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
-          compatibilityFallback: designLinkRoute === "command-application" ? false : undefined,
+          compatibilityFallback: false,
         },
-          async ({ fileKey, expectedEditor, timeoutMs }) => {
+          async ({ fileKey, expectedEditor, deadline }) => {
+            if (plan.target.kind !== "none") {
+              await ensurePluginReadiness({
+                deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+              });
+            }
             const adapters = {
-              evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
+              evaluate: (code) => evaluateFigma(code, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              }),
               workspaceIO: WORKSPACE_IO,
             };
-            const result = designLinkRoute === "command-application"
-              ? await executeDesignLinkPlan(plan, adapters)
-              : await executeDesignLink(designLinkRequestFromArgv(normalized), adapters);
+            const result = await executeDesignLinkPlan(plan, adapters);
             return { stdout: formatDesignLinkResult(result), stderr: "" };
           });
         return resultFromCli(res);

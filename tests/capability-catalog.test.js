@@ -1620,7 +1620,7 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['link', 'set', '1:2', 'ui.button']).availability.feature, 'design-links');
 });
 
-test('CLI and MCP decide identical policy for the Design Link tracer only', () => {
+test('CLI and MCP decide identical policy for every Design Link action', () => {
   const cases = [
     {
       argv: ['link', 'inspect', '1:2', '--manifest', '/work/figma-bridge.json'],
@@ -1632,6 +1632,30 @@ test('CLI and MCP decide identical policy for the Design Link tracer only', () =
       argv: ['link', 'set', '1:2', 'ui.button', '--manifest', '/work/figma-bridge.json'],
       effects: { figma: 'write', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
       confirmation: 'configured',
+      retry: 'never',
+    },
+    {
+      argv: ['link', 'list', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
+      confirmation: 'none',
+      retry: 'never',
+    },
+    {
+      argv: ['link', 'configure', '--tokens', 'tokens.json', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'none', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
+      confirmation: 'none',
+      retry: 'never',
+    },
+    ...['status', 'context'].map((action) => ({
+      argv: ['link', action, 'ui.button', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
+      confirmation: 'none',
+      retry: 'never',
+    })),
+    {
+      argv: ['link', 'accept', 'ui.button', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
+      confirmation: 'none',
       retry: 'never',
     },
   ];
@@ -1652,14 +1676,6 @@ test('CLI and MCP decide identical policy for the Design Link tracer only', () =
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy);
   }
-
-  for (const argv of [
-    ['link', 'list'],
-    ['link', 'configure', '--tokens', 'tokens.json'],
-    ['link', 'status', 'ui.button'],
-    ['link', 'accept', 'ui.button'],
-    ['link', 'context', 'ui.button'],
-  ]) assert.equal(planFigmaCommand(argv, { adapter: 'cli' }).allowed, false, argv.join(' '));
 });
 
 test('Design Link planning fails closed on malformed argv and keeps inspect registry reads optional', () => {
@@ -1931,6 +1947,11 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     ['inspect', '1:2', '--format', 'yaml'],
     ['link', 'inspect', '1:2'],
     ['link', 'set', '1:2', 'ui.button'],
+    ['link', 'list'],
+    ['link', 'configure'],
+    ['link', 'status', 'ui.button'],
+    ['link', 'accept', 'ui.button'],
+    ['link', 'context', 'ui.button'],
     ['export', 'assets', '1:2'],
     ['history', 'snapshot', '--json'],
     ['history', 'list'],
@@ -1947,7 +1968,7 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     assert.equal(mcpAdapter, 'mcp');
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
-    if (['export.assets', 'export.code-spec', 'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect', 'link.set', 'verify'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    if (['export.assets', 'export.code-spec', 'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect', 'link.set', 'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context', 'verify'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
     else assert.equal(cliAllowed, false);
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');

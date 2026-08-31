@@ -228,6 +228,27 @@ test('Design Contract delegates target-bound readiness and execution to its Comm
     'Design Contract must not regain Legacy Adapter readiness or eval');
 });
 
+test('every Design Link action delegates through one target-aware Command Application', () => {
+  const adapter = sources.get('link.js');
+  assert.ok(adapter, 'link.js exists');
+  const helperStart = adapter.indexOf('async function runTracer');
+  const helperEnd = adapter.indexOf("link\n  .command('set <nodeId> <entityId>')", helperStart);
+  const helper = adapter.slice(helperStart, helperEnd);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /if \(plan\.target\.kind !== 'none'\)/);
+  assert.match(helper, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeDesignLinkPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  for (const action of ['set', 'inspect', 'list', 'configure', 'status', 'accept', 'context']) {
+    const start = adapter.indexOf(`.command('${action}`);
+    const next = adapter.indexOf("\nlink\n  .command('", start + 1);
+    const slice = adapter.slice(start, next === -1 ? adapter.length : next);
+    assert.match(slice, /runTracer\(/, action);
+  }
+  assert.doesNotMatch(adapter, /checkConnection\(|fastEval\(|executeDesignLink\(/,
+    'Design Link must not regain per-Adapter readiness or domain execution');
+});
+
 test('asset export Adapter delegates one Command Application to Manifest v2', () => {
   const adapter = sources.get('export-eval.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'asset-export-command.js'), 'utf8');

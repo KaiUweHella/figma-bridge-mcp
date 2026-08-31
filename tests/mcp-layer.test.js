@@ -311,13 +311,18 @@ test('the live STDIO server advertises the complete tool surface to MCP clients'
   }
 });
 
-test('figma_run routes the accepted Design Link tracer without a family-wide capture', () => {
+test('figma_run routes every Design Link action through one target-aware Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
-  assert.doesNotMatch(source, /normalized\[0\] === "link"/);
-  assert.match(source, /designLinkPlanRoute\(plan\)/);
-  assert.match(source, /executeDesignLinkPlan\(plan, adapters\)/);
-  assert.match(source, /executeDesignLink\(designLinkRequestFromArgv\(normalized\), adapters\)/);
-  assert.match(source, /compatibilityFallback: designLinkRoute === "command-application" \? false/);
+  const start = source.indexOf('const designLinkRoute = designLinkPlanRoute(plan)');
+  const end = source.indexOf('const designContractRoute = designContractPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /if \(plan\.target\.kind !== "none"\)/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeDesignLinkPlan\(plan, adapters\)/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /executeDesignLink\(|runCliPlan\(/);
 });
 
 test('figma_run routes Design Contract capture/check through the shared Application', () => {

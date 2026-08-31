@@ -195,7 +195,7 @@ test('Design Link request Interface rejects Adapter drift before planning', () =
   }
 });
 
-test('only accepted tracer plans cross the Command Application Seam', async () => {
+test('every accepted Design Link plan crosses the Command Application Seam', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'design-link-plan-'));
   const manifestPath = join(dir, 'figma-bridge.json');
   const argv = ['link', 'set', '9:9', 'screen.settings', '--kind', 'screen', '--manifest', manifestPath];
@@ -203,17 +203,24 @@ test('only accepted tracer plans cross the Command Application Seam', async () =
   const cliPlan = planFigmaCommand(argv, { adapter: 'cli', fileKey: 'FILE' });
   assert.equal(designLinkPlanRoute(mcpPlan), 'command-application');
   assert.equal(designLinkPlanRoute(cliPlan), 'command-application');
-  assert.equal(designLinkPlanRoute(planFigmaCommand(['link', 'list'])), 'in-process-compatibility');
+  for (const args of [
+    ['link', 'list'],
+    ['link', 'configure'],
+    ['link', 'status', 'screen.settings'],
+    ['link', 'accept', 'screen.settings'],
+    ['link', 'context', 'screen.settings'],
+  ]) assert.equal(designLinkPlanRoute(planFigmaCommand(args)), 'command-application', args.join(' '));
   assert.equal(designLinkPlanRoute(planFigmaCommand(['inspect', '9:9'])), 'not-design-link');
   assert.throws(() => designLinkPlanRoute({ ...mcpPlan }), /requires a Command Plan/);
 
   const fromMcp = await executeDesignLinkPlan(mcpPlan, { evaluate: async () => figmaResult });
   const fromCli = await executeDesignLinkPlan(cliPlan, { evaluate: async () => figmaResult });
   assert.deepEqual(fromCli, fromMcp);
-  await assert.rejects(
-    () => executeDesignLinkPlan(planFigmaCommand(['link', 'list']), {}),
-    /is not owned by the Design Link Command Application/,
-  );
+  const listed = await executeDesignLinkPlan(planFigmaCommand([
+    'link', 'list', '--manifest', manifestPath,
+  ]), {});
+  assert.equal(listed.action, 'list');
+  assert.deepEqual(listed.entities.map((entity) => entity.id), ['screen.settings']);
 });
 
 test('link set and inspect keep the established CLI text as a shared output contract', () => {

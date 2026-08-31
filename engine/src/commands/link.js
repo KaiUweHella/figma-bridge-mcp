@@ -2,12 +2,11 @@
 import chalk from 'chalk';
 import { resolve } from 'node:path';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
-import { runInProcessCommandPlan } from '../../../src/engine.js';
-import { program, checkConnection, daemonExec, handleEvalError } from '../lib/cli-core.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import { program, daemonExec, handleEvalError } from '../lib/cli-core.js';
 import {
   designLinkArgvFromRequest,
   designLinkResultRows,
-  executeDesignLink,
   executeDesignLinkPlan,
   formatDesignLinkResult,
 } from '../application/design-link-command.js';
@@ -56,8 +55,12 @@ async function runTracer(request) {
   });
   let domainResult = null;
   await runInProcessCommandPlan(plan, { compatibilityFallback: false },
-    async ({ fileKey, deadline }) => {
-      await checkConnection();
+    async ({ fileKey, expectedEditor, deadline }) => {
+      if (plan.target.kind !== 'none') {
+        await ensurePluginReadiness({
+          deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+        });
+      }
       domainResult = await executeDesignLinkPlan(plan, {
         workspaceIO: io,
         evaluate: (code) => daemonExec('eval', {
@@ -112,10 +115,7 @@ link
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (options) => {
     try {
-      const result = await executeDesignLink(
-        { action: 'list', manifestPath: manifest(options) },
-        { workspaceIO: workspaceIO() },
-      );
+      const result = await runTracer({ action: 'list', manifestPath: manifest(options) });
       if (!result.entities.length) {
         console.log(chalk.gray(`No Design Entities in ${result.path}.`));
         return;
@@ -136,10 +136,10 @@ link
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (options) => {
     try {
-      const result = await executeDesignLink({
+      const result = await runTracer({
         action: 'configure', designDoc: options.designDoc, tokens: options.tokens,
         manifestPath: manifest(options),
-      }, { workspaceIO: workspaceIO() });
+      });
       console.log(chalk.green('✓'), `Configured Project Design Context in ${result.path}`);
       for (const [key, value] of Object.entries(result.project)) console.log(`  ${key}: ${value}`);
     } catch (error) {
@@ -153,11 +153,10 @@ link
   .description('Report which side changed since the accepted Design Entity baseline')
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (entityId, options) => {
-    await checkConnection();
     try {
-      const result = await executeDesignLink({
+      const result = await runTracer({
         action: 'status', entityId, manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
+      });
       console.log(formatRoundTripPlan(result.entity, result.plan, { baseline: result.entity.baseline }));
     } catch (error) {
       handleEvalError(error);
@@ -172,13 +171,12 @@ link
   .option('--require-render-adapter <adapter>', 'Require persisted render provenance (currently dom-capture)')
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (entityId, options) => {
-    await checkConnection();
     try {
-      const result = await executeDesignLink({
+      const result = await runTracer({
         action: 'accept', entityId, comparePath: options.compare ? resolve(options.compare) : undefined,
         maxDiff: options.maxDiff, requiredRenderAdapter: options.requireRenderAdapter,
         manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
+      });
       console.log(chalk.green('✓'), `Accepted current code and Figma state for ${result.entity.id}`);
       console.log(formatRoundTripPlan(result.entity, result.plan, { baseline: result.baseline }));
     } catch (error) {
@@ -191,11 +189,10 @@ link
   .description('Project the smallest relevant code, Figma, Storybook and sync context')
   .option('--manifest <file>', 'Design Link Registry file', DESIGN_LINK_REGISTRY_FILE)
   .action(async (entityId, options) => {
-    await checkConnection();
     try {
-      const result = await executeDesignLink({
+      const result = await runTracer({
         action: 'context', entityId, manifestPath: manifest(options),
-      }, { evaluate: (code) => daemonExec('eval', { code }), workspaceIO: workspaceIO() });
+      });
       console.log(formatProjectDesignContext(result.context));
     } catch (error) {
       handleEvalError(error);
