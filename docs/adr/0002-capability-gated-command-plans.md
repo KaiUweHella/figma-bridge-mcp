@@ -626,3 +626,15 @@ independently derived default-state proof. Because the Plugin API exposes
 neither the target default subtree nor a safe inverse, any dispatch error or
 missing readback is `verification-unavailable` and is never retried. The
 mechanically pinned direct Slot legacy-write count reaches zero.
+
+`layout grid auto-flow` owns the first mutation slice of the Auto Layout Grid
+family. Its closed request treats `gridAutoTracks` and
+`gridItemsPositioning` as one coupled intent and preserves only the official
+`NONE|ROWS` and `MANUAL|ROW_AUTO_FLOW` values. One shared, non-retrying
+Application snapshots both fields, avoids exact no-ops, assigns each field at
+most once, and requires fresh proof of both values. A thrown setter with an
+exact fresh result is `verified-after-error`; every other mismatch restores
+and re-reads both prior fields, then reports verified rollback, exact field
+residue or unavailable verification. Commander and `figma_run` retain no
+second auto-flow write path. The measured remaining Auto Layout Grid legacy
+writes are `set`, `place`, `reorder-rows`, and `reorder-columns`.

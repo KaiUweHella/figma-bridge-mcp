@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { gridAutoFlowCode } from '../src/application/grid-auto-flow-command.js';
 import { shaderApplyCode, shaderImportCode, shaderListCode } from '../src/lib/shader-management.js';
-import { gridLayoutAutoFlowCode, gridLayoutPlaceCode, gridLayoutReorderCode, gridLayoutSetCode } from '../src/lib/grid-layout-management.js';
+import { gridLayoutPlaceCode, gridLayoutReorderCode, gridLayoutSetCode } from '../src/lib/grid-layout-management.js';
 import { parseSlotSettings, slotCreateCode, slotResetCode, slotValidateCode } from '../src/lib/slot-management.js';
 import { drawBrushCode, drawPatternCode, drawStrokeProfileCode, drawTextPathCode, drawTransformGroupCode } from '../src/lib/draw-management.js';
 
@@ -38,7 +39,8 @@ test('auto-layout grid APIs configure tracks, place children, auto-flow, and reo
   assert.equal(grid.gridRowSizes[0].type, 'FIXED');
   await execute(gridLayoutPlaceCode({ gridId: grid.id, childId: child.id, row: 1, column: 1 }), figma);
   assert.equal(child.gridRowAnchorIndex, 1);
-  await execute(gridLayoutAutoFlowCode({ nodeId: grid.id, autoTracks: 'rows', positioning: 'row_auto_flow' }), figma);
+  const autoFlow = JSON.parse(await execute(gridAutoFlowCode({ nodeId: grid.id, autoTracks: 'rows', positioning: 'row_auto_flow' }), figma));
+  assert.equal(autoFlow.outcome, 'verified');
   assert.equal(grid.gridItemsPositioning, 'ROW_AUTO_FLOW');
   assert.equal((await execute(gridLayoutReorderCode({ nodeId: grid.id, axis: 'rows', from: '0', insertionIndex: 2 }), figma)).moves[0].from, 0);
 });

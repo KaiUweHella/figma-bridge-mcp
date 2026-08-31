@@ -91,14 +91,6 @@ return { grid: __gridFacts(node), child: { id: child.id, name: child.name,
   horizontalAlign: child.gridChildHorizontalAlign || 'AUTO', verticalAlign: child.gridChildVerticalAlign || 'AUTO' } };`);
 }
 
-function gridLayoutAutoFlowCode({ nodeId, autoTracks, positioning }) {
-  const tracks = String(autoTracks || '').toUpperCase();
-  const items = String(positioning || '').toUpperCase();
-  if (!['NONE', 'ROWS'].includes(tracks)) throw new Error('--auto-tracks must be none or rows');
-  if (!['MANUAL', 'ROW_AUTO_FLOW'].includes(items)) throw new Error('--positioning must be manual or row_auto_flow');
-  return gridNodeCode(nodeId, `if (node.layoutMode !== 'GRID') throw new Error('Node is not an Auto Layout Grid container'); node.gridAutoTracks = ${JSON.stringify(tracks)}; node.gridItemsPositioning = ${JSON.stringify(items)}; return __gridFacts(node);`);
-}
-
 function gridLayoutReorderCode({ nodeId, axis, from, insertionIndex }) {
   const normalizedAxis = String(axis).toLowerCase();
   if (!['rows', 'columns'].includes(normalizedAxis)) throw new Error('Axis must be rows or columns');
@@ -110,6 +102,6 @@ function gridLayoutReorderCode({ nodeId, axis, from, insertionIndex }) {
 }
 
 export {
-  gridLayoutAutoFlowCode, gridLayoutInspectCode, gridLayoutPlaceCode,
-  gridLayoutReorderCode, gridLayoutSetCode, parseIndices, parseTrackSizes,
+  gridLayoutInspectCode, gridLayoutPlaceCode, gridLayoutReorderCode,
+  gridLayoutSetCode, parseIndices, parseTrackSizes,
 };

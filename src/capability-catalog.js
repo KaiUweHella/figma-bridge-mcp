@@ -125,6 +125,12 @@ import {
   slotResetFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slot-reset-request.js';
 import {
+  acceptsGridAutoFlowArgv,
+  gridAutoFlowArgvFromRequest,
+  gridAutoFlowFigmaUrlFileKeyFromArgv,
+  parseGridAutoFlowRequest,
+} from '../engine/src/application/grid-auto-flow-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -642,6 +648,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.import', 'shader.apply',
   'slot.create', 'slot.edit',
   'slot.reset',
+  'layout.grid.auto-flow',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -853,6 +860,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
   if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
   if (actionId === 'slot.reset') pathPolicy = 'slot-reset-input';
+  if (actionId === 'layout.grid.auto-flow') pathPolicy = 'grid-auto-flow-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1093,6 +1101,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'slot.reset' && !action.help && !acceptsSlotResetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'layout.grid.auto-flow'
+    && !action.help && !acceptsGridAutoFlowArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -2105,6 +2117,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'slot-reset-input': {
       if (projectUrlTarget) figmaUrlFileKey = slotResetFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length, ...slotResetArgvFromRequest(parseSlotResetRequest(args)));
+      break;
+    }
+    case 'grid-auto-flow-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridAutoFlowFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...gridAutoFlowArgvFromRequest(parseGridAutoFlowRequest(args)));
       break;
     }
     case 'component-main-input': {

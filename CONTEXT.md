@@ -747,6 +747,15 @@ pretending that Figma's unexposed default subtree was independently derived or
 that a safe inverse exists.
 _Avoid_: slot configuration eval, optimistic property rename, inferred reset postcondition
 
+**Grid Auto Flow Mutation**:
+The closed, rollback-owned change of one native Auto Layout Grid container's
+`gridAutoTracks` and `gridItemsPositioning` facts. Both fields are one coupled
+intent: exact no-ops do not dispatch, success requires fresh readback of both,
+and a mismatch restores and re-reads both prior values. CLI and MCP share one
+non-retrying Command Application and report verified-after-error, rollback,
+exact field residue or unavailable verification without changing Grid policy.
+_Avoid_: Grid auto-flow eval, optimistic two-field assignment, partial field success
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -1225,3 +1234,7 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can Slot creation and definition editing share one safe outcome with `resetSlot()`?
 >
 > **Domain expert:** The configuration actions share rollback semantics; reset has its own truthful outcome. `slot create` snapshots existing Slot and definition identities, calls `createSlot()` once, and proves the exact new descendant and requested configuration; failure removes only the new identities. `slot edit` journals the effective definition, preserves unspecified settings, and proves a rename/configuration through fresh readback or restores that definition. `slot reset` calls `resetSlot()` once and reports `native-confirmed` only after the native call returns and a fresh bounded before/after fact pair is available. Because Figma exposes neither the intended default child subtree nor an inverse, a dispatch error remains `verification-unavailable` even when readback changed. All three actions are non-retrying in both Adapters, and the direct Slot legacy-write count is zero.
+
+> **Developer:** Can `layout grid auto-flow` leave one of its two native fields changed after reporting failure?
+>
+> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan, and four separate Auto Layout Grid legacy writes remain measured for later migration.

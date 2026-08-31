@@ -1562,6 +1562,10 @@ implicitly, and a failed postcondition either restores the complete prior
 paint/effect field or reports possible residue. `layout grid` means the Auto
 Layout Grid model; the older top-level `grid` command remains Layout Guide
 management.
+`layout grid auto-flow` uses one non-retrying CLI/MCP mutation path: it treats
+auto-track and item-positioning settings as one intent, verifies both through
+a fresh node read, and restores both prior values on a mismatched result or
+reports the exact remaining field residue.
 `grid list [nodeId]` is the exact bounded read for those layout guides and may
 use the current selection when the id is omitted. It preserves `gridStyleId`,
 all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count

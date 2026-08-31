@@ -2171,6 +2171,24 @@ test('Slot reset owns one URL-targeted irreversible non-retrying Plan', () => {
   assert.equal(planFigmaCommand(['slot', 'reset']).allowed, false);
 });
 
+test('Grid Auto Flow owns one URL-targeted rollback-capable non-retrying Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const mcp = planFigmaCommand([
+    'layout', 'grid', 'auto-flow', url,
+    '--positioning=row_auto_flow', '--auto-tracks', 'rows',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.auto-flow');
+  assert.deepEqual(mcp.argv, [
+    'layout', 'grid', 'auto-flow', '--auto-tracks', 'rows',
+    '--positioning', 'row_auto_flow', '--', '2:1',
+  ]);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand(['layout', 'grid', 'auto-flow', '2:1']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],
