@@ -171,6 +171,8 @@
     "engine/src/application/jam-arrange-request.js",
     "engine/src/application/jam-board-command.js",
     "engine/src/application/jam-board-request.js",
+    "engine/src/application/jam-stickies-command.js",
+    "engine/src/application/jam-stickies-request.js",
     "engine/src/application/jam-sticky-command.js",
     "engine/src/application/jam-sticky-request.js",
     "engine/src/application/layout-grid-contract.js",

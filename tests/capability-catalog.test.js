@@ -326,6 +326,35 @@ test('Jam Sticky owns one canonical cross-Adapter non-retrying creation Plan', (
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Jam Stickies owns one canonical cross-Adapter non-retrying batch Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'stickies', 'One;Two', '--color=green', '--columns=2',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'stickies', '--columns', '2', '--',
+    '[{"text":"One","color":"#A8E6A1"},{"text":"Two","color":"green"}]',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.stickies');
+  assert.deepEqual(cli.argv, [
+    'jam', 'stickies', '--columns=2', '--',
+    '[{"text":"One","color":"#A8E6A1"},{"text":"Two","color":"#A8E6A1"}]',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'stickies'],
+    ['jam', 'stickies', '[]'],
+    ['jam', 'stickies', 'one', 'two'],
+    ['jam', 'stickies', 'one', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });

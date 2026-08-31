@@ -32,6 +32,10 @@ import {
   executeJamStickyPlan,
   jamStickyArgvFromRequest,
 } from '../application/jam-sticky-command.js';
+import {
+  executeJamStickiesPlan,
+  jamStickiesArgvFromRequest,
+} from '../application/jam-stickies-command.js';
 
 const jam = program
   .command('jam')
@@ -93,29 +97,27 @@ jam
   .option('--color <name>', 'Fill for all of them')
   .option('--at <x,y>', 'Top-left of the grid')
   .option('--columns <n>', 'Stickies per row', '4')
+  .allowExcessArguments(false)
   .action(async (items, options) => {
-    const trimmed = items.trim();
-    let list;
-    if (trimmed.startsWith('[')) {
-      try { list = JSON.parse(trimmed); } catch (e) {
-        console.error(chalk.red(`✗ --items is not valid JSON: ${e.message}`));
-        process.exit(1);
-      }
-    } else {
-      list = trimmed.split(/[\n;]/).map((s) => s.trim()).filter(Boolean);
+    try {
+      const plan = planFigmaCommand(jamStickiesArgvFromRequest({
+        source: items, color: options.color, at: options.at, columns: options.columns,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamStickiesPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam stickies failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    // Entries may be plain strings or {text, color} objects.
-    const normalized = (Array.isArray(list) ? list : []).map((item) => (typeof item === 'string'
-      ? { text: item, color: options.color || null }
-      : { text: String(item?.text ?? ''), color: item?.color || options.color || null }));
-    if (!normalized.length) {
-      console.error(chalk.red('✗ Nothing to add.'));
-      process.exit(1);
-    }
-    await run(
-      snippets.stickies(normalized, { at: options.at, columns: options.columns }),
-      (r) => console.log(chalk.green('✓'), `${r.count} stickies added`),
-    );
   });
 
 jam

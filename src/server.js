@@ -526,6 +526,10 @@ import {
   jamStickyPlanRoute,
 } from "../engine/src/application/jam-sticky-command.js";
 import {
+  executeJamStickiesPlan,
+  jamStickiesPlanRoute,
+} from "../engine/src/application/jam-stickies-command.js";
+import {
   devResourceReadPlanRoute,
   executeDevResourceReadPlan,
 } from "../engine/src/application/dev-resource-read-command.js";
@@ -4352,6 +4356,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeJamStickyPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamStickiesRoute = jamStickiesPlanRoute(plan);
+      if (jamStickiesRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamStickiesPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
