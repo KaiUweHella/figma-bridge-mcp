@@ -75,6 +75,23 @@ test('a11y checks fail loudly (no console.log for execution errors)', () => {
     'the four violation-reporting checks offer --fail-on-issues for CI');
 });
 
+test('slides inspect delegates one Plan-bound bounded Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('inspect [slide]')");
+  const end = adapter.indexOf(".command('create [label]')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesInspectPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesInspectPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.inspect|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides grid capture, resolution, or result formatting');
+});
+
 test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
   const offenders = [];
   for (const [file, source] of sources) {

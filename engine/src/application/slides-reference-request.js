@@ -115,3 +115,35 @@ export function slidesReferencePlanningArgvFromRequest(request) {
 export function slidesReferenceFigmaUrlFileKeyFromArgv(args) {
   return parseSlidesReferenceRequest(args).reference?.fileKey || null;
 }
+
+function typedInspectRequest(request) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    throw new TypeError('Slides Inspect request must be an object.');
+  }
+  if (Object.keys(request).some((key) => key !== 'reference')) {
+    throw requestError('inspect request contains an unknown field');
+  }
+  if (request.reference === undefined || request.reference === null) return null;
+  try { return parseUnionReference(request.reference); }
+  catch (error) { throw requestError(error.message); }
+}
+
+function inspectArgv(request, planning) {
+  const reference = typedInspectRequest(request);
+  const args = ['slides', 'inspect'];
+  if (reference) {
+    args.push(reference.kind === 'node' && planning
+      ? `node:${reference.planningValue}`
+      : unionReferenceArgvValue(reference));
+  }
+  parseSlidesReferenceRequest(args);
+  return args;
+}
+
+export function slidesInspectArgvFromRequest(request) {
+  return inspectArgv(request, false);
+}
+
+export function slidesInspectPlanningArgvFromRequest(request) {
+  return inspectArgv(request, true);
+}

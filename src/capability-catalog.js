@@ -915,6 +915,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'analyze.lint',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
+  'slides.inspect',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',

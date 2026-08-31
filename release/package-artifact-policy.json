@@ -265,6 +265,7 @@
     "engine/src/application/node-discovery-command.js",
     "engine/src/application/node-discovery-request.js",
     "engine/src/application/node-reference.js",
+    "engine/src/application/slides-inspect-command.js",
     "engine/src/application/slides-reference-request.js",
     "engine/src/application/node-tree-command.js",
     "engine/src/application/node-tree-request.js",

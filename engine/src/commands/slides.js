@@ -6,11 +6,21 @@ import chalk from 'chalk';
 import {
   program,
   checkConnection,
+  daemonExec,
   fastEval,
   handleEvalError,
 } from '../lib/cli-core.js';
 import * as snippets from '../lib/slides-snippets.js';
 import { unionReferenceExecutionValue } from '../application/union-reference.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import {
+  ensurePluginReadiness,
+  runInProcessCommandPlan,
+} from '../../../src/engine.js';
+import {
+  executeSlidesInspectPlan,
+  slidesInspectPlanningArgvFromRequest,
+} from '../application/slides-inspect-command.js';
 
 const slides = program
   .command('slides')
@@ -50,9 +60,31 @@ function index(value, label, { optional = false } = {}) {
 slides
   .command('inspect [slide]')
   .description('Read the slide grid, or one typed node:/name:/label: reference or compatible query')
+  .allowExcessArguments(false)
   .action(async (slide) => {
-    const reference = slide ? unionReferenceExecutionValue(slide) : null;
-    await run(snippets.inspect(reference), (result) => console.log(JSON.stringify(result, null, 2)));
+    try {
+      const plan = planFigmaCommand(slidesInspectPlanningArgvFromRequest({
+        reference: slide || null,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesInspectPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides inspect failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 slides
