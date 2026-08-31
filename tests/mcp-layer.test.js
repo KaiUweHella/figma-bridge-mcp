@@ -761,6 +761,33 @@ test('figma_run routes Grid Auto Flow through the rollback-owned Application', (
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Auto Flow must not re-enter Commander');
 });
 
+test('figma_run routes Grid Set through the journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridSetRoute = gridSetPlanRoute(plan)');
+  const end = source.indexOf('const gridAutoFlowRoute = gridAutoFlowPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridSetPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Set must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Grid Set before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'set', '2:1'],
+    ['layout', 'grid', 'set', '2:1', '--rows', '0'],
+    ['layout', 'grid', 'set', '2:1', '--rows', '2', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Grid Auto Flow before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

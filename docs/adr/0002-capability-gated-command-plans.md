@@ -662,6 +662,18 @@ confirmed differences are `partial-residue`, and unreadable post-state remains
 `verification-unavailable`. Commander and `figma_run` retain no second track
 reorder path. The measured remaining Auto Layout Grid legacy write is `set`.
 
+`layout grid set` closes the final Auto Layout Grid write. Its request owns the
+complete optional dimension, gap and bounded track-size grammar, including the
+existing conversion from a non-Grid layout. The shared non-retrying
+Application snapshots Grid configuration and bounded child facts, refuses a
+manual shrink beneath an occupied span, avoids an exact no-op, and freshly
+proves the coupled requested configuration plus preservation of unspecified
+facts. Failure restores the prior Grid journal and manual child placement, or
+the prior non-Grid mode and free child geometry, then reports exact rollback,
+bounded residue or unavailable verification. Commander and `figma_run` retain
+no second configuration path. The mechanically pinned direct Auto Layout Grid
+legacy-write count reaches zero.
+
 All migrated Command Applications now share one Command Failure Outcome
 projection. It validates the closed terminal Dispatch state and version-1
 mutation report, accepts only the reviewed mutation outcomes and bounded

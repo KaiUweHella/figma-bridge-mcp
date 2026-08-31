@@ -142,6 +142,10 @@ import {
   gridAutoFlowPlanRoute,
 } from "../engine/src/application/grid-auto-flow-command.js";
 import {
+  executeGridSetPlan,
+  gridSetPlanRoute,
+} from "../engine/src/application/grid-set-command.js";
+import {
   executeGridPlacePlan,
   gridPlacePlanRoute,
 } from "../engine/src/application/grid-place-command.js";
@@ -2440,6 +2444,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeSlotResetPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridSetRoute = gridSetPlanRoute(plan);
+      if (gridSetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeGridSetPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

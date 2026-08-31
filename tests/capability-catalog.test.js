@@ -2189,6 +2189,24 @@ test('Grid Auto Flow owns one URL-targeted rollback-capable non-retrying Plan', 
   assert.equal(planFigmaCommand(['layout', 'grid', 'auto-flow', '2:1']).allowed, false);
 });
 
+test('Grid Set owns one URL-targeted journaled non-retrying Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const mcp = planFigmaCommand([
+    'layout', 'grid', 'set', '--row-gap=12', url, '--rows', '2',
+    '--row-sizes', '[{"type":"fixed","value":40},{"type":"hug"}]',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.set');
+  assert.deepEqual(mcp.argv, [
+    'layout', 'grid', 'set', '--rows', '2', '--row-gap', '12',
+    '--row-sizes', '[{"type":"FIXED","value":40},{"type":"HUG"}]', '--', '2:1',
+  ]);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand(['layout', 'grid', 'set', '2:1']).allowed, false);
+});
+
 test('Grid Place owns one dual-URL rollback-capable non-retrying Plan', () => {
   const grid = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
   const child = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=3-1';

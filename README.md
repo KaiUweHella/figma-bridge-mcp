@@ -1563,6 +1563,11 @@ implicitly, and a failed postcondition either restores the complete prior
 paint/effect field or reports possible residue. `layout grid` means the Auto
 Layout Grid model; the older top-level `grid` command remains Layout Guide
 management.
+`layout grid set` uses one journaled, non-retrying CLI/MCP path for Grid
+conversion, dimensions, gaps and explicit track definitions. It refuses a
+manual shrink beneath an occupied child span, verifies the complete requested
+configuration while preserving unspecified facts, and restores prior Grid or
+free-layout state on failure when Figma permits it.
 `layout grid auto-flow` uses one non-retrying CLI/MCP mutation path: it treats
 auto-track and item-positioning settings as one intent, verifies both through
 a fresh node read, and restores both prior values on a mismatched result or

@@ -756,6 +756,15 @@ non-retrying Command Application and report verified-after-error, rollback,
 exact field residue or unavailable verification without changing Grid policy.
 _Avoid_: Grid auto-flow eval, optimistic two-field assignment, partial field success
 
+**Grid Configuration Mutation**:
+The closed, journaled change of a Grid-capable container's layout mode,
+dimensions, gaps and explicit row/column track definitions. It preserves the
+established non-Grid-to-Grid conversion, refuses a manual shrink beneath an
+occupied child span, skips exact no-ops and freshly proves requested plus
+unspecified facts. Failure restores prior Grid and child-placement facts, or
+the prior non-Grid mode and free child geometry, and reports residue explicitly.
+_Avoid_: Grid configuration eval, occupied destructive shrink, optimistic track setters
+
 **Grid Child Placement**:
 The closed, rollback-owned placement of one Scene child into one native manual
 Auto Layout Grid cell. It preflights hierarchy, dimensions, spans, alignment
@@ -1264,4 +1273,4 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 
 > **Developer:** Can `layout grid auto-flow` leave one of its two native fields changed after reporting failure?
 >
-> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan. Grid child placement has the same authoritative seam. Row and column reordering now share a separate irreversible Application: it validates the native permutation and fresh tracks plus child anchors/spans, but never claims a rollback that Figma cannot safely provide. `set` is the one remaining measured Auto Layout Grid legacy write.
+> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan. Grid child placement has the same authoritative seam. Row and column reordering share a separate irreversible Application: it validates the native permutation and fresh tracks plus child anchors/spans, but never claims a rollback that Figma cannot safely provide. Grid configuration now owns dimensions, gaps, track definitions and non-Grid conversion with an occupied-span preflight and a journaled rollback. The measured direct Auto Layout Grid legacy-write count is zero.

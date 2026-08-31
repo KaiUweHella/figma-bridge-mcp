@@ -1137,6 +1137,20 @@ test('grid command vocabulary separates Layout Guides from Auto Layout Grid', ()
   assert.match(autoLayout, /command\('layout'\).*Manage native Auto Layout features/s);
 });
 
+test('Grid Set delegates one Plan-bound journaled Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('set <nodeId>')");
+  const end = adapter.indexOf("grid.command('place <gridId> <childId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGridSet\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutSetCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-set-command.js'), 'utf8');
+  assert.match(application, /node\.gridRowCount = desiredRows/);
+  assert.match(application, /Fresh Grid Set postcondition failed/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+});
+
 test('Grid Auto Flow delegates one Plan-bound rollback-owned Application', () => {
   const adapter = sources.get('grid-layout.js');
   const start = adapter.indexOf("grid.command('auto-flow <nodeId>')");
@@ -1191,8 +1205,8 @@ test('the remaining direct Auto Layout Grid write inventory is explicit', () => 
     const action = adapter.slice(start, end === -1 ? adapter.length : end);
     if (/\brun\(|checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
   }
-  assert.deepEqual(direct, ['set']);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
     'STAB-26 Auto Layout Grid Legacy Write count may decrease, but must never increase silently');
 });
 

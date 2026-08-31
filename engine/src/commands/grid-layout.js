@@ -9,13 +9,15 @@ import {
   gridPlaceArgvFromRequest,
 } from '../application/grid-place-command.js';
 import {
+  executeGridSetPlan,
+  gridSetArgvFromRequest,
+} from '../application/grid-set-command.js';
+import {
   executeGridTrackReorderPlan,
   gridTrackReorderArgvFromRequest,
 } from '../application/grid-track-reorder-command.js';
 import { checkConnection, daemonExec, fastEval, handleEvalError, program } from '../lib/cli-core.js';
-import {
-  gridLayoutInspectCode, gridLayoutSetCode,
-} from '../lib/grid-layout-management.js';
+import { gridLayoutInspectCode } from '../lib/grid-layout-management.js';
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
 const run = async (code) => { await checkConnection(); return fastEval(code); };
@@ -82,15 +84,37 @@ async function runGridTrackReorder(request) {
   }
 }
 
+async function runGridSet(request) {
+  try {
+    const plan = planFigmaCommand(gridSetArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeGridSetPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
 grid.command('inspect <nodeId>').action(async (nodeId) => { try { print(await run(gridLayoutInspectCode({ nodeId }))); } catch (error) { handleEvalError(error); } });
 grid.command('set <nodeId>')
   .option('--rows <count>').option('--columns <count>').option('--row-gap <pixels>').option('--column-gap <pixels>')
   .option('--row-sizes <json>', 'Track array, e.g. [{"type":"FIXED","value":100}]')
   .option('--column-sizes <json>', 'Track array, e.g. [{"type":"FLEX","value":1}]')
-  .action(async (nodeId, options) => {
-    try { print(await run(gridLayoutSetCode({ nodeId, rows: options.rows, columns: options.columns, rowGap: options.rowGap, columnGap: options.columnGap, rowSizes: options.rowSizes, columnSizes: options.columnSizes }))); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (nodeId, options) => runGridSet({
+    nodeId, rows: options.rows, columns: options.columns,
+    rowGap: options.rowGap, columnGap: options.columnGap,
+    rowSizes: options.rowSizes, columnSizes: options.columnSizes,
+  }));
 grid.command('place <gridId> <childId>')
   .requiredOption('--row <index>').requiredOption('--column <index>')
   .option('--row-span <count>').option('--column-span <count>')

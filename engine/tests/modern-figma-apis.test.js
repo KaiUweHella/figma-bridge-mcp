@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gridAutoFlowCode } from '../src/application/grid-auto-flow-command.js';
 import { gridPlaceCode } from '../src/application/grid-place-command.js';
+import { gridSetCode } from '../src/application/grid-set-command.js';
 import { gridTrackReorderCode } from '../src/application/grid-track-reorder-command.js';
 import { shaderApplyCode, shaderImportCode, shaderListCode } from '../src/lib/shader-management.js';
-import { gridLayoutSetCode } from '../src/lib/grid-layout-management.js';
 import { parseSlotSettings, slotCreateCode, slotResetCode, slotValidateCode } from '../src/lib/slot-management.js';
 import { drawBrushCode, drawPatternCode, drawStrokeProfileCode, drawTextPathCode, drawTransformGroupCode } from '../src/lib/draw-management.js';
 
@@ -76,7 +76,7 @@ function gridFixture() {
 
 test('auto-layout grid APIs configure tracks, place children, auto-flow, and reorder', async () => {
   const { grid, child, figma } = gridFixture();
-  const result = await execute(gridLayoutSetCode({ nodeId: grid.id, rows: 2, columns: 2, rowGap: 8, rowSizes: [{ type: 'FIXED', value: 100 }, { type: 'FLEX', value: 1 }] }), figma);
+  const result = JSON.parse(await execute(gridSetCode({ nodeId: grid.id, rows: 2, columns: 2, rowGap: 8, rowSizes: [{ type: 'FIXED', value: 100 }, { type: 'FLEX', value: 1 }] }), figma));
   assert.equal(result.after.layoutMode, 'GRID');
   assert.equal(grid.gridRowSizes[0].type, 'FIXED');
   const placed = JSON.parse(await execute(gridPlaceCode({
@@ -108,7 +108,7 @@ test('occupied native grids grow without resetting layout mode', async () => {
   grid.gridColumnCount = 1;
   grid.appendChildAt(child, 0, 0);
 
-  const result = await execute(gridLayoutSetCode({ nodeId: grid.id, rows: 2 }), figma);
+  const result = JSON.parse(await execute(gridSetCode({ nodeId: grid.id, rows: 2 }), figma));
 
   assert.equal(result.after.layoutMode, 'GRID');
   assert.equal(grid.gridRowCount, 2);

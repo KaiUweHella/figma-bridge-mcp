@@ -161,6 +161,8 @@
     "engine/src/application/grid-auto-flow-request.js",
     "engine/src/application/grid-place-command.js",
     "engine/src/application/grid-place-request.js",
+    "engine/src/application/grid-set-command.js",
+    "engine/src/application/grid-set-request.js",
     "engine/src/application/grid-track-reorder-command.js",
     "engine/src/application/grid-track-reorder-request.js",
     "engine/src/application/node-coordinate.js",
