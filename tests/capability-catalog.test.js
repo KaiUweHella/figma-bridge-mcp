@@ -1078,6 +1078,20 @@ test('Annotation Read closes one policy-identical node-or-selection safe read', 
   assert.equal(selection.effects.editor, 'read');
 });
 
+test('Annotation Clear closes one policy-identical non-retrying node write', () => {
+  const cli = planFigmaCommand(['annotate', 'clear', '1-2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['annotate', 'clear', '1:2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'annotate.clear');
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 

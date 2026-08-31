@@ -24,7 +24,7 @@ export const MAX_ANNOTATION_LABEL_CODE_UNITS = 65_536;
 const MAX_NODE_NAME_CODE_UNITS = 1_024;
 const MAX_NODE_TYPE_CODE_UNITS = 64;
 const MAX_CATEGORY_ID_CODE_UNITS = 1_024;
-const PROPERTY_TYPES = new Set([
+export const ANNOTATION_PROPERTY_TYPES = Object.freeze([
   'width', 'height', 'maxWidth', 'minWidth', 'maxHeight', 'minHeight',
   'fills', 'strokes', 'effects', 'strokeWeight', 'cornerRadius', 'textStyleId',
   'textAlignHorizontal', 'fontFamily', 'fontStyle', 'fontSize', 'fontWeight',
@@ -33,6 +33,7 @@ const PROPERTY_TYPES = new Set([
   'gridColumnCount', 'gridRowAnchorIndex', 'gridColumnAnchorIndex', 'gridRowSpan',
   'gridColumnSpan',
 ]);
+const PROPERTY_TYPES = new Set(ANNOTATION_PROPERTY_TYPES);
 const UNSAFE_TEXT_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g;
 const normalized = (request) => parseAnnotationReadRequest(annotationReadArgvFromRequest(request));
 const js = (value) => JSON.stringify(value).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');

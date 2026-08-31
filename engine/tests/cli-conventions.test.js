@@ -1584,6 +1584,24 @@ test('annotate list delegates one Plan-bound bounded node-or-selection read Appl
     'Commander must not retain Annotation Read readiness, capture, or formatting logic');
 });
 
+test('annotate clear delegates one Plan-bound rollback-verified mutation Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('clear <nodeId>')", adapter.indexOf('const annotateCmd'));
+  const end = adapter.indexOf('// ============ PLUGINS ============', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationClearPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationClearPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.getNodeByIdAsync|\.annotations\s*=/,
+    'Commander must not retain Annotation Clear readiness, preflight, mutation, or formatting');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

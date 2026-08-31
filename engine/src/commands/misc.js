@@ -93,6 +93,10 @@ import {
   annotationReadPlanningArgvFromRequest,
   executeAnnotationReadPlan,
 } from '../application/annotation-read-command.js';
+import {
+  annotationClearPlanningArgvFromRequest,
+  executeAnnotationClearPlan,
+} from '../application/annotation-clear-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -1153,20 +1157,28 @@ annotateCmd
 annotateCmd
   .command('clear <nodeId>')
   .description('Remove all annotations from a node')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('annotations' in n)) throw new Error('Node does not support annotations');
-      n.annotations = [];
-      return { id: n.id, name: n.name };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Cleared annotations on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(annotationClearPlanningArgvFromRequest({ nodeId }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationClearPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Clear failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

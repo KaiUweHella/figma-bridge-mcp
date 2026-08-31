@@ -613,6 +613,12 @@ import {
   parseAnnotationReadRequest,
 } from '../engine/src/application/annotation-read-request.js';
 import {
+  acceptsAnnotationClearArgv,
+  annotationClearArgvFromRequest,
+  annotationClearFigmaUrlFileKeyFromArgv,
+  parseAnnotationClearRequest,
+} from '../engine/src/application/annotation-clear-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -827,6 +833,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'section.list',
   'annotate.categories',
   'annotate.list',
+  'annotate.clear',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1171,6 +1178,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'annotation-read-input';
   }
+  if (name === 'annotate' && sub === 'clear') pathPolicy = 'annotation-clear-input';
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -1601,6 +1609,10 @@ function commandCapability(args) {
   }
   if (name === 'annotate' && args[1] === 'list'
     && !action.help && !acceptsAnnotationReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'clear'
+    && !action.help && !acceptsAnnotationClearArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2573,6 +2585,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...annotationReadArgvFromRequest(parseAnnotationReadRequest(args)));
+      break;
+    }
+    case 'annotation-clear-input': {
+      const closedFileKey = annotationClearFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationClearArgvFromRequest(parseAnnotationClearRequest(args)));
       break;
     }
     case 'canvas-awareness-input': {

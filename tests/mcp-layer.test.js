@@ -2744,6 +2744,34 @@ test('figma_run rejects malformed Annotation Read before readiness', async () =>
   }
 });
 
+test('figma_run routes Annotation Clear through the rollback-verified mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationClearRoute = annotationClearPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationClearPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Clear must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Clear before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'clear'],
+    ['annotate', 'clear', '1:2', '1:3'],
+    ['annotate', 'clear', '--future'],
+    ['annotate', 'clear', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Section Inventory before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
