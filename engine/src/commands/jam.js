@@ -24,6 +24,10 @@ import {
   executeJamBoardPlan,
   jamBoardArgvFromRequest,
 } from '../application/jam-board-command.js';
+import {
+  executeJamArrangePlan,
+  jamArrangeArgvFromRequest,
+} from '../application/jam-arrange-command.js';
 
 const jam = program
   .command('jam')
@@ -219,17 +223,29 @@ jam
   .option('--gap <px>', 'Gap between nodes', '48')
   .option('--ids <ids>', 'Explicit comma/space-separated node IDs instead of the selection')
   .option('--all', 'Arrange every loose top-level node on the page (explicitly destructive)')
+  .allowExcessArguments(false)
   .action(async (options) => {
-    if (options.ids && options.all) {
-      console.error(chalk.red('✗ Choose either --ids or --all, not both.'));
-      process.exit(1);
+    try {
+      const ids = options.ids ? String(options.ids).split(/[\s,]+/).filter(Boolean) : null;
+      const plan = planFigmaCommand(jamArrangeArgvFromRequest({
+        columns: options.columns,
+        gap: options.gap,
+        ids,
+        all: options.all === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamArrangePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam arrange failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    const ids = options.ids ? String(options.ids).split(/[\s,]+/).filter(Boolean) : [];
-    await run(
-      snippets.arrange({ columns: options.columns, gap: options.gap, ids, all: options.all }),
-      (r) => console.log(
-        chalk.green('✓'),
-        r.moved ? `${r.moved} node(s) arranged (${r.scope})` : `Nothing to arrange (${r.scope})`,
-      ),
-    );
   });

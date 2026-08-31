@@ -347,6 +347,11 @@ import {
   parseJamBoardRequest,
 } from '../engine/src/application/jam-board-request.js';
 import {
+  acceptsJamArrangeArgv,
+  jamArrangeArgvFromRequest,
+  parseJamArrangeRequest,
+} from '../engine/src/application/jam-arrange-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -952,7 +957,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
-  'jam.board',
+  'jam.board', 'jam.arrange',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1358,6 +1363,7 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'jam-board-input';
   }
+  if (name === 'jam' && sub === 'arrange') pathPolicy = 'jam-arrange-input';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -1593,6 +1599,10 @@ function commandCapability(args) {
   }
   if (name === 'jam' && args[1] === 'board'
     && !action.help && !acceptsJamBoardArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'arrange'
+    && !action.help && !acceptsJamArrangeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
@@ -2983,6 +2993,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'jam-board-input': {
       args.splice(0, args.length, ...jamBoardArgvFromRequest(parseJamBoardRequest(args)));
+      break;
+    }
+    case 'jam-arrange-input': {
+      args.splice(0, args.length, ...jamArrangeArgvFromRequest(parseJamArrangeRequest(args)));
       break;
     }
     case 'node-discovery-input': {

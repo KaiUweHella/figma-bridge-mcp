@@ -211,6 +211,22 @@ test('jam board delegates one Plan-bound bounded FigJam Application', () => {
     'Commander must not retain FigJam traversal, bounds, validation, or formatting');
 });
 
+test('jam arrange delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('arrange')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamArrangeArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamArrangePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.arrange|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam targeting, geometry, mutation, or rollback');
+});
+
 test('the remaining direct FigJam action inventory is explicit', () => {
   const adapter = sources.get('jam.js');
   const commands = ['sticky', 'stickies', 'shape', 'connector', 'table', 'section', 'code', 'board', 'arrange'];
@@ -219,8 +235,8 @@ test('the remaining direct FigJam action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await run\(/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['sticky', 'stickies', 'shape', 'connector', 'table', 'section', 'code', 'arrange']);
-  assert.equal(direct.length, 8,
+  assert.deepEqual(direct, ['sticky', 'stickies', 'shape', 'connector', 'table', 'section', 'code']);
+  assert.equal(direct.length, 7,
     'STAB-06 FigJam Legacy Action count may decrease, but must never increase silently');
 });
 
