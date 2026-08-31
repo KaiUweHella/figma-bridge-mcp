@@ -2648,6 +2648,33 @@ test('figma_run routes Layout Grid Facts through the shared bounded-read Applica
     'Layout Grid Facts must not re-enter Commander');
 });
 
+test('figma_run routes Dev Resource Read through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeDevResourceReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Dev Resource Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Dev Resource Read argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['dev', 'list', '1:2', '1:3'],
+    ['dev', 'list', '--future', 'private-value'],
+    ['dev', 'list', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Layout Grid Facts argv before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

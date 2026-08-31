@@ -1491,6 +1491,25 @@ test('grid list delegates one Plan-bound bounded-read Command Application', () =
     'Commander must not retain Layout Grid Facts readiness, capture, or formatting logic');
 });
 
+test('dev list delegates one Plan-bound bounded-read Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const dev = adapter.indexOf(".command('dev')");
+  const start = adapter.indexOf(".command('list [nodeId]')", dev);
+  const end = adapter.indexOf(".command('unlink <nodeId> <url>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(devResourceReadPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeDevResourceReadPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.currentPage\.selection|getDevResourcesAsync/,
+    'Commander must not retain Dev Resource readiness, capture, or formatting logic');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');

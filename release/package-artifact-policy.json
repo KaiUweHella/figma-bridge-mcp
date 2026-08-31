@@ -128,6 +128,8 @@
     "engine/src/application/design-contract-request.js",
     "engine/src/application/design-link-command.js",
     "engine/src/application/design-link-request.js",
+    "engine/src/application/dev-resource-read-command.js",
+    "engine/src/application/dev-resource-read-request.js",
     "engine/src/application/font-inspection-command.js",
     "engine/src/application/font-inspection-request.js",
     "engine/src/application/font-axis-metadata-command.js",

@@ -585,6 +585,12 @@ import {
   parseLayoutGridFactsRequest,
 } from '../engine/src/application/layout-grid-facts-request.js';
 import {
+  acceptsDevResourceReadArgv,
+  devResourceReadArgvFromRequest,
+  devResourceReadFigmaUrlFileKeyFromArgv,
+  parseDevResourceReadRequest,
+} from '../engine/src/application/dev-resource-read-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
@@ -692,7 +698,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
-  'shader.list',
+  'shader.list', 'dev.list',
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
 ]);
@@ -704,7 +710,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slot.validate',
   'slides.inspect',
   'export.screenshot',
-  'dev.list', 'annotate.list', 'a11y.vision', 'a11y.focus',
+  'annotate.list', 'a11y.vision', 'a11y.focus',
   'jam.board', 'jam.arrange',
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
@@ -794,6 +800,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'style.publish-status',
   'style.show',
   'grid.list',
+  'dev.list',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -1118,6 +1125,10 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'grid' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'layout-grid-facts-input';
+  }
+  if (name === 'dev' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'dev-resource-read-input';
   }
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
@@ -1529,6 +1540,10 @@ function commandCapability(args) {
   }
   if (name === 'grid' && args[1] === 'list'
     && !action.help && !acceptsLayoutGridFactsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'dev' && args[1] === 'list'
+    && !action.help && !acceptsDevResourceReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
@@ -2472,6 +2487,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...layoutGridFactsArgvFromRequest(parseLayoutGridFactsRequest(args)));
       break;
     }
+    case 'dev-resource-read-input': {
+      const closedFileKey = devResourceReadFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...devResourceReadArgvFromRequest(parseDevResourceReadRequest(args)));
+      break;
+    }
     case 'canvas-awareness-input': {
       args.splice(0, args.length,
         ...canvasAwarenessArgvFromRequest(parseCanvasAwarenessRequest(args)));
@@ -2883,6 +2905,7 @@ function editorEffect(args, capability) {
   if (actionId === 'component.prop.list'
     && !parseComponentPropertyListRequest(args).componentId) return 'read';
   if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
+  if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
   if (actionId === 'link.inspect'
     && !parseDesignLinkRequest(args, { requireManifest: false }).nodeId) return 'read';
   if (actionId === 'gradient.extract'

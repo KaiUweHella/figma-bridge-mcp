@@ -73,6 +73,10 @@ import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
+import {
+  devResourceReadPlanningArgvFromRequest,
+  executeDevResourceReadPlan,
+} from '../application/dev-resource-read-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -111,31 +115,30 @@ devCmd
 devCmd
   .command('list [nodeId]')
   .description('List dev resources on a node (or current selection)')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const target = nodeId
-      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
-      : `figma.currentPage.selection[0]`;
-    const code = `(async () => {
-      const n = ${target};
-      if (!n) throw new Error('No node found');
-      if (typeof n.getDevResourcesAsync !== 'function') throw new Error('Node does not support dev resources');
-      const r = await n.getDevResourcesAsync();
-      return { id: n.id, name: n.name, resources: r };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.bold(`${r.name} (${r.id})`));
-      if (!r.resources || r.resources.length === 0) {
-        console.log(chalk.gray('  (no dev resources)'));
-        return;
-      }
-      r.resources.forEach((res, i) => {
-        console.log(`  ${i + 1}. ${res.name || '(unnamed)'}`);
-        console.log(chalk.gray(`     ${res.url}`));
+      const plan = planFigmaCommand(devResourceReadPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeDevResourceReadPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Dev Resource Read failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

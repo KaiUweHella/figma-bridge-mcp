@@ -470,6 +470,10 @@ import {
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
 import {
+  devResourceReadPlanRoute,
+  executeDevResourceReadPlan,
+} from "../engine/src/application/dev-resource-read-command.js";
+import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
 } from "../engine/src/application/canvas-awareness-command.js";
@@ -3974,6 +3978,25 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeLayoutGridFactsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const devResourceReadRoute = devResourceReadPlanRoute(plan);
+      if (devResourceReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeDevResourceReadPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
