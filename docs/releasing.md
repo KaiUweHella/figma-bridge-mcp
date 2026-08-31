@@ -66,7 +66,9 @@ universal OpenAI or Claude plugin directories:
 
 - `.agents/plugins/marketplace.json` installs the Codex plugin from the exact
   `v<version>` Git tag.
-- `.claude-plugin/marketplace.json` installs the same exact GitHub tag.
+- `.claude-plugin/marketplace.json` installs the same exact GitHub tag through
+  an explicit public HTTPS Git URL; do not make public installs depend on SSH
+  keys or `known_hosts` state.
 - Cursor consumes the portable Agent Plugin from that tagged repository.
 - `.mcp.json` and `mcp.json` start `figma-bridge-mcp@<version>` exactly. Only
   the standalone MCP fallback documented in `README.md` follows `@latest`.

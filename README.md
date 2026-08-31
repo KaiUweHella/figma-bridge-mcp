@@ -85,9 +85,28 @@ If `/mcp` reports a failed or zero-tool server, run
 configuration, use the scope-specific removal command it prints, start a new
 session, and check `/mcp` again.
 
+If `/mcp` reports `CONNECTION_CLOSED` and the debug output says
+`No version is set for command node`, the process exited before the MCP
+handshake. In the same shell environment that launches the MCP client, verify:
+
+```bash
+command -v node
+command -v npx
+node --version
+npx --version
+```
+
+Both version commands must succeed and Node must be 18 or newer. If the command
+paths resolve to `asdf` shims without an active Node version, configure one in
+`asdf`; if `nvm` should own Node instead, place its active Node directory ahead
+of stale `asdf` shims in `PATH`. Restart the MCP client after correcting the
+runtime environment.
+
 The Claude marketplace uses the same pinned GitHub release and shared skill
 tree. The matching npm package must be published before users install that
-release because the plugin launches its local stdio server through `npx`.
+release because the plugin launches its local stdio server through `npx`. Its
+public plugin source is an explicit HTTPS Git URL, so installing or updating it
+does not require SSH keys or a GitHub `known_hosts` entry.
 
 For Cursor Teams or Enterprise, import this GitHub repository into a team
 marketplace and install **Figma Bridge** from Customize. Individual users and

@@ -108,8 +108,8 @@ test("Claude Code plugin reuses the same MCP server and skill", () => {
     {
       name: pkg.name,
       source: {
-        source: "github",
-        repo: "KaiUweHella/figma-bridge-mcp",
+        source: "url",
+        url: "https://github.com/KaiUweHella/figma-bridge-mcp.git",
         ref: `v${pkg.version}`,
       },
       description: "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills",
@@ -130,6 +130,9 @@ test("README explains Claude's runtime tool discovery and duplicate-server prece
   assert.match(readme, /claude mcp get figma-bridge/);
   assert.match(readme, /do\s+not register both under the same `figma-bridge` server name/);
   assert.match(readme, /Do not add this fallback when the full plugin\s+is already installed/);
+  assert.match(readme, /No version is set for command node/);
+  assert.match(readme, /asdf.*nvm/is);
+  assert.match(readme, /before the MCP\s+handshake/i);
 });
 
 test("portable Agent Plugin makes the bundle installable in Cursor", () => {

@@ -5,6 +5,14 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Fixed
+
+- Claude Code plugin installs and updates now fetch the pinned public release
+  through an explicit HTTPS Git URL instead of allowing GitHub shorthand to
+  select SSH and require machine-specific host-key setup. Startup guidance now
+  distinguishes broken `asdf`/`nvm` Node resolution from an MCP handshake
+  failure before the Bridge process begins.
+
 ## [0.7.0] — 2026-08-30
 
 ### Added
