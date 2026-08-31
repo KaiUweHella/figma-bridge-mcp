@@ -1299,6 +1299,31 @@ test('Node Resize closes one policy-identical rollback-owned write', () => {
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
 });
 
+test('Node Set Fill closes one policy-identical rollback-owned write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Fill-Lab?node-id=12-34';
+  const mcp = planFigmaCommand(['node', 'set-fill', url, '#aBcDeF'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(['node', 'set-fill', url, 'ABCDEF'], { adapter: 'cli' });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, ['node', 'set-fill', '12:34', '#ABCDEF']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.set-fill');
+  for (const args of [
+    ['node', 'set-fill'],
+    ['node', 'set-fill', '1:2'],
+    ['node', 'set-fill', '1:2', '#fff'],
+    ['node', 'set-fill', '1:2', 'var:'],
+    ['node', 'set-fill', '1:2', '#FFFFFF', 'extra'],
+    ['node', 'set-fill', 'not-a-node', '#FFFFFF'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
 test('Node Binding Facts use the closed typed-read dispatch in both Adapters', () => {
   const cli = planFigmaCommand(['node', 'bindings', '12:34', '--json'], { adapter: 'cli' });
   const mcp = planFigmaCommand(['node', 'bindings', '--json', '12-34'], { adapter: 'mcp' });

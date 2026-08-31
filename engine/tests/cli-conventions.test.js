@@ -438,10 +438,25 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
     }
   }
   assert.deepEqual(direct.sort(), [
-    'set', 'set-fill', 'set-image',
+    'set', 'set-image',
   ]);
-  assert.equal(direct.length, 3,
+  assert.equal(direct.length, 2,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('node set-fill delegates one Plan-bound readback-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('set-fill <nodeId> <color>')");
+  const end = adapter.indexOf(".command('set-image <nodeId> <file>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeSetFillPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeSetFillPlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|generateFillCode\(|node\.fills\s*=|setBoundVariableForPaint\(/);
 });
 
 test('node bind delegates one Plan-bound readback-verified Command Application', () => {

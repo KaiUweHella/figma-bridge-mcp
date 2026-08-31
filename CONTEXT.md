@@ -70,6 +70,16 @@ mismatch restores the complete prior binding or Paint topology and reports
 verified rollback, bounded field residue or unavailable verification.
 _Avoid_: Commander bind handler, setter-return success, first collection match, partial padding rollback
 
+**Node Solid Fill**:
+The bounded, non-retrying replacement of one exact fill-capable canvas Node's
+complete Paint list with one Solid Paint. The requested source is either an
+exact RGB literal or one uniquely resolved local COLOR Variable; Variable-name
+ambiguity remains a refusal and points to the collection-aware binding command.
+Success requires fresh literal RGB or Variable-alias readback. A mismatch
+restores and verifies the complete prior Paint list, otherwise reporting
+bounded fill residue or unavailable verification.
+_Avoid_: Commander fill handler, setter-return success, first Variable-name match, partial Paint rollback
+
 **Component Identity Facts**:
 The exact, versioned and deeply bounded resolution of one explicit Figma
 Instance to its main component and optional component set. It preserves native

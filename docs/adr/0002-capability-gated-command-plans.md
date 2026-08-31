@@ -460,3 +460,13 @@ and independent-corner bindings are verified as multi-field topology. A
 partial setter or postcondition mismatch restores and re-reads the full prior
 topology, otherwise reporting bounded field residue or unavailable
 verification. Commander and `figma_run` do not retain a second binding path.
+
+`node set-fill` owns the narrower complete-Paint-list replacement. Its closed
+request preserves literal RGB and explicit `var:` intent while rejecting
+ambiguous exact Variable names instead of selecting the first matching
+Collection. One shared non-retrying Application snapshots the complete prior
+Paint list and accepts success only after fresh proof of the exact literal RGB
+or Variable alias on the single resulting Solid Paint. A mismatch restores and
+re-reads the complete prior list, otherwise reporting bounded fill residue or
+unavailable verification. Commander and `figma_run` share that same outcome
+semantics and retain no direct fill mutation path.

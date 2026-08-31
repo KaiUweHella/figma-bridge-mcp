@@ -108,6 +108,7 @@ import {
 import { executeNodeUngroupPlan, nodeUngroupPlanRoute } from "../engine/src/application/node-ungroup-command.js";
 import { executeNodeBooleanPlan, nodeBooleanPlanRoute } from "../engine/src/application/node-boolean-command.js";
 import { executeNodeBindPlan, nodeBindPlanRoute } from "../engine/src/application/node-bind-command.js";
+import { executeNodeSetFillPlan, nodeSetFillPlanRoute } from "../engine/src/application/node-set-fill-command.js";
 import { executeNodeFlattenPlan, nodeFlattenPlanRoute } from "../engine/src/application/node-flatten-command.js";
 import {
   executeNodeDeletePlan,
@@ -2340,6 +2341,17 @@ export async function handleTool(name, rawArgs) {
             fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
           }) });
         });
+        return resultFromCli(res);
+      }
+      const nodeSetFillRoute = nodeSetFillPlanRoute(plan);
+      if (nodeSetFillRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false },
+          async ({ fileKey, expectedEditor, deadline }) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            return executeNodeSetFillPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }) });
+          });
         return resultFromCli(res);
       }
       const nodeFlattenRoute = nodeFlattenPlanRoute(plan);

@@ -67,6 +67,10 @@ import {
   nodeBindPlanningArgvFromRequest,
 } from '../application/node-bind-command.js';
 import { NODE_BIND_PROPERTIES } from '../application/node-bind-request.js';
+import {
+  executeNodeSetFillPlan,
+  nodeSetFillPlanningArgvFromRequest,
+} from '../application/node-set-fill-command.js';
 import { executeNodeFlattenPlan, nodeFlattenPlanningArgvFromRequest } from '../application/node-flatten-command.js';
 import {
   executeNodeDeletePlan,
@@ -513,37 +517,22 @@ node
 node
   .command('set-fill <nodeId> <color>')
   .description('Set a solid fill: hex ("#2F6B3F") or a variable ("var:color/green/600")')
+  .allowExcessArguments(false)
   .action(async (nodeId, color) => {
-    await checkConnection();
-    const value = String(color).trim();
-    if (!isVarRef(value) && !/^#?[0-9a-fA-F]{6}$/.test(value)) {
-      console.log(chalk.red('✗ color must be #RRGGBB or var:<name>'));
-      return;
-    }
-    // Shared fill semantics: hex parsed CLI-side, var: bound via the same
-    // vars/boundFill preamble every other set-style command emits.
-    let fill;
     try {
-      fill = generateFillCode(value, 'node');
-    } catch (e) {
-      console.log(chalk.red('✗ ' + e.message));
-      process.exitCode = 1;
-      return;
-    }
-    const code = `(async () => {
-      const node = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(nodeId).id)});
-      if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-      if (!('fills' in node)) throw new Error('Node has no fills: ' + node.type);
-      ${fill.usesVars ? `${varLoadingCode()}
-      if (!vars[${JSON.stringify(value.slice(4))}]) throw new Error('Color variable not found: ' + ${JSON.stringify(value.slice(4))});` : ''}
-      ${fill.code}
-      return { id: node.id, name: node.name, fill: ${JSON.stringify(value)} };
-    })()`;
-    try {
-      const r = await fastEval(code);
-      console.log(chalk.green('✓'), `Fill set on "${r.name}": ${r.fill}`);
-    } catch (e) {
-      console.log(chalk.red('✗ set-fill failed: ' + e.message));
+      const plan = planFigmaCommand(nodeSetFillPlanningArgvFromRequest({ nodeId, color }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeSetFillPlan(plan, { evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())) });
+        });
+      console.log(chalk.green('✓'), result.stdout);
+    } catch (error) {
+      console.log(chalk.red('✗ set-fill failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });
