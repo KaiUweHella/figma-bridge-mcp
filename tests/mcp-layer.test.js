@@ -3510,6 +3510,37 @@ test('figma_run rejects malformed Code Spec argv before readiness or capture', a
   }
 });
 
+test('figma_run routes Component Spec through repository-first conditional execution', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentSpecRoute = componentSpecPlanRoute(plan)');
+  const end = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /prepareComponentSpecPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /if \(plan\.target\.kind !== "none"\)/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeComponentSpecPlan\(plan, prepared/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'Component Spec must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Component Spec before workspace or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['spec'],
+    ['spec', 'Button', 'Card'],
+    ['spec', 'Button', '--check', 'bad-node'],
+    ['spec', 'Button', '--tolerance', '2px'],
+    ['spec', 'Button', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
 test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Screenshot Application', async () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const dedicatedStart = source.indexOf('case "figma_screenshot"');

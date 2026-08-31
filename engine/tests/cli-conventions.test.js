@@ -2129,6 +2129,22 @@ test('code-spec delegates one Plan-bound safe-read Command Application', () => {
     'Commander must not retain Code Spec readiness or execution logic');
 });
 
+test('component spec delegates repository preparation and optional Figma read to one Application', () => {
+  const adapter = sources.get('spec.js');
+  assert.ok(adapter, 'spec.js exists');
+  assert.match(adapter, /\.allowExcessArguments\(false\)/);
+  assert.match(adapter, /planFigmaCommand\(componentSpecPlanningArgvFromRequest\(/);
+  assert.match(adapter, /prepareComponentSpecPlan\(plan/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /if \(plan\.target\.kind !== 'none'\)/);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /executeComponentSpecPlan\(plan/);
+  assert.match(adapter, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(adapter,
+    /checkConnection\(|fastEval\(|findComponentSpec\(|checkConformance\(|function measureCode/,
+    'Commander must not retain Component Spec preparation, readiness, measurement, or formatting logic');
+});
+
 test('verify delegates capture and persistence to one Plan-bound Screenshot Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');

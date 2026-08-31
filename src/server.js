@@ -46,6 +46,11 @@ import {
   executeCodeSpecPlan,
 } from "../engine/src/application/code-spec-command.js";
 import {
+  componentSpecPlanRoute,
+  executeComponentSpecPlan,
+  prepareComponentSpecPlan,
+} from "../engine/src/application/component-spec-command.js";
+import {
   executeInspectPlan,
   inspectPlanningArgvFromRequest,
   inspectPlanRoute,
@@ -4037,6 +4042,28 @@ export async function handleTool(name, rawArgs) {
               fileKey,
               expectedEditor,
               deadline,
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentSpecRoute = componentSpecPlanRoute(plan);
+      if (componentSpecRoute === "command-application") {
+        const prepared = prepareComponentSpecPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          if (plan.target.kind !== "none") {
+            await ensurePluginReadiness({
+              deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+            });
+          }
+          return executeComponentSpecPlan(plan, prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
             }),
           });
         });

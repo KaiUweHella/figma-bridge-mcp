@@ -38,7 +38,7 @@
           "upstreamPath": "src/lib/design-md-locate.js",
           "relationship": "modified-derived",
           "upstreamSha256": "3a79eace799921ae0d0ef7a602b93c789f807dd43c65389e2caf8287f1256148",
-          "localSha256": "5137bb3f095569e90676b463f61c37e31100503c0a58b36d6e6731460e49e71c"
+          "localSha256": "e9c01500fbe5a7f32e1b2fb3279f9fdca50878fe6a9efb17083a65f4e56ec17f"
         }
       ]
     }

@@ -6,10 +6,10 @@ import { createWorkspaceIO, workspaceIO } from './workspace-io.js';
 
 const MARKER = 'Sample variant structure:';   // a DESIGN.md with a Components section
 
-export function locateDesignMd(explicit, searchRoot = process.cwd()) {
-  const io = process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
+export function locateDesignMd(explicit, searchRoot = process.cwd(), providedIO = null) {
+  const io = providedIO || (process.env.FIGMA_BRIDGE_WORKSPACE_ROOTS
     ? workspaceIO()
-    : createWorkspaceIO({ root: explicit ? join(explicit, '..') : searchRoot });
+    : createWorkspaceIO({ root: explicit ? join(explicit, '..') : searchRoot }));
   if (explicit) {
     try {
       io.authorizePath(explicit, {

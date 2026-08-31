@@ -1109,7 +1109,9 @@ test('short-attached Legacy option values keep Commander meaning during path pla
     'spec', 'Button', '-fDESIGN.md',
   ], { workspaceDir });
   assert.equal(specPlan.allowed, true);
-  assert.deepEqual(specPlan.argv, ['spec', 'Button', `-f${join(workspaceDir, 'DESIGN.md')}`]);
+  assert.deepEqual(specPlan.argv, [
+    'spec', '--file', join(workspaceDir, 'DESIGN.md'), '--tolerance', '2', '--', 'Button',
+  ]);
 });
 
 test('CLI and MCP receive identical option-region and literal-payload plans', () => {
@@ -1819,7 +1821,9 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
     'tokens', 'sync', inWorkspace('tokens.json'), '--lockfile', inWorkspace('.tokens.lock.json'),
   ]);
-  assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), ['spec', 'Button', `--file=${inWorkspace('design', 'DESIGN.md')}`]);
+  assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), [
+    'spec', '--file', inWorkspace('design', 'DESIGN.md'), '--tolerance', '2', '--', 'Button',
+  ]);
   assert.deepEqual(argv(['motion', 'apply', 'motion.json']), ['motion', 'apply', inWorkspace('motion.json')]);
   assert.deepEqual(argv(['history', 'diff', 'latest', 'live', '--changelog', 'changes.md']), [
     'history', 'diff', 'latest', 'live', '--changelog', inWorkspace('changes.md'),

@@ -24,6 +24,12 @@ import {
   parseCodeSpecRequest,
 } from '../engine/src/application/code-spec-request.js';
 import {
+  acceptsComponentSpecArgv,
+  componentSpecArgvFromRequest,
+  componentSpecFigmaUrlFileKeyFromArgv,
+  parseComponentSpecRequest,
+} from '../engine/src/application/component-spec-request.js';
+import {
   acceptsTokenExportArgv,
   parseTokenExportRequest,
   tokenExportArgvFromRequest,
@@ -645,7 +651,7 @@ const COMMANDS = Object.freeze({
   import: { summary: 'Import a design source into Figma', mutation: 'write', path: 'design-source-import-input' },
   motion: readGroup('Inspect or manage motion data', ['styles', 'inspect'], { path: 'motion-inputs' }),
   extract: { summary: 'Extract the open file into DESIGN.md', mutation: 'read', path: 'design-doc' },
-  spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'spec-file' },
+  spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'component-spec-input' },
   analyze: { summary: 'Analyze colors, typography and spacing', mutation: 'read' },
   font: readGroup('Inspect typography, bind variables, or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
   map: { summary: 'Map Figma components to code', mutation: 'read', path: 'map-file' },
@@ -722,6 +728,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
+  'spec',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
   'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect',
@@ -913,6 +920,10 @@ function specializedPolicy(name, entry, args, actionId) {
     }
   }
   if (name === 'link' && sub === 'inspect') retry = 'safe-read';
+  if (name === 'spec') {
+    retry = hasOption(resolveFigmaCommandAction(args).options, '--check') ? 'safe-read' : 'never';
+    pathPolicy = 'component-spec-input';
+  }
   if (name === 'node' && sub === 'bindings') retry = 'safe-read';
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
@@ -1137,6 +1148,9 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'contract' && !action.help && !acceptsDesignContractArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'spec' && !action.help && !acceptsComponentSpecArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'export' && args[1] === 'assets' && !action.help && !acceptsAssetExportArgv(args)) {
@@ -1558,6 +1572,8 @@ function isBackgroundCommand(args) {
 function acceptedExitCodes(args) {
   if (args?.[0] === 'history' && args?.[1] === 'diff') return [0, 1];
   if (args?.[0] === 'contract' && args?.[1] === 'check') return [0, 1];
+  if (args?.[0] === 'spec' && acceptsComponentSpecArgv(args)
+    && parseComponentSpecRequest(args).checkNodeId) return [0, 1];
   // Exit 1 is a valid verify report containing findings, not a transport
   // failure. MCP callers need the report in order to fix those findings.
   if (args?.[0] === 'verify-build') return [0, 1];
@@ -2708,9 +2724,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       break;
     }
-    case 'spec-file': {
-      const supplied = pathFlag(args, ['-f', '--file'], baseDir, capability.options);
-      if (supplied) markRead(supplied.value, 'design-spec-file');
+    case 'component-spec-input': {
+      const closedFileKey = componentSpecFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      const request = parseComponentSpecRequest(args);
+      const file = request.file ? absolute(baseDir, request.file) : null;
+      args.splice(0, args.length, ...componentSpecArgvFromRequest({ ...request, file }));
+      if (file) markRead(file, 'design-spec-file');
       else markRead(absolute(baseDir, '.'), 'design-spec-search', 'directory');
       break;
     }
