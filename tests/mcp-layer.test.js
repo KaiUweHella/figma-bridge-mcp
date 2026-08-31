@@ -2715,13 +2715,16 @@ test('figma_run and figma_history share the Plan-bound History Application', () 
     assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
     assert.match(slice, /executeHistoryPlan\(plan/);
     assert.doesNotMatch(slice, /runCli(?:Plan)?\(/,
-      'local History must not re-enter Commander');
+      'History must not re-enter Commander');
   }
 });
 
 test('figma_run rejects malformed History argv before readiness or shared-state access', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
+    ['history', 'save'],
+    ['history', 'save', 'Release 1', 'private-value'],
+    ['history', 'save', 'Release 1', '--description', 'a', '-d', 'b'],
     ['history', 'list', 'extra'],
     ['history', 'snapshot', '--depth', '-1'],
     ['history', 'diff', 'latest', 'live', '--json', '--changelog'],
@@ -2730,6 +2733,7 @@ test('figma_run rejects malformed History argv before readiness or shared-state 
     assert.equal(result.isError, true, args.join(' '));
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /Plugin not connected|figma_connect/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
   }
 });
 

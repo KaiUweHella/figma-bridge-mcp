@@ -4033,7 +4033,7 @@ export async function handleTool(name, rawArgs) {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeHistoryPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
@@ -4210,7 +4210,7 @@ export async function handleTool(name, rawArgs) {
         });
         const res = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
           async ({ fileKey, expectedEditor, deadline }) => {
-            await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
             return executeHistoryPlan(plan, {
               workspaceIO: WORKSPACE_IO,
               evaluate: (code) => evaluateFigma(code, {

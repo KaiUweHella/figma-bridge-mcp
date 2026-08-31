@@ -6,24 +6,20 @@
 // later, diff the two. With the opt-in REST layer the same differ also runs on
 // real Figma versions (see src/figma-rest.js) — one diff engine, two sources.
 //
-// Reads only. Nothing here mutates the design; `snapshot` writes into
-// ~/.figma-bridge-mcp/snapshots and `diff --changelog` writes a markdown file
-// if asked to.
-import chalk from 'chalk';
+// Structural snapshots are read-only with respect to the design. `save` is the
+// one explicit native version-history write; local snapshots and optional
+// changelogs remain separate shared/workspace effects.
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
   program,
-  checkConnection,
   daemonExec,
-  fastEval,
   handleEvalError,
 } from '../lib/cli-core.js';
 import {
   executeHistoryPlan,
   historyPlanningArgvFromRequest,
 } from '../application/history-command.js';
-import { saveVersionCode } from '../lib/version-history.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 
 const historyCmd = program
@@ -34,12 +30,11 @@ historyCmd
   .command('save <title>')
   .description('Save a named version through the Plugin API (no REST token; reading versions remains REST-only)')
   .option('-d, --description <text>', 'Optional version description')
+  .allowExcessArguments(false)
   .action(async (title, options) => {
-    await checkConnection();
     try {
-      const result = await fastEval(saveVersionCode({ title, description: options.description }));
-      console.log(chalk.green('✓'), `Saved Figma version "${result.title}"${result.id ? ` (${result.id})` : ''}`);
-      if (result.description) console.log(chalk.gray(`  ${result.description}`));
+      const result = await runHistory({ action: 'save', title, description: options.description });
+      console.log(result.stdout);
     } catch (error) {
       handleEvalError(error);
     }
@@ -54,8 +49,8 @@ async function runHistory(request) {
     fileKey: program.opts().figmaFile || null,
   });
   return runInProcessCommandPlan(plan, { compatibilityFallback: false },
-    async ({ fileKey, deadline }) => {
-      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
       return executeHistoryPlan(plan, {
         workspaceIO: io,
         evaluate: (code) => daemonExec('eval', {

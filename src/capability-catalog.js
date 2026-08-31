@@ -718,7 +718,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'contract.capture', 'contract.check',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
   'export.node', 'export.screenshot',
-  'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
+  'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
   'link.set', 'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set', 'node.set-fill', 'node.set-image', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
   'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect',
@@ -1496,7 +1496,7 @@ function commandCapability(args) {
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'history' && ['snapshot', 'list', 'diff'].includes(args[1])
+  if (name === 'history' && ['save', 'snapshot', 'list', 'diff'].includes(args[1])
     && !action.help && !acceptsHistoryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2692,7 +2692,7 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'history-output': {
-      if (['snapshot', 'list', 'diff'].includes(args[1])) {
+      if (['save', 'snapshot', 'list', 'diff'].includes(args[1])) {
         const request = parseHistoryRequest(args);
         const closedFileKey = historyFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget && closedFileKey !== figmaUrlFileKey) {

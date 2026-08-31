@@ -191,6 +191,29 @@ test('history delegates private structural persistence to the Snapshot Store', (
     'the Command Adapter must not regain direct shared-state persistence');
 });
 
+test('history save delegates one Plan-bound native version write Application', () => {
+  const adapter = sources.get('history.js');
+  const start = adapter.indexOf(".command('save <title>')");
+  const end = adapter.indexOf('async function runHistory', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runHistory\(\{ action: 'save'/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|saveVersionCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'history-command.js'), 'utf8');
+  assert.match(application, /figma\.saveVersionHistoryAsync\(request\.title/);
+  assert.match(application, /MAX_VERSION_SAVE_RESULT_CODE_UNITS/);
+});
+
+test('the remaining direct History write inventory is explicit', () => {
+  const adapter = sources.get('history.js');
+  const start = adapter.indexOf(".command('save <title>')");
+  const end = adapter.indexOf('async function runHistory', start);
+  const direct = /checkConnection\(\)|fastEval\(/.test(adapter.slice(start, end)) ? ['save'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 History Legacy Write count may decrease, but must never increase silently');
+});
+
 test('asset export Adapter delegates one Command Application to Manifest v2', () => {
   const adapter = sources.get('export-eval.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'asset-export-command.js'), 'utf8');
