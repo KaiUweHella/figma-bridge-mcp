@@ -608,6 +608,12 @@ import {
   parseA11yVisionRequest,
 } from '../engine/src/application/a11y-vision-request.js';
 import {
+  acceptsA11yReadArgv,
+  a11yReadArgvFromRequest,
+  a11yReadFigmaUrlFileKeyFromArgv,
+  parseA11yReadRequest,
+} from '../engine/src/application/a11y-read-request.js';
+import {
   acceptsDevResourceReadArgv,
   devResourceReadArgvFromRequest,
   devResourceReadFigmaUrlFileKeyFromArgv,
@@ -801,6 +807,7 @@ const SAFE_READ_ACTIONS = new Set([
   'layout.grid.inspect',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'analyze.lint',
+  'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -810,7 +817,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'slot.validate',
   'slides.inspect',
   'export.screenshot',
-  'section.list', 'a11y.focus',
+  'section.list',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'section.create',
   'jam.board', 'jam.arrange',
@@ -906,6 +913,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'grid.clear',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'analyze.lint',
+  'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'a11y.vision',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
@@ -1255,6 +1263,8 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (actionId === 'analyze.lint') pathPolicy = 'analysis-lint-input';
   if (actionId === 'a11y.vision') pathPolicy = 'a11y-vision-input';
+  if (['a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit']
+    .includes(actionId)) pathPolicy = 'a11y-read-input';
   if (name === 'dev' && sub === 'list') {
     retry = 'safe-read';
     pathPolicy = 'dev-resource-read-input';
@@ -1710,6 +1720,10 @@ function commandCapability(args) {
     && !action.help && !acceptsA11yVisionArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'a11y' && action.actionId !== 'a11y.vision'
+    && !action.help && !acceptsA11yReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'dev' && args[1] === 'list'
     && !action.help && !acceptsDevResourceReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1835,6 +1849,8 @@ function acceptedExitCodes(args) {
   if (args?.[0] === 'verify-build') return [0, 1];
   if (args?.[0] === 'analyze' && args?.[1] === 'lint'
     && acceptsAnalysisLintArgv(args) && parseAnalysisLintRequest(args).failOnIssues) return [0, 1];
+  if (args?.[0] === 'a11y' && acceptsA11yReadArgv(args)
+    && parseA11yReadRequest(args).failOnIssues) return [0, 1];
   if ((args?.[0] === 'render' || args?.[0] === 'render-batch') && acceptsSemanticRenderArgv(args)) {
     const route = semanticRenderArgvRoute(args);
     if (route.kind === 'simple' || route.kind === 'compound' || route.reason === 'structural-gate') return [0, 1];
@@ -2736,6 +2752,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...a11yVisionArgvFromRequest(parseA11yVisionRequest(args)));
       break;
     }
+    case 'a11y-read-input': {
+      const closedFileKey = a11yReadFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...a11yReadArgvFromRequest(parseA11yReadRequest(args)));
+      break;
+    }
     case 'dev-resource-read-input': {
       const closedFileKey = devResourceReadFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -3241,6 +3264,8 @@ function editorEffect(args, capability) {
   if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
   if (actionId === 'analyze.lint' && !parseAnalysisLintRequest(args).nodeId) return 'read';
   if (actionId === 'a11y.vision' && !parseA11yVisionRequest(args).nodeId) return 'read';
+  if (actionId?.startsWith('a11y.') && actionId !== 'a11y.vision'
+    && !parseA11yReadRequest(args).nodeId) return 'read';
   if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.list' && !parseAnnotationReadRequest(args).nodeId) return 'read';
   if (actionId === 'annotate.add' && parseAnnotationAddRequest(args).selector === 'query') {
