@@ -775,6 +775,23 @@ test('figma_run rejects malformed Grid Auto Flow before readiness or dispatch', 
   }
 });
 
+test('MCP error results retain one validated bounded mutation projection', async () => {
+  const { errorResult } = await import('../src/server.js');
+  const structuredContent = {
+    schemaVersion: 1, status: 'failed', errorKind: 'execution', dispatchState: 'failed',
+    mutation: {
+      schemaVersion: 1, outcome: 'partial-residue', attempted: 2, restored: 1, residueCount: 1,
+    },
+  };
+  const result = errorResult('Mutation failed', { structuredContent });
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, structuredContent);
+  const forged = errorResult('Mutation failed', {
+    structuredContent: { ...structuredContent, privateNode: '12:34' },
+  });
+  assert.equal(Object.hasOwn(forged, 'structuredContent'), false);
+});
+
 test('figma_run rejects malformed Prototype Inspection before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
@@ -2493,8 +2510,8 @@ test('figma_run and figma_render share simple and compound non-retrying Semantic
   assert.match(helper, /semanticRenderOutcomeCode\(outcome\)/);
   assert.match(helper, /structuredContent: outcome/,
     'MCP text and structured content must project the same Application Outcome');
-  assert.match(source, /structuredContent: err\?\.semanticRenderOutcome/,
-    'known failure and rollback facts must survive the MCP error projection');
+  assert.match(source, /structuredContent: err\?\.semanticRenderOutcome \|\| projectPublicFailure\(err\)/,
+    'known failure, Dispatch and rollback facts must survive the MCP error projection');
   assert.doesNotMatch(helper, /runCliPlan\(|runCli\(/);
 
   assert.match(source, /semanticRenderRoute === "command-application"[\s\S]*?runSemanticRenderApplication\(plan, input\.label, preparedSemanticRender\)/);

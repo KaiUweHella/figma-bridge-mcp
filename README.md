@@ -1792,9 +1792,12 @@ rather than a generic API failure.
   `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install.
 - **Private Audit Trail** — commands attempt a closed, versioned start/outcome
   lifecycle in `~/.figma-bridge-mcp/audit.log`. Capability, effects, redacted
-  data summaries, outcome, and duration remain useful to `figma_history`; raw
+  data summaries, outcome, duration, terminal Dispatch state and bounded
+  mutation attempted/restored/residue counts remain useful to `figma_history`; raw
   commands, JSX, labels, paths, file keys, REST bodies, credentials, and errors
-  are never retained in new records. Directory/file modes are `0700`/`0600`.
+  or residue identities are never retained in new records. CLI errors and MCP
+  structured errors consume the same closed mutation projection.
+  Directory/file modes are `0700`/`0600`.
   It rotates at 5 MB with one previous generation, which also bounds readable
   legacy entries. Storage failure never blocks Figma work: MCP output reports a
   degraded Audit Trail until a complete record succeeds.

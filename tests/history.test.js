@@ -35,7 +35,7 @@ test('runCli with label writes an enriched audit line plus a completion entry', 
   await runCli(['--help'], { label: 'discoverability check' });
   const lines = parseAuditLines(readFileSync(AUDIT, 'utf8'));
   const entry = lines.findLast((e) => e.event === 'start');
-  assert.equal(entry.schema, 5);
+  assert.equal(entry.schema, 6);
   assert.equal(entry.capability, 'help');
   assert.equal(entry.data.arguments.count, 1);
   assert.equal(entry.data.label.bytes, Buffer.byteLength('discoverability check'));
@@ -146,6 +146,42 @@ test('schema-4 Audit Trail records remain readable after the editor-effect schem
   const [folded] = foldCompletions(entries);
   assert.equal(folded.ok, true);
   assert.match(formatHistory([{ ...folded, source: 'design' }]), /canvas\.page \[read\]/);
+});
+
+test('schema-6 history retains bounded Dispatch and mutation completion facts', () => {
+  const mutation = {
+    schemaVersion: 1, outcome: 'partial-residue', attempted: 2, restored: 1, residueCount: 1,
+  };
+  const [folded] = foldCompletions([
+    {
+      schema: 6, id: 'schema-six', ts: '2026-08-31T00:00:00.000Z', event: 'start',
+      capability: 'node.rename', operation: 'write', effects: {},
+      target: { kind: 'plugin-file' }, data: { arguments: { count: 3 } },
+    },
+    {
+      schema: 6, id: 'schema-six', ts: '2026-08-31T00:00:01.000Z', event: 'done',
+      outcome: { ok: false, durationMs: 1, errorKind: 'execution', dispatchState: 'failed', mutation },
+    },
+  ]);
+  assert.equal(folded.ok, false);
+  assert.equal(folded.dispatchState, 'failed');
+  assert.deepEqual(folded.mutation, mutation);
+});
+
+test('schema-5 Audit Trail records remain readable after mutation outcomes were added', () => {
+  const [folded] = foldCompletions([
+    {
+      schema: 5, id: 'schema-five', ts: '2026-08-30T00:00:00.000Z', event: 'start',
+      capability: 'slot.reset', operation: 'write', effects: {},
+      target: { kind: 'plugin-file' }, data: { arguments: { count: 3 } },
+    },
+    {
+      schema: 5, id: 'schema-five', ts: '2026-08-30T00:00:01.000Z', event: 'done',
+      outcome: { ok: false, durationMs: 1, errorKind: 'execution', dispatchState: 'failed' },
+    },
+  ]);
+  assert.equal(folded.ok, false);
+  assert.equal(folded.dispatchState, 'failed');
 });
 
 test('buildHistory reads the rotated audit.log.1 generation too', () => {

@@ -1016,6 +1016,16 @@ _Avoid_: handwritten MCP JSX dialect, name-based Instance example, ordinary-succ
 The closed, versioned and deeply bounded result of one simple or compound Semantic Render Command. It retains only created-root identity, executor and structural facts, explicit compound-stage progress, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
 _Avoid_: render response, console result, Plugin result
 
+**Command Failure Outcome**:
+The shared bounded projection of a failed Command Application's terminal
+Dispatch Receipt and mutation cardinalities. It retains only a closed error
+kind, `not-dispatched|failed|unknown` state, mutation outcome, attempted and
+restored counts, and residue count. CLI text, MCP structured content and Audit
+schema 6 consume the same projection; residue identities, field names, error
+details and command payloads never cross it. Older typed mutation reports are
+adapted only through an explicit field allowlist.
+_Avoid_: error object serialization, residue identity, prose-derived retry state
+
 **Figma Render Executor**:
 The static plugin runtime that applies one or a bounded batch of structurally preflighted **Semantic Render Plans** through native Figma operations. It advertises explicit single/batch plan capabilities during the authenticated handshake and must reject unsupported structure before creating canvas nodes. External component, image, font and variable resources are prepared explicitly before the visible tree; batch failures remove already-created root frames. Generated JavaScript remains a temporary compatibility adapter only for locally unsupported, unmigrated facts. A supported typed plan never changes protocol identity through eval, even when an older Plugin rejects the capability before dispatch.
 _Avoid_: eval renderer, plugin action, plan interpreter

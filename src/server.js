@@ -14,7 +14,11 @@ import { readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, streamFigmaAsset, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
-import { formatPublicError } from "./error-projection.js";
+import {
+  formatPublicError,
+  isPublicFailureProjection,
+  projectPublicFailure,
+} from "./error-projection.js";
 import {
   explainFigmaCommandRejection,
   legacyCommandRiskGateReason,
@@ -1474,7 +1478,7 @@ function textResult(text, { audit = getAuditStatus() } = {}) {
   return identifiedResult({ content: [{ type: "text", text: body }] }, audit);
 }
 
-function errorResult(text, { audit = getAuditStatus(), structuredContent = null } = {}) {
+export function errorResult(text, { audit = getAuditStatus(), structuredContent = null } = {}) {
   let body = String(text || "The Figma Bridge request failed.");
   if (!body.startsWith(`[${MCP_SERVER_ID}]`)) {
     body = `[${MCP_SERVER_ID}] ${body}`;
@@ -1486,7 +1490,8 @@ function errorResult(text, { audit = getAuditStatus(), structuredContent = null 
   return identifiedResult({
     content: [{ type: "text", text: body }],
     isError: true,
-    ...(isSemanticRenderOutcome(structuredContent) ? { structuredContent } : {}),
+    ...(isSemanticRenderOutcome(structuredContent) || isPublicFailureProjection(structuredContent)
+      ? { structuredContent } : {}),
   }, audit);
 }
 
@@ -4407,7 +4412,7 @@ async function main() {
     } catch (err) {
       result = errorResult(formatPublicError(err), {
         audit: err?.audit || getAuditStatus(),
-        structuredContent: err?.semanticRenderOutcome,
+        structuredContent: err?.semanticRenderOutcome || projectPublicFailure(err),
       });
     }
     if (traceEnabled) {

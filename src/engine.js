@@ -15,7 +15,7 @@ import { createDaemonClient, DaemonClientError } from "../engine/src/lib/daemon-
 import { createDesignCaptureModule } from "../engine/src/application/design-capture.js";
 import { retrySafeRead } from "../engine/src/lib/safe-read-retry.js";
 import { PLUGIN_BUILD_VERSION } from "../engine/src/lib/plugin-version.js";
-import { publicError } from "./error-projection.js";
+import { projectMutationOutcome, publicError } from "./error-projection.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
 import { auditTrail } from "./audit-trail.js";
 import {
@@ -199,15 +199,17 @@ function executionTimeout(context) {
 }
 
 function completeCommandExecution(context, code = 0) {
-  return auditTrail.finish(context.audit, { ok: true, code });
+  return auditTrail.finish(context.audit, { ok: true, code, dispatchState: "completed" });
 }
 
 function failCommandExecution(context, error) {
+  const mutation = projectMutationOutcome(error);
   return auditTrail.finish(context.audit, {
     ok: false,
     ...(typeof error?.code === "number" ? { code: error.code } : {}),
     errorKind: error?.kind || (typeof error?.code === "number" ? "engine-exit" : "request"),
     ...(error?.dispatchState ? { dispatchState: error.dispatchState } : {}),
+    ...(mutation ? { mutation } : {}),
   });
 }
 

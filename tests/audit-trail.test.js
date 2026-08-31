@@ -53,6 +53,11 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     code: 1,
     errorKind: "engine-exit",
     dispatchState: "failed",
+    mutationOutcome: "partial-residue",
+    mutationReport: {
+      version: 1, outcome: "partial-residue", attempted: 3, restored: 2,
+      residueCount: 1, residue: [{ id: "12:34", name: secrets.label }],
+    },
     connectionEpoch: secrets.connectionEpoch,
   });
 
@@ -99,6 +104,10 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     code: 1,
     errorKind: "engine-exit",
     dispatchState: "failed",
+    mutation: {
+      schemaVersion: 1, outcome: "partial-residue",
+      attempted: 3, restored: 2, residueCount: 1,
+    },
   });
 });
 

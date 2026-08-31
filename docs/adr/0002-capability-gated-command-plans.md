@@ -638,3 +638,14 @@ and re-reads both prior fields, then reports verified rollback, exact field
 residue or unavailable verification. Commander and `figma_run` retain no
 second auto-flow write path. The measured remaining Auto Layout Grid legacy
 writes are `set`, `place`, `reorder-rows`, and `reorder-columns`.
+
+All migrated Command Applications now share one Command Failure Outcome
+projection. It validates the closed terminal Dispatch state and version-1
+mutation report, accepts only the reviewed mutation outcomes and bounded
+cardinalities, and drops residue identities plus implementation-specific
+details. CLI error text, MCP structured error content and private Audit schema
+6 therefore carry the same attempted, restored and residue counts. Existing
+typed mutation-report property names remain readable through an explicit
+allowlist; new Applications use `mutationReport`. Invalid or forged reports
+are omitted rather than converted into policy evidence. Audit History keeps
+schemas 2–5 readable and folds schema-6 Dispatch and mutation facts forward.
