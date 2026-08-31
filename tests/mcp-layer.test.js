@@ -391,6 +391,18 @@ test('figma_run routes Node Resize through the rollback-verified Command Applica
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Resize must not re-enter Commander');
 });
 
+test('figma_run routes Node Reparent through the hierarchy-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeReparentRoute = nodeReparentPlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeReparentPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Reparent must not re-enter Commander');
+});
+
 test('figma_run routes Node Delete through the shared hierarchy-verified Command Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)');

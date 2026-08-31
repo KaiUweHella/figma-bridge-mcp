@@ -439,10 +439,27 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
   }
   assert.deepEqual(direct.sort(), [
     'bind', 'boolean', 'flatten', 'group',
-    'reparent', 'set', 'set-fill', 'set-image', 'ungroup',
+    'set', 'set-fill', 'set-image', 'ungroup',
   ]);
-  assert.equal(direct.length, 9,
+  assert.equal(direct.length, 8,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('node reparent delegates one Plan-bound hierarchy-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('reparent <nodeId> <parentId>')");
+  const end = adapter.indexOf('async function runNodeMoveCommand', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeReparentPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeReparentPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|appendChild\(|insertChild\(/,
+    'Commander must not retain Node Reparent preflight, mutation, rollback, or formatting');
 });
 
 test('node resize delegates one Plan-bound rollback-owned Command Application', () => {

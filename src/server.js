@@ -98,6 +98,10 @@ import {
   nodeResizePlanRoute,
 } from "../engine/src/application/node-resize-command.js";
 import {
+  executeNodeReparentPlan,
+  nodeReparentPlanRoute,
+} from "../engine/src/application/node-reparent-command.js";
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanRoute,
@@ -2263,6 +2267,20 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeNodeResizePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeReparentRoute = nodeReparentPlanRoute(plan);
+      if (nodeReparentRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeReparentPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }),

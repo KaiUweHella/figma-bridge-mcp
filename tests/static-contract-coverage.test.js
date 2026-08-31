@@ -35,6 +35,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/node-rename-request.js',
   'engine/src/application/node-resize-command.js',
   'engine/src/application/node-resize-request.js',
+  'engine/src/application/node-reparent-command.js',
+  'engine/src/application/node-reparent-request.js',
   'engine/src/application/node-to-component-command.js',
   'engine/src/application/node-to-component-request.js',
   'engine/src/application/screenshot-command.js',

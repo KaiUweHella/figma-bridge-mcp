@@ -47,6 +47,10 @@ import {
   nodeResizePlanningArgvFromRequest,
 } from '../application/node-resize-command.js';
 import {
+  executeNodeReparentPlan,
+  nodeReparentPlanningArgvFromRequest,
+} from '../application/node-reparent-command.js';
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanningArgvFromRequest,
@@ -360,89 +364,29 @@ node
   .option('--index <n>', 'Insert at this child index (default: append)')
   .option('--no-preserve-position', 'Use the node\'s existing local x/y instead of preserving its canvas position')
   .option('--json', 'Output as JSON')
+  .allowExcessArguments(false)
   .action(async (nodeId, parentId, options) => {
-    await checkConnection();
-    const childId = normalizeNodeId(nodeId).id;
-    const destinationId = normalizeNodeId(parentId).id;
-    const index = options.index === undefined ? null : Number(options.index);
-    if (index !== null && (!Number.isInteger(index) || index < 0)) {
-      console.error(chalk.red('✗ --index must be a non-negative integer'));
-      process.exit(1);
-    }
-    const code = `(async () => {
-      const child = await figma.getNodeByIdAsync(${JSON.stringify(childId)});
-      const parent = await figma.getNodeByIdAsync(${JSON.stringify(destinationId)});
-      if (!child) throw new Error('Node not found: ' + ${JSON.stringify(childId)});
-      if (!parent) throw new Error('Parent not found: ' + ${JSON.stringify(destinationId)});
-      if (child.type === 'DOCUMENT' || child.type === 'PAGE') throw new Error('Only canvas nodes can be reparented; got ' + child.type);
-      if (typeof parent.appendChild !== 'function') throw new Error('Target cannot contain children: ' + parent.type);
-      for (let cursor = parent; cursor; cursor = cursor.parent) {
-        if (cursor.id === child.id) throw new Error('Cannot reparent a node into itself or one of its descendants');
-      }
-      if (child.parent && child.parent.id === parent.id && ${index === null}) {
-        return { id: child.id, name: child.name, parentId: parent.id, unchanged: true, positionPreserved: true };
-      }
-      const oldParent = child.parent;
-      const oldIndex = oldParent && oldParent.children ? oldParent.children.indexOf(child) : -1;
-      const oldX = typeof child.x === 'number' ? child.x : null;
-      const oldY = typeof child.y === 'number' ? child.y : null;
-      const transform = child.absoluteTransform;
-      const absoluteX = transform && transform[0] ? transform[0][2] : oldX;
-      const absoluteY = transform && transform[1] ? transform[1][2] : oldY;
-      let positionPreserved = false;
-      try {
-        ${index === null
-          ? 'parent.appendChild(child);'
-          : `if (${index} > parent.children.length) throw new Error('Index out of range: ' + ${index});
-        parent.insertChild(${index}, child);`}
-        const canPosition = ${options.preservePosition !== false}
-          && 'x' in child && 'y' in child
-          && (parent.type === 'PAGE' || !('layoutMode' in parent) || parent.layoutMode === 'NONE');
-        if (canPosition && absoluteX != null && absoluteY != null) {
-          if (parent.type === 'PAGE') {
-            child.x = absoluteX;
-            child.y = absoluteY;
-            positionPreserved = true;
-          } else {
-            const t = parent.absoluteTransform;
-            const a = t[0][0], c = t[0][1], tx = t[0][2];
-            const b = t[1][0], d = t[1][1], ty = t[1][2];
-            const det = a * d - b * c;
-            if (Math.abs(det) > 1e-9) {
-              const dx = absoluteX - tx, dy = absoluteY - ty;
-              child.x = (d * dx - c * dy) / det;
-              child.y = (-b * dx + a * dy) / det;
-              positionPreserved = true;
-            }
-          }
-        }
-      } catch (error) {
-        try {
-          if (oldParent && typeof oldParent.appendChild === 'function') {
-            if (oldIndex >= 0 && typeof oldParent.insertChild === 'function') oldParent.insertChild(oldIndex, child);
-            else oldParent.appendChild(child);
-            if (oldX !== null) child.x = oldX;
-            if (oldY !== null) child.y = oldY;
-          }
-        } catch {}
-        throw error;
-      }
-      return {
-        id: child.id,
-        name: child.name,
-        oldParentId: oldParent ? oldParent.id : null,
-        parentId: parent.id,
-        index: parent.children ? parent.children.indexOf(child) : null,
-        positionPreserved,
-      };
-    })()`;
     try {
-      const result = await fastEval(code);
-      if (options.json) console.log(JSON.stringify(result, null, 2));
-      else console.log(chalk.green('✓'), `Moved "${result.name}" (${result.id}) into ${result.parentId}`);
-    } catch (e) {
-      console.error(chalk.red('✗ Reparent failed: ' + e.message));
-      process.exit(1);
+      const plan = planFigmaCommand(nodeReparentPlanningArgvFromRequest({
+        nodeId, parentId,
+        index: options.index === undefined ? null : options.index,
+        preservePosition: options.preservePosition !== false,
+        json: options.json === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeNodeReparentPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Reparent failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

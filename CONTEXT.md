@@ -219,6 +219,18 @@ both sizing modes, then reports verified rollback, bounded residue or
 unavailable verification through the shared mutation outcome.
 _Avoid_: Commander resize handler, pixel claim for FILL/HUG, retryable resize, unverified rollback
 
+**Node Reparent**:
+The bounded, non-retrying move of one exact canvas Node into one exact
+child-bearing destination. Its closed request preserves the optional final
+child index, canvas-position intent and two independently targetable Node
+References. Source membership, destination ancestry and the complete bounded
+child order are preflighted before mutation; success requires fresh exact-id
+readback of both affected hierarchies. Position preservation is a separately
+reported observed fact and may be false for Auto Layout. Failure restores and
+freshly verifies the prior parent, order and local position, otherwise reports
+bounded hierarchy/position residue or unavailable verification.
+_Avoid_: Commander reparent handler, parent-id-only success, implicit Auto Layout position claim, unverified rollback
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation

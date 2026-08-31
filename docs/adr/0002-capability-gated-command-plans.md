@@ -391,3 +391,15 @@ and sizing mode; FILL and HUG verify their native modes while reporting actual
 dimensions separately. Failure restores and freshly verifies both prior sizes
 and both prior modes, producing the shared rollback, residue or unavailable-
 verification outcome instead of accepting a partial two-axis write.
+
+`node reparent` follows the same incremental seam for hierarchy mutation. Its
+closed request keeps child identity, destination identity, optional final
+index, canvas-position intent and JSON projection together before readiness;
+two Figma URLs must identify the same target file. Commander and `figma_run`
+execute one non-retrying Application. The Application bounds and snapshots the
+complete source and destination child order, rejects cycles before mutation,
+and accepts success only after fresh exact hierarchy readback. Canvas-position
+preservation remains a separate observed result because Auto Layout can make
+it inapplicable. A mismatch restores the original parent, child index and local
+position and then reports verified rollback, bounded residue or unavailable
+verification rather than trusting the mutation acknowledgement.
