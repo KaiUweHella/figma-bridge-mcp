@@ -741,9 +741,10 @@ The closed creation of one native Slot inside a local Component or edit of one
 exact Slot property definition. It preserves bounded SlotSettings, preferred
 published Component keys and description facts, verifies the fresh Slot and
 definition topology, and removes or restores only identities owned by the
-request when verification fails. Slot reset is a separate irreversible
-operation because Figma exposes neither its intended default subtree nor a safe
-inverse.
+request when verification fails. Slot reset is a separate irreversible,
+native-confirmed operation: it reports bounded fresh before/after facts without
+pretending that Figma's unexposed default subtree was independently derived or
+that a safe inverse exists.
 _Avoid_: slot configuration eval, optimistic property rename, inferred reset postcondition
 
 **Canvas Awareness**:
@@ -1223,4 +1224,4 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 
 > **Developer:** Can Slot creation and definition editing share one safe outcome with `resetSlot()`?
 >
-> **Domain expert:** Only the configuration actions do. `slot create` snapshots existing Slot and definition identities, calls `createSlot()` once, and proves the exact new descendant and requested configuration; failure removes only the new identities. `slot edit` journals the effective definition, preserves unspecified settings, and proves a rename/configuration through fresh readback or restores that definition. Both Adapters use one non-retrying Application. `resetSlot()` exposes neither the intended default child subtree nor an inverse in Figma's Plugin API, so it remains a separately measured irreversible migration seam instead of receiving a false rollback claim. The direct Slot legacy-write count falls from three to one.
+> **Domain expert:** The configuration actions share rollback semantics; reset has its own truthful outcome. `slot create` snapshots existing Slot and definition identities, calls `createSlot()` once, and proves the exact new descendant and requested configuration; failure removes only the new identities. `slot edit` journals the effective definition, preserves unspecified settings, and proves a rename/configuration through fresh readback or restores that definition. `slot reset` calls `resetSlot()` once and reports `native-confirmed` only after the native call returns and a fresh bounded before/after fact pair is available. Because Figma exposes neither the intended default child subtree nor an inverse, a dispatch error remains `verification-unavailable` even when readback changed. All three actions are non-retrying in both Adapters, and the direct Slot legacy-write count is zero.

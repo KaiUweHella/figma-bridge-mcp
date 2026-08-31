@@ -609,7 +609,7 @@ non-retrying Plan; the mechanically pinned direct Shader legacy-write count
 reaches zero.
 
 Slot creation and Slot-property editing form one configuration Application,
-while reset remains a distinct irreversible seam. The closed request bounds the
+while reset is a distinct irreversible Application. The closed request bounds the
 Component Node Reference, generated property name, `SlotSettings`, preferred
 published Component keys and description. Create snapshots existing Slot and
 definition identities, calls `createSlot()` once, optionally edits the newly
@@ -619,7 +619,10 @@ topology. Edit resolves one exact full property name, journals its effective
 configuration, preserves unspecified settings, and freshly proves the returned
 name and definition; failure restores the journal when possible. CLI and MCP
 share one decreasing deadline and non-retrying Plan without Commander re-entry.
-The mechanically pinned direct Slot legacy-write count falls from three to one.
-`resetSlot()` is not included because the Plugin API exposes neither the target
-default subtree nor a safe inverse; a later irreversible Application must state
-that evidence boundary explicitly rather than claim rollback.
+`slot reset` separately snapshots bounded child identities and limit violations,
+calls `resetSlot()` exactly once, then reads the resulting Slot facts freshly.
+A normal native return plus fresh readback is `native-confirmed`, not an
+independently derived default-state proof. Because the Plugin API exposes
+neither the target default subtree nor a safe inverse, any dispatch error or
+missing readback is `verification-unavailable` and is never retried. The
+mechanically pinned direct Slot legacy-write count reaches zero.

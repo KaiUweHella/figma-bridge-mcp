@@ -638,9 +638,24 @@ test('the remaining direct Slot write inventory is explicit and cannot grow sile
     const action = adapter.slice(start, end === -1 ? adapter.length : end);
     if (/\brun\(|checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
   }
-  assert.deepEqual(direct, ['reset']);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
     'STAB-26 Slot-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Slot reset delegates one Plan-bound irreversible native-confirmed Application', () => {
+  const adapter = sources.get('slots.js');
+  const marker = "command('reset <nodeId>')";
+  const start = adapter.indexOf(marker);
+  const end = adapter.indexOf('slot.command(', start + marker.length);
+  const action = adapter.slice(start, end === -1 ? adapter.length : end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runSlotReset\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|slotResetCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'slot-reset-command.js'), 'utf8');
+  assert.match(application, /slot\.resetSlot\(\)/);
+  assert.match(application, /outcome: 'native-confirmed'/);
+  assert.doesNotMatch(application, /resetSlot\(\).*resetSlot\(\)/s);
 });
 
 test('the remaining direct Prototype write inventory is explicit and cannot grow silently', () => {

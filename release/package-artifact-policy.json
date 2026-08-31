@@ -155,6 +155,8 @@
     "engine/src/application/shader-mutation-request.js",
     "engine/src/application/slot-configuration-command.js",
     "engine/src/application/slot-configuration-request.js",
+    "engine/src/application/slot-reset-command.js",
+    "engine/src/application/slot-reset-request.js",
     "engine/src/application/node-coordinate.js",
     "engine/src/application/node-delete-command.js",
     "engine/src/application/node-delete-request.js",

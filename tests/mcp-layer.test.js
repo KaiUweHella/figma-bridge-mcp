@@ -722,6 +722,32 @@ test('figma_run rejects malformed Slot create/edit before readiness or dispatch'
   }
 });
 
+test('figma_run routes Slot reset through the irreversible native-confirmed Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slotResetRoute = slotResetPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeSlotResetPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Slot Reset must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Slot reset before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['slot', 'reset'], ['slot', 'reset', '2:1', '3:1'],
+    ['slot', 'reset', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run rejects malformed Prototype Inspection before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [

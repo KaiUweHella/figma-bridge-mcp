@@ -119,6 +119,12 @@ import {
   slotConfigurationFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slot-configuration-request.js';
 import {
+  acceptsSlotResetArgv,
+  parseSlotResetRequest,
+  slotResetArgvFromRequest,
+  slotResetFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slot-reset-request.js';
+import {
   acceptsNodeRenameArgv,
   nodeRenameArgvFromRequest,
   nodeRenameFigmaUrlFileKeyFromArgv,
@@ -635,6 +641,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'library.import-component', 'library.import-component-set',
   'shader.import', 'shader.apply',
   'slot.create', 'slot.edit',
+  'slot.reset',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
@@ -845,6 +852,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
   if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
   if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
+  if (actionId === 'slot.reset') pathPolicy = 'slot-reset-input';
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
@@ -1082,6 +1090,9 @@ function commandCapability(args) {
   }
   if (['slot.create', 'slot.edit'].includes(action.actionId)
     && !action.help && !acceptsSlotConfigurationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'slot.reset' && !action.help && !acceptsSlotResetArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -2089,6 +2100,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = slotConfigurationFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length,
         ...slotConfigurationArgvFromRequest(parseSlotConfigurationRequest(args)));
+      break;
+    }
+    case 'slot-reset-input': {
+      if (projectUrlTarget) figmaUrlFileKey = slotResetFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...slotResetArgvFromRequest(parseSlotResetRequest(args)));
       break;
     }
     case 'component-main-input': {

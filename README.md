@@ -1570,7 +1570,9 @@ is returned as `{ "$figmaScalar": "Infinity" }`, never the lossy JSON value
 Slots expose GA `SlotSettings`, preferred values, reset, and limit violations.
 Create and edit share one non-retrying, freshly verified mutation path in CLI
 and MCP; failures remove only newly created Slot identities or restore the
-prior effective definition when Figma permits it. JSX `<Slot>` uses
+prior effective definition when Figma permits it. Reset is also non-retrying
+and reports native confirmation plus fresh before/after facts; it does not
+claim an independently known default subtree or rollback. JSX `<Slot>` uses
 `ComponentNode.createSlot()` and validates configured limits after rendering.
 Draw commands cover text paths, repeat transform
 groups, stretch/scatter/dynamic strokes, variable-width profiles, and async

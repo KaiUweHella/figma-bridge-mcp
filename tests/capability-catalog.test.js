@@ -2160,6 +2160,17 @@ test('Slot create and edit own canonical cross-Adapter non-retrying write Plans'
   assert.equal(planFigmaCommand(['slot', 'edit', '1:1', 'Content#1:1']).allowed, false);
 });
 
+test('Slot reset owns one URL-targeted irreversible non-retrying Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=2-1';
+  const mcp = planFigmaCommand(['slot', 'reset', url], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'slot.reset'); assert.deepEqual(mcp.argv, ['slot', 'reset', '--', '2:1']);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand(['slot', 'reset']).allowed, false);
+});
+
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
   const variants = [
     ['history', 'diff'],

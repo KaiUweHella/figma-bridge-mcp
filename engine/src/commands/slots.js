@@ -4,11 +4,12 @@ import {
   executeSlotConfigurationPlan,
   slotConfigurationArgvFromRequest,
 } from '../application/slot-configuration-command.js';
+import { executeSlotResetPlan, slotResetArgvFromRequest } from '../application/slot-reset-command.js';
 import {
   checkConnection, daemonExec, fastEval, handleEvalError, program,
 } from '../lib/cli-core.js';
 import {
-  parsePreferredValues, parseSlotSettings, slotInspectCode, slotResetCode, slotValidateCode,
+  parsePreferredValues, parseSlotSettings, slotInspectCode, slotValidateCode,
 } from '../lib/slot-management.js';
 
 const print = (value) => console.log(JSON.stringify(value, null, 2));
@@ -24,6 +25,26 @@ async function runSlotConfiguration(request) {
       async ({ fileKey, deadline }) => {
         await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
         return executeSlotConfigurationPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
+async function runSlotReset(request) {
+  try {
+    const plan = planFigmaCommand(slotResetArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeSlotResetPlan(plan, {
           evaluate: (code) => daemonExec('eval', {
             code, ...(fileKey ? { fileKey } : {}),
           }, Math.max(1, deadline - Date.now())),
@@ -52,4 +73,6 @@ slot.command('edit <componentId> <propertyName>')
     preferredValues: parsePreferredValues(options.preferred), description: options.description,
   }));
 slot.command('validate [nodeId]').action(async (nodeId) => { try { print(await run(slotValidateCode({ nodeId }))); } catch (error) { handleEvalError(error); } });
-slot.command('reset <nodeId>').action(async (nodeId) => { try { print(await run(slotResetCode({ nodeId }))); } catch (error) { handleEvalError(error); } });
+slot.command('reset <nodeId>')
+  .allowExcessArguments(false)
+  .action(async (nodeId) => runSlotReset({ nodeId }));

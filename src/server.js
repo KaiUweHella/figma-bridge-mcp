@@ -130,6 +130,10 @@ import {
   slotConfigurationPlanRoute,
 } from "../engine/src/application/slot-configuration-command.js";
 import {
+  executeSlotResetPlan,
+  slotResetPlanRoute,
+} from "../engine/src/application/slot-reset-command.js";
+import {
   executeNodeRenamePlan,
   nodeRenamePlanRoute,
 } from "../engine/src/application/node-rename-command.js";
@@ -2402,6 +2406,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeSlotConfigurationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slotResetRoute = slotResetPlanRoute(plan);
+      if (slotResetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          return executeSlotResetPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
