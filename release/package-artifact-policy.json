@@ -264,6 +264,8 @@
     "engine/src/application/grid-track-reorder-request.js",
     "engine/src/application/gradient-apply-command.js",
     "engine/src/application/gradient-apply-request.js",
+    "engine/src/application/gradient-extract-command.js",
+    "engine/src/application/gradient-extract-request.js",
     "engine/src/application/node-coordinate.js",
     "engine/src/application/node-delete-command.js",
     "engine/src/application/node-delete-request.js",

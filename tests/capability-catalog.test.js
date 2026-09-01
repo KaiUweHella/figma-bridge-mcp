@@ -1694,7 +1694,10 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   });
   assert.equal(gradientLiteral.effects.figma, 'none');
   assert.equal(gradientLiteral.target.kind, 'none');
-  assert.deepEqual(gradientLiteral.argv, ['gradient', 'extract', '--', join(workspaceDir, '--apply-to')]);
+  assert.deepEqual(gradientLiteral.argv, [
+    'gradient', 'extract', '--mode', 'linear', '--direction', 'auto', '--stops', '3',
+    '--', join(workspaceDir, '--apply-to'),
+  ]);
   assert.equal(planFigmaCommand([
     'gradient', 'extract', 'hero.png', '--apply-to', '1:2',
   ], { workspaceDir }).effects.figma, 'write');

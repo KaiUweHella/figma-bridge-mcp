@@ -141,6 +141,12 @@ import {
   parseGradientApplyRequest,
 } from '../engine/src/application/gradient-apply-request.js';
 import {
+  acceptsGradientExtractArgv,
+  gradientExtractArgvFromRequest,
+  gradientExtractFigmaUrlFileKeyFromArgv,
+  parseGradientExtractRequest,
+} from '../engine/src/application/gradient-extract-request.js';
+import {
   acceptsDrawArgv,
   drawArgvFromRequest,
   drawFigmaUrlFileKeyFromArgv,
@@ -976,7 +982,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'gradient.apply',
+  'gradient.apply', 'gradient.extract',
   'motion.add', 'motion.apply', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
@@ -1144,7 +1150,7 @@ function mutatesDesign(entry, args, options, actionId) {
   if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
   if (entry.mutation === 'read') return false;
   if (entry.mutation === 'gradient') {
-    return sub !== 'extract' || hasOption(options, '--apply-to');
+    return sub !== 'extract' || parseGradientExtractRequest(args).selector !== null;
   }
   if (entry.mutation === 'layout') return !(sub === 'grid' && args[2] === 'inspect');
   const subIsAction = sub !== undefined && !sub.startsWith('-');
@@ -1170,7 +1176,7 @@ function targetPolicy(name, entry, args, options) {
   if (name === 'spec') return hasOption(options, '--check') ? 'figma' : 'none';
   if (name === 'verify-build') return hasOption(options, '--node') ? 'figma' : 'none';
   if (name === 'gradient') {
-    return args[1] === 'extract' && !hasOption(options, '--apply-to') ? 'none' : 'figma';
+    return args[1] === 'extract' && parseGradientExtractRequest(args).selector === null ? 'none' : 'figma';
   }
   if (name === 'link') return ['list', 'configure'].includes(args[1]) ? 'none' : 'figma';
   if (name === 'render' || name === 'render-batch') return semanticRenderPolicyFromArgv(args).target;
@@ -1563,6 +1569,10 @@ function commandCapability(args) {
   }
   if (action.actionId === 'gradient.apply'
     && !action.help && !acceptsGradientApplyArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'gradient.extract'
+    && !action.help && !acceptsGradientExtractArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId.startsWith('draw.') && !action.help && !acceptsDrawArgv(args)) {
@@ -3398,12 +3408,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
           ...gradientApplyArgvFromRequest(parseGradientApplyRequest(args)));
         break;
       }
-      const [imageIndex] = positionalIndexes(args, 2, [
-        '--mode', '--apply-to', '--direction', '--stops', '--blur',
-      ]);
-      if (args[1] === 'extract' && typeof args[imageIndex] === 'string') {
-        args[imageIndex] = absolute(baseDir, args[imageIndex]);
-        markRead(args[imageIndex], 'gradient-image');
+      if (args[1] === 'extract' && acceptsGradientExtractArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = gradientExtractFigmaUrlFileKeyFromArgv(args);
+        const request = parseGradientExtractRequest(args);
+        const image = absolute(baseDir, request.image);
+        args.splice(0, args.length,
+          ...gradientExtractArgvFromRequest({ ...request, image }));
+        markRead(image, 'gradient-image');
       }
       break;
     }
@@ -3649,7 +3660,7 @@ function editorEffect(args, capability) {
   if (actionId === 'link.inspect'
     && !parseDesignLinkRequest(args, { requireManifest: false }).nodeId) return 'read';
   if (actionId === 'gradient.extract'
-    && String(flagValue(args, '--apply-to', capability.options)).toLowerCase() === 'selected') {
+    && parseGradientExtractRequest(args).selector?.kind === 'selection') {
     return 'read';
   }
   if (actionId === 'pin' && parsePinRequest(args).selector.kind === 'selection') return 'read';

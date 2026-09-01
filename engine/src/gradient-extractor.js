@@ -15,8 +15,11 @@ import { extname } from 'path';
 import { gradientTransformFromCssAngle } from './lib/paint-css.js';
 import { workspaceIO } from './lib/workspace-io.js';
 
-export function loadImage(path) {
-  const buf = workspaceIO().read(path, { role: 'gradient-image', maxBytes: 32 * 1024 * 1024 });
+export function loadImage(path, { io = workspaceIO() } = {}) {
+  if (!io || typeof io.read !== 'function') {
+    throw new TypeError('Gradient extraction requires an authorized WorkspaceIO capability.');
+  }
+  const buf = io.read(path, { role: 'gradient-image', maxBytes: 32 * 1024 * 1024 });
   const ext = extname(path).toLowerCase();
   if (ext === '.png') {
     const png = PNG.sync.read(buf);
@@ -144,8 +147,8 @@ function extractStops(img, box, dir, n) {
   return stops;
 }
 
-export function extractGradient(path, opts = {}) {
-  const img = loadImage(path);
+export function extractGradient(path, opts = {}, adapters = {}) {
+  const img = loadImage(path, { io: adapters.workspaceIO });
   const box = opts.trim === false
     ? { left: 0, top: 0, right: img.width - 1, bottom: img.height - 1 }
     : detectInnerBox(img);
@@ -291,8 +294,8 @@ function averageColor(colors) {
   ];
 }
 
-export function extractMesh(path, opts = {}) {
-  const img = loadImage(path);
+export function extractMesh(path, opts = {}, adapters = {}) {
+  const img = loadImage(path, { io: adapters.workspaceIO });
   const box = opts.trim === false
     ? { left: 0, top: 0, right: img.width - 1, bottom: img.height - 1 }
     : detectInnerBox(img);
