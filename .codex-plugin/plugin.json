@@ -1,6 +1,6 @@
 {
   "name": "figma-bridge-mcp",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Local, authenticated Figma bridge with exact design-to-code and code-to-Figma workflows.",
   "author": {
     "name": "Kai-Uwe Hella",

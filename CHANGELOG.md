@@ -5,6 +5,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.7.3] — 2026-09-01
+
 ### Fixed
 
 - Concurrent offline API-reference setup now publishes one fully written
