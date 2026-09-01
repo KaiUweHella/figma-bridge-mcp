@@ -227,6 +227,8 @@
     "engine/src/application/shader-read-request.js",
     "engine/src/application/draw-command.js",
     "engine/src/application/draw-request.js",
+    "engine/src/application/motion-clear-command.js",
+    "engine/src/application/motion-clear-request.js",
     "engine/src/application/motion-read-command.js",
     "engine/src/application/motion-read-request.js",
     "engine/src/application/motion-timeline-command.js",

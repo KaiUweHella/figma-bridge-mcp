@@ -141,6 +141,12 @@ import {
   parseDrawRequest,
 } from '../engine/src/application/draw-request.js';
 import {
+  acceptsMotionClearArgv,
+  motionClearArgvFromRequest,
+  motionClearFigmaUrlFileKeyFromArgv,
+  parseMotionClearRequest,
+} from '../engine/src/application/motion-clear-request.js';
+import {
   acceptsMotionReadArgv,
   motionReadArgvFromRequest,
   motionReadFigmaUrlFileKeyFromArgv,
@@ -935,7 +941,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'motion.styles', 'motion.inspect',
+  'motion.styles', 'motion.inspect', 'motion.clear',
   'motion.timeline',
   'slot.create', 'slot.edit',
   'slot.reset',
@@ -1524,6 +1530,10 @@ function commandCapability(args) {
   }
   if (['motion.styles', 'motion.inspect'].includes(action.actionId)
     && !action.help && !acceptsMotionReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.clear'
+    && !action.help && !acceptsMotionClearArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'motion.timeline'
@@ -3379,6 +3389,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
+      if (args[1] === 'clear' && acceptsMotionClearArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionClearFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionClearArgvFromRequest(parseMotionClearRequest(args)));
+        break;
+      }
       if (args[1] === 'timeline' && acceptsMotionTimelineArgv(args)) {
         if (projectUrlTarget) figmaUrlFileKey = motionTimelineFigmaUrlFileKeyFromArgv(args);
         args.splice(0, args.length,

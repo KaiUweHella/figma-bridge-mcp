@@ -396,6 +396,20 @@ test('motion timeline delegates one conditional Plan-bound verified Application'
     'Commander must not retain Motion Timeline resolution, mutation, verification, or rollback');
 });
 
+test('motion clear delegates one Plan-bound verified Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('clear <id>')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionClear\(/);
+  assert.match(adapter, /motionClearPlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionClearPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|removeAnimationStyle|removeManualKeyframeTrack/,
+    'Commander must not retain Motion Clear resolution, mutation, verification, or rollback');
+});
+
 test('the remaining direct Motion Action inventory is explicit', () => {
   const adapter = sources.get('motion.js');
   const commands = ['add', 'apply', 'preset', 'stagger', 'styles', 'style', 'timeline', 'inspect', 'clear'];
@@ -404,8 +418,8 @@ test('the remaining direct Motion Action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await checkConnection\(\)/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['add', 'apply', 'preset', 'stagger', 'style', 'clear']);
-  assert.equal(direct.length, 6,
+  assert.deepEqual(direct, ['add', 'apply', 'preset', 'stagger', 'style']);
+  assert.equal(direct.length, 5,
     'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
 });
 

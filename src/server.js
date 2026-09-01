@@ -154,6 +154,10 @@ import {
   executeDrawCommandPlan,
 } from "../engine/src/application/draw-command.js";
 import {
+  executeMotionClearPlan,
+  motionClearPlanRoute,
+} from "../engine/src/application/motion-clear-command.js";
+import {
   executeMotionReadPlan,
   motionReadPlanRoute,
 } from "../engine/src/application/motion-read-command.js";
@@ -2659,6 +2663,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeShaderReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionClearRoute = motionClearPlanRoute(plan);
+      if (motionClearRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionClearPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

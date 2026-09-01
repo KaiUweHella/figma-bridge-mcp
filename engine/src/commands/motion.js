@@ -13,6 +13,10 @@ import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
+  executeMotionClearPlan,
+  motionClearPlanningArgvFromRequest,
+} from '../application/motion-clear-command.js';
+import {
   executeMotionReadPlan,
   motionReadPlanningArgvFromRequest,
 } from '../application/motion-read-command.js';
@@ -193,6 +197,27 @@ async function runMotionTimeline(request) {
       async ({ fileKey, expectedEditor, deadline }) => {
         await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
         return executeMotionTimelinePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
+async function runMotionClear(request) {
+  try {
+    const plan = planFigmaCommand(motionClearPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionClearPlan(plan, {
           evaluate: (code) => daemonExec('eval', {
             code, ...(fileKey ? { fileKey } : {}),
           }, Math.max(1, deadline - Date.now())),
@@ -409,40 +434,9 @@ motion
   .description('Remove motion: all tracks (default), one --field, or --styles')
   .option('-f, --field <field>', 'remove only this field track')
   .option('--styles', 'remove animation styles instead of keyframe tracks')
-  .action(async (id, options) => {
-    await checkConnection();
-    const spinner = progress('Clearing motion...').start();
-    try {
-      const target = options.field ? mapField(options.field) : null;
-      const arg = JSON.stringify({ field: target, styles: !!options.styles });
-      const body = `
-const arg = ${arg};
-const r = await resolveTarget(${JSON.stringify(id)});
-if (r.error) return r;
-const node = r.node;
-if (arg.styles) {
-  for (const s of (node.animationStyles || [])) { if (s.id) node.removeAnimationStyle(s.id); }
-} else if (arg.field) {
-  if (arg.field.valueType === 'COLOR') node.removeManualKeyframeTrack({ type: 'INDEXED_ITEM', collection: arg.field.name, index: arg.field.index });
-  else node.removeManualKeyframeTrack({ type: 'PROPERTY', name: arg.field.name });
-} else {
-  const mkt = node.manualKeyframeTracks || {};
-  for (const key of Object.keys(mkt)) {
-    if (key === 'fills' || key === 'strokes') {
-      for (const idx of Object.keys(mkt[key])) node.removeManualKeyframeTrack({ type: 'INDEXED_ITEM', collection: key, index: Number(idx) });
-    } else {
-      node.removeManualKeyframeTrack({ type: 'PROPERTY', name: key });
-    }
-  }
-}
-return { nodeId: node.id, nodeName: node.name };
-`;
-      const res = await fastEval(evalBody(body));
-      if (printTargetError(res, id)) { spinner.fail('Nothing to clear'); return; }
-      const what = options.styles ? 'styles' : options.field ? `field ${options.field}` : 'all tracks';
-      spinnerSucceed(spinner, `Cleared ${what} on ${res.nodeName}`);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (id, options) => runMotionClear({
+    nodeId: id,
+    mode: options.styles ? 'styles' : options.field ? 'field' : 'tracks',
+    field: options.styles ? null : options.field || null,
+  }));
