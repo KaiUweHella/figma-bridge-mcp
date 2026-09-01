@@ -73,15 +73,24 @@ function assertBridgeError(payload, expected) {
   );
 }
 
-function assertForwardedDeadline(message, timeoutMs) {
+const FORWARDED_DEADLINE_CLOCK_TOLERANCE_MS = 10;
+
+function assertForwardedDeadline(message, timeoutMs, observedAt = Date.now()) {
   assert.equal(message.timeoutMs, timeoutMs,
     'the normalized HTTP budget must reach the authenticated Plugin socket');
   assert.equal(Number.isFinite(message.deadlineAt), true,
     'the Plugin socket message must carry an absolute deadline');
-  const remainingMs = message.deadlineAt - Date.now();
-  assert.ok(remainingMs > 0 && remainingMs <= timeoutMs,
-    `forwarded deadline must retain at most its ${timeoutMs}ms owning budget (got ${remainingMs}ms)`);
+  const remainingMs = message.deadlineAt - observedAt;
+  assert.ok(
+    remainingMs > 0
+      && remainingMs <= timeoutMs + FORWARDED_DEADLINE_CLOCK_TOLERANCE_MS,
+    `forwarded deadline must stay within ${FORWARDED_DEADLINE_CLOCK_TOLERANCE_MS}ms of its ${timeoutMs}ms owning budget (got ${remainingMs}ms)`,
+  );
 }
+
+test('forwarded deadlines tolerate bounded wall-clock rollback without expanding the socket timeout', () => {
+  assertForwardedDeadline({ timeoutMs: 1000, deadlineAt: 2001 }, 1000, 1000);
+});
 
 function waitForListen(timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
@@ -1058,14 +1067,23 @@ test('/exec reports Plugin timeout as outcome unknown after dispatch', async () 
   await withAuthedWs(async (ws) => {
     await pushSelection(ws, { fileKey: 'TIMEOUT_FILE' });
     const routed = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('daemon did not route timeout eval')), 3000);
-      ws.on('message', (data) => {
+      const onMessage = (data) => {
         const msg = JSON.parse(data.toString());
         if (msg.action !== 'eval') return;
         clearTimeout(timer);
-        assertForwardedDeadline(msg, 1000);
-        resolve();
-      });
+        ws.off('message', onMessage);
+        try {
+          assertForwardedDeadline(msg, 1000);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      };
+      const timer = setTimeout(() => {
+        ws.off('message', onMessage);
+        reject(new Error('daemon did not route timeout eval'));
+      }, 3000);
+      ws.on('message', onMessage);
     });
     const body = JSON.stringify({
       action: 'eval',

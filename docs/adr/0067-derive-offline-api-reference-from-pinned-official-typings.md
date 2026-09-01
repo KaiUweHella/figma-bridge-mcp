@@ -20,10 +20,12 @@ member signatures and official prose.
 private Bridge state directory with 0700 directories and a 0600 material file.
 The source, projected file, declaration count, declaration/member sizes,
 queries and agent context have explicit limits. Publication uses a unique
-exclusive temporary file, fsync and atomic rename. Concurrent setup processes
-may race only identical reviewed material; a failed validation or publication
-leaves the previous known-good material readable. Unexpected entries, links,
-inode changes and provenance drift fail closed.
+exclusive temporary file, fsync and an atomic no-clobber hard link into the
+final name. Exactly one concurrent setup process publishes; losing processes
+reuse that same complete reviewed material instead of replacing its inode. A
+failed validation or publication leaves the previous known-good material
+readable. Unexpected entries, links, inode changes and provenance drift fail
+closed.
 
 The installed package tree remains read-only. Existing package-tree Markdown
 is not trusted as active material; when found, commands give a clear one-way

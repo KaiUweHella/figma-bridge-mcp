@@ -5,6 +5,15 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Fixed
+
+- Concurrent offline API-reference setup now publishes one fully written
+  material with an atomic no-clobber commit. Losing processes reuse the winner
+  instead of replacing its inode while another process may be reading it.
+- Daemon deadline tests now tolerate bounded wall-clock rollback while keeping
+  the actual Plugin socket timeout exact, and route WebSocket assertion errors
+  through cleanup so one timing failure cannot contaminate later tests.
+
 ## [0.7.2] — 2026-09-01
 
 ### Changed

@@ -11,13 +11,13 @@ import {
   fchmodSync,
   fstatSync,
   fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
   realpathSync,
-  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -368,18 +368,22 @@ export function createApiReferenceStore({ root = STATE_DIR, policy = API_REFEREN
       if (!inodeMatches(lstatSync(directory), directoryStat)) {
         reject('private directory changed during publication', 'API_REFERENCE_PATH_UNSAFE');
       }
-      try { renameSync(temporary, materialPath); }
-      catch (error) {
-        if (!existsSync(materialPath)) throw error;
+      let published = false;
+      try {
+        linkSync(temporary, materialPath);
+        published = true;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
       }
+      unlinkSync(temporary);
       ownsTemporary = false;
-      chmodSync(materialPath, PRIVATE_FILE_MODE);
+      if (published) chmodSync(materialPath, PRIVATE_FILE_MODE);
       const installed = readModel();
       return Object.freeze({
         materialVersion: installed.materialVersion,
         entries: installed.entries.length,
         bytes: statSync(materialPath).size,
-        reused: false,
+        reused: !published,
       });
     } catch (error) {
       if (error instanceof ApiReferenceStoreError) throw error;
