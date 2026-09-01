@@ -496,6 +496,33 @@ test('the remaining direct Motion Action inventory is explicit', () => {
     'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
 });
 
+test('gradient apply delegates one Plan-bound rollback-owned Paint mutation', () => {
+  const adapter = sources.get('gradient.js');
+  assert.ok(adapter, 'gradient.js exists');
+  const start = adapter.indexOf(".command('apply <nodeId> <value>')");
+  const end = adapter.indexOf(".command('extract <image>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGradientApply\(/);
+  assert.match(adapter, /gradientApplyPlanningArgvFromRequest/);
+  assert.match(adapter, /executeGradientApplyPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|parseGradient\(|node\[|strokeWeight\s*=/,
+    'Commander must not retain Gradient Apply parsing, mutation, verification, or rollback');
+});
+
+test('the remaining direct Gradient Action inventory is explicit', () => {
+  const adapter = sources.get('gradient.js');
+  const commands = ['apply', 'extract', 'mesh'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /checkConnection\(\)|fastEval\(/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, ['extract', 'mesh']);
+  assert.equal(direct.length, 2,
+    'STAB-06 Gradient Legacy Action count may decrease, but must never increase silently');
+});
+
 test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
   const offenders = [];
   for (const [file, source] of sources) {

@@ -135,6 +135,12 @@ import {
   shaderReadArgvFromRequest,
 } from '../engine/src/application/shader-read-request.js';
 import {
+  acceptsGradientApplyArgv,
+  gradientApplyArgvFromRequest,
+  gradientApplyFigmaUrlFileKeyFromArgv,
+  parseGradientApplyRequest,
+} from '../engine/src/application/gradient-apply-request.js';
+import {
   acceptsDrawArgv,
   drawArgvFromRequest,
   drawFigmaUrlFileKeyFromArgv,
@@ -970,6 +976,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
+  'gradient.apply',
   'motion.add', 'motion.apply', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
@@ -1552,6 +1559,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'shader.list' && !action.help && !acceptsShaderReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'gradient.apply'
+    && !action.help && !acceptsGradientApplyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId.startsWith('draw.') && !action.help && !acceptsDrawArgv(args)) {
@@ -3381,6 +3392,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'gradient-input': {
+      if (args[1] === 'apply' && acceptsGradientApplyArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = gradientApplyFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...gradientApplyArgvFromRequest(parseGradientApplyRequest(args)));
+        break;
+      }
       const [imageIndex] = positionalIndexes(args, 2, [
         '--mode', '--apply-to', '--direction', '--stops', '--blur',
       ]);

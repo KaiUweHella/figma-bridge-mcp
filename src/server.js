@@ -150,6 +150,10 @@ import {
   shaderReadPlanRoute,
 } from "../engine/src/application/shader-read-command.js";
 import {
+  executeGradientApplyPlan,
+  gradientApplyPlanRoute,
+} from "../engine/src/application/gradient-apply-command.js";
+import {
   drawCommandPlanRoute,
   executeDrawCommandPlan,
 } from "../engine/src/application/draw-command.js";
@@ -2684,6 +2688,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeShaderReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gradientApplyRoute = gradientApplyPlanRoute(plan);
+      if (gradientApplyRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGradientApplyPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
