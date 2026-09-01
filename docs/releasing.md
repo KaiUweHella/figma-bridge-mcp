@@ -44,7 +44,10 @@ checkout after verification.
    The smoke uses a scratch home, generated credentials, and a temporary
    loopback port. It exercises MCP initialization, tool discovery, pairing,
    authenticated daemon startup, status, Plugin installation, and cleanup
-   without a maintainer secret. The installed lock is reduced to a sanitized
+   without a maintainer secret. It explicitly clears
+   `FIGMA_BRIDGE_PROFILE`, rejects the checkout-only `Local Development`
+   identity, and requires the released `Figma Bridge` manifest with its normal
+   `3456–3460` port range. The installed lock is reduced to a sanitized
    `dependencies.json` containing exact production versions, canonical npm
    registry origins, and SHA-512 integrity; an install lifecycle script fails
    the gate. The CI pack job installs with `--engine-strict` on Node 18, the

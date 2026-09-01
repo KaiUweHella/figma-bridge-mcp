@@ -45,6 +45,10 @@ const smokeEnv = {
   ...process.env,
   HOME: scratch,
   USERPROFILE: scratch,
+  // Artifact verification must always exercise the released profile even
+  // when the contributor invoking it currently develops with the isolated
+  // local-development profile.
+  FIGMA_BRIDGE_PROFILE: "",
   AUDIT_LOG_PATH: join(stateDir, "audit.log"),
   DAEMON_PID_FILE: join(stateDir, "daemon.pid"),
   DAEMON_PORT: String(port),
@@ -190,6 +194,35 @@ child.stdout.on("data", (chunk) => {
         ]) {
           if (!existsSync(required))
             throw new Error(`figma_connect did not create ${required}`);
+        }
+        const installedManifest = JSON.parse(
+          readFileSync(join(smokeEnv.PLUGIN_INSTALL_DIR, "manifest.json"), "utf8")
+        );
+        if (
+          installedManifest.name !== "Figma Bridge" ||
+          installedManifest.id !== "figma-bridge-mcp"
+        ) {
+          throw new Error(
+            "Packaged figma_connect installed the local-development plugin identity"
+          );
+        }
+        if (
+          JSON.stringify(installedManifest.editorType) !==
+          JSON.stringify(["figma", "figjam", "slides"])
+        ) {
+          throw new Error(
+            "Packaged figma_connect installed the wrong editor support"
+          );
+        }
+        for (const daemonPort of [3456, 3457, 3458, 3459, 3460]) {
+          for (const protocol of ["ws", "http"]) {
+            const origin = `${protocol}://localhost:${daemonPort}`;
+            if (!installedManifest.networkAccess?.allowedDomains?.includes(origin)) {
+              throw new Error(
+                `Packaged figma_connect manifest does not allow ${origin}`
+              );
+            }
+          }
         }
         send({
           jsonrpc: "2.0",

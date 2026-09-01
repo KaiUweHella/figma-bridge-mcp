@@ -5,6 +5,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.7.1] — 2026-09-01
+
 ### Added
 
 - Every MCP failure now exposes one closed recovery context with `layer`,
@@ -28,9 +30,20 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   separately identified, checkout-owned `plugin/manifest.json` and fully
   isolated local state pinned to `localhost:3460`, without competing with a
   released Bridge used by another MCP client.
+- Plugin Setup now explains that Figma stores pairing separately in Design,
+  FigJam and Slides, and offers an explicit `Copy access key` action that
+  copies only the stored in-use key without displaying or logging it.
 
 ### Fixed
 
+- Released installs now keep the stable `Figma Bridge` identity and normal
+  `3456–3460` daemon range even when copying the Plugin into persistent state
+  fails. Package smoke coverage explicitly clears contributor profile state
+  and rejects an accidental `Local Development` manifest in release artifacts.
+- Starting an already paired MCP now wakes a Daemon that exited after its idle
+  timeout. First-run profiles and intentionally stopped Daemons remain off,
+  while bounded recovery guidance keeps agents from diagnosing a normal idle
+  shutdown as an unknown transport failure.
 - `figma_connect {forceRecovery:true,fileKey}` can now recover one exact
   authenticated Plugin UI after a timed-out compatibility execution leaves its
   execution lane quarantined while the independent health lane still answers.

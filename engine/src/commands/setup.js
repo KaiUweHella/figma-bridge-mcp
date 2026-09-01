@@ -19,6 +19,8 @@ import { workspaceIO } from '../lib/workspace-io.js';
 // server spawns the engine from an arbitrary directory).
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
+const LOCAL_PLUGIN_MANIFEST = join(PLUGIN_SRC_DIR, 'manifest.json');
+const RELEASE_PLUGIN_MANIFEST = join(PLUGIN_SRC_DIR, 'manifest.release.json');
 
 // The path the user imports in Figma. Under an npx install the package lives
 // in an EPHEMERAL cache that npx may garbage-collect — importing the manifest
@@ -31,7 +33,7 @@ export function installPluginFiles() {
   // profiles still need the stable copied path below because their package
   // cache may disappear.
   if (isLocalDevelopmentProfile()) {
-    return join(PLUGIN_SRC_DIR, 'manifest.json');
+    return LOCAL_PLUGIN_MANIFEST;
   }
   // Test/packaging hook: keep integration tests out of the user's real state
   // directory while exercising the exact connect command end to end.
@@ -41,7 +43,7 @@ export function installPluginFiles() {
     for (const f of ['manifest.dev.json', 'code.js', 'ui.html']) {
       copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
     }
-    copyFileSync(join(PLUGIN_SRC_DIR, 'manifest.release.json'), join(dest, 'manifest.json'));
+    copyFileSync(RELEASE_PLUGIN_MANIFEST, join(dest, 'manifest.json'));
     // 0.5.0 briefly shipped a separate offline Codegen adapter. It is not
     // needed by the MCP workflow; remove stable-cache leftovers on upgrade.
     for (const retired of ['manifest.codegen.json', 'codegen.js']) {
@@ -49,7 +51,11 @@ export function installPluginFiles() {
     }
     return join(dest, 'manifest.json');
   } catch {
-    return join(PLUGIN_SRC_DIR, 'manifest.json');
+    // A read-only package cache is still a valid temporary import location.
+    // Never cross the profile boundary here: manifest.json is the contributor
+    // identity pinned to :3460, while released installs must keep the stable
+    // Figma Bridge identity and the normal daemon port range.
+    return RELEASE_PLUGIN_MANIFEST;
   }
 }
 import * as apiDocs from '../api-docs.js';
