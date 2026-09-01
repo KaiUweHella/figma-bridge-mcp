@@ -1711,7 +1711,9 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   });
   assert.equal(tokenLiteral.effects.figma, 'read');
   assert.equal(tokenLiteral.confirmation, 'none');
-  assert.deepEqual(tokenLiteral.argv, ['tokens', 'sync', '--', join(workspaceDir, '--apply')]);
+  assert.deepEqual(tokenLiteral.argv, [
+    'tokens', 'sync', '--collection=Design Tokens', '--', join(workspaceDir, '--apply'),
+  ]);
   assert.equal(planFigmaCommand(['tokens', 'sync', '--apply', 'tokens.json'], {
     workspaceDir,
   }).effects.figma, 'write');
@@ -2508,7 +2510,8 @@ test('catalog prepares every known project-relative path policy', () => {
     'node', 'set-image', '1:2', '--scale', 'FILL', '--', inWorkspace('photo.png'),
   ]);
   assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
-    'tokens', 'sync', inWorkspace('tokens.json'), '--lockfile', inWorkspace('.tokens.lock.json'),
+    'tokens', 'sync', '--collection=Design Tokens',
+    `--lockfile=${inWorkspace('.tokens.lock.json')}`, '--', inWorkspace('tokens.json'),
   ]);
   assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), [
     'spec', '--file', inWorkspace('design', 'DESIGN.md'), '--tolerance', '2', '--', 'Button',
@@ -2543,7 +2546,12 @@ test('catalog reports workspace, network and shared-state effects independently 
   assert.deepEqual(planFigmaCommand(['spec', 'Button', '--file', 'DESIGN.md'], { workspaceDir: '/work' }).effects, {
     figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
-  assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], { workspaceDir: '/work' }).effects.workspace, 'write');
+  assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], {
+    workspaceDir: '/work',
+  }).effects.workspace, 'read');
+  assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json', '--apply'], {
+    workspaceDir: '/work',
+  }).effects.workspace, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot']).effects.shared, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot', '--json']).effects.shared, 'none');
   assert.equal(planFigmaCommand(['history', 'list']).effects.shared, 'read');

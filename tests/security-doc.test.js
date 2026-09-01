@@ -657,6 +657,35 @@ const EVIDENCE = Object.freeze([
       ],
     ],
   ],
+  [
+    "SEC-TOKEN-SYNC",
+    [
+      [
+        "engine/tests/token-sync-command.test.js",
+        "apply revalidates the exact preflight and makes no mutation after a race",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "invalid mutation evidence cannot hide a committed write or advance the lock",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "forged failure residue cannot claim operations outside the attempted Plan prefix",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "one lockfile serializes concurrent Token Sync transactions",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "lock publication failure reports verified committed Figma residue",
+      ],
+      [
+        "tests/workspace-io.test.js",
+        "atomic replacement preserves prior bytes and removes its stage when commit fails",
+      ],
+    ],
+  ],
 ]);
 
 test("public security claims resolve to named executable evidence", () => {

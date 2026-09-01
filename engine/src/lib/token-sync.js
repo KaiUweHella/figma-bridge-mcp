@@ -191,6 +191,7 @@ export function parseDtcgFlat(jsonText) {
     if (value && typeof value === 'object' && !isStructuredColor && !isStructuredNumber) continue;
     const type = inferType(value, tok.type);
     const name = path.split('.').join('/');
+    if (out.has(name)) throw new Error(`Duplicate token name after Figma path normalization: ${name}`);
     const extension = tok.extension && typeof tok.extension === 'object' ? tok.extension : {};
     const scopes = Array.isArray(extension.scopes)
       ? [...new Set(extension.scopes.map(String))].sort()
@@ -228,7 +229,9 @@ export function parseCssFlat(cssText) {
     // Figma variable.
     if (/^var\(/.test(value)) continue;
     const type = inferType(value);
-    out.set(m[1].replace(/-/g, '/'), {
+    const name = m[1].replace(/-/g, '/');
+    if (out.has(name)) throw new Error(`Duplicate token name after Figma path normalization: ${name}`);
+    out.set(name, {
       type,
       value: type === 'FLOAT' ? toNumber(value) : value,
     });
@@ -271,7 +274,10 @@ export function parseLock(text) {
   return doc;
 }
 
-/** Lock entries for exactly what was applied — never for a dry run. */
+/**
+ * Lock entries for exactly what was applied — never for a dry run.
+ * @param {{collection:any,fileKey:any,tokens:any,syncedAt?:any}} input
+ */
 export function buildLock({ collection, fileKey, tokens, syncedAt }) {
   const out = emptyLock(collection);
   out.fileKey = fileKey || null;
@@ -293,7 +299,7 @@ export function buildLock({ collection, fileKey, tokens, syncedAt }) {
 /**
  * Decide what to do, comparing all three sides.
  *
- * @param {Map<string,{type,value}>} code   - parsed token file
+ * @param {Map<string,{type:any,value:any,variableId?:string}>} code - parsed token file
  * @param {Map<string,{type,value,id}>} figma - current Figma variables
  * @param {object|null} lock                - previous sync state, or null
  * @param {{prune?: boolean}} [opts]
@@ -492,7 +498,11 @@ export function planTouchesFigma(plan) {
     || plan.delete.some((d) => d.willDelete);
 }
 
-/** Human-readable plan. `apply` only changes the wording, never the content. */
+/**
+ * Human-readable plan. `apply` only changes the wording, never the content.
+ * @param {any} plan
+ * @param {{collection?:string,file?:string,apply?:boolean,prune?:boolean}} [options]
+ */
 export function formatPlan(plan, { collection, file, apply = false, prune = false } = {}) {
   const lines = [];
   const verb = apply ? '' : 'would ';

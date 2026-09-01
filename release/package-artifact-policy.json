@@ -139,6 +139,8 @@
     "engine/src/application/token-rebind-request.js",
     "engine/src/application/token-import-command.js",
     "engine/src/application/token-import-request.js",
+    "engine/src/application/token-sync-command.js",
+    "engine/src/application/token-sync-request.js",
     "engine/src/application/token-import-source.js",
     "engine/src/application/design-md-context-command.js",
     "engine/src/application/design-md-import-command.js",

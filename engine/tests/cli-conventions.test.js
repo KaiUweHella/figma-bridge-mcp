@@ -2797,7 +2797,7 @@ test('tokens add delegates one Plan-bound journaled Token Add Application', () =
 test('tokens import delegates pre-read and mutation to one Plan-bound Application', () => {
   const adapter = sources.get('tokens.js');
   const start = adapter.indexOf(".command('import <file>')");
-  const end = adapter.indexOf('// ============ SYNC', start);
+  const end = adapter.indexOf(".command('sync <file>')", start);
   const action = adapter.slice(start, end);
   assert.match(action, /tokenImportPlanningArgvFromRequest/);
   assert.match(action, /prepareTokenImportPlan\(plan, \{ workspaceIO: workspaceIO\(\) \}\)/);
@@ -2809,6 +2809,28 @@ test('tokens import delegates pre-read and mutation to one Plan-bound Applicatio
   assert.doesNotMatch(action,
     /checkConnection\(|readText\(|parseBoundedJson\(|createVariableCollection\(|createVariable\(|setValueForMode\(/,
     'Commander must not retain Token Import authority, parsing, factories, mode, or formatting logic');
+});
+
+test('tokens sync delegates source, observation, apply and lock publication to one Plan-bound Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf(".command('sync <file>')");
+  const end = adapter.indexOf(".command('overlap <collections...>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /tokenSyncPlanningArgvFromRequest/);
+  assert.match(action, /withTokenSyncPlanLock\(plan/);
+  assert.ok(action.indexOf('withTokenSyncPlanLock') < action.indexOf('ensurePluginReadiness'));
+  assert.match(action, /const remainingMs = \(\) => Math\.max\(0, deadline - Date\.now\(\)\)/);
+  assert.match(action, /workspaceIO: io,\s+remainingMs,/);
+  assert.match(action, /fileKey,\s+remainingMs,/);
+  assert.match(action, /context\.timeoutMs/);
+  assert.doesNotMatch(action, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeTokenSyncPlan\(plan, prepared/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|parseTokenFile\(|planSync\(|createVariableCollection\(|setValueForMode\(/,
+    'Commander must not retain Token Sync source, planning, mutation, or publication logic');
 });
 
 test('tokens import-design-md print-context delegates one repository-only Application', () => {

@@ -471,6 +471,24 @@ topology is rejected with a direction to Exact Variable Snapshot Import; it is
 never collapsed silently into one default-mode Variable.
 _Avoid_: token import eval, modes[0], partial import success, first-name collection choice
 
+**Token Sync**:
+The bounded, versioned three-way reconciliation of one DTCG JSON or CSS source,
+one exact local Variable Collection and one workspace lockfile. Dry-run and
+apply consume the same closed Command Plan and source projection. For backward
+compatibility this command alone continues to read and write the Collection's
+first declared mode; it reports additional modes instead of silently changing
+that established policy to the declared default. Duplicate Collection names,
+duplicate Variable names, flattened source-name collisions, aliases and
+three-way conflicts remain explicit no-mutation facts. Apply revalidates the
+complete preflight immediately before writing, stops on the first failed
+operation, freshly verifies bounded residue and is never retried. The lock is
+advanced only after verified complete Figma success while one process-safe
+lease covers prior-lock read through atomic sibling-file replacement. A failed
+lock publication preserves the previous lock bytes and reports any already
+committed Figma residue; destructive retype/delete operations do not invent a
+rollback that the Plugin API cannot prove.
+_Avoid_: Commander re-entry, first-name resolution, done/failed-only receipt, lock-as-success, partial lock write, retry after dispatch
+
 **DESIGN.md Context Projection**:
 The bounded repository-only summary of one DESIGN.md inside existing Workspace
 authority. Its closed Command Plan reads one authorized document, has no Figma

@@ -1292,6 +1292,15 @@ three-way comparison:
 | both changed |           | **conflict** — nothing is applied                       |
 | unchanged    | unchanged | unchanged                                               |
 
+Commander and `figma_run` execute this comparison through the same closed
+Command Plan. The source, prior lock and exact Collection are resolved before
+Plugin readiness; duplicate Collection or Variable names and flattened DTCG or
+CSS name collisions stop explicitly instead of selecting the first match.
+For compatibility with the original sync command, an existing Collection uses
+its first declared mode. If the Collection has more modes, sync says so; it
+does not silently switch to `defaultModeId` or change values in the other
+modes.
+
 Conflicts stop the whole run. Resolve them by editing one side, or decide them
 all at once with `--ours` (the code file wins) / `--theirs` (Figma wins, and
 nothing is written to Figma).
@@ -1307,6 +1316,18 @@ those as two steps if the bindings matter.
 
 Without `--apply` the command exits 1 when changes are pending, so it works as a
 CI check for "is Figma in sync with the repo?".
+
+Apply is intentionally non-atomic inside Figma: retype and delete have no
+general safe inverse. It rechecks the complete observed state immediately
+before the first write, stops after the first failed operation, verifies the
+fresh post-state and reports `no-mutation`, bounded `partial-residue`, or
+`verification-unavailable`. An apply is never automatically retried after
+dispatch. The lockfile advances only after complete verified success. A
+per-lockfile process lease serializes source/lock read, Figma work and
+publication across CLI and MCP processes, and publication atomically replaces
+the prior file from a fully written sibling. If publication fails, the prior
+lock remains intact and the command reports any Figma changes that already
+committed.
 
 ### Binding, and switching which collection a design follows
 

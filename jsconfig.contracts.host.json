@@ -116,6 +116,8 @@
     "engine/src/application/node-flatten-request.js",
     "engine/src/application/node-to-component-command.js",
     "engine/src/application/node-to-component-request.js",
+    "engine/src/application/token-sync-command.js",
+    "engine/src/application/token-sync-request.js",
     "engine/src/application/semantic-render-request.js",
     "engine/src/application/semantic-render-command.js",
     "engine/src/application/screenshot-command.js",

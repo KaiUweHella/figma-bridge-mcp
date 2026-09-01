@@ -382,6 +382,11 @@ import {
   tokenImportPlanRoute,
 } from "../engine/src/application/token-import-command.js";
 import {
+  executeTokenSyncPlan,
+  tokenSyncPlanRoute,
+  withTokenSyncPlanLock,
+} from "../engine/src/application/token-sync-command.js";
+import {
   designMdContextPlanRoute,
   executeDesignMdContextPlan,
 } from "../engine/src/application/design-md-context-command.js";
@@ -3661,6 +3666,32 @@ export async function handleTool(name, rawArgs) {
               expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
             }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const tokenSyncRoute = tokenSyncPlanRoute(plan);
+      if (tokenSyncRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          return withTokenSyncPlanLock(plan, {
+            workspaceIO: WORKSPACE_IO,
+            remainingMs,
+          }, async (prepared) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+            return executeTokenSyncPlan(plan, prepared, {
+              workspaceIO: WORKSPACE_IO,
+              fileKey,
+              remainingMs,
+              evaluate: (code, context = {}) => evaluateFigma(code, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: context.timeoutMs,
+              }),
+            });
           });
         });
         return resultFromCli(res);

@@ -726,3 +726,12 @@ request and non-retrying Application serve Commander and `figma_run`; dry-run
 is analysis-only, while writes own every label and conversion identity, require
 the complete Cartesian grid, freshly verify it, and preserve rollback or
 bounded residue. Neither Adapter re-enters the legacy two-eval Action.
+
+`tokens sync` now owns its complete three-way transaction as one Command
+Application. Commander and `figma_run` share the same closed request, source
+preparation, exact Collection observation, preflight revalidation, mutation
+receipt and lock publication without Commander re-entry. Dry-run is a safe
+Workspace/Figma read; apply is non-retrying and keeps one decreasing deadline.
+One per-lockfile process lease spans prior-lock read through atomic publication,
+while malformed or incomplete post-dispatch evidence remains a structured
+verification failure and can never advance the lock.

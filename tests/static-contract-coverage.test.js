@@ -112,6 +112,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/node-flatten-request.js',
   'engine/src/application/node-to-component-command.js',
   'engine/src/application/node-to-component-request.js',
+  'engine/src/application/token-sync-command.js',
+  'engine/src/application/token-sync-request.js',
   'engine/src/application/screenshot-command.js',
   'engine/src/application/screenshot-request.js',
   'engine/src/application/semantic-render-command.js',

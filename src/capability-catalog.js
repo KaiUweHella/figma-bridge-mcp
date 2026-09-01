@@ -597,6 +597,11 @@ import {
   tokenImportArgvFromRequest,
 } from '../engine/src/application/token-import-request.js';
 import {
+  acceptsTokenSyncArgv,
+  parseTokenSyncRequest,
+  tokenSyncArgvFromRequest,
+} from '../engine/src/application/token-sync-request.js';
+import {
   acceptsDesignMdArgv,
   designMdArgvFromRequest,
   parseDesignMdRequest,
@@ -1074,6 +1079,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.radii',
   'tokens.add',
   'tokens.import',
+  'tokens.sync',
   'tokens.import-design-md',
   'tokens.overlap',
   'tokens.rebind',
@@ -1356,6 +1362,11 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'tokens' && sub === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'token-import-input';
+  }
+  if (name === 'tokens' && sub === 'sync') {
+    timeoutClass = 'long';
+    retry = args.includes('--apply') ? 'never' : 'safe-read';
+    pathPolicy = 'token-sync-input';
   }
   if (name === 'tokens' && sub === 'import-design-md') {
     timeoutClass = hasOption(resolveFigmaCommandAction(args).options, '--print-context')
@@ -1932,6 +1943,10 @@ function commandCapability(args) {
     && !action.help && !acceptsTokenImportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'tokens' && args[1] === 'sync'
+    && !action.help && !acceptsTokenSyncArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'tokens' && args[1] === 'import-design-md'
     && !action.help && !acceptsDesignMdArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -2220,6 +2235,7 @@ function isBackgroundCommand(args) {
 }
 
 function acceptedExitCodes(args) {
+  if (args?.[0] === 'tokens' && args?.[1] === 'sync') return [0, 1];
   if (args?.[0] === 'history' && args?.[1] === 'diff') return [0, 1];
   if (args?.[0] === 'contract' && args?.[1] === 'check') return [0, 1];
   if (args?.[0] === 'spec' && acceptsComponentSpecArgv(args)
@@ -3510,6 +3526,24 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       const file = absolute(baseDir, request.file);
       args.splice(0, args.length, ...tokenImportArgvFromRequest({ ...request, file }));
       markRead(file, 'token-file');
+      break;
+    }
+    case 'token-sync-input': {
+      const request = parseTokenSyncRequest(args);
+      const file = absolute(baseDir, request.file);
+      const lockfile = request.lockfile === null
+        ? absolute(baseDir, path.join(path.dirname(file), 'figma-tokens.lock.json'))
+        : absolute(baseDir, request.lockfile);
+      args.splice(0, args.length, ...tokenSyncArgvFromRequest({
+        ...request, file,
+        lockfile: request.lockfile === null ? null : lockfile,
+      }));
+      markRead(file, 'token-file');
+      if (request.apply) {
+        markWrite(lockfile, 'token-lockfile');
+        outputRole = 'token-lockfile';
+      }
+      else markOptionalRead(lockfile, 'token-lockfile');
       break;
     }
     case 'token-overlap-input': {
