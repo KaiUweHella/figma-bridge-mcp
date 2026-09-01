@@ -28,6 +28,8 @@ const ACCEPTED_HOST_CONTRACT_FILES = Object.freeze([
   'engine/src/application/inspect-request.js',
   'engine/src/application/image-export-command.js',
   'engine/src/application/legacy-raster-export-request.js',
+  'engine/src/application/node-json-export-command.js',
+  'engine/src/application/node-json-export-request.js',
   'engine/src/application/create-frame-command.js',
   'engine/src/application/create-frame-request.js',
   'engine/src/application/create-image-command.js',

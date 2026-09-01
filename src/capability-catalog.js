@@ -858,6 +858,12 @@ import {
   parseLegacyRasterExportRequest,
 } from '../engine/src/application/legacy-raster-export-request.js';
 import {
+  acceptsNodeJsonExportArgv,
+  nodeJsonExportArgvFromRequest,
+  nodeJsonExportFigmaUrlFileKeyFromArgv,
+  parseNodeJsonExportRequest,
+} from '../engine/src/application/node-json-export-request.js';
+import {
   planVerificationArtifacts,
   verificationArtifactDirectory,
 } from '../engine/src/application/verification-artifact.js';
@@ -961,6 +967,7 @@ const SAFE_READ_ACTIONS = new Set([
   'analyze.lint',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'jam.board',
+  'export.node-json',
 ]);
 // Editor context is deliberately separate from document content. Keep these
 // action ids closed and source-audited: they are the commands that directly
@@ -1015,7 +1022,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'spec',
   'map.storybook',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
-  'export.node', 'export.screenshot',
+  'export.node', 'export.screenshot', 'export.node-json',
   'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect',
   'pin',
   'link.inspect', 'link.set', 'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
@@ -2103,6 +2110,10 @@ function commandCapability(args) {
     && !action.help && !acceptsLegacyRasterExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'export' && args[1] === 'node-json'
+    && !action.help && !acceptsNodeJsonExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2340,24 +2351,6 @@ function outputFlag(args, baseDir, defaultValue, options) {
   return value;
 }
 
-function optionalOutputFlag(args, baseDir, options) {
-  const matches = optionEntries(options, ['-o', '--output']);
-  if (matches.length > 1) throw new Error(`Duplicate output option ${matches[1].name}.`);
-  const entry = matches[0];
-  if (!entry) return null;
-  if (!entry.inline && typeof args[entry.index + 1] === 'string'
-    && args[entry.index + 1] !== '--' && !args[entry.index + 1].startsWith('-')) {
-    args[entry.index + 1] = absolute(baseDir, args[entry.index + 1]);
-    return args[entry.index + 1];
-  }
-  if (!entry.inline) throw new Error(`${entry.name} requires a path value.`);
-  const inline = inlineOptionValue(args[entry.index], entry.name);
-  if (!inline?.value) throw new Error(`${entry.name} requires a path value.`);
-  const value = absolute(baseDir, inline.value);
-  args[entry.index] = `${entry.name}${inline.separator}${value}`;
-  return value;
-}
-
 function normalizeVerifyBuild(args, baseDir, { markRead, markWrite }) {
   const request = parseVerifyBuildRequest(args);
   const projectDir = absolute(baseDir, request.projectDir);
@@ -2508,8 +2501,20 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'node-json-output': {
-      const output = optionalOutputFlag(args, baseDir, capability.options);
-      if (output) markWrite(output, 'node-json-output');
+      const request = parseNodeJsonExportRequest(args);
+      const closedFileKey = nodeJsonExportFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget && closedFileKey !== figmaUrlFileKey) {
+        throw new Error('Node JSON Export target projection disagrees with its closed request Interface.');
+      }
+      const output = request.outputPath ? absolute(baseDir, request.outputPath) : null;
+      args.splice(0, args.length, ...nodeJsonExportArgvFromRequest({
+        ...request,
+        outputPath: output,
+      }));
+      if (output) {
+        outputRole = 'node-json-output';
+        markWrite(output, 'node-json-output');
+      }
       break;
     }
     case 'design-doc': {

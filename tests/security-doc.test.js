@@ -117,6 +117,23 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-NODE-JSON",
+    [
+      [
+        "engine/tests/node-json-export-command.test.js",
+        "CLI and MCP use one safe-read Plan-bound Node JSON Export Application",
+      ],
+      [
+        "engine/tests/node-json-export-command.test.js",
+        "malformed or unbounded Plugin facts fail before Workspace publication",
+      ],
+      [
+        "engine/tests/node-json-export-command.test.js",
+        "Node JSON Export leaves bounded room inside the generic Plugin result transport",
+      ],
+    ],
+  ],
+  [
     "SEC-TARGET",
     [
       [

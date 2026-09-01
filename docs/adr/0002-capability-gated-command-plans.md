@@ -140,6 +140,13 @@ Application validates canonical bounded transport plus the requested container
 before Workspace I/O without projecting vector or document bytes as PNG
 verification evidence.
 
+Live `export node-json` follows the same ownership rule without becoming a REST
+capability. Commander and `figma_run` share one safe-read Node JSON Export
+Application with fallback disabled. The Plan owns the node or URL target and
+optional exact output before readiness; the Plugin and host independently bound
+the `JSON_REST_V1` result, and Workspace publication follows full structural
+validation of the requested node facts.
+
 Local structural history follows the same boundary. `history snapshot`,
 `history list` and `history diff` use one closed request Interface and History
 Command Application from Commander, `figma_run` and `figma_history`. The Plan

@@ -70,6 +70,10 @@ import {
   imageExportPlanRoute,
 } from "../engine/src/application/image-export-command.js";
 import {
+  executeNodeJsonExportPlan,
+  nodeJsonExportPlanRoute,
+} from "../engine/src/application/node-json-export-command.js";
+import {
   executeVerifyBuildPlan,
   verifyBuildPlanRoute,
 } from "../engine/src/application/verify-build-command.js";
@@ -5188,6 +5192,26 @@ export async function handleTool(name, rawArgs) {
             });
           }
           return executeVerifyBuildPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeJsonExportRoute = nodeJsonExportPlanRoute(plan);
+      if (nodeJsonExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeNodeJsonExportPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
               fileKey,

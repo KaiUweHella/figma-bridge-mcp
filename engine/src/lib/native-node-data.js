@@ -1,8 +1,5 @@
-// Native node facts exposed by the Figma Plugin API.
-//
-// These deliberately use the live plugin document instead of the REST API:
-// getCSSAsync() mirrors Figma's Inspect output, while JSON_REST_V1 gives the
-// REST-shaped node representation without a network request or API token.
+// Native CSS facts exposed by the Figma Plugin API. getCSSAsync() deliberately
+// uses the live plugin document and mirrors Figma's Inspect output.
 
 export const MAX_NATIVE_CSS_PROPERTIES = 512;
 export const MAX_NATIVE_CSS_PROPERTY_CODE_UNITS = 128;
@@ -59,16 +56,4 @@ export function formatNodeCss(result, { json = false } = {}) {
     lines.push(`${property}: ${value.replace(UNSAFE_TEXT_CONTROLS, ' ')};`);
   }
   return lines.join('\n');
-}
-
-export function nodeRestJsonCode(nodeId) {
-  return `(async () => {
-    const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-    if (!node) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
-    if (typeof node.exportAsync !== 'function') {
-      throw new Error('Node type ' + node.type + ' cannot be exported.');
-    }
-    if (node.type === 'PAGE' && typeof node.loadAsync === 'function') await node.loadAsync();
-    return await node.exportAsync({ format: 'JSON_REST_V1' });
-  })()`;
 }

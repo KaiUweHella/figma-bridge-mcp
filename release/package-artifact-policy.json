@@ -192,6 +192,8 @@
     "engine/src/application/layout-guide-mutation-request.js",
     "engine/src/application/image-export-command.js",
     "engine/src/application/legacy-raster-export-request.js",
+    "engine/src/application/node-json-export-command.js",
+    "engine/src/application/node-json-export-request.js",
     "engine/src/application/section-inventory-command.js",
     "engine/src/application/section-inventory-request.js",
     "engine/src/application/section-fit-command.js",

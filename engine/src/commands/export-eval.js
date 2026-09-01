@@ -21,7 +21,6 @@ import {
   unescapeShell,
 } from '../lib/cli-core.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
-import { nodeRestJsonCode } from '../lib/native-node-data.js';
 import {
   codeSpecPlanningArgvFromRequest,
   executeCodeSpecPlan,
@@ -36,6 +35,10 @@ import {
   executeImageExportPlan,
   imageExportPlanRoute,
 } from '../application/image-export-command.js';
+import {
+  executeNodeJsonExportPlan,
+  nodeJsonExportPlanningArgvFromRequest,
+} from '../application/node-json-export-command.js';
 import {
   legacyRasterExportPlanningArgvFromRequest,
 } from '../application/legacy-raster-export-request.js';
@@ -93,6 +96,29 @@ async function runImageExportCompatibilityCommand(request) {
         return executeImageExportPlan(plan, adapters);
       }
       throw new Error(`Unsupported image export format ${request.format}.`);
+    });
+}
+
+async function runNodeJsonExportCommand(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(nodeJsonExportPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({
+        deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+      });
+      return executeNodeJsonExportPlan(plan, {
+        workspaceIO: io,
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
     });
 }
 
@@ -196,22 +222,22 @@ exp
   .command('node-json <nodeId>')
   .description('Export REST-shaped JSON for a live node through the Plugin API (no REST token or network)')
   .option('-o, --output <file>', 'Write JSON to a file instead of stdout')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
     try {
-      const result = await fastEval(nodeRestJsonCode(nodeId));
-      const json = JSON.stringify(result, null, 2) + '\n';
+      const result = await runNodeJsonExportCommand({
+        nodeId,
+        outputPath: options.output || null,
+      });
+      if (result.stderr) console.error(result.stderr);
       if (options.output) {
-        const outputFile = resolve(options.output);
-        workspaceIO().write(outputFile, json, { role: 'node-json-output', createParents: true });
-        console.log(chalk.green('✓'), `Native node JSON written to ${outputFile}`);
+        console.log(result.stdout);
       } else {
-        process.stdout.write(json);
+        process.stdout.write(result.stdout);
       }
     } catch (error) {
       console.error(chalk.red('✗ Native node JSON export failed: ' + error.message));
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 

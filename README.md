@@ -1691,7 +1691,10 @@ one target-bound, bounded safe-read Application; an oversized or malformed
 Plugin result is refused rather than silently truncated. `export node-json` uses
 `exportAsync({format:"JSON_REST_V1"})`: the shape resembles the REST file
 schema, but the bytes come from the live plugin document and need neither a
-token nor a network request.
+token nor a network request. CLI and MCP share one target-bound safe-read
+Application: the Command Plan owns the optional output file before readiness,
+and bounded node identity, JSON structure, transport size and formatted output
+are validated before stdout or Workspace publication.
 
 ## Version history and diffs
 

@@ -2443,8 +2443,8 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['extract']).slice(-1), [inWorkspace('DESIGN.md')]);
   assert.deepEqual(argv(['export', 'assets', '1:2']).slice(-2), ['-o', inWorkspace('assets')]);
   assert.deepEqual(argv(['export', 'node', '1:2', '--output=shot.png']).slice(-1), [inWorkspace('shot.png')]);
-  assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-1), [`--output=${inWorkspace('facts.json')}`]);
-  assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), [`-o=${inWorkspace('facts.json')}`]);
+  assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-2), ['-o', inWorkspace('facts.json')]);
+  assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-2), ['-o', inWorkspace('facts.json')]);
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);
   assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', inWorkspace('video.gif')]);
   assert.deepEqual(argv(['map', 'storybook', 'url']), [
