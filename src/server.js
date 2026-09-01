@@ -76,6 +76,10 @@ import {
   nodeJsonExportPlanRoute,
 } from "../engine/src/application/node-json-export-command.js";
 import {
+  executeVideoExportPlan,
+  videoExportPlanRoute,
+} from "../engine/src/application/video-export-command.js";
+import {
   executeSizeVariantsPlan,
   sizeVariantsPlanRoute,
 } from "../engine/src/application/size-variants-command.js";
@@ -5397,6 +5401,26 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeSizeVariantsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const videoExportRoute = videoExportPlanRoute(plan);
+      if (videoExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeVideoExportPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

@@ -69,10 +69,6 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   'export.node': optionSchema([
     valueOption('-o', '--output'), valueOption('-s', '--scale'), valueOption('-f', '--format'),
   ]),
-  'export.video': optionSchema([
-    valueOption('-o', '--output'), valueOption('-f', '--format'), valueOption('--fps'),
-    valueOption('--quality'), valueOption('--loop'),
-  ]),
   'export.node-json': optionSchema([valueOption('-o', '--output')]),
   'export.dtcg': optionSchema([valueOption('--dialect')]),
   'gradient.extract': optionSchema([

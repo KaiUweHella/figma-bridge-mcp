@@ -134,6 +134,23 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-VIDEO-EXPORT",
+    [
+      [
+        "engine/tests/video-export-command.test.js",
+        "CLI and MCP own one bounded Plan and format-specific Video Export",
+      ],
+      [
+        "engine/tests/video-export-command.test.js",
+        "Plugin evidence and each video container validate before publication",
+      ],
+      [
+        "engine/tests/video-export-command.test.js",
+        "Video Export refuses forged plans and keeps envelope headroom",
+      ],
+    ],
+  ],
+  [
     "SEC-SIZE-VARIANTS",
     [
       [

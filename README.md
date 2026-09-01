@@ -1608,7 +1608,13 @@ figma_run ["draw", "pattern", "12:38", "12:39", "--field", "fill"]
 ```
 
 Video export resolves a selected descendant to its top-level animated frame
-and accepts only Figma's format-specific FPS values. Shader properties are
+and accepts only Figma's format-specific FPS values. CLI and MCP share one
+long-running, non-retrying Command Application whose Plan owns the exact output.
+It validates requested settings, canonical bounded Base64 and the MP4, GIF or
+WebM container before Workspace I/O. The current generic result transport
+supports exports up to its documented bounded payload; larger video streaming
+requires a separate versioned media-stream capability rather than widening the
+image/SVG Asset Stream. Shader properties are
 keyed by definition ID, not display name, and an available shader must be
 imported before it is applied. Shader import and application use the same
 non-retrying verified mutation path in CLI and MCP: apply never imports

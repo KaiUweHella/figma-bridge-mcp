@@ -876,6 +876,12 @@ import {
   parseNodeJsonExportRequest,
 } from '../engine/src/application/node-json-export-request.js';
 import {
+  acceptsVideoExportArgv,
+  parseVideoExportRequest,
+  videoExportArgvFromRequest,
+  videoExportFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/video-export-request.js';
+import {
   acceptsSizeVariantsArgv,
   parseSizeVariantsRequest,
   sizeVariantsArgvFromRequest,
@@ -1048,7 +1054,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'spec',
   'map.storybook',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
-  'export.node', 'export.screenshot', 'export.node-json',
+  'export.node', 'export.screenshot', 'export.video', 'export.node-json',
   'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect',
   'pin',
   'link.inspect', 'link.set', 'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
@@ -1269,6 +1275,7 @@ function specializedPolicy(name, entry, args, actionId) {
       timeoutClass = 'background';
       pathPolicy = 'assets-dir';
     } else if (sub === 'video') {
+      timeoutClass = 'long';
       pathPolicy = 'video-output';
     } else if (sub === 'node' || sub === 'screenshot') {
       pathPolicy = 'export-image';
@@ -2165,6 +2172,10 @@ function commandCapability(args) {
     && !action.help && !acceptsLegacyRasterExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'export' && args[1] === 'video'
+    && !action.help && !acceptsVideoExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'export' && args[1] === 'node-json'
     && !action.help && !acceptsNodeJsonExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -2647,9 +2658,18 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       break;
     case 'video-output': {
-      const format = String(flagValue(args, ['--format', '-f'], capability.options) || 'mp4').toLowerCase();
-      outputPath = outputFlag(args, baseDir, `video.${format}`, capability.options);
-      markWrite(outputPath, 'video-output');
+      const request = parseVideoExportRequest(args);
+      const explicitPath = absolute(baseDir, request.outputPath);
+      const closedFileKey = videoExportFigmaUrlFileKeyFromArgv(args);
+      // The closed request owns option order and therefore the positional URL.
+      // Legacy fixed-index projection cannot see a URL that follows options.
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...videoExportArgvFromRequest({
+        ...request,
+        outputPath: explicitPath,
+      }));
+      outputRole = 'video-output';
+      markWrite(explicitPath, 'video-output');
       break;
     }
     case 'token-export-input': {

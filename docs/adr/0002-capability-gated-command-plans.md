@@ -147,6 +147,16 @@ optional exact output before readiness; the Plugin and host independently bound
 the `JSON_REST_V1` result, and Workspace publication follows full structural
 validation of the requested node facts.
 
+`export video` likewise uses one closed request and one Plan-bound Video Export
+Application from Commander and `figma_run`. The Plan owns option-order-safe URL
+targeting, one exact Workspace output, a long timeout class and non-retrying
+execution before readiness. The Application resolves only the requested
+top-level animated Frame, preserves Figma's format-specific settings, and
+validates bounded canonical Base64 plus the requested MP4, GIF or WebM container
+before publication. The existing image/SVG Asset Stream remains closed to its
+versioned media kinds; video stays below both generic result ceilings until a
+separate versioned media-stream capability is designed.
+
 The public `sizes` write follows the same ownership rule for three generated
 Components. Its closed request owns optional Component, Instance or Frame
 targeting, base size and signed gap independently of option order. Commander and

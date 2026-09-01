@@ -864,6 +864,16 @@ directory. Inline Base64 declares no file. Bounded PNG IHDR dimensions stay
 distinct from logical node geometry and requested/applied scale.
 _Avoid_: screenshot temp file, incidental render output
 
+**Video Export**:
+The bounded Figma Design read that resolves an explicit node or descendant to
+its top-level animated Frame and exports MP4, GIF or WebM through one shared
+CLI/MCP **Command Application**. Its long-running, non-retrying Command Plan
+owns the exact Workspace output before readiness. Format-specific settings,
+canonical Base64, requested-frame evidence and the matching media container
+must all validate before Workspace I/O. Its generic-result byte ceiling is not
+the image/SVG-only **Authenticated Asset Stream**.
+_Avoid_: video eval handler, unvalidated extension write, widened Asset Stream
+
 **Raster Export Compatibility**:
 The closed compatibility request behind the documented `export node` and
 `export screenshot` names. PNG adapts before readiness to the Screenshot

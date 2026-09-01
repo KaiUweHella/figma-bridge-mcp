@@ -3103,6 +3103,27 @@ test('node-json delegates capture, validation and optional persistence to one sa
     'Commander must not retain Node JSON readiness, capture, validation, formatting, or persistence');
 });
 
+test('video export delegates capture, validation and persistence to one Plan-bound Application', () => {
+  const adapter = sources.get('export-eval.js');
+  assert.ok(adapter, 'export-eval.js exists');
+  const start = adapter.indexOf(".command('video <nodeId>')");
+  const end = adapter.indexOf(".command('node-json <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  const helperStart = adapter.indexOf('async function runVideoExportCommand');
+  const helperEnd = adapter.indexOf('async function runNodeJsonExportCommand', helperStart);
+  const helper = adapter.slice(helperStart, helperEnd);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(helper, /videoExportPlanningArgvFromRequest/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /await ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeVideoExportPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|exportAsync|Buffer\.from|workspaceIO\(\)\.write|process\.exit\(/,
+    'Commander must not retain Video Export readiness, capture, validation, or persistence');
+});
+
 test('simple render delegates one non-retrying Semantic Render Application', () => {
   const adapter = sources.get('render.js');
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'semantic-render-command.js'), 'utf8');

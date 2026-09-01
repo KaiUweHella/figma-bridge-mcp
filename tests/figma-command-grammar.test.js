@@ -239,7 +239,6 @@ test('every policy-schema Legacy action rejects unknown and duplicate options', 
   const cases = [
     [['export', 'screenshot'], ['-o', 'shot.png']],
     [['export', 'node', '1:2'], ['--output', 'node.png']],
-    [['export', 'video', '1:2'], ['--fps', '30']],
     [['export', 'node-json', '1:2'], ['-o', 'node.json']],
     [['export', 'dtcg'], ['--dialect', 'legacy']],
     [['gradient', 'extract', 'hero.png'], ['--mode', 'linear']],

@@ -4750,6 +4750,50 @@ test('figma_run routes node-json through the same bounded safe-read Application'
   assert.equal(plan.effects.figma, 'read');
 });
 
+test('figma_run routes video export through the same bounded Plan-bound Application', async () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const videoExportRoute = videoExportPlanRoute(plan)');
+  const end = source.indexOf('const nodeJsonExportRoute = nodeJsonExportPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback:\s*false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeVideoExportPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'video export must not re-enter Commander');
+
+  const { videoExportPlanRoute } = await import(
+    '../engine/src/application/video-export-command.js'
+  );
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const plan = planFigmaCommand(['export', 'video', '--format', 'gif',
+    'https://www.figma.com/design/FILEA/Motion?node-id=1-2'], { adapter: 'mcp' });
+  assert.equal(videoExportPlanRoute(plan), 'command-application');
+  assert.equal(plan.execution.retry, 'never');
+  assert.equal(plan.execution.timeout, 'long');
+  assert.equal(plan.target.fileKey, 'FILEA');
+  assert.equal(plan.effects.figma, 'read');
+  assert.equal(plan.effects.workspace, 'write');
+});
+
+test('malformed video exports stop before Plugin readiness or Workspace persistence', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['export', 'video'],
+    ['export', 'video', 'bad-node'],
+    ['export', 'video', '1:2', '2:3'],
+    ['export', 'video', '1:2', '--output'],
+    ['export', 'video', '1:2', '--format', 'avi'],
+    ['export', 'video', '1:2', '--future', 'private-value'],
+    ['export', 'video', '1:2', '-o', 'one.mp4', '-o', 'two.mp4'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
 test('malformed node-json requests stop before Plugin readiness or Workspace persistence', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
