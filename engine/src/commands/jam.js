@@ -3,57 +3,86 @@
 // FigJam support was dropped from the fork because the upstream commands drove
 // the deleted CDP transport, not because FigJam needs one: the plugin API
 // covers stickies, shapes, connectors, tables and sections natively. So this
-// group is plain eval snippets — engine → daemon → plugin — with no second code
-// path and no new trust boundary.
-//
-// The snippets themselves live in lib/jam-snippets.js so they can be parsed by
-// a test: a syntax error inside a generated eval string is invisible to
-// `node --check`, which only ever sees a template literal.
+// group now delegates every action through one shared Command Application —
+// engine → daemon → plugin — with no second code path or new trust boundary.
+// The legacy snippet module remains only as the source of public color and
+// shape vocabulary while compatibility tests keep its historical sources
+// parseable.
 import chalk from 'chalk';
 import {
   program,
-  checkConnection,
-  fastEval,
-  handleEvalError,
+  daemonExec,
 } from '../lib/cli-core.js';
 import * as snippets from '../lib/jam-snippets.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executeJamBoardPlan,
+  jamBoardArgvFromRequest,
+} from '../application/jam-board-command.js';
+import {
+  executeJamArrangePlan,
+  jamArrangeArgvFromRequest,
+} from '../application/jam-arrange-command.js';
+import {
+  executeJamStickyPlan,
+  jamStickyArgvFromRequest,
+} from '../application/jam-sticky-command.js';
+import {
+  executeJamStickiesPlan,
+  jamStickiesArgvFromRequest,
+} from '../application/jam-stickies-command.js';
+import {
+  executeJamShapePlan,
+  jamShapeArgvFromRequest,
+} from '../application/jam-shape-command.js';
+import {
+  executeJamConnectorPlan,
+  jamConnectorPlanningArgvFromRequest,
+} from '../application/jam-connector-command.js';
+import {
+  executeJamTablePlan,
+  jamTableArgvFromRequest,
+} from '../application/jam-table-command.js';
+import {
+  executeJamSectionPlan,
+  jamSectionArgvFromRequest,
+} from '../application/jam-section-command.js';
+import {
+  executeJamCodePlan,
+  jamCodeArgvFromRequest,
+} from '../application/jam-code-command.js';
 
 const jam = program
   .command('jam')
   .description('FigJam boards: stickies, shapes, connectors, tables, sections');
-
-/** Run a snippet, translate the two error shapes, hand the result to `onOk`. */
-async function run(code, onOk) {
-  await checkConnection();
-  let res;
-  try {
-    res = await fastEval(code);
-  } catch (e) {
-    handleEvalError(e);
-    return;
-  }
-  if (res && res.error === 'WRONG_EDITOR') {
-    console.error(chalk.red(`✗ This is a ${res.editor} file, not a FigJam board.`));
-    console.error(chalk.yellow('  Open a FigJam file in Figma Desktop and relaunch the Figma Bridge plugin there.'));
-    process.exit(1);
-  }
-  if (res && res.error) {
-    console.error(chalk.red(`✗ ${res.error}`));
-    process.exit(1);
-  }
-  onOk(res);
-}
 
 jam
   .command('sticky <text>')
   .description('Add a sticky note')
   .option('--color <name>', `Fill: ${Object.keys(snippets.STICKY_COLORS).join(', ')}, or a hex value`)
   .option('--at <x,y>', 'Place at absolute coordinates (default: right of existing content)')
+  .allowExcessArguments(false)
   .action(async (text, options) => {
-    await run(
-      snippets.sticky(text, { color: options.color, at: options.at }),
-      (r) => console.log(chalk.green('✓'), `Sticky ${r.id} at ${Math.round(r.x)},${Math.round(r.y)}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamStickyArgvFromRequest({
+        text, color: options.color, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamStickyPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam sticky failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
@@ -62,29 +91,27 @@ jam
   .option('--color <name>', 'Fill for all of them')
   .option('--at <x,y>', 'Top-left of the grid')
   .option('--columns <n>', 'Stickies per row', '4')
+  .allowExcessArguments(false)
   .action(async (items, options) => {
-    const trimmed = items.trim();
-    let list;
-    if (trimmed.startsWith('[')) {
-      try { list = JSON.parse(trimmed); } catch (e) {
-        console.error(chalk.red(`✗ --items is not valid JSON: ${e.message}`));
-        process.exit(1);
-      }
-    } else {
-      list = trimmed.split(/[\n;]/).map((s) => s.trim()).filter(Boolean);
+    try {
+      const plan = planFigmaCommand(jamStickiesArgvFromRequest({
+        source: items, color: options.color, at: options.at, columns: options.columns,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamStickiesPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam stickies failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    // Entries may be plain strings or {text, color} objects.
-    const normalized = (Array.isArray(list) ? list : []).map((item) => (typeof item === 'string'
-      ? { text: item, color: options.color || null }
-      : { text: String(item?.text ?? ''), color: item?.color || options.color || null }));
-    if (!normalized.length) {
-      console.error(chalk.red('✗ Nothing to add.'));
-      process.exit(1);
-    }
-    await run(
-      snippets.stickies(normalized, { at: options.at, columns: options.columns }),
-      (r) => console.log(chalk.green('✓'), `${r.count} stickies added`),
-    );
   });
 
 jam
@@ -93,22 +120,27 @@ jam
   .option('--type <shape>', `One of: ${snippets.SHAPE_TYPES.join(', ')}`, 'ROUNDED_RECTANGLE')
   .option('--at <x,y>', 'Place at absolute coordinates')
   .option('--size <w,h>', 'Size in px', '200,140')
+  .allowExcessArguments(false)
   .action(async (text, options) => {
-    const type = String(options.type).toUpperCase();
-    if (!snippets.SHAPE_TYPES.includes(type)) {
-      console.error(chalk.red(`✗ Unknown shape "${options.type}".`));
-      console.error(chalk.yellow(`  Available: ${snippets.SHAPE_TYPES.join(', ')}`));
-      process.exit(1);
+    try {
+      const plan = planFigmaCommand(jamShapeArgvFromRequest({
+        text, type: options.type, at: options.at, size: options.size,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamShapePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam shape failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    const [w, h] = String(options.size).split(',').map((n) => parseFloat(n));
-    await run(
-      snippets.shape(text, {
-        type, at: options.at,
-        width: Number.isFinite(w) ? w : 200,
-        height: Number.isFinite(h) ? h : 140,
-      }),
-      (r) => console.log(chalk.green('✓'), `Shape ${r.id}`),
-    );
   });
 
 jam
@@ -116,12 +148,27 @@ jam
   .description('Connect two nodes with an arrow')
   .option('--text <label>', 'Label on the connector')
   .option('--line <type>', 'ELBOWED or STRAIGHT', 'ELBOWED')
+  .allowExcessArguments(false)
   .action(async (fromId, toId, options) => {
-    const line = String(options.line).toUpperCase() === 'STRAIGHT' ? 'STRAIGHT' : 'ELBOWED';
-    await run(
-      snippets.connector(fromId, toId, { text: options.text, line }),
-      (r) => console.log(chalk.green('✓'), `Connector ${r.id}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamConnectorPlanningArgvFromRequest({
+        fromId, toId, text: options.text, line: options.line,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamConnectorPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam connector failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
@@ -129,24 +176,27 @@ jam
   .description('Add a table, optionally filled from a JSON array of rows')
   .option('--data <json>', 'JSON array of rows, e.g. [["a","b"],["c","d"]]')
   .option('--at <x,y>', 'Place at absolute coordinates')
+  .allowExcessArguments(false)
   .action(async (rows, cols, options) => {
-    const r = Math.max(1, parseInt(rows, 10) || 1);
-    const c = Math.max(1, parseInt(cols, 10) || 1);
-    let data = [];
-    if (options.data) {
-      try { data = JSON.parse(options.data); } catch (e) {
-        console.error(chalk.red(`✗ --data is not valid JSON: ${e.message}`));
-        process.exit(1);
-      }
-      if (!Array.isArray(data)) {
-        console.error(chalk.red('✗ --data must be an array of rows, e.g. [["a","b"],["c","d"]].'));
-        process.exit(1);
-      }
+    try {
+      const plan = planFigmaCommand(jamTableArgvFromRequest({
+        rows, cols, data: options.data, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamTablePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam table failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    await run(
-      snippets.table(r, c, { data, at: options.at }),
-      (res) => console.log(chalk.green('✓'), `Table ${res.id} (${res.rows}×${res.cols})`),
-    );
   });
 
 jam
@@ -154,16 +204,27 @@ jam
   .description('Add a section (a titled region of the board)')
   .option('--at <x,y>', 'Place at absolute coordinates')
   .option('--size <w,h>', 'Size in px', '800,600')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
-    const [w, h] = String(options.size).split(',').map((n) => parseFloat(n));
-    await run(
-      snippets.section(name, {
-        at: options.at,
-        width: Number.isFinite(w) ? w : 800,
-        height: Number.isFinite(h) ? h : 600,
-      }),
-      (r) => console.log(chalk.green('✓'), `Section ${r.id}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamSectionArgvFromRequest({
+        name, size: options.size, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamSectionPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam section failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
@@ -171,33 +232,54 @@ jam
   .description('Add a code block')
   .option('--lang <language>', 'Syntax highlighting language', 'TYPESCRIPT')
   .option('--at <x,y>', 'Place at absolute coordinates')
+  .allowExcessArguments(false)
   .action(async (source, options) => {
-    await run(
-      snippets.codeBlock(source, { lang: options.lang, at: options.at }),
-      (r) => console.log(chalk.green('✓'), `Code block ${r.id}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamCodeArgvFromRequest({
+        source, lang: options.lang, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamCodePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam code failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
   .command('board')
   .description('Read the board: every sticky, shape, table and section with its text')
   .option('--json', 'Emit JSON instead of the text listing')
+  .allowExcessArguments(false)
   .action(async (options) => {
-    await run(snippets.board(), (r) => {
-      if (options.json) { console.log(JSON.stringify(r, null, 2)); return; }
-      console.log(chalk.white(`${r.page} — ${r.count} node(s)\n`));
-      for (const n of r.nodes) {
-        const readable = n.text || (n.table ? JSON.stringify(n.table.data) : '');
-        const label = readable ? ` "${readable.replace(/\s+/g, ' ')}"` : '';
-        console.log(`  ${chalk.gray(n.id.padEnd(12))} ${n.type.padEnd(16)} ${String(n.x).padStart(6)},${String(n.y).padStart(6)}${label}`);
-      }
-      if (r.connectors.length) {
-        console.log(chalk.white(`\n${r.connectors.length} connector(s)`));
-        for (const c of r.connectors) {
-          console.log(`  ${chalk.gray(c.id.padEnd(12))} ${c.from} → ${c.to}${c.text ? ` "${c.text}"` : ''}`);
-        }
-      }
-    });
+    try {
+      const plan = planFigmaCommand(jamBoardArgvFromRequest({ json: options.json === true }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamBoardPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam board failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
@@ -207,17 +289,29 @@ jam
   .option('--gap <px>', 'Gap between nodes', '48')
   .option('--ids <ids>', 'Explicit comma/space-separated node IDs instead of the selection')
   .option('--all', 'Arrange every loose top-level node on the page (explicitly destructive)')
+  .allowExcessArguments(false)
   .action(async (options) => {
-    if (options.ids && options.all) {
-      console.error(chalk.red('✗ Choose either --ids or --all, not both.'));
-      process.exit(1);
+    try {
+      const ids = options.ids ? String(options.ids).split(/[\s,]+/).filter(Boolean) : null;
+      const plan = planFigmaCommand(jamArrangeArgvFromRequest({
+        columns: options.columns,
+        gap: options.gap,
+        ids,
+        all: options.all === true,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamArrangePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam arrange failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
-    const ids = options.ids ? String(options.ids).split(/[\s,]+/).filter(Boolean) : [];
-    await run(
-      snippets.arrange({ columns: options.columns, gap: options.gap, ids, all: options.all }),
-      (r) => console.log(
-        chalk.green('✓'),
-        r.moved ? `${r.moved} node(s) arranged (${r.scope})` : `Nothing to arrange (${r.scope})`,
-      ),
-    );
   });

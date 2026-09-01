@@ -333,7 +333,8 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
   removed entirely; there is no code path to it.
 - Specialized MCP reads (`figma_spec`, `figma_inspect`, `figma_screenshot`)
   and migrated `figma_run` actions execute directly through value-returning
-  **Command Application Modules**. `export assets`, `node set-text`, bounded
+  **Command Application Modules**. `export assets`, `node set-text`,
+  `create frame|rect|ellipse|polygon|star`, bounded
   `node tree`, current-page Node Discovery through `find`, direct
   `node bindings`, native Inspect `node css`, exact Prototype Inspection,
   Component Identity Facts, Style Facts through `style show`, bounded Style
@@ -473,9 +474,11 @@ The documented `figma_run ["export","node",…]` and
 `figma_run ["export","screenshot",…]` names remain available. Their PNG mode
 is a compatibility alias of the same Screenshot Command Application, so it
 uses one bounded capture, validates the PNG before writing through Workspace
-I/O, and reports dimensions from the encoded raster. JPG, SVG and PDF remain
-available through an explicit non-PNG compatibility route; they are not
-misrepresented as verification PNGs.
+I/O, and reports dimensions from the encoded raster. JPG, SVG and PDF use a
+separate Plan-bound Image Export Application. It validates bounded canonical
+transport and the requested JPEG, SVG or PDF container before Workspace I/O;
+these formats remain available without being misrepresented as verification
+PNGs.
 
 Write commands can be gated behind an explicit `confirm:true` by setting
 `FIGMA_WRITE_CONFIRM=1` in the server's environment. The gate works on
@@ -587,17 +590,27 @@ and reports possible residue truthfully if Figma cannot remove it.
 
 `node duplicate` works for cloneable design nodes including Sections;
 `node reparent` accepts an explicit child index and preserves canvas position
-when the destination is not Auto Layout. `create frame|rect|ellipse|text|line|autolayout`
-plus `polygon|star|vector|slice` accept an explicit parent where Figma permits
-it, so small children can be added to an existing frame without rebuilding it.
+when the destination is not Auto Layout. `create frame|rect|ellipse|polygon|star`
+and `vector|slice|line|autolayout|text` use action-specific, readback-verified creation Applications
+across CLI and MCP. They accept an explicit parent where Figma permits it, so
+small children can be added to an existing frame without rebuilding it. Text
+creation also preflights the requested font before creating its node.
 ID-scoped `node group|ungroup|boolean|flatten` replace selection-dependent
 structural edits. Components can be created, instantiated, swapped, detached,
 and have their overrides reset or compacted without relying on the current
 selection. The direct `node set` surface covers geometry, visibility/locking,
 fills/strokes/effects, blend and mask settings, individual corners, constraints,
 Auto Layout container/child properties, polygon/star geometry, and Section
-visibility. Legacy selection-based and network-backed `create` subcommands
-remain unreachable through `figma_run`.
+visibility. The single-node command preflights all supported properties and
+Variable references, freshly verifies the complete result, and restores its
+full field journal if any setter or postcondition fails. Unsupported fields
+remain explicit skips, while ambiguous Variables stop before mutation. Legacy
+selection-based `create` subcommands remain unreachable through `figma_run`;
+VectorNetwork input is bounded inert JSON on its typed route.
+
+Dev Mode `measure add|edit|delete` mutations share one Plan-bound Application
+across CLI and MCP. Add and edit own rollback; delete reports its irreversible
+freshly verified outcome without retrying after dispatch.
 
 `component main <instanceId>` is the bounded identity read for reuse. Commander
 and MCP resolve the same explicit Instance through one safe-read Command
@@ -1279,6 +1292,15 @@ three-way comparison:
 | both changed |           | **conflict** — nothing is applied                       |
 | unchanged    | unchanged | unchanged                                               |
 
+Commander and `figma_run` execute this comparison through the same closed
+Command Plan. The source, prior lock and exact Collection are resolved before
+Plugin readiness; duplicate Collection or Variable names and flattened DTCG or
+CSS name collisions stop explicitly instead of selecting the first match.
+For compatibility with the original sync command, an existing Collection uses
+its first declared mode. If the Collection has more modes, sync says so; it
+does not silently switch to `defaultModeId` or change values in the other
+modes.
+
 Conflicts stop the whole run. Resolve them by editing one side, or decide them
 all at once with `--ours` (the code file wins) / `--theirs` (Figma wins, and
 nothing is written to Figma).
@@ -1294,6 +1316,18 @@ those as two steps if the bindings matter.
 
 Without `--apply` the command exits 1 when changes are pending, so it works as a
 CI check for "is Figma in sync with the repo?".
+
+Apply is intentionally non-atomic inside Figma: retype and delete have no
+general safe inverse. It rechecks the complete observed state immediately
+before the first write, stops after the first failed operation, verifies the
+fresh post-state and reports `no-mutation`, bounded `partial-residue`, or
+`verification-unavailable`. An apply is never automatically retried after
+dispatch. The lockfile advances only after complete verified success. A
+per-lockfile process lease serializes source/lock read, Figma work and
+publication across CLI and MCP processes, and publication atomically replaces
+the prior file from a fully written sibling. If publication fails, the prior
+lock remains intact and the command reports any Figma changes that already
+committed.
 
 ### Binding, and switching which collection a design follows
 
@@ -1515,10 +1549,15 @@ figma_run ["library", "import-component-set", "<published-component-set-key>"]
 
 `collections` and `variables` are reads. The four `import-*` commands
 materialize published assets in the current file and are therefore writes in
-the Capability Catalog. Figma only exposes discovery for variable collections
-and variables. Published styles, components and component sets can be imported
-when their stable key is already known, but the Plugin API cannot enumerate
-them.
+the Capability Catalog. They share one non-retrying Command Application in CLI
+and MCP: the selected native import runs once, then a fresh lookup verifies the
+returned id, exact published key, resource kind and remote identity. Figma does
+not expose a safe inverse and an imported resource may have existed already, so
+failed or unavailable verification reports possible residue without deleting
+or retrying the import. Resource descriptions are bounded in the structured
+result. Figma only exposes discovery for variable collections and variables.
+Published styles, components and component sets can be imported when their
+stable key is already known, but the Plugin API cannot enumerate them.
 
 Libraries must be enabled for the current file in Figma's UI before
 `library collections` can see them; the Plugin API cannot enable a library.
@@ -1560,6 +1599,13 @@ Plugin protocol cap. Oversized or malformed facts fail rather than being
 silently truncated, and safe JSON escaping keeps terminal controls inert
 without changing the parsed interaction facts.
 
+`prototype add`, `set`, and `clear` use one non-retrying mutation Application
+in both CLI and MCP. Reaction JSON is bounded before dispatch, the previous
+reaction set is journaled, and fresh readback proves the exact requested set.
+Failed verification restores the journal when possible and otherwise reports
+bounded reaction residue; an exact readback after a native setter error remains
+an explicit `verified-after-error` success.
+
 ### 2026 Plugin APIs: video, shaders, grid, slots, and Draw
 
 The current official Plugin API surface is exposed as Figma Commands rather
@@ -1572,6 +1618,7 @@ figma_run ["shader", "import", "<shader-id>"]
 figma_run ["shader", "apply", "12:34", "<shader-id>", "--field", "fill", "--properties", "{\"definition-id\":0.8}"]
 figma_run ["layout", "grid", "set", "12:34", "--rows", "2", "--columns", "3", "--row-gap", "12"]
 figma_run ["layout", "grid", "auto-flow", "12:34", "--auto-tracks", "rows", "--positioning", "row_auto_flow"]
+figma_run ["layout", "grid", "reorder-rows", "12:34", "--from", "0,2", "--to", "3"]
 figma_run ["grid", "list", "12:34", "--json"]
 figma_run ["slot", "create", "12:37", "Content", "--settings", "{\"minChildren\":1,\"maxChildren\":3}"]
 figma_run ["slot", "validate", "12:37"]
@@ -1582,18 +1629,52 @@ figma_run ["draw", "pattern", "12:38", "12:39", "--field", "fill"]
 ```
 
 Video export resolves a selected descendant to its top-level animated frame
-and accepts only Figma's format-specific FPS values. Shader properties are
+and accepts only Figma's format-specific FPS values. CLI and MCP share one
+long-running, non-retrying Command Application whose Plan owns the exact output.
+It validates requested settings, canonical bounded Base64 and the MP4, GIF or
+WebM container before Workspace I/O. The current generic result transport
+supports exports up to its documented bounded payload; larger video streaming
+requires a separate versioned media-stream capability rather than widening the
+image/SVG Asset Stream. Shader properties are
 keyed by definition ID, not display name, and an available shader must be
-imported before it is applied. `layout grid` means the Auto Layout Grid
-model; the older top-level `grid` command remains Layout Guide management.
+imported before it is applied. Shader import and application use the same
+non-retrying verified mutation path in CLI and MCP: apply never imports
+implicitly, and a failed postcondition either restores the complete prior
+paint/effect field or reports possible residue. `layout grid` means the Auto
+Layout Grid model; the older top-level `grid` command remains Layout Guide
+management.
+`layout grid set` uses one journaled, non-retrying CLI/MCP path for Grid
+conversion, dimensions, gaps and explicit track definitions. It refuses a
+manual shrink beneath an occupied child span, verifies the complete requested
+configuration while preserving unspecified facts, and restores prior Grid or
+free-layout state on failure when Figma permits it.
+`layout grid auto-flow` uses one non-retrying CLI/MCP mutation path: it treats
+auto-track and item-positioning settings as one intent, verifies both through
+a fresh node read, and restores both prior values on a mismatched result or
+reports the exact remaining field residue.
+`layout grid place` likewise shares one non-retrying CLI/MCP path. It validates
+manual Grid bounds and occupied cells before moving the child, freshly proves
+the resulting hierarchy, cell, spans and alignment, and restores the complete
+prior parent/free-layout or Grid state when the postcondition fails.
+`layout grid reorder-rows|reorder-columns` shares one irreversible,
+non-retrying path. It validates the native track permutation and freshly proves
+the track definitions plus every child anchor/span. A thrown call is reported
+as no mutation only when fresh state proves the complete old Grid; otherwise
+confirmed differences remain explicit residue because the Plugin API exposes
+no safe general inverse.
 `grid list [nodeId]` is the exact bounded read for those layout guides and may
 use the current selection when the id is omitted. It preserves `gridStyleId`,
 all ROWS/COLUMNS/GRID fields, colors and Variable Aliases. Figma's Auto count
 is returned as `{ "$figmaScalar": "Infinity" }`, never the lossy JSON value
 `null`; text output renders that value as `Auto`.
-Slots expose GA `SlotSettings`, preferred values, reset, and limit violations;
-JSX `<Slot>` now uses `ComponentNode.createSlot()` and validates configured
-limits after rendering. An empty Slot on a main Component can have no reported
+Slots expose GA `SlotSettings`, preferred values, reset, and limit violations.
+Create and edit share one non-retrying, freshly verified mutation path in CLI
+and MCP; failures remove only newly created Slot identities or restore the
+prior effective definition when Figma permits it. Reset is also non-retrying
+and reports native confirmation plus fresh before/after facts; it does not
+claim an independently known default subtree or rollback. JSX `<Slot>` uses
+`ComponentNode.createSlot()` and validates configured limits after rendering.
+An empty Slot on a main Component can have no reported
 violation even when `minChildren` is nonzero; instantiate the Component and run
 `slot validate` on that exercised Instance to observe `BELOW_MIN`. Component
 Property Facts normalize Figma's missing SLOT `defaultValue` to `null`.
@@ -1692,7 +1773,10 @@ one target-bound, bounded safe-read Application; an oversized or malformed
 Plugin result is refused rather than silently truncated. `export node-json` uses
 `exportAsync({format:"JSON_REST_V1"})`: the shape resembles the REST file
 schema, but the bytes come from the live plugin document and need neither a
-token nor a network request.
+token nor a network request. CLI and MCP share one target-bound safe-read
+Application: the Command Plan owns the optional output file before readiness,
+and bounded node identity, JSON structure, transport size and formatted output
+are validated before stdout or Workspace publication.
 
 ## Version history and diffs
 
@@ -1750,8 +1834,8 @@ Figma's first-party animation styles (`styles`, `style`), frame duration
 (`timeline`), readback (`inspect`) and removal (`clear`).
 
 Like every other command it runs over the plugin bridge — there is no separate
-transport for it. `styles` and `inspect` are reads; everything else, `timeline`
-included (it reads _or_ sets depending on its arguments), counts as a write
+transport for it. `styles`, `inspect`, and `timeline` without `--duration` are
+reads. `timeline --duration …` and every other Motion action count as writes
 under `FIGMA_WRITE_CONFIRM=1`.
 
 Motion is rolling out behind a Figma Beta flag. Without access, the commands
@@ -1816,9 +1900,12 @@ rather than a generic API failure.
   always remains the normal released identity.
 - **Private Audit Trail** — commands attempt a closed, versioned start/outcome
   lifecycle in `~/.figma-bridge-mcp/audit.log`. Capability, effects, redacted
-  data summaries, outcome, and duration remain useful to `figma_history`; raw
+  data summaries, outcome, duration, terminal Dispatch state and bounded
+  mutation attempted/restored/residue counts remain useful to `figma_history`; raw
   commands, JSX, labels, paths, file keys, REST bodies, credentials, and errors
-  are never retained in new records. Directory/file modes are `0700`/`0600`.
+  or residue identities are never retained in new records. CLI errors and MCP
+  structured errors consume the same closed mutation projection.
+  Directory/file modes are `0700`/`0600`.
   It rotates at 5 MB with one previous generation, which also bounds readable
   legacy entries. Storage failure never blocks Figma work: MCP output reports a
   degraded Audit Trail until a complete record succeeds.

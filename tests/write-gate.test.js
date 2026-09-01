@@ -50,6 +50,7 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['canvas', 'next'],
     ['motion', 'styles'],
     ['motion', 'inspect', '1:2'],
+    ['motion', 'timeline', '1:2'],
     ['link', 'status', 'ui.button'],
     ['link', 'accept', 'ui.button'], // repository baseline write; Figma remains read-only
     ['link', 'context', 'ui.button'],
@@ -102,9 +103,7 @@ test('write subcommands of gated groups require confirm', () => {
     ['motion', 'stagger', '1:2,1:3'],
     ['motion', 'style', '1:2', 'opacity'],
     ['motion', 'clear', '1:2'],
-    // Reads OR sets depending on its arguments — the gate only sees the
-    // subcommand, so it must land on the write side.
-    ['motion', 'timeline', '1:2'],
+    ['motion', 'timeline', '1:2', '--duration', '1.2'],
     // --apply is what turns the sync plan into writes, wherever it appears.
     ['tokens', 'sync', 'tokens.json', '--apply'],
     ['tokens', 'sync', '--apply', 'tokens.json'],

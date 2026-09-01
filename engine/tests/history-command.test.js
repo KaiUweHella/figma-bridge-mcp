@@ -49,7 +49,12 @@ function fakeStore(savedSnapshot = normalizeSnapshot(raw(), { takenAt: '2026-08-
 
 const evaluate = async (code) => code === '(async () => figma.fileKey || null)()' ? 'FILE' : raw('Changed');
 
-test('History request closes and canonicalizes snapshot, list, and diff', () => {
+test('History request closes and canonicalizes save, snapshot, list, and diff', () => {
+  assert.deepEqual(parseHistoryRequest([
+    'history', 'save', '--description= ready ', '--', '--release',
+  ]), {
+    action: 'save', title: '--release', description: 'ready',
+  });
   assert.deepEqual(parseHistoryRequest([
     'history', 'snapshot', '--label=Before', '--depth', '2', '--node', '1-2', '--json',
   ]), {
@@ -69,7 +74,9 @@ test('History request closes and canonicalizes snapshot, list, and diff', () => 
     ['history', 'snapshot', '--unknown'],
     ['history', 'diff', 'a', 'b', 'c'],
     ['history', 'diff', 'latest', 'live', '--json', '--changelog'],
-    ['history', 'save', 'Title'],
+    ['history', 'save'],
+    ['history', 'save', 'Title', 'Extra'],
+    ['history', 'save', 'Title', '--description', 'a', '-d', 'b'],
   ]) assert.equal(acceptsHistoryArgv(argv), false, argv.join(' '));
 });
 

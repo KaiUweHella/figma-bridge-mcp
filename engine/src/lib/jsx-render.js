@@ -1271,7 +1271,7 @@ export class FigmaClient {
         };
         const __findOrCreateSpaceVar = (value, kind) => {
           const c = globalThis.__spaceCache;
-          const tokenNumber = String(value).replace(/\./g, '-');
+          const tokenNumber = String(value).replace(/\\./g, '-');
           const base = (kind === 'radius' ? 'radius/' : 'space/') + tokenNumber + 'px';
           const hits = (c.vars || []).filter(v => __spaceNs(v.name, kind) && v.name === base);
           if (hits.length > 1) return { variable: null, disposition: 'ambiguous' };
@@ -1354,7 +1354,10 @@ export class FigmaClient {
             const resolution = __findOrCreateSpaceVar(num, kind);
             variable = resolution.variable;
             if (!variable) {
-              report[resolution.disposition] += fields.length;
+              report.literal += fields.length;
+              if (resolution.disposition !== 'literal') {
+                report[resolution.disposition] += fields.length;
+              }
               return;
             }
           }

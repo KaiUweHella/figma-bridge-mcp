@@ -1,17 +1,18 @@
-// Plugin-first version creation. Reading prior versions remains REST-only;
-// saving a named version is available directly in the open Figma document.
+// Compatibility facade. Named-version execution is owned by the History
+// Command Application; older imports retain the established helper names.
 
-export function normalizeVersionRequest({ title, description = null } = {}) {
-  const normalizedTitle = String(title ?? '').trim();
-  if (!normalizedTitle) throw new Error('Version title must not be empty.');
-  const normalizedDescription = description == null ? null : String(description).trim();
-  return { title: normalizedTitle, description: normalizedDescription || null };
+import { versionHistorySaveCode } from '../application/history-command.js';
+import { normalizeVersionSaveRequest } from '../application/history-request.js';
+
+export function normalizeVersionRequest(request = {}) {
+  return normalizeVersionSaveRequest({
+    title: String(request?.title ?? ''),
+    description: request?.description == null ? null : String(request.description),
+  });
 }
 
 export function saveVersionCode(request) {
-  const { title, description } = normalizeVersionRequest(request);
-  return `(async () => {
-    const saved = await figma.saveVersionHistoryAsync(${JSON.stringify(title)}, ${JSON.stringify(description)});
-    return { id: saved && saved.id ? saved.id : null, title: ${JSON.stringify(title)}, description: ${JSON.stringify(description)} };
-  })()`;
+  return `(async () => JSON.parse(await ${versionHistorySaveCode({
+    ...normalizeVersionRequest(request), action: 'save',
+  })}))()`;
 }

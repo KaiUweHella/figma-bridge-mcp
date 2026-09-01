@@ -31,7 +31,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
 
   const entries = readFileSync(auditFile, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(entries.length, 2);
-  assert.equal(entries[0].schema, 4);
+  assert.equal(entries[0].schema, 6);
   assert.equal(entries[0].event, 'start');
   assert.equal(entries[0].capability, 'export.code-spec');
   assert.equal(entries[0].operation, 'read');
@@ -42,7 +42,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
   const serialized = JSON.stringify(entries.map(({ ts, ...entry }) => entry));
   assert.doesNotMatch(serialized, /12:34|FILE_A|direct spec/);
   assert.deepEqual(entries[1], {
-    schema: 4,
+    schema: 6,
     id: entries[0].id,
     ts: entries[1].ts,
     event: 'done',
@@ -50,6 +50,7 @@ test('in-process command uses one allowlist, targeting and audit lifecycle', asy
       ok: true,
       durationMs: entries[1].outcome.durationMs,
       code: 0,
+      dispatchState: 'completed',
     },
   });
 });
@@ -116,6 +117,29 @@ test('in-process mutation never repeats an outcome-unknown daemon failure', asyn
     /connection dropped/,
   );
   assert.equal(attempts, 1);
+});
+
+test('in-process mutation failure keeps bounded residue in the Audit completion', async () => {
+  const { runInProcessCommand } = await import('../src/engine.js');
+  const beforeCount = readFileSync(auditFile, 'utf8').trim().split('\n').length;
+  await assert.rejects(
+    () => runInProcessCommand(['node', 'set-fill', '12:34', '#ffffff'], {}, async () => {
+      throw Object.assign(new Error('readback mismatch'), {
+        kind: 'execution', dispatchState: 'failed', mutationOutcome: 'rolled-back',
+        mutationReport: {
+          version: 1, outcome: 'rolled-back', attempted: 1, restored: 1,
+          residueCount: 0, residue: [{ id: 'PRIVATE_NODE_ID' }],
+        },
+      });
+    }),
+    /readback mismatch/,
+  );
+  const appended = readFileSync(auditFile, 'utf8').trim().split('\n').slice(beforeCount).map(JSON.parse);
+  assert.equal(appended.length, 2);
+  assert.deepEqual(appended[1].outcome.mutation, {
+    schemaVersion: 1, outcome: 'rolled-back', attempted: 1, restored: 1, residueCount: 0,
+  });
+  assert.doesNotMatch(JSON.stringify(appended), /PRIVATE_NODE_ID/);
 });
 
 test('in-process safe reads retry one normalized plugin disconnect internally', async () => {
@@ -249,6 +273,7 @@ test('Semantic Render findings project the same Outcome into process and Audit c
     ok: true,
     durationMs: entries.at(-1).outcome.durationMs,
     code: 1,
+    dispatchState: 'completed',
   });
 });
 

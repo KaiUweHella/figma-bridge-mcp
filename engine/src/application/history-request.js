@@ -1,10 +1,12 @@
-// Closed request Interface for local structural history Commands.
+// Closed request Interface for structural history and named Figma versions.
 import { normalizeNodeId } from '../lib/node-id.js';
 
 const NODE_ID_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
 const MAX_NODE_ID_CODE_UNITS = 512;
 const MAX_LABEL_CODE_UNITS = 4096;
 const MAX_REF_CODE_UNITS = 128;
+export const MAX_VERSION_TITLE_CODE_UNITS = 1_024;
+export const MAX_VERSION_DESCRIPTION_CODE_UNITS = 4_096;
 
 function requestError(message) {
   return new Error(`Invalid history command: ${message}.`);
@@ -36,6 +38,67 @@ function refValue(value, label) {
     throw requestError(`${label} must contain 1 to ${MAX_REF_CODE_UNITS} code units`);
   }
   return value;
+}
+
+function versionText(value, label, maximum, { required = false } = {}) {
+  if (value === undefined || value === null) {
+    if (required) throw requestError(`${label} is required`);
+    return null;
+  }
+  if (typeof value !== 'string') throw requestError(`${label} must be a string`);
+  const normalized = value.trim();
+  if (required && !normalized) throw requestError(`${label} must not be empty`);
+  if (normalized.length > maximum) {
+    throw requestError(`${label} must contain at most ${maximum} code units`);
+  }
+  return normalized || null;
+}
+
+/** @param {any} request */
+export function normalizeVersionSaveRequest(request = {}) {
+  const { title, description = null } = request;
+  return Object.freeze({
+    title: versionText(title, 'version title', MAX_VERSION_TITLE_CODE_UNITS, { required: true }),
+    description: versionText(description, 'version description', MAX_VERSION_DESCRIPTION_CODE_UNITS),
+  });
+}
+
+function parseSaveOptions(args) {
+  const positionals = [];
+  let description = null;
+  let descriptionSeen = false;
+  let literal = false;
+  for (let index = 2; index < args.length; index++) {
+    const token = args[index];
+    if (!literal && token === '--') {
+      literal = true;
+      continue;
+    }
+    if (!literal && (token === '-d' || token === '--description')) {
+      if (descriptionSeen) throw requestError('version description may be provided only once');
+      const value = args[index + 1];
+      if (value === undefined || value === '--') throw requestError(`${token} requires a value`);
+      description = value;
+      descriptionSeen = true;
+      index++;
+      continue;
+    }
+    if (!literal) {
+      const combined = token.match(/^(?:-d=?|--description=)(.+)$/);
+      if (combined) {
+        if (descriptionSeen) throw requestError('version description may be provided only once');
+        description = combined[1];
+        descriptionSeen = true;
+        continue;
+      }
+      if (token.startsWith('-')) throw requestError(`unknown option ${token}`);
+    }
+    positionals.push(token);
+  }
+  if (positionals.length !== 1) {
+    throw requestError(positionals.length ? `unexpected argument ${positionals[1]}` : 'version title is required');
+  }
+  return { action: 'save', fileKey: null, ...normalizeVersionSaveRequest({ title: positionals[0], description }) };
 }
 
 function parseOptions(args, start, { action }) {
@@ -135,12 +198,13 @@ function parsedHistoryRequest(args) {
   if (!Array.isArray(args) || args[0] !== 'history') throw new Error('Expected a history command.');
   if (args.some((value) => typeof value !== 'string')) throw new TypeError('History arguments must be strings.');
   const action = args[1];
+  if (action === 'save') return parseSaveOptions(args);
   if (action === 'list') {
     if (args.length !== 2) throw requestError(`unexpected argument ${args[2]}`);
     return { action: 'list', fileKey: null };
   }
   if (action !== 'snapshot' && action !== 'diff') {
-    throw requestError('supported local actions are snapshot, list, and diff');
+    throw requestError('supported actions are save, snapshot, list, and diff');
   }
   return parseOptions(args, 2, { action });
 }
@@ -162,8 +226,16 @@ export function acceptsHistoryArgv(args) {
 export function historyArgvFromRequest(request) {
   if (!request || typeof request !== 'object') throw new TypeError('History request must be an object.');
   const action = request.action;
-  if (!['snapshot', 'list', 'diff'].includes(action)) {
-    throw requestError('supported local actions are snapshot, list, and diff');
+  if (!['save', 'snapshot', 'list', 'diff'].includes(action)) {
+    throw requestError('supported actions are save, snapshot, list, and diff');
+  }
+  if (action === 'save') {
+    const input = normalizeVersionSaveRequest(request);
+    const args = ['history', 'save'];
+    if (input.description) args.push('--description', input.description);
+    args.push('--', input.title);
+    parseHistoryRequest(args);
+    return args;
   }
   if (request.nodeId != null && typeof request.nodeId !== 'string') throw requestError('nodeId must be a string');
   if (request.label != null && typeof request.label !== 'string') throw requestError('label must be a string');
@@ -208,6 +280,7 @@ export function historyArgvFromRequest(request) {
 
 export function historyPlanningArgvFromRequest(request) {
   const canonical = historyArgvFromRequest(request);
+  if (request?.action === 'save') return canonical;
   if (!request?.nodeId) return canonical;
   const parsed = parsedHistoryRequest(['history', String(request.action),
     ...(request.action === 'diff' ? [String(request.from ?? 'previous'), String(request.to ?? 'latest')] : []),

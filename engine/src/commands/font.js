@@ -4,19 +4,16 @@ import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
   program,
-  checkConnection,
   daemonExec,
-  fastEval,
   handleEvalError,
 } from '../lib/cli-core.js';
-import { normalizeNodeId } from '../lib/node-id.js';
 import {
-  fontAxesCode,
-  forgetAxesCode,
-  parseAxisSpec,
   parseOptionalIndex,
-  rememberAxesCode,
 } from '../lib/font-introspection.js';
+import {
+  executeFontAxisMetadataPlan,
+  fontAxisMetadataPlanningArgvFromRequest,
+} from '../application/font-axis-metadata-command.js';
 import {
   executeFontInspectionPlan,
   fontInspectionPlanningArgvFromRequest,
@@ -39,7 +36,22 @@ const parsedRange = (options) => ({
   end: parseOptionalIndex(options.end, '--end'),
 });
 
-const print = (value) => console.log(JSON.stringify(value, null, 2));
+async function runFontAxisMetadata(request) {
+  const plan = planFigmaCommand(fontAxisMetadataPlanningArgvFromRequest(request), {
+    adapter: 'cli', fileKey: program.opts().figmaFile || null,
+  });
+  const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+      return executeFontAxisMetadataPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code, ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+  if (result.stderr) console.error(chalk.yellow(result.stderr));
+  console.log(result.stdout);
+}
 
 rangeOptions(font
   .command('bind <nodeId> <field> <variable>')
@@ -125,11 +137,10 @@ rangeOptions(font
 font
   .command('axes <nodeId>')
   .description('Read metadata-only variable-font axis intent (does not describe Figma rendering)')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
     try {
-      const id = normalizeNodeId(nodeId).id;
-      await checkConnection();
-      print(await fastEval(fontAxesCode({ nodeId: id })));
+      await runFontAxisMetadata({ action: 'axes', nodeId });
     } catch (error) {
       handleEvalError(error);
     }
@@ -138,15 +149,11 @@ font
 rangeOptions(font
   .command('remember-axes <nodeId> <axes>')
   .description('Store range axis intent such as wght=357,wdth=82; does NOT change glyph rendering'))
+  .allowExcessArguments(false)
   .action(async (nodeId, axesSpec, options) => {
     try {
-      const id = normalizeNodeId(nodeId).id;
-      const axes = parseAxisSpec(axesSpec);
       const range = parsedRange(options);
-      await checkConnection();
-      const result = await fastEval(rememberAxesCode({ nodeId: id, axes, ...range }));
-      console.log(chalk.green('✓'), 'Variable-font axis intent stored as plugin metadata.');
-      print(result);
+      await runFontAxisMetadata({ action: 'remember-axes', nodeId, axes: axesSpec, ...range });
     } catch (error) {
       handleEvalError(error);
     }
@@ -155,14 +162,11 @@ rangeOptions(font
 rangeOptions(font
   .command('forget-axes <nodeId>')
   .description('Remove one exact range or all stored variable-font axis metadata'))
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     try {
-      const id = normalizeNodeId(nodeId).id;
       const range = parsedRange(options);
-      await checkConnection();
-      const result = await fastEval(forgetAxesCode({ nodeId: id, ...range }));
-      console.log(chalk.green('✓'), 'Variable-font axis metadata removed.');
-      print(result);
+      await runFontAxisMetadata({ action: 'forget-axes', nodeId, ...range });
     } catch (error) {
       handleEvalError(error);
     }

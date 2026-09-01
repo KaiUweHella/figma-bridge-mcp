@@ -14,7 +14,8 @@ import {
 import {
   EASING_TYPES, VARIABLE_TYPES, parseVariableLiteral, parseVariableType,
 } from '../engine/src/lib/variable-management.js';
-import { parseSetRequest, setCode } from '../engine/src/commands/node-ops.js';
+import { nodeSetCode } from '../engine/src/application/node-set-command.js';
+import { parseSetRequest } from '../engine/src/application/node-set-request.js';
 
 const typingsPath = new URL('../node_modules/@figma/plugin-typings/plugin-api.d.ts', import.meta.url);
 const packagePath = new URL('../node_modules/@figma/plugin-typings/package.json', import.meta.url);
@@ -84,9 +85,14 @@ test('every real engine command is either Safe-Mode reachable or explicitly engi
 });
 
 test('every create subcommand is Safe-Mode reachable or an explicit legacy boundary', () => {
-  const legacyBoundaries = new Set(['image', 'component', 'group']);
+  const legacyBoundaries = new Set(['component', 'group']);
   for (const aliases of commandRows('create')) {
-    const allowed = aliases.some((name) => planFigmaCommand(['create', name]).allowed);
+    const allowed = aliases.some((name) => planFigmaCommand(
+      name === 'frame' ? ['create', name, 'Coverage Frame']
+        : name === 'text' ? ['create', name, 'Coverage Text']
+          : name === 'image' ? ['create', name, 'https://assets.example/photo.png']
+            : ['create', name],
+    ).allowed);
     assert.ok(allowed || aliases.some((name) => legacyBoundaries.has(name)), `Unclassified create subcommand: ${aliases.join('|')}`);
   }
 });
@@ -133,9 +139,9 @@ test('extended node edits are typed before they become plugin code', () => {
   assert.equal(request.props.layoutMode, 'VERTICAL');
   assert.equal(request.props.blendMode, 'SOFT_LIGHT');
   assert.equal(request.props.locked, true);
-  const code = setCode([request]);
-  assert.match(code, /node\.effects = p\.effects/);
-  assert.match(code, /node\.constraints =/);
+  const code = nodeSetCode(request);
+  assert.match(code, /operation\.kind === 'array'/);
+  assert.match(code, /operation\.kind === 'constraints'/);
   assert.throws(() => parseSetRequest({ node: '1:2', locked: 'yes' }), /true or false/);
   assert.throws(() => parseSetRequest({ node: '1:2', radii: '1,2' }), /four values/);
   assert.throws(() => parseSetRequest({ node: '1:2', blendMode: 'javascript' }), /must be one of/);

@@ -61,14 +61,491 @@ test('success text goes to stdout via spinnerSucceed, never spinner.succeed', ()
 test('a11y checks fail loudly (no console.log for execution errors)', () => {
   const src = sources.get('a11y.js');
   assert.ok(src, 'a11y.js exists');
-  // Every catch reports via handleEvalError (which exits 1); result.error
-  // paths exit 1 explicitly. Neither may swallow into a zero exit.
   assert.ok(!/console\.log\(chalk\.red\('✗ .*failed/.test(src),
     'failed checks must not be logged-and-forgotten on stdout');
-  assert.equal((src.match(/handleEvalError\(e\)/g) || []).length, 6,
-    'all six a11y subcommands route errors through handleEvalError');
+  assert.doesNotMatch(src, /\b(?:checkConnection|fastEval|handleEvalError)\b/,
+    'no A11y action retains direct transport or generated execution');
+  assert.match(src, /executeA11yReadPlan/,
+    'all five A11y reads delegate to one authoritative Command Application');
+  assert.match(src, /executeA11yVisionPlan/,
+    'a11y vision delegates to its authoritative Command Application');
+  assert.match(src, /process\.exitCode = 1/,
+    'delegated A11y failures retain a nonzero Commander outcome');
   assert.equal((src.match(/options\.failOnIssues/g) || []).length, 4,
     'the four violation-reporting checks offer --fail-on-issues for CI');
+});
+
+test('slides inspect delegates one Plan-bound bounded Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('inspect [slide]')");
+  const end = adapter.indexOf(".command('create [label]')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesInspectPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesInspectPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.inspect|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides grid capture, resolution, or result formatting');
+});
+
+test('slides create delegates one rollback-owned Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('create [label]')");
+  const end = adapter.indexOf(".command('duplicate <slide>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesCreatePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesCreatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.create|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides creation, verification, or rollback');
+});
+
+test('slides duplicate delegates one rollback-owned Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('duplicate <slide>')");
+  const end = adapter.indexOf(".command('move <slide> <row> <col>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesDuplicatePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesDuplicatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.duplicate|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides resolution, cloning, verification, or rollback');
+});
+
+test('slides move delegates one rollback-owned Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('move <slide> <row> <col>')");
+  const end = adapter.indexOf(".command('transition <slide> <style>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesMovePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesMovePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.move|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides resolution, movement, verification, or rollback');
+});
+
+test('slides transition and skip delegate one rollback-owned Slides Property Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  for (const [command, next] of [
+    [".command('transition <slide> <style>')", ".command('skip <slide> [state]')"],
+    [".command('skip <slide> [state]')", ".command('delete <slide>')"],
+  ]) {
+    const start = adapter.indexOf(command);
+    const end = adapter.indexOf(next, start);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /slidesPropertyPlanningArgvFromRequest/);
+    assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+    assert.match(action, /await ensurePluginReadiness\(\{/);
+    assert.match(action, /executeSlidesPropertyPlan\(plan/);
+    assert.match(action, /daemonExec\('eval'/);
+    assert.match(action, /process\.exitCode = 1/);
+    assert.doesNotMatch(action, /await run\(|snippets\.(?:transition|skip)|fastEval\(|checkConnection\(/,
+      'Commander must not retain Slides property resolution, mutation, verification, or rollback');
+  }
+});
+
+test('slides delete delegates one irreversible verified Slides Application', () => {
+  const adapter = sources.get('slides.js');
+  assert.ok(adapter, 'slides.js exists');
+  const start = adapter.indexOf(".command('delete <slide>')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /slidesDeletePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeSlidesDeletePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.remove|fastEval\(|checkConnection\(/,
+    'Commander must not retain Slides resolution, irreversible deletion, or verification');
+});
+
+test('the remaining direct Slides write inventory is explicit', () => {
+  const adapter = sources.get('slides.js');
+  const commands = ['create', 'duplicate', 'move', 'transition', 'skip', 'delete'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /await run\(/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Slides Legacy Write count may decrease, but must never increase silently');
+});
+
+test('jam board delegates one Plan-bound bounded FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('board')");
+  const end = adapter.indexOf(".command('arrange')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamBoardArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamBoardPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.board|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam traversal, bounds, validation, or formatting');
+});
+
+test('jam sticky delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('sticky");
+  const end = adapter.indexOf(".command('stickies", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamStickyArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamStickyPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.sticky|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam placement, creation, validation, or rollback');
+});
+
+test('jam stickies delegates one Plan-bound rollback-owned batch Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('stickies");
+  const end = adapter.indexOf(".command('shape", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamStickiesArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamStickiesPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.stickies|JSON\.parse|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam batch parsing, creation, validation, or rollback');
+});
+
+test('jam shape delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('shape");
+  const end = adapter.indexOf(".command('connector", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamShapeArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamShapePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.shape|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam Shape parsing, creation, validation, or rollback');
+});
+
+test('jam connector delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('connector");
+  const end = adapter.indexOf(".command('table", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamConnectorPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamConnectorPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.connector|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam Connector parsing, creation, validation, or rollback');
+});
+
+test('jam table delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('table");
+  const end = adapter.indexOf(".command('section", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamTableArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamTablePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.table|JSON\.parse|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam Table parsing, creation, validation, or rollback');
+});
+
+test('jam section delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('section");
+  const end = adapter.indexOf(".command('code", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamSectionArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamSectionPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.section|parseFloat|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam Section parsing, creation, validation, or rollback');
+});
+
+test('jam code delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('code");
+  const end = adapter.indexOf(".command('board", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamCodeArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamCodePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.codeBlock|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam Code parsing, creation, validation, or rollback');
+});
+
+test('jam arrange delegates one Plan-bound rollback-owned FigJam Application', () => {
+  const adapter = sources.get('jam.js');
+  assert.ok(adapter, 'jam.js exists');
+  const start = adapter.indexOf(".command('arrange')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /jamArrangeArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{/);
+  assert.match(action, /executeJamArrangePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /await run\(|snippets\.arrange|fastEval\(|checkConnection\(/,
+    'Commander must not retain FigJam targeting, geometry, mutation, or rollback');
+});
+
+test('the remaining direct FigJam action inventory is explicit', () => {
+  const adapter = sources.get('jam.js');
+  const commands = ['sticky', 'stickies', 'shape', 'connector', 'table', 'section', 'code', 'board', 'arrange'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /await run\(/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 FigJam Legacy Action count may decrease, but must never increase silently');
+  assert.doesNotMatch(adapter, /fastEval|handleEvalError|async function run\(/,
+    'FigJam must not retain a second Legacy eval execution helper');
+});
+
+test('Motion reads delegate one Plan-bound bounded Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  for (const [marker, next] of [
+    [".command('styles')", ".command('style <id> <name>')"],
+    [".command('inspect <id>')", ".command('clear <id>')"],
+  ]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf(next, start);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runMotionRead\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|manualKeyframeTracks/,
+      'Commander must not retain Motion availability, traversal, bounded projection, or formatting');
+  }
+  assert.match(adapter, /motionReadPlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionReadPlan\(plan/);
+});
+
+test('motion timeline delegates one conditional Plan-bound verified Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('timeline <id>')");
+  const end = adapter.indexOf(".command('inspect <id>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionTimeline\(/);
+  assert.match(adapter, /motionTimelinePlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionTimelinePlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|setTimelineDuration/,
+    'Commander must not retain Motion Timeline resolution, mutation, verification, or rollback');
+});
+
+test('motion clear delegates one Plan-bound verified Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('clear <id>')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionClear\(/);
+  assert.match(adapter, /motionClearPlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionClearPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|removeAnimationStyle|removeManualKeyframeTrack/,
+    'Commander must not retain Motion Clear resolution, mutation, verification, or rollback');
+});
+
+test('motion style delegates one Plan-bound verified Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('style <id> <name>')");
+  const end = adapter.indexOf(".command('timeline <id>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionStyle\(/);
+  assert.match(adapter, /motionStylePlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionStylePlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|applyAnimationStyle|setTimelineDuration/,
+    'Commander must not retain Motion Style resolution, mutation, verification, or rollback');
+});
+
+test('motion add delegates one Plan-bound rollback-owned Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('add <id>')");
+  const end = adapter.indexOf(".command('apply <spec>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionAdd\(/);
+  assert.match(adapter, /motionAddPlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionAddPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|mapField\(|parseKeys\(|applyManualKeyframeTrack|setTimelineDuration/,
+    'Commander must not retain Motion Add parsing, mutation, verification, or rollback');
+});
+
+test('motion apply delegates one workspace-prepared Plan-bound transaction', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('apply <spec>')");
+  const end = adapter.indexOf(".command('preset <id> <name>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionApply\(/);
+  assert.match(adapter, /motionApplyPlanningArgvFromRequest/);
+  assert.match(adapter, /prepareMotionApplyPlan\(plan, \{ workspaceIO: workspaceIO\(\) \}\)/);
+  assert.match(adapter, /executePreparedMotionApply\(prepared/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|readText\(|parseBoundedJson\(|normalizeSpec\(|applyManualKeyframeTrack/,
+    'Commander must not retain Motion Apply file parsing, normalization, mutation, verification, or rollback');
+});
+
+test('motion preset delegates one shared Plan-bound track transaction', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('preset <id> <name>')");
+  const end = adapter.indexOf(".command('stagger <ids>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionPreset\(/);
+  assert.match(adapter, /motionPresetPlanningArgvFromRequest/);
+  assert.match(adapter, /executeMotionPresetPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|presetTracks\(|normalizeSpec\(|applyManualKeyframeTrack/,
+    'Commander must not retain Motion Preset expansion, mutation, verification, or rollback');
+});
+
+test('motion stagger delegates one atomic multi-target track transaction', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('stagger <ids>')");
+  const end = adapter.indexOf(".command('styles')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionStagger\(/);
+  assert.match(adapter, /motionStaggerPlanningArgvFromRequest/);
+  assert.match(adapter, /executeMotionStaggerPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|expandStagger\(|normalizeSpec\(|applyManualKeyframeTrack/,
+    'Commander must not retain Motion Stagger expansion, mutation, verification, or rollback');
+});
+
+test('the remaining direct Motion Action inventory is explicit', () => {
+  const adapter = sources.get('motion.js');
+  const commands = ['add', 'apply', 'preset', 'stagger', 'styles', 'style', 'timeline', 'inspect', 'clear'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /await checkConnection\(\)/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
+});
+
+test('gradient apply delegates one Plan-bound rollback-owned Paint mutation', () => {
+  const adapter = sources.get('gradient.js');
+  assert.ok(adapter, 'gradient.js exists');
+  const start = adapter.indexOf(".command('apply <nodeId> <value>')");
+  const end = adapter.indexOf(".command('extract <image>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGradientApply\(/);
+  assert.match(adapter, /gradientApplyPlanningArgvFromRequest/);
+  assert.match(adapter, /executeGradientApplyPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|parseGradient\(|node\[|strokeWeight\s*=/,
+    'Commander must not retain Gradient Apply parsing, mutation, verification, or rollback');
+});
+
+test('gradient extract delegates workspace preparation and conditional mutation to one Application', () => {
+  const adapter = sources.get('gradient.js');
+  const start = adapter.indexOf(".command('extract <image>')");
+  const end = adapter.indexOf(".command('mesh <colors>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGradientExtract\(/);
+  assert.match(adapter, /prepareGradientExtractPlan/);
+  assert.match(adapter, /executeGradientExtractPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|extractGradient\(|extractMesh\(|\.fills\s*=|\.remove\(\)/,
+    'Commander must not retain Gradient Extract I/O, mutation, verification, or residue handling');
+});
+
+test('gradient mesh delegates one staged and freshly verified Application', () => {
+  const adapter = sources.get('gradient.js');
+  const start = adapter.indexOf(".command('mesh <colors>')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGradientMesh\(/);
+  assert.match(adapter, /prepareGradientMeshPlan/);
+  assert.match(adapter, /executeGradientMeshPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|buildMeshFromColors\(|createFrame\(|createEllipse\(|\.remove\(\)/,
+    'Commander must not retain Gradient Mesh preparation, mutation, verification, or rollback');
+});
+
+test('the remaining direct Gradient Action inventory is explicit', () => {
+  const adapter = sources.get('gradient.js');
+  const commands = ['apply', 'extract', 'mesh'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /checkConnection\(\)|fastEval\(/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Gradient Legacy Action count may decrease, but must never increase silently');
 });
 
 test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
@@ -189,6 +666,64 @@ test('history delegates private structural persistence to the Snapshot Store', (
     'History results must not expose the private Snapshot Store directory');
   assert.doesNotMatch(src, /node:fs|node:zlib|readFileSync|writeFileSync|gunzipSync|gzipSync/,
     'the Command Adapter must not regain direct shared-state persistence');
+});
+
+test('history save delegates one Plan-bound native version write Application', () => {
+  const adapter = sources.get('history.js');
+  const start = adapter.indexOf(".command('save <title>')");
+  const end = adapter.indexOf('async function runHistory', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runHistory\(\{ action: 'save'/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|saveVersionCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'history-command.js'), 'utf8');
+  assert.match(application, /figma\.saveVersionHistoryAsync\(request\.title/);
+  assert.match(application, /MAX_VERSION_SAVE_RESULT_CODE_UNITS/);
+});
+
+test('the remaining direct History write inventory is explicit', () => {
+  const adapter = sources.get('history.js');
+  const start = adapter.indexOf(".command('save <title>')");
+  const end = adapter.indexOf('async function runHistory', start);
+  const direct = /checkConnection\(\)|fastEval\(/.test(adapter.slice(start, end)) ? ['save'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 History Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Design Contract delegates target-bound readiness and execution to its Command Plan', () => {
+  const adapter = sources.get('contract.js');
+  assert.ok(adapter, 'contract.js exists');
+  const helperStart = adapter.indexOf('async function runContract');
+  const actionStart = adapter.indexOf("contract\n  .command('capture <entityId>')", helperStart);
+  const helper = adapter.slice(helperStart, actionStart);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeDesignContractPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(adapter, /checkConnection\(|fastEval\(/,
+    'Design Contract must not regain Legacy Adapter readiness or eval');
+});
+
+test('every Design Link action delegates through one target-aware Command Application', () => {
+  const adapter = sources.get('link.js');
+  assert.ok(adapter, 'link.js exists');
+  const helperStart = adapter.indexOf('async function runTracer');
+  const helperEnd = adapter.indexOf("link\n  .command('set <nodeId> <entityId>')", helperStart);
+  const helper = adapter.slice(helperStart, helperEnd);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /if \(plan\.target\.kind !== 'none'\)/);
+  assert.match(helper, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeDesignLinkPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  for (const action of ['set', 'inspect', 'list', 'configure', 'status', 'accept', 'context']) {
+    const start = adapter.indexOf(`.command('${action}`);
+    const next = adapter.indexOf("\nlink\n  .command('", start + 1);
+    const slice = adapter.slice(start, next === -1 ? adapter.length : next);
+    assert.match(slice, /runTracer\(/, action);
+  }
+  assert.doesNotMatch(adapter, /checkConnection\(|fastEval\(|executeDesignLink\(/,
+    'Design Link must not regain per-Adapter readiness or domain execution');
 });
 
 test('asset export Adapter delegates one Command Application to Manifest v2', () => {
@@ -329,7 +864,7 @@ test('node delete delegates one Plan-bound hierarchy-verified Command Applicatio
   const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'node-delete-command.js'), 'utf8');
   assert.ok(adapter, 'node-ops.js exists');
   const start = adapter.indexOf(".command('delete <nodeIds...>')");
-  const end = adapter.indexOf('// ============ BIND', start);
+  const end = adapter.indexOf(".command('bind [nodeId] [property] [varName]')", start);
   const action = adapter.slice(start, end);
 
   assert.match(action, /planFigmaCommand\(nodeDeletePlanningArgvFromRequest\(\{ nodeIds \}\)/);
@@ -385,7 +920,7 @@ test('node to-component delegates one Plan-bound irreversible non-retrying Appli
   const adapter = sources.get('node-ops.js');
   assert.ok(adapter, 'node-ops.js exists');
   const start = adapter.indexOf(".command('to-component <nodeIds...>')");
-  const end = adapter.indexOf('function normalizedNodeIds', start);
+  const end = adapter.indexOf('function structuralParentOptions', start);
   const action = adapter.slice(start, end);
 
   assert.match(action, /\.allowExcessArguments\(false\)/);
@@ -424,6 +959,21 @@ test('node duplicate delegates one Plan-bound rollback-verified non-retrying App
     'the Application must own best-effort rollback of only its new copy');
 });
 
+test('node set delegates one Plan-bound journaled multi-property Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('set [nodeId]')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeSetPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeSetPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|setCode\(/,
+    'Commander must not retain Node Set preflight, mutation, rollback, or formatting');
+});
+
 test('the remaining direct Node write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('node-ops.js');
   assert.ok(adapter, 'node-ops.js exists');
@@ -437,12 +987,561 @@ test('the remaining direct Node write inventory is explicit and cannot grow sile
       direct.push(matches[index][1].split(/[ <\[]/, 1)[0]);
     }
   }
-  assert.deepEqual(direct.sort(), [
-    'bind', 'boolean', 'flatten', 'group', 'rename',
-    'reparent', 'resize', 'set', 'set-fill', 'set-image', 'ungroup',
-  ]);
-  assert.equal(direct.length, 11,
+  assert.deepEqual(direct.sort(), []);
+  assert.equal(direct.length, 0,
     'STAB-26 Node-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('create frame delegates one Plan-bound rollback-verified Command Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('frame <name>')");
+  const end = adapter.indexOf(".command('image <url>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /createFramePlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeCreateFramePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|generateFillCode\(|createFrame\(\)|\.resize\(/,
+    'Commander must not retain Create Frame preflight, mutation, rollback, or formatting');
+});
+
+test('create image materializes on the host before one rollback-aware Plugin write', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('image <url>')");
+  const end = adapter.indexOf('// config.js continues', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /createImageArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /prepareCreateImagePlan\(plan/);
+  assert.ok(action.indexOf('prepareCreateImagePlan(plan') < action.indexOf('ensurePluginReadiness({'),
+    'remote bytes must be materialized before Plugin readiness');
+  assert.match(action, /executeCreateImagePlan\(plan, prepared/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|evalPrint\(|createImageAsync|figma\.createRectangle\(/,
+    'Commander must not retain remote loading, mutation, verification, or rollback');
+  const application = readFileSync(join(APPLICATION_DIR, 'create-image-command.js'), 'utf8');
+  assert.match(application, /materializeRemoteRenderImage/);
+  assert.match(application, /figma\.createImage\(bytes\)/);
+  assert.doesNotMatch(application, /createImageAsync/);
+});
+
+test('the remaining public direct Create write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('create.js');
+  assert.ok(adapter, 'create.js exists');
+  const direct = [];
+  const named = [
+    ['frame', ".command('frame <name>')"], ['rect', ".command('rect [name]')"],
+    ['ellipse', ".command('ellipse [name]')"], ['vector', ".command('vector [name]')"],
+    ['slice', ".command('slice [name]')"], ['text', ".command('text <content>')"],
+    ['line', ".command('line')"], ['autolayout', ".command('autolayout [name]')"],
+  ];
+  for (const [name, marker] of named) {
+    const start = adapter.indexOf(marker);
+    const next = adapter.indexOf('.command(', start + marker.length);
+    const end = next === -1 ? adapter.length : next;
+    const slice = adapter.slice(start, end);
+    if (/checkConnection\(\)/.test(slice)) direct.push(name);
+  }
+  const radialStart = adapter.indexOf('function registerRadialPrimitive');
+  const radialEnd = adapter.indexOf(".command('vector [name]')", radialStart);
+  if (/checkConnection\(\)/.test(adapter.slice(radialStart, radialEnd))) {
+    direct.push('polygon', 'star');
+  }
+  assert.deepEqual(direct.sort(), []);
+  assert.equal(direct.length, 0,
+    'STAB-26 public Create-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Text creation delegates one Plan-bound font-preflighted Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('text <content>')");
+  const end = adapter.indexOf('.command(', start + 25);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runCreateText\(content, options\)/);
+  assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|figma\.createText\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'create-text-command.js'), 'utf8');
+  assert.match(application, /await figma\.loadFontAsync\(request\.font\)/);
+  assert.match(application, /figma\.createText\(\)/);
+});
+
+test('Measurement writes delegate one Plan-bound mutation Application', () => {
+  const adapter = sources.get('measurements.js');
+  for (const marker of ["command('add <from> <to>')", "command('edit <id>')", "command('delete <id>')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('measure.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runMeasurementMutation\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|measurement(?:Add|Edit|Delete)Code\(/);
+  }
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'measurement-mutation-command.js'), 'utf8');
+  assert.match(application, /page\.addMeasurement\(/);
+  assert.match(application, /page\.editMeasurement\(/);
+  assert.match(application, /page\.deleteMeasurement\(/);
+});
+
+test('Measurement list delegates one Plan-bound bounded read Application', () => {
+  const adapter = sources.get('measurements.js');
+  const start = adapter.indexOf("command('list [nodeId]')");
+  const end = adapter.indexOf("measure.command('add", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMeasurementRead\(/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|measurementListCode\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'measurement-read-command.js'), 'utf8');
+  assert.match(application, /page\.getMeasurements\(\)/);
+  assert.match(application, /page\.getMeasurementsForNode\(node\)/);
+});
+
+test('the remaining direct Measurement Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('measurements.js');
+  assert.deepEqual([...adapter.matchAll(/measurementListCode|fastEval|checkConnection/g)].map((match) => match[0]), []);
+});
+
+test('Prototype writes delegate one Plan-bound rollback-owned Application', () => {
+  const adapter = sources.get('prototype.js');
+  for (const marker of ["command('add <nodeId>')", "command('set <nodeId>')", "command('clear <nodeId>')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('prototype.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runPrototypeMutation\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|prototype(?:Add|Set|Clear)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'prototype-mutation-command.js'), 'utf8');
+  assert.match(application, /await node\.setReactionsAsync\(desired\)/);
+  assert.match(application, /await node\.setReactionsAsync\(before\)/);
+});
+
+test('Library imports delegate one Plan-bound irreversible verified Application', () => {
+  const adapter = sources.get('library.js');
+  for (const name of ['variable', 'style', 'component', 'component-set']) {
+    const marker = `command('import-${name} <key>')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runLibraryImport\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|import(?:Variable|Style|Component)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'library-import-command.js'), 'utf8');
+  assert.match(application, /await importResource\(request\.key\)/);
+  assert.match(application, /const fresh = await readResource\(imported\.id\)/);
+});
+
+test('the remaining direct Library Import write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('library.js');
+  const direct = [];
+  for (const name of ['variable', 'style', 'component', 'component-set']) {
+    const marker = `command('import-${name} <key>')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Library Import Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Library discovery delegates both reads to one Plan-bound bounded Application', () => {
+  const adapter = sources.get('library.js');
+  for (const name of ['collections', 'variables']) {
+    const marker = `command('${name}`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runLibraryRead\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|library(?:Collections|Variables)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'library-read-command.js'), 'utf8');
+  assert.match(application, /getAvailableLibraryVariableCollectionsAsync\(\)/);
+  assert.match(application, /getVariablesInLibraryCollectionAsync\(matches\[0\]\.facts\.key\)/);
+  assert.doesNotMatch(application, /setTimeout\(|18000/,
+    'the safe-read Plan, not generated Plugin code, owns the timeout');
+});
+
+test('the remaining direct Library Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('library.js'); const direct = [];
+  for (const name of ['collections', 'variables']) {
+    const marker = `command('${name}`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('library.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Library Read Legacy Action count may decrease, but must never increase silently');
+});
+
+test('Shader writes delegate one Plan-bound verified Application', () => {
+  const adapter = sources.get('shaders.js');
+  for (const marker of ["command('import <shaderId>')", "command('apply <nodeId> <shaderId>')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('shader.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runShaderMutation\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|shader(?:Import|Apply)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'shader-mutation-command.js'), 'utf8');
+  assert.match(application, /await figma\.importShaderById\(request\.shaderId\)/);
+  assert.match(application, /const fresh = await figma\.getNodeByIdAsync\(request\.nodeId\)/);
+});
+
+test('Shader list delegates one Plan-bound bounded read Application', () => {
+  const adapter = sources.get('shaders.js');
+  const start = adapter.indexOf("command('list')");
+  const end = adapter.indexOf("shader.command('import", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runShaderRead\(/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|shaderListCode\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'shader-read-command.js'), 'utf8');
+  assert.match(application, /await figma\.listAvailableShaders\(\)/);
+});
+
+test('the remaining direct Shader Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('shaders.js');
+  assert.deepEqual([...adapter.matchAll(/shaderListCode|fastEval|checkConnection/g)].map((match) => match[0]), []);
+});
+
+test('the remaining direct Shader write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('shaders.js'); const direct = [];
+  for (const name of ['import', 'apply']) {
+    const marker = name === 'import' ? "command('import <shaderId>')"
+      : "command('apply <nodeId> <shaderId>')";
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('shader.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Shader-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Draw reads and writes delegate one Plan-bound verified Application', () => {
+  const adapter = sources.get('draw.js');
+  for (const name of ['inspect', 'text-path', 'transform-group', 'brush', 'stroke-profile', 'pattern']) {
+    const marker = `command('${name} `;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('draw.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.ok(start >= 0, `${name} command exists`);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runDrawCommand\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|draw(?:Inspect|TextPath|TransformGroup|Brush|StrokeProfile|Pattern)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'draw-command.js'), 'utf8');
+  assert.match(application, /figma\.createTextPath\(/);
+  assert.match(application, /figma\.transformGroup\(/);
+  assert.match(application, /await write\(desired\)/);
+  assert.match(application, /await write\(before\)/);
+});
+
+test('the remaining direct Draw Action inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('draw.js'); const direct = [];
+  for (const name of ['inspect', 'text-path', 'transform-group', 'brush', 'stroke-profile', 'pattern']) {
+    const marker = `command('${name} `;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('draw.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Draw-family Legacy Action count may decrease, but must never increase silently');
+});
+
+test('Slot create and edit delegate one Plan-bound rollback-owned Application', () => {
+  const adapter = sources.get('slots.js');
+  for (const marker of [
+    "command('create <componentId> <name>')",
+    "command('edit <componentId> <propertyName>')",
+  ]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('slot.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runSlotConfiguration\(/);
+    assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|slot(?:Create|Edit)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'slot-configuration-command.js'), 'utf8');
+  assert.match(application, /component\.createSlot\(\)/);
+  assert.match(application, /component\.editComponentProperty\(/);
+  assert.match(application, /current\.deleteComponentProperty\(/);
+});
+
+test('Slot inspect and validate delegate one Plan-bound bounded read Application', () => {
+  const adapter = sources.get('slots.js');
+  for (const marker of ["command('inspect <nodeId>')", "command('validate [nodeId]')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('slot.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runSlotRead\(/);
+    assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|slot(?:Inspect|Validate)Code\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'slot-read-command.js'), 'utf8');
+  assert.match(application, /componentPropertyDefinitions/);
+  assert.match(application, /root\.findAll\(\(node\) => node\.type === 'SLOT'\)/);
+});
+
+test('the remaining direct Slot Read inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('slots.js');
+  assert.deepEqual([...adapter.matchAll(/slot(?:Inspect|Validate)Code|fastEval|checkConnection/g)].map((match) => match[0]), []);
+});
+
+test('the remaining direct Slot write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('slots.js'); const direct = [];
+  const markers = {
+    create: "command('create <componentId> <name>')",
+    edit: "command('edit <componentId> <propertyName>')",
+    reset: "command('reset <nodeId>')",
+  };
+  for (const [name, marker] of Object.entries(markers)) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('slot.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/\brun\(|checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Slot-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Slot reset delegates one Plan-bound irreversible native-confirmed Application', () => {
+  const adapter = sources.get('slots.js');
+  const marker = "command('reset <nodeId>')";
+  const start = adapter.indexOf(marker);
+  const end = adapter.indexOf('slot.command(', start + marker.length);
+  const action = adapter.slice(start, end === -1 ? adapter.length : end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runSlotReset\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|slotResetCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'slot-reset-command.js'), 'utf8');
+  assert.match(application, /slot\.resetSlot\(\)/);
+  assert.match(application, /outcome: 'native-confirmed'/);
+  assert.doesNotMatch(application, /resetSlot\(\).*resetSlot\(\)/s);
+});
+
+test('the remaining direct Prototype write inventory is explicit and cannot grow silently', () => {
+  const adapter = sources.get('prototype.js'); const direct = [];
+  for (const name of ['add', 'set', 'clear']) {
+    const marker = `command('${name} <nodeId>')`; const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('prototype.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Prototype-family Legacy Write count may decrease, but must never increase silently');
+});
+
+test('Auto Layout creation delegates one Plan-bound rollback-verified Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('autolayout [name]')");
+  const end = adapter.indexOf('.command(', start + 30);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runCreateAutoLayout\(name, options\)/);
+  assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|figma\.createFrame\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'create-auto-layout-command.js'), 'utf8');
+  assert.match(application, /figma\.createFrame\(\)/);
+  assert.match(application, /frame\.layoutMode = request\.layoutMode/);
+});
+
+test('Line creation delegates one Plan-bound rollback-verified Application', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('line')");
+  const end = adapter.indexOf('.command(', start + 20);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runCreateLine\(options\)/);
+  assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|figma\.createLine\(/);
+  const application = readFileSync(join(COMMANDS_DIR, '..', 'application', 'create-line-command.js'), 'utf8');
+  assert.match(application, /figma\.createLine\(\)/);
+  assert.match(application, /mutationReport/);
+});
+
+test('Vector and Slice delegate one shared Plan-bound Canvas Node Application', () => {
+  const adapter = sources.get('create.js');
+  const application = readFileSync(join(
+    COMMANDS_DIR, '..', 'application', 'create-canvas-node-command.js',
+  ), 'utf8');
+  for (const marker of [".command('vector [name]')", ".command('slice [name]')"]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('.command(', start + marker.length);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runCreateCanvasNode\(/);
+    assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|createVector\(|createSlice\(/);
+  }
+  assert.match(application, /figma\.createVector\(\)/);
+  assert.match(application, /figma\.createSlice\(\)/);
+  assert.match(application, /await node\.setVectorNetworkAsync\(request\.network\)/);
+});
+
+test('public solid Shape factories delegate one shared Plan-bound Command Application', () => {
+  const adapter = sources.get('create.js');
+  const application = readFileSync(join(
+    COMMANDS_DIR, '..', 'application', 'create-shape-command.js',
+  ), 'utf8');
+  for (const marker of [
+    ".command('rect [name]')", ".command('ellipse [name]')",
+  ]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('.command(', start + marker.length);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runCreateShape\(/);
+    assert.doesNotMatch(action, /checkConnection\(|daemonExec\(|createRectangle\(|createEllipse\(/);
+  }
+  const radialStart = adapter.indexOf('function registerRadialPrimitive');
+  const radialEnd = adapter.indexOf(".command('vector [name]')", radialStart);
+  const radial = adapter.slice(radialStart, radialEnd);
+  assert.match(radial, /runCreateShape\(command/);
+  assert.doesNotMatch(radial, /checkConnection\(|daemonExec\(|createPolygon\(|createStar\(/);
+  assert.match(application, /figma\.createRectangle\(\)/);
+  assert.match(application, /figma\.createEllipse\(\)/);
+  assert.match(application, /figma\.createPolygon\(\)/);
+  assert.match(application, /figma\.createStar\(\)/);
+});
+
+test('node set-fill delegates one Plan-bound readback-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('set-fill <nodeId> <color>')");
+  const end = adapter.indexOf(".command('set-image <nodeId> <file>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeSetFillPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeSetFillPlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|generateFillCode\(|node\.fills\s*=|setBoundVariableForPaint\(/);
+});
+
+test('node set-image delegates prepared bytes to one Plan-bound verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('set-image <nodeId> <file>')");
+  const end = adapter.indexOf(".command('delete <nodeIds...>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeSetImagePlanningArgvFromRequest\(/);
+  assert.match(action, /prepareNodeSetImagePlan\(plan, \{ workspaceIO: io \}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executePreparedNodeSetImage\(prepared/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|readImageBase64\(|createImage\(|node\.fills\s*=/);
+});
+
+test('node bind delegates one Plan-bound readback-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('bind [nodeId] [property] [varName]')");
+  const end = adapter.indexOf('// ============ SET (properties, by node id)', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeBindPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeBindPlan\(plan/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|setBoundVariable\(|setBoundVariableForPaint\(/);
+});
+
+test('node group delegates one Plan-bound rollback-owned Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('group <nodeIds...>')");
+  const end = adapter.indexOf(".command('ungroup <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /nodeGroupPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeNodeGroupPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.group\(/);
+});
+
+test('node ungroup delegates one Plan-bound hierarchy-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js'); const start = adapter.indexOf(".command('ungroup <nodeId>')"); const end = adapter.indexOf(".command('boolean <operation> <nodeIds...>')", start); const action = adapter.slice(start, end);
+  assert.match(action, /nodeUngroupPlanningArgvFromRequest\(/); assert.match(action, /executeNodeUngroupPlan\(plan/); assert.match(action, /compatibilityFallback: false/); assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.ungroup\(/);
+});
+test('node boolean delegates one Plan-bound hierarchy-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  const start = adapter.indexOf(".command('boolean <operation> <nodeIds...>')");
+  const end = adapter.indexOf(".command('flatten <nodeIds...>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /nodeBooleanPlanningArgvFromRequest\(/);
+  assert.match(action, /executeNodeBooleanPlan\(plan/);
+  assert.match(action, /compatibilityFallback: false/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.(?:union|subtract|intersect|exclude)\(/);
+});
+test('node flatten delegates one Plan-bound irreversible verified Command Application', () => { const adapter = sources.get('node-ops.js'); const start = adapter.indexOf(".command('flatten <nodeIds...>')"); const end = adapter.indexOf(".command('duplicate <nodeId>')", start); const action = adapter.slice(start, end); assert.match(action, /nodeFlattenPlanningArgvFromRequest\(/); assert.match(action, /executeNodeFlattenPlan\(plan/); assert.match(action, /compatibilityFallback: false/); assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.flatten\(/); });
+
+test('node reparent delegates one Plan-bound hierarchy-verified Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('reparent <nodeId> <parentId>')");
+  const end = adapter.indexOf('async function runNodeMoveCommand', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeReparentPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeReparentPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|appendChild\(|insertChild\(/,
+    'Commander must not retain Node Reparent preflight, mutation, rollback, or formatting');
+});
+
+test('node resize delegates one Plan-bound rollback-owned Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('resize <nodeId> <width> <height>')");
+  const end = adapter.indexOf(".command('rename <nodeId> <name>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeResizePlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeResizePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|\.resize\(/,
+    'Commander must not retain Node Resize preflight, mutation, rollback, or formatting');
+});
+
+test('node rename delegates one Plan-bound rollback-owned Command Application', () => {
+  const adapter = sources.get('node-ops.js');
+  assert.ok(adapter, 'node-ops.js exists');
+  const start = adapter.indexOf(".command('rename <nodeId> <name>')");
+  const end = adapter.indexOf('function renderNodeTextRows', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /nodeRenamePlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeNodeRenamePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|node\.name\s*=/,
+    'Commander must not retain Node Rename preflight, mutation, rollback, or formatting');
 });
 
 test('component main delegates one Plan-bound bounded-read Command Application', () => {
@@ -715,6 +1814,104 @@ test('grid command vocabulary separates Layout Guides from Auto Layout Grid', ()
   assert.match(autoLayout, /command\('layout'\).*Manage native Auto Layout features/s);
 });
 
+test('Grid Inspect delegates one Plan-bound bounded safe-read Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('inspect <nodeId>')");
+  const end = adapter.indexOf("grid.command('set <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGridInspect\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutInspectCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-inspect-command.js'), 'utf8');
+  assert.match(application, /node\.layoutMode !== 'GRID'/);
+  assert.match(application, /Grid Inspect result exceeded its bounded response limit/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+});
+
+test('the remaining direct Auto Layout Grid Read inventory is explicit', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('inspect <nodeId>')");
+  const end = adapter.indexOf("grid.command('set <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  const direct = /\brun\(|checkConnection\(\)|fastEval\(/.test(action) ? ['inspect'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Auto Layout Grid Legacy Read count may decrease, but must never increase silently');
+});
+
+test('Grid Set delegates one Plan-bound journaled Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('set <nodeId>')");
+  const end = adapter.indexOf("grid.command('place <gridId> <childId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGridSet\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutSetCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-set-command.js'), 'utf8');
+  assert.match(application, /node\.gridRowCount = desiredRows/);
+  assert.match(application, /Fresh Grid Set postcondition failed/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+});
+
+test('Grid Auto Flow delegates one Plan-bound rollback-owned Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('auto-flow <nodeId>')");
+  const end = adapter.indexOf("grid.command('reorder-rows <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGridAutoFlow\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutAutoFlowCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-auto-flow-command.js'), 'utf8');
+  assert.match(application, /node\.gridAutoTracks = desired\.autoTracks/);
+  assert.match(application, /node\.gridItemsPositioning = desired\.positioning/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+});
+
+test('Grid Place delegates one Plan-bound hierarchy-verified Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  const start = adapter.indexOf("grid.command('place <gridId> <childId>')");
+  const end = adapter.indexOf("grid.command('auto-flow <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGridPlace\(/);
+  assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutPlaceCode\(/);
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-place-command.js'), 'utf8');
+  assert.match(application, /grid\.appendChildAt\(child, request\.row, request\.column\)/);
+  assert.match(application, /rollbackSource\.insertChild\(before\.index, rollbackChild\)/);
+  assert.match(application, /getNodeByIdAsync\(request\.childId\)/);
+});
+
+test('Grid Track Reorder delegates one Plan-bound irreversible Application', () => {
+  const adapter = sources.get('grid-layout.js');
+  for (const [name, next] of [['reorder-rows', 'reorder-columns'], ['reorder-columns', null]]) {
+    const start = adapter.indexOf(`grid.command('${name} <nodeId>')`);
+    const end = next ? adapter.indexOf(`grid.command('${next} <nodeId>')`, start) : adapter.length;
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runGridTrackReorder\(/);
+    assert.doesNotMatch(action, /\brun\(|checkConnection\(|fastEval\(|gridLayoutReorderCode\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'grid-track-reorder-command.js'), 'utf8');
+  assert.match(application, /moves = grid\[method\]\(\{ fromIndices:/);
+  assert.match(application, /Fresh Grid track postcondition/);
+  assert.match(application, /getNodeByIdAsync\(request\.nodeId\)/);
+  assert.doesNotMatch(application, /grid\[method\]\([^)]*\).*grid\[method\]\(/s);
+});
+
+test('the remaining direct Auto Layout Grid write inventory is explicit', () => {
+  const adapter = sources.get('grid-layout.js'); const direct = [];
+  for (const name of ['set', 'place', 'auto-flow', 'reorder-rows', 'reorder-columns']) {
+    const marker = `grid.command('${name} <`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf('grid.command(', start + marker.length);
+    const action = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/\brun\(|checkConnection\(\)|fastEval\(/.test(action)) direct.push(name);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-26 Auto Layout Grid Legacy Write count may decrease, but must never increase silently');
+});
+
 test('style consumers delegates one Plan-bound bounded Consumer Application', () => {
   const adapter = sources.get('styles.js');
   assert.ok(adapter, 'styles.js exists');
@@ -793,6 +1990,364 @@ test('grid list delegates one Plan-bound bounded-read Command Application', () =
     'Commander must not retain Layout Grid Facts readiness, capture, or formatting logic');
 });
 
+test('grid set and clear delegate one Plan-bound rollback-owned Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const grid = adapter.indexOf(".command('grid')");
+  const setStart = adapter.indexOf(".command('set <nodeId>')", grid);
+  const listStart = adapter.indexOf(".command('list [nodeId]')", setStart);
+  const clearStart = adapter.indexOf(".command('clear <nodeId>')", listStart);
+  const componentStart = adapter.indexOf(".command('component')", clearStart);
+  for (const action of [
+    adapter.slice(setStart, listStart),
+    adapter.slice(clearStart, componentStart),
+  ]) {
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /planFigmaCommand\(layoutGuideMutationPlanningArgvFromRequest\(/);
+    assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+    assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+    assert.match(action, /executeLayoutGuideMutationPlan\(plan/);
+    assert.match(action, /daemonExec\('eval'/);
+    assert.match(action, /process\.exitCode = 1/);
+    assert.doesNotMatch(action, /checkConnection\(|n\.layoutGrids|handleEvalError\(/,
+      'Commander must not retain Layout Guide mutation or rollback logic');
+  }
+});
+
+test('Analyze census reads delegate one Plan-bound bounded Application', () => {
+  const adapter = sources.get('analyze.js');
+  assert.ok(adapter, 'analyze.js exists');
+  const helperStart = adapter.indexOf('async function runAnalysisCensus');
+  const lintStart = adapter.indexOf(".command('lint')", helperStart);
+  const census = adapter.slice(helperStart, lintStart);
+  assert.match(census, /analysisCensusArgvFromRequest/);
+  assert.match(census, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(census, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(census, /executeAnalysisCensusPlan\(plan/);
+  assert.match(census, /daemonExec\('eval'/);
+  assert.match(census, /process\.exitCode = 1/);
+  for (const action of ['colors', 'typography', 'spacing', 'clusters']) {
+    const marker = action === 'typography' ? ".command('typography')" : `.command('${action}')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf(".command('", start + marker.length);
+    const slice = adapter.slice(start, end);
+    assert.match(slice, /\.allowExcessArguments\(false\)/);
+    assert.match(slice, new RegExp(`runAnalysisCensus\\('${action}'`));
+    assert.doesNotMatch(slice, /checkConnection\(|fastEval\(/);
+  }
+  assert.doesNotMatch(census, /figma\.currentPage|new Map\(|fastEval\(|checkConnection\(/,
+    'Commander must not retain Analyze census traversal or result logic');
+});
+
+test('the remaining direct Analyze inventory is explicit', () => {
+  const adapter = sources.get('analyze.js');
+  const direct = [];
+  for (const action of ['colors', 'typography', 'spacing', 'clusters', 'lint']) {
+    const marker = `.command('${action}')`;
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf(".command('", start + marker.length);
+    const slice = adapter.slice(start, end === -1 ? adapter.length : end);
+    if (/checkConnection\(\)|fastEval\(/.test(slice)) direct.push(action);
+  }
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Analyze Legacy Action count may decrease, but must never increase silently');
+});
+
+test('Analyze lint delegates one Plan-bound bounded-read Command Application', () => {
+  const adapter = sources.get('analyze.js');
+  const start = adapter.indexOf(".command('lint')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /analysisLintPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnalysisLintPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = result\.code/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.variables|new Map\(/,
+    'Commander must not retain Analyze lint traversal, Variable resolution, or result logic');
+});
+
+test('dev list delegates one Plan-bound bounded-read Command Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const dev = adapter.indexOf(".command('dev')");
+  const start = adapter.indexOf(".command('list [nodeId]')", dev);
+  const end = adapter.indexOf(".command('unlink <nodeId> <url>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(devResourceReadPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeDevResourceReadPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.currentPage\.selection|getDevResourcesAsync/,
+    'Commander must not retain Dev Resource readiness, capture, or formatting logic');
+});
+
+test('dev link, unlink, and edit delegate one rollback-owned mutation Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('async function runDevResourceMutationCommand');
+  const end = adapter.indexOf('// ============ SECTIONS ============', start);
+  const slice = adapter.slice(start, end);
+
+  assert.equal((slice.match(/\.allowExcessArguments\(false\)/g) || []).length, 4);
+  assert.match(slice, /planFigmaCommand\(devResourceMutationPlanningArgvFromRequest\(request\)/);
+  assert.match(slice, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeDevResourceMutationPlan\(plan/);
+  assert.match(slice, /daemonExec\('eval'/);
+  assert.match(slice, /process\.exitCode = 1/);
+  assert.doesNotMatch(slice,
+    /checkConnection\(|addDevResourceAsync|deleteDevResourceAsync|editDevResourceAsync|getDevResourcesAsync/,
+    'Commander must not retain Dev Resource preflight, mutation, verification, or rollback logic');
+});
+
+test('section list delegates one Plan-bound bounded current-page Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('list')", section);
+  const end = adapter.indexOf(".command('add <sectionId> <nodeIds>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(sectionInventoryArgvFromRequest\(\{\}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionInventoryPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.currentPage|findAll\(/,
+    'Commander must not retain Section Inventory readiness, capture, or formatting logic');
+});
+
+test('section fit delegates geometry, readback, and rollback to one Plan-bound Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('fit <sectionId>')", section);
+  const end = adapter.indexOf(".command('arrange <sectionId>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sectionFitPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionFitPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|sectionFitSnippet\(|resizeWithoutConstraints|\.children/,
+    'Commander must not retain Section Fit preflight, geometry, verification, or rollback');
+});
+
+test('section arrange delegates sorting, geometry, readback, and rollback to one Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('arrange <sectionId>')", section);
+  const end = adapter.indexOf(".command('list')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sectionArrangePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionArrangePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|localeCompare|resizeWithoutConstraints|\.children/,
+    'Commander must not retain Section Arrange sorting, geometry, verification, or rollback');
+});
+
+test('section add delegates batch preflight, position preservation, and rollback to one Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('add <sectionId> <nodeIds>')", section);
+  const end = adapter.indexOf('// ============ LAYOUT GUIDES', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sectionAddPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionAddPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|absoluteBoundingBox|appendChild|getNodeByIdAsync/,
+    'Commander must not retain Section Add preflight, mutation, verification, or rollback');
+});
+
+test('section create delegates creation, fitting, readback, and deletion rollback to one Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const section = adapter.indexOf(".command('section')");
+  const start = adapter.indexOf(".command('create <name> [nodeIds]')", section);
+  const end = adapter.indexOf(".command('fit <sectionId>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sectionCreatePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSectionCreatePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|createSection|sectionFitSnippet|resizeWithoutConstraints|appendChild/,
+    'Commander must not retain Section Create preflight, geometry, verification, or rollback');
+});
+
+test('annotate categories delegates one Plan-bound bounded file inventory Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf("annotateCmd.command('categories')");
+  const end = adapter.indexOf("annotateCmd.command('category-add <label>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /planFigmaCommand\(annotationCategoryInventoryArgvFromRequest\(\{\}\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationCategoryInventoryPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|annotationCategoriesCode|getAnnotationCategoriesAsync/,
+    'Commander must not retain Annotation Category readiness, capture, or formatting logic');
+});
+
+test('annotate remove delegates one Plan-bound index-exact rollback Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf("annotateCmd.command('remove <nodeId> <index>')");
+  const end = adapter.indexOf("annotateCmd.command('categories')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationRemovePlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationRemovePlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|annotationRemoveCode|\.annotations\s*=/,
+    'Commander must not retain Annotation Remove preflight, mutation, rollback, or formatting');
+});
+
+test('annotate edit delegates one Plan-bound patch-exact rollback Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf("annotateCmd.command('edit <nodeId> <index>')");
+  const end = adapter.indexOf("annotateCmd.command('remove <nodeId> <index>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationEditPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationEditPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|annotationEditCode|\.annotations\s*=/,
+    'Commander must not retain Annotation Edit resolution, mutation, rollback, or formatting');
+});
+
+test('annotation category writes delegate one discriminated Plan-bound mutation Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('async function runAnnotationCategoryMutationCommand');
+  const end = adapter.indexOf(".command('list [nodeId]')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /annotationCategoryMutationArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationCategoryMutationPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /category-add <label>/);
+  assert.match(action, /category-edit <category>/);
+  assert.match(action, /category-remove <category>/);
+  assert.equal((action.match(/\.allowExcessArguments\(false\)/g) || []).length, 3);
+  assert.doesNotMatch(action,
+    /checkConnection\(|annotationCategory(?:Create|Edit|Remove)Code|getAnnotationCategoriesAsync/,
+    'Commander must not retain Category resolution, mutation, rollback, or formatting');
+});
+
+test('annotate add delegates single-node and query journals to one Plan-bound Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('add')", adapter.indexOf('const annotateCmd'));
+  const end = adapter.indexOf("annotateCmd.command('edit <nodeId> <index>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationAddPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationAddPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|annotationAddCode|figma\.currentPage|findAll\(|\.annotations\s*=/,
+    'Commander must not retain Annotation Add selection, preflight, journal, or formatting');
+});
+
+test('the remaining direct Annotation command inventory is empty', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf('// ============ ANNOTATIONS ============');
+  const end = adapter.indexOf('// ============ PLUGINS ============', start);
+  const annotationAdapter = adapter.slice(start, end);
+  assert.doesNotMatch(annotationAdapter, /\.\.\/lib\/annotation-management\.js/);
+  assert.doesNotMatch(annotationAdapter,
+    /annotation(?:Add|Edit|Remove|Categories|CategoryCreate|CategoryEdit|CategoryRemove)Code/);
+  assert.doesNotMatch(annotationAdapter, /checkConnection\(/);
+});
+
+test('annotate list delegates one Plan-bound bounded node-or-selection read Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('list [nodeId]')", adapter.indexOf('const annotateCmd'));
+  const end = adapter.indexOf(".command('clear <nodeId>')", start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationReadPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationReadPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.currentPage|\.annotations|labelMarkdown/,
+    'Commander must not retain Annotation Read readiness, capture, or formatting logic');
+});
+
+test('annotate clear delegates one Plan-bound rollback-verified mutation Application', () => {
+  const adapter = sources.get('misc.js');
+  assert.ok(adapter, 'misc.js exists');
+  const start = adapter.indexOf(".command('clear <nodeId>')", adapter.indexOf('const annotateCmd'));
+  const end = adapter.indexOf('// ============ PLUGINS ============', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /annotationClearPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeAnnotationClearPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|figma\.getNodeByIdAsync|\.annotations\s*=/,
+    'Commander must not retain Annotation Clear readiness, preflight, mutation, or formatting');
+});
+
 test('top-level inspect delegates one Plan-bound safe-read Command Application', () => {
   const adapter = sources.get('canvas-ops.js');
   assert.ok(adapter, 'canvas-ops.js exists');
@@ -809,6 +2364,24 @@ test('top-level inspect delegates one Plan-bound safe-read Command Application',
   assert.match(action, /daemonExec\('eval'/);
   assert.doesNotMatch(action, /checkConnection\(|executeInspect\(\{/,
     'Commander must not retain Inspect readiness or execution logic');
+});
+
+test('top-level pin delegates one Plan-bound preflighted rollback-owned Application', () => {
+  const adapter = sources.get('canvas-ops.js');
+  assert.ok(adapter, 'canvas-ops.js exists');
+  const start = adapter.indexOf(".command('pin <edge>')");
+  const end = adapter.indexOf('// (`unwrap` and `use`/`theme` were removed', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /pinPlanningArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executePinPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|buildNodeSelector\(|function pinOne|\.resize\(|\.constraints\s*=/,
+    'Commander must not retain Pin selection, preflight, mutation, rollback, or formatting');
 });
 
 test('top-level find delegates one Plan-bound bounded Node Discovery Application', () => {
@@ -1224,7 +2797,7 @@ test('tokens add delegates one Plan-bound journaled Token Add Application', () =
 test('tokens import delegates pre-read and mutation to one Plan-bound Application', () => {
   const adapter = sources.get('tokens.js');
   const start = adapter.indexOf(".command('import <file>')");
-  const end = adapter.indexOf('// ============ SYNC', start);
+  const end = adapter.indexOf(".command('sync <file>')", start);
   const action = adapter.slice(start, end);
   assert.match(action, /tokenImportPlanningArgvFromRequest/);
   assert.match(action, /prepareTokenImportPlan\(plan, \{ workspaceIO: workspaceIO\(\) \}\)/);
@@ -1236,6 +2809,28 @@ test('tokens import delegates pre-read and mutation to one Plan-bound Applicatio
   assert.doesNotMatch(action,
     /checkConnection\(|readText\(|parseBoundedJson\(|createVariableCollection\(|createVariable\(|setValueForMode\(/,
     'Commander must not retain Token Import authority, parsing, factories, mode, or formatting logic');
+});
+
+test('tokens sync delegates source, observation, apply and lock publication to one Plan-bound Application', () => {
+  const adapter = sources.get('tokens.js');
+  const start = adapter.indexOf(".command('sync <file>')");
+  const end = adapter.indexOf(".command('overlap <collections...>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /tokenSyncPlanningArgvFromRequest/);
+  assert.match(action, /withTokenSyncPlanLock\(plan/);
+  assert.ok(action.indexOf('withTokenSyncPlanLock') < action.indexOf('ensurePluginReadiness'));
+  assert.match(action, /const remainingMs = \(\) => Math\.max\(0, deadline - Date\.now\(\)\)/);
+  assert.match(action, /workspaceIO: io,\s+remainingMs,/);
+  assert.match(action, /fileKey,\s+remainingMs,/);
+  assert.match(action, /context\.timeoutMs/);
+  assert.doesNotMatch(action, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeTokenSyncPlan\(plan, prepared/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|parseTokenFile\(|planSync\(|createVariableCollection\(|setValueForMode\(/,
+    'Commander must not retain Token Sync source, planning, mutation, or publication logic');
 });
 
 test('tokens import-design-md print-context delegates one repository-only Application', () => {
@@ -1432,6 +3027,37 @@ test('code-spec delegates one Plan-bound safe-read Command Application', () => {
     'Commander must not retain Code Spec readiness or execution logic');
 });
 
+test('component spec delegates repository preparation and optional Figma read to one Application', () => {
+  const adapter = sources.get('spec.js');
+  assert.ok(adapter, 'spec.js exists');
+  assert.match(adapter, /\.allowExcessArguments\(false\)/);
+  assert.match(adapter, /planFigmaCommand\(componentSpecPlanningArgvFromRequest\(/);
+  assert.match(adapter, /prepareComponentSpecPlan\(plan/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /if \(plan\.target\.kind !== 'none'\)/);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /executeComponentSpecPlan\(plan/);
+  assert.match(adapter, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(adapter,
+    /checkConnection\(|fastEval\(|findComponentSpec\(|checkConformance\(|function measureCode/,
+    'Commander must not retain Component Spec preparation, readiness, measurement, or formatting logic');
+});
+
+test('map storybook delegates source preparation, bounded inventory, and publication to one Application', () => {
+  const adapter = sources.get('map.js');
+  assert.ok(adapter, 'map.js exists');
+  assert.match(adapter, /\.allowExcessArguments\(false\)/);
+  assert.match(adapter, /planFigmaCommand\(storybookMapPlanningArgvFromRequest\(/);
+  assert.match(adapter, /prepareStorybookMapPlan\(plan/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /executeStorybookMapPlan\(plan/);
+  assert.match(adapter, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(adapter,
+    /checkConnection\(|fetchStorybookIndex\(|componentInventoryCode\(|matchComponents\(|mergeMaps\(|workspaceIO\(\)\.write/,
+    'Commander must not retain Storybook source, Figma inventory, matching, or publication logic');
+});
+
 test('verify delegates capture and persistence to one Plan-bound Screenshot Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');
@@ -1447,17 +3073,77 @@ test('verify delegates capture and persistence to one Plan-bound Screenshot Appl
     'Commander must not retain Screenshot readiness or persistence policy');
 });
 
-test('legacy PNG export names delegate to the Plan-bound Screenshot Application', () => {
+test('verify-build delegates workspace verification and optional Figma capture to one Application', () => {
+  const adapter = sources.get('verify-build.js');
+  assert.ok(adapter, 'verify-build.js exists');
+  assert.match(adapter, /\.allowExcessArguments\(false\)/);
+  assert.match(adapter, /planFigmaCommand\(verifyBuildPlanningArgvFromRequest\(/);
+  assert.match(adapter, /runInProcessCommandPlan\([\s\S]*compatibilityFallback: false/);
+  assert.match(adapter, /if \(plan\.target\.kind !== 'none'\)/);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /executeVerifyBuildPlan\(plan/);
+  assert.doesNotMatch(adapter,
+    /checkConnection\(|verifyBuild\(|diffImages\(|loadImage\(|readdirSync\(|daemonExec\('eval',[\s\S]*exportAsync/,
+    'Commander must not retain verification, image diff, workspace scan, or Figma export logic');
+});
+
+test('legacy image export names delegate every format to one Plan-bound Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');
   const start = adapter.indexOf(".command('screenshot')");
   const end = adapter.indexOf(".command('video <nodeId>')", start);
   const action = adapter.slice(start, end);
-  assert.match(action, /runPngExportCompatibilityCommand/);
-  assert.match(action, /format === 'PNG'/);
+  assert.match(action, /runImageExportCompatibilityCommand/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
   assert.match(adapter, /executeScreenshotPlan\(plan,/);
+  assert.match(adapter, /executeImageExportPlan\(plan,/);
   assert.match(adapter, /compatibilityFallback: false/);
-  assert.doesNotMatch(action, /format: 'PNG'.*exportAsync/s);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|exportAsync|daemonExec\('eval'|Buffer\.from|workspaceIO\(\)\.write/,
+    'Commander must not retain image export readiness, capture, decoding, or persistence policy');
+});
+
+test('node-json delegates capture, validation and optional persistence to one safe-read Application', () => {
+  const adapter = sources.get('export-eval.js');
+  assert.ok(adapter, 'export-eval.js exists');
+  const start = adapter.indexOf(".command('node-json <nodeId>')");
+  const end = adapter.indexOf('async function runTokenExportCommand', start);
+  const action = adapter.slice(start, end);
+  const helperStart = adapter.indexOf('async function runNodeJsonExportCommand');
+  const helper = adapter.slice(helperStart, adapter.indexOf('const exp = program', helperStart));
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(helper, /nodeJsonExportPlanningArgvFromRequest/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /await ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeNodeJsonExportPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|nodeRestJsonCode\(|JSON\.stringify\(|workspaceIO\(\)\.write|process\.exit\(/,
+    'Commander must not retain Node JSON readiness, capture, validation, formatting, or persistence');
+});
+
+test('video export delegates capture, validation and persistence to one Plan-bound Application', () => {
+  const adapter = sources.get('export-eval.js');
+  assert.ok(adapter, 'export-eval.js exists');
+  const start = adapter.indexOf(".command('video <nodeId>')");
+  const end = adapter.indexOf(".command('node-json <nodeId>')", start);
+  const action = adapter.slice(start, end);
+  const helperStart = adapter.indexOf('async function runVideoExportCommand');
+  const helperEnd = adapter.indexOf('async function runNodeJsonExportCommand', helperStart);
+  const helper = adapter.slice(helperStart, helperEnd);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(helper, /videoExportPlanningArgvFromRequest/);
+  assert.match(helper, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(helper, /await ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(helper, /executeVideoExportPlan\(plan/);
+  assert.match(helper, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|exportAsync|Buffer\.from|workspaceIO\(\)\.write|process\.exit\(/,
+    'Commander must not retain Video Export readiness, capture, validation, or persistence');
 });
 
 test('simple render delegates one non-retrying Semantic Render Application', () => {
@@ -1599,6 +3285,86 @@ test('font bind and unbind delegate one readback-verified rollback-owned Applica
     'Commander must not retain an unverified legacy binding path');
 });
 
+test('font axis metadata delegates reads and writes to one bounded Application', () => {
+  const adapter = sources.get('font.js');
+  const start = adapter.indexOf(".command('axes <nodeId>')");
+  const slice = adapter.slice(start);
+  for (const command of ['axes <nodeId>', 'remember-axes <nodeId> <axes>', 'forget-axes <nodeId>']) {
+    const commandStart = slice.indexOf(`.command('${command}')`);
+    const commandEnd = slice.indexOf(".command('", commandStart + command.length);
+    const action = slice.slice(commandStart, commandEnd === -1 ? slice.length : commandEnd);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runFontAxisMetadata\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|fontAxesCode\(|rememberAxesCode\(|forgetAxesCode\(/);
+  }
+  const application = readFileSync(join(APPLICATION_DIR, 'font-axis-metadata-command.js'), 'utf8');
+  assert.match(application, /node\.setPluginData\(metadataKey, desiredRaw\)/);
+  assert.match(application, /fresh\.getPluginData\(metadataKey\) === desiredRaw/);
+  assert.match(application, /node\.setPluginData\(metadataKey, beforeRaw\)/);
+  assert.match(application, /appliedToFont: false/);
+});
+
+test('the remaining direct Font Axis Metadata inventory is explicit', () => {
+  const adapter = sources.get('font.js');
+  const start = adapter.indexOf(".command('axes <nodeId>')");
+  const direct = /checkConnection\(\)|fastEval\(/.test(adapter.slice(start))
+    ? ['axes-metadata'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Font Axis Metadata Legacy Action count may decrease, but must never increase silently');
+});
+
+test('sizes delegates one rollback-owned non-retrying Application', () => {
+  const adapter = sources.get('variants.js');
+  assert.ok(adapter, 'variants.js exists');
+  const start = adapter.indexOf(".command('sizes [nodeId]')");
+  const end = adapter.indexOf('// (The `variants from` group was removed', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sizeVariantsPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSizeVariantsPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|createComponentFromNode\(|\.clone\(\)/,
+    'Commander must not retain Size Variants readiness, mutation, cleanup, or result formatting');
+});
+
+test('the remaining direct Size Variants inventory is explicit', () => {
+  const adapter = sources.get('variants.js');
+  const start = adapter.indexOf(".command('sizes [nodeId]')");
+  const end = adapter.indexOf('// (The `variants from` group was removed', start);
+  const direct = /checkConnection\(|fastEval\(/.test(adapter.slice(start, end))
+    ? ['sizes'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Size Variants Legacy Action count may decrease, but must never increase silently');
+});
+
+test('combos delegates one bounded rollback-owned non-retrying Application', () => {
+  const adapter = sources.get('variants.js');
+  const start = adapter.indexOf(".command('combos [nodeId]')");
+  const end = adapter.indexOf('// NOTE: there is deliberately NO `shadcn`', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /componentCombinationsPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeComponentCombinationsPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|\.createInstance\(\)|detachInstance\(/);
+});
+
+test('the remaining direct Component Combinations inventory is explicit', () => {
+  const adapter = sources.get('variants.js');
+  const start = adapter.indexOf(".command('combos [nodeId]')");
+  const direct = /checkConnection\(|fastEval\(/.test(adapter.slice(start)) ? ['combos'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Component Combinations Legacy Action count may decrease, but must never increase silently');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {
@@ -1695,14 +3461,16 @@ test('unsafe legacy bulk writes stop before connection or generated mutation cod
     'Commander delegates the page gate and all rebinding work to the closed Application');
 
   const nodes = sources.get('node-ops.js');
-  for (const [action, endMarker] of [
-    [".command('bind [nodeId] [property] [varName]')", 'const SET_ENUMS'],
-    [".command('set [nodeId]')", null],
-  ]) {
-    const start = nodes.indexOf(action);
-    const end = endMarker ? nodes.indexOf(endMarker, start) : nodes.length;
-    const slice = nodes.slice(start, end);
-    assert.ok(slice.indexOf('if (options.batch)') < slice.indexOf('await checkConnection()'));
-    assert.match(slice, /process\.exitCode = 1/);
-  }
+  const bindStart = nodes.indexOf(".command('bind [nodeId] [property] [varName]')");
+  const bindEnd = nodes.indexOf('// ============ SET (properties, by node id)', bindStart);
+  const bind = nodes.slice(bindStart, bindEnd);
+  assert.ok(bind.indexOf('if (options.batch)') < bind.indexOf('planFigmaCommand('));
+  assert.match(bind, /process\.exitCode = 1/);
+  assert.doesNotMatch(bind, /checkConnection\(|fastEval\(/);
+
+  const setStart = nodes.indexOf(".command('set [nodeId]')");
+  const set = nodes.slice(setStart);
+  assert.ok(set.indexOf('if (options.batch)') < set.indexOf('planFigmaCommand('));
+  assert.match(set, /process\.exitCode = 1/);
+  assert.doesNotMatch(set, /checkConnection\(|fastEval\(/);
 });

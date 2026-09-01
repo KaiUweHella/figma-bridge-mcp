@@ -8,20 +8,16 @@ import {
   runInProcessCommandPlan,
 } from '../../../src/engine.js';
 import { workspaceIO } from '../lib/workspace-io.js';
-import { normalizeNodeId } from '../lib/node-id.js';
 import {
   program,
-  checkConnection,
   daemonExec,
   daemonExecWithMetadata,
   daemonAssetStream,
   expectedEditorForCommand,
-  fastEval,
   targetFileKey,
   unescapeShell,
 } from '../lib/cli-core.js';
 import { DEFAULT_SPEC_FORMAT } from '../lib/spec-format.js';
-import { nodeRestJsonCode } from '../lib/native-node-data.js';
 import {
   codeSpecPlanningArgvFromRequest,
   executeCodeSpecPlan,
@@ -29,8 +25,21 @@ import {
 } from '../application/code-spec-command.js';
 import {
   executeScreenshotPlan,
+  screenshotPlanRoute,
   screenshotPlanningArgvFromRequest,
 } from '../application/screenshot-command.js';
+import {
+  executeImageExportPlan,
+  imageExportPlanRoute,
+} from '../application/image-export-command.js';
+import {
+  executeNodeJsonExportPlan,
+  nodeJsonExportPlanningArgvFromRequest,
+} from '../application/node-json-export-command.js';
+import {
+  executeVideoExportPlan,
+  videoExportPlanningArgvFromRequest,
+} from '../application/video-export-command.js';
 import {
   legacyRasterExportPlanningArgvFromRequest,
 } from '../application/legacy-raster-export-request.js';
@@ -53,15 +62,7 @@ export { walkWithDepthRetry };
 
 // ============ EXPORT ============
 
-/** Normalize a node id (full Figma URLs, "12-34" dash format) and surface
- * the foreign-file-key warning on stderr. */
-function normalizedId(input) {
-  const r = normalizeNodeId(input);
-  if (r.warning) console.error(chalk.yellow('⚠ ' + r.warning));
-  return r.id;
-}
-
-async function runPngExportCompatibilityCommand(request) {
+async function runImageExportCompatibilityCommand(request) {
   const io = workspaceIO();
   const plan = planFigmaCommand(legacyRasterExportPlanningArgvFromRequest(request), {
     adapter: 'cli',
@@ -70,9 +71,64 @@ async function runPngExportCompatibilityCommand(request) {
     fileKey: program.opts().figmaFile || null,
   });
   return runInProcessCommandPlan(plan, { compatibilityFallback: false },
-    async ({ fileKey, deadline }) => {
-      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
-      return executeScreenshotPlan(plan, {
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({
+        deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+      });
+      const adapters = {
+        workspaceIO: io,
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      };
+      if (screenshotPlanRoute(plan) === 'command-application') {
+        return executeScreenshotPlan(plan, adapters);
+      }
+      if (imageExportPlanRoute(plan) === 'command-application') {
+        return executeImageExportPlan(plan, adapters);
+      }
+      throw new Error(`Unsupported image export format ${request.format}.`);
+    });
+}
+
+async function runVideoExportCommand(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(videoExportPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({
+        deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+      });
+      return executeVideoExportPlan(plan, {
+        workspaceIO: io,
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
+async function runNodeJsonExportCommand(request) {
+  const io = workspaceIO();
+  const plan = planFigmaCommand(nodeJsonExportPlanningArgvFromRequest(request), {
+    adapter: 'cli',
+    workspaceDir: io.roots[0],
+    workspaceIO: io,
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({
+        deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+      });
+      return executeNodeJsonExportPlan(plan, {
         workspaceIO: io,
         evaluate: (code) => daemonExec('eval', {
           code,
@@ -92,100 +148,53 @@ exp
   .option('-o, --output <file>', 'Output file', 'screenshot.png')
   .option('-s, --scale <number>', 'Export scale (1-4)', '2')
   .option('-f, --format <format>', 'Format: png, jpg, svg, pdf', 'png')
+  .allowExcessArguments(false)
   .action(async (options) => {
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
-    if (format === 'PNG') {
-      try {
-        const result = await runPngExportCompatibilityCommand({
-          action: 'screenshot', outputPath: options.output, scale, format,
-        });
-        if (result.stderr) console.error(result.stderr);
-        console.log(result.stdout);
-      } catch (error) {
-        console.error(chalk.red('✗'), error.message);
-        process.exitCode = 1;
-      }
-      return;
+    try {
+      const result = await runImageExportCompatibilityCommand({
+        action: 'screenshot',
+        outputPath: options.output === 'screenshot.png' && format !== 'PNG'
+          ? undefined
+          : options.output,
+        scale,
+        format,
+      });
+      if (result.stderr) console.error(result.stderr);
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗'), error.message);
+      process.exitCode = 1;
     }
-    await checkConnection();
-    const code = `(async () => {
-const sel = figma.currentPage.selection;
-const node = sel.length > 0 ? sel[0] : figma.currentPage;
-if (!node) return { error: 'No page or selection' };
-if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-const bytes = await node.exportAsync({ format: ${JSON.stringify(format)}, constraint: { type: 'SCALE', value: ${scale} } });
-return {
-  name: node.name,
-  id: node.id,
-  width: Math.round(node.width * ${scale}),
-  height: Math.round(node.height * ${scale}),
-  base64: figma.base64Encode(bytes)
-};
-})()`;
-    const result = await daemonExec('eval', { code }, 60000);
-    if (result.error) {
-      console.error(chalk.red('✗'), result.error);
-      process.exit(1);
-    }
-    // base64 transport: ~1.4x the PNG size instead of the 4-5x JSON number
-    // array that used to blow the curl buffer on any real frame.
-    const buffer = Buffer.from(result.base64, 'base64');
-    const outputFile = options.output === 'screenshot.png' && format !== 'PNG'
-      ? `screenshot.${format.toLowerCase()}`
-      : options.output;
-    workspaceIO().write(outputFile, buffer, { role: 'export-image-output', createParents: true });
-    console.log(chalk.green('✓'), `Screenshot: ${result.name} (${result.width}x${result.height}) → ${outputFile}`);
   });
 
 exp
   .command('node <nodeId>')
-  .description('Export a node by ID as PNG')
+  .description('Export a node by ID as PNG, JPG, SVG, or PDF')
   .option('-o, --output <file>', 'Output file', 'node-export.png')
   .option('-s, --scale <number>', 'Export scale', '2')
   .option('-f, --format <format>', 'Format: png, svg, pdf, jpg', 'png')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
-    if (format === 'PNG') {
-      try {
-        const result = await runPngExportCompatibilityCommand({
-          action: 'node', nodeId, outputPath: options.output, scale, format,
-        });
-        if (result.stderr) console.error(result.stderr);
-        console.log(result.stdout);
-      } catch (error) {
-        console.error(chalk.red('✗'), error.message);
-        process.exitCode = 1;
-      }
-      return;
+    try {
+      const result = await runImageExportCompatibilityCommand({
+        action: 'node',
+        nodeId,
+        outputPath: options.output === 'node-export.png' && format !== 'PNG'
+          ? undefined
+          : options.output,
+        scale,
+        format,
+      });
+      if (result.stderr) console.error(result.stderr);
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗'), error.message);
+      process.exitCode = 1;
     }
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
-    const code = `(async () => {
-const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-if (!node) return { error: 'Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '" — Safe Mode only reaches the file open in Figma Desktop.' };
-if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-const bytes = await node.exportAsync({ format: ${JSON.stringify(format)}, constraint: { type: 'SCALE', value: ${scale} } });
-return {
-  name: node.name,
-  id: node.id,
-  width: node.width,
-  height: node.height,
-  base64: figma.base64Encode(bytes)
-};
-})()`;
-    const result = await daemonExec('eval', { code }, 60000);
-    if (result.error) {
-      console.error(chalk.red('✗'), result.error);
-      process.exit(1);
-    }
-    const buffer = Buffer.from(result.base64, 'base64');
-    const outputFile = options.output === 'node-export.png' && format !== 'PNG'
-      ? `node-export.${format.toLowerCase()}`
-      : options.output;
-    workspaceIO().write(outputFile, buffer, { role: 'export-image-output', createParents: true });
-    console.log(chalk.green('✓'), `Exported ${result.name} (${result.width}x${result.height}) to ${outputFile}`);
   });
 
 exp
@@ -196,55 +205,45 @@ exp
   .option('--fps <fps>', 'MP4/WebM: 12|24|30|60; GIF: 8|12|15|24|30', '30')
   .option('--quality <quality>', 'MP4/WebM quality: low, medium, high', 'high')
   .option('--loop <count>', 'GIF loop count, 0 means forever', '0')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
-    const format = String(options.format).toUpperCase();
-    if (!['MP4', 'GIF', 'WEBM'].includes(format)) throw new Error('--format must be mp4, gif, or webm');
-    const fps = Number(options.fps);
-    const allowedFps = format === 'GIF' ? [8, 12, 15, 24, 30] : [12, 24, 30, 60];
-    if (!allowedFps.includes(fps)) throw new Error(`${format} fps must be one of: ${allowedFps.join(', ')}`);
-    const quality = String(options.quality).toUpperCase();
-    if (format !== 'GIF' && !['LOW', 'MEDIUM', 'HIGH'].includes(quality)) throw new Error('--quality must be low, medium, or high');
-    const loopCount = Number(options.loop);
-    if (format === 'GIF' && (!Number.isInteger(loopCount) || loopCount < 0 || loopCount > 1000)) throw new Error('--loop must be an integer from 0 to 1000');
-    const settings = format === 'GIF' ? { format, fps, loopCount } : { format, fps, quality };
-    const result = await fastEval(`(async () => {
-if (figma.editorType !== 'figma') throw new Error('Video export is only available in Figma Design');
-const requested = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-if (!requested || typeof requested.exportAsync !== 'function') throw new Error('Exportable node not found: ${nodeId}');
-const frame = requested.type === 'FRAME' && requested.parent && requested.parent.type === 'PAGE' ? requested : (typeof requested.getTopLevelFrame === 'function' ? requested.getTopLevelFrame() : null);
-if (!frame || frame.type !== 'FRAME' || !frame.parent || frame.parent.type !== 'PAGE') throw new Error('Video export requires a top-level frame or one of its descendants');
-const bytes = await frame.exportAsync(${JSON.stringify(settings)});
-return { requestedId: requested.id, frame: { id: frame.id, name: frame.name }, format: ${JSON.stringify(format)}, fps: ${fps}, base64: figma.base64Encode(bytes) };
-})()`);
-    const outputFile = resolve(options.output || `video.${format.toLowerCase()}`);
-    workspaceIO().write(outputFile, Buffer.from(result.base64, 'base64'), {
-      role: 'video-output', createParents: true,
-    });
-    console.log(chalk.green('✓'), `Exported ${result.frame.name} as ${format} at ${fps} fps → ${outputFile}`);
+    try {
+      const result = await runVideoExportCommand({
+        nodeId,
+        outputPath: options.output || null,
+        format: options.format,
+        fps: options.fps,
+        quality: options.quality,
+        loopCount: options.loop,
+      });
+      if (result.stderr) console.error(result.stderr);
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Video export failed: ' + error.message));
+      process.exitCode = 1;
+    }
   });
 
 exp
   .command('node-json <nodeId>')
   .description('Export REST-shaped JSON for a live node through the Plugin API (no REST token or network)')
   .option('-o, --output <file>', 'Write JSON to a file instead of stdout')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
     try {
-      const result = await fastEval(nodeRestJsonCode(nodeId));
-      const json = JSON.stringify(result, null, 2) + '\n';
+      const result = await runNodeJsonExportCommand({
+        nodeId,
+        outputPath: options.output || null,
+      });
+      if (result.stderr) console.error(result.stderr);
       if (options.output) {
-        const outputFile = resolve(options.output);
-        workspaceIO().write(outputFile, json, { role: 'node-json-output', createParents: true });
-        console.log(chalk.green('✓'), `Native node JSON written to ${outputFile}`);
+        console.log(result.stdout);
       } else {
-        process.stdout.write(json);
+        process.stdout.write(result.stdout);
       }
     } catch (error) {
       console.error(chalk.red('✗ Native node JSON export failed: ' + error.message));
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 

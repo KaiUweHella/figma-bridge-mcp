@@ -39,7 +39,7 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
   const handle = trail.begin({
     capability: "render",
     operation: "write",
-    effects: { figma: "write", workspace: "read", network: "none", shared: "none" },
+    effects: { figma: "write", editor: "write", workspace: "read", network: "none", shared: "none" },
     target: { kind: "plugin-file", identity: secrets.fileKey },
     arguments: ["render", secrets.jsx, "--icons", secrets.path],
     label: secrets.label,
@@ -53,6 +53,11 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     code: 1,
     errorKind: "engine-exit",
     dispatchState: "failed",
+    mutationOutcome: "partial-residue",
+    mutationReport: {
+      version: 1, outcome: "partial-residue", attempted: 3, restored: 2,
+      residueCount: 1, residue: [{ id: "12:34", name: secrets.label }],
+    },
     connectionEpoch: secrets.connectionEpoch,
   });
 
@@ -84,7 +89,9 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
   assert.equal(start.capability, "render");
   assert.equal(start.operation, "write");
   assert.equal(start.materialVersion, "figma-plugin-typings-1.133.0-010eadcbbd27");
-  assert.deepEqual(start.effects, { figma: "write", workspace: "read", network: "none", shared: "none" });
+  assert.deepEqual(start.effects, {
+    figma: "write", editor: "write", workspace: "read", network: "none", shared: "none",
+  });
   assert.equal(start.target.kind, "plugin-file");
   assert.match(start.target.identity.sha256, /^[a-f0-9]{64}$/);
   assert.equal(start.data.arguments.count, 4);
@@ -97,6 +104,10 @@ test("Audit Trail stores a closed redacted schema with private permissions", () 
     code: 1,
     errorKind: "engine-exit",
     dispatchState: "failed",
+    mutation: {
+      schemaVersion: 1, outcome: "partial-residue",
+      attempted: 3, restored: 2, residueCount: 1,
+    },
   });
 });
 
@@ -164,7 +175,7 @@ test("Audit Trail retains only a safe API material version", () => {
   const [start] = records(auditPath);
   assert.equal(start.materialVersion, "figma-plugin-typings-1.133.0-010eadcbbd27");
   assert.deepEqual(start.effects, {
-    figma: "none", workspace: "none", network: "none", shared: "write",
+    figma: "none", editor: "none", workspace: "none", network: "none", shared: "write",
   });
   assert.doesNotMatch(JSON.stringify(start), /example\.test|secret|node_modules|figma-api[\\/]/i);
 });

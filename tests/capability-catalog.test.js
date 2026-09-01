@@ -100,7 +100,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
   for (const args of [
     ['render', '<Frame/>'], ['combos', '1:2'], ['node', 'delete', '1:2'],
     ['component', 'add-variant', 'Button', 'State=Loading'], ['tokens', 'spacing'],
-    ['tokens', 'sync', 'tokens.json', '--apply'], ['motion', 'timeline', '1:2'],
+    ['tokens', 'sync', 'tokens.json', '--apply'], ['motion', 'timeline', '1:2', '--duration', '1.2'],
     ['font', 'remember-axes', '1:2', 'wght=357'], ['font', 'forget-axes', '1:2'],
     ['font', 'bind', '1:2', 'fontWeight', 'type/weight'], ['font', 'unbind', '1:2', 'fontWeight'],
     ['history', 'save', 'Release 1'],
@@ -121,7 +121,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
 
   for (const args of [
     ['export', 'code-spec', '1:2'], ['node', 'tree', '1:2'], ['tokens'],
-    ['tokens', 'sync', 'tokens.json'], ['motion', 'inspect', '1:2'],
+    ['tokens', 'sync', 'tokens.json'], ['motion', 'inspect', '1:2'], ['motion', 'timeline', '1:2'],
     ['map', 'storybook', 'http://localhost:6006'], ['render', '--help'],
     ['render', '--print-browser-capture', '.screen'],
     ['render', '<Frame name="Audit" />', '--structural-gate'],
@@ -141,6 +141,380 @@ test('catalog owns the full read/write matrix including special flag semantics',
   ]) assert.notEqual(planFigmaCommand(args).effects.figma, 'write', args.join(' '));
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png']).target.kind, 'none');
   assert.equal(planFigmaCommand(['gradient', 'extract', 'hero.png', '--apply-to', '1:2']).effects.figma, 'write');
+});
+
+test('Slides Create owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const cli = planFigmaCommand(
+    ['slides', 'create', '--row=1', '--col', '0', 'Agenda'], { adapter: 'cli' },
+  );
+  const mcp = planFigmaCommand(
+    ['slides', 'create', 'Agenda', '--col=0', '--row', '1'], { adapter: 'mcp' },
+  );
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'slides.create');
+  assert.deepEqual(cli.argv, ['slides', 'create', '--row=1', '--col=0', 'Agenda']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.execution.idempotence, 'unknown');
+  for (const argv of [
+    ['slides', 'create', '--col=0'],
+    ['slides', 'create', '--row=-1'],
+    ['slides', 'create', '--row=1', '--row=2'],
+    ['slides', 'create', 'one', 'two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Slides Duplicate owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const cli = planFigmaCommand(
+    ['slides', 'duplicate', 'label:Body', '--row=1', '--col', '0', '--label=Copy'],
+    { adapter: 'cli' },
+  );
+  const mcp = planFigmaCommand(
+    ['slides', 'duplicate', '--label', 'Copy', '--col=0', '--row', '1', 'label:Body'],
+    { adapter: 'mcp' },
+  );
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'slides.duplicate');
+  assert.deepEqual(cli.argv, [
+    'slides', 'duplicate', 'label:Body', '--label=Copy', '--row=1', '--col=0',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['slides', 'duplicate'],
+    ['slides', 'duplicate', 'Body', '--col=0'],
+    ['slides', 'duplicate', 'Body', '--row=-1'],
+    ['slides', 'duplicate', 'one', 'two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Slides Move owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const cli = planFigmaCommand(['slides', 'move', 'label:Body', '1', '0'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['slides', 'move', 'label:Body', '1', '0'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'slides.move');
+  assert.deepEqual(cli.argv, ['slides', 'move', 'label:Body', '1', '0']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['slides', 'move', 'Body', '0'],
+    ['slides', 'move', 'Body', '-1', '0'],
+    ['slides', 'move', 'Body', '0', '1.5'],
+    ['slides', 'move', 'Body', '0', '1', 'extra'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Slides properties own canonical cross-Adapter non-retrying write Plans', () => {
+  const pairs = [
+    [
+      ['slides', 'transition', 'label:Body', 'dissolve', '--timing', 'after_delay',
+        '--delay=.25', '--curve', 'linear', '--duration=.333333'],
+      ['slides', 'transition', 'label:Body', 'DISSOLVE', '--duration=0.3333',
+        '--curve=LINEAR', '--timing=AFTER_DELAY', '--delay=0.25'],
+      'slides.transition',
+    ],
+    [
+      ['slides', 'skip', 'label:Body', 'true'],
+      ['slides', 'skip', 'label:Body', 'on'],
+      'slides.skip',
+    ],
+  ];
+  for (const [raw, canonical, id] of pairs) {
+    const cli = planFigmaCommand(raw, { adapter: 'cli' });
+    const mcp = planFigmaCommand(canonical, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(cli.id, id);
+    assert.deepEqual(cli.argv, canonical);
+    assert.deepEqual(mcp.argv, canonical);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.deepEqual(mcp.execution, cli.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.effects.editor, 'none');
+    assert.equal(cli.confirmation, 'configured');
+    assert.equal(cli.execution.retry, 'never');
+  }
+  for (const argv of [
+    ['slides', 'transition', 'Body'],
+    ['slides', 'transition', 'Body', 'UNKNOWN'],
+    ['slides', 'transition', 'Body', 'DISSOLVE', '--duration=-1'],
+    ['slides', 'skip'],
+    ['slides', 'skip', 'Body', 'maybe'],
+    ['slides', 'skip', 'Body', 'on', 'extra'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Slides Delete owns one canonical cross-Adapter irreversible write Plan', () => {
+  const cli = planFigmaCommand(['slides', 'delete', 'label:Body'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['slides', 'delete', 'label:Body'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'slides.delete');
+  assert.deepEqual(cli.argv, ['slides', 'delete', 'label:Body']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['slides', 'delete'],
+    ['slides', 'delete', 'Body', 'extra'],
+    ['slides', 'delete', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Board owns one canonical cross-Adapter safe-read Plan', () => {
+  const cli = planFigmaCommand(['jam', 'board', '--json'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['jam', 'board', '--json'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.board');
+  assert.deepEqual(cli.argv, ['jam', 'board', '--json']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'read');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'none');
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.execution.idempotence, 'read-only');
+  for (const argv of [
+    ['jam', 'board', '--future'],
+    ['jam', 'board', '--json', '--json'],
+    ['jam', 'board', 'payload'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Arrange owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'arrange', '--ids', '1-1,1:2', '--gap', '-20', '--columns', '3',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'arrange', '--columns=3', '--gap=-20', '--ids=1:1,1-2',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.arrange');
+  assert.deepEqual(cli.argv, ['jam', 'arrange', '--columns=3', '--gap=-20', '--ids=1:1,1:2']);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'arrange', '--ids=1:1', '--all'],
+    ['jam', 'arrange', '--columns=0'],
+    ['jam', 'arrange', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Sticky owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'sticky', '--color', 'green', '--at=-10,20', '--', '- Decision',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'sticky', '--at', '-10,20', '--color=#A8E6A1', '--', '- Decision',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.sticky');
+  assert.deepEqual(cli.argv, [
+    'jam', 'sticky', '--color=#A8E6A1', '--at=-10,20', '--', '- Decision',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'sticky'],
+    ['jam', 'sticky', 'one', 'two'],
+    ['jam', 'sticky', 'one', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Stickies owns one canonical cross-Adapter non-retrying batch Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'stickies', 'One;Two', '--color=green', '--columns=2',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'stickies', '--columns', '2', '--',
+    '[{"text":"One","color":"#A8E6A1"},{"text":"Two","color":"green"}]',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.stickies');
+  assert.deepEqual(cli.argv, [
+    'jam', 'stickies', '--columns=2', '--',
+    '[{"text":"One","color":"#A8E6A1"},{"text":"Two","color":"#A8E6A1"}]',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'stickies'],
+    ['jam', 'stickies', '[]'],
+    ['jam', 'stickies', 'one', 'two'],
+    ['jam', 'stickies', 'one', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Shape owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'shape', 'Decision', '--type=diamond', '--size=120px,80rest', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'shape', '--at', '10,-20', '--size', '120,80', '--type', 'DIAMOND', '--', 'Decision',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.shape');
+  assert.deepEqual(cli.argv, [
+    'jam', 'shape', '--type=DIAMOND', '--size=120,80', '--at=10,-20', '--', 'Decision',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'shape'],
+    ['jam', 'shape', 'one', '--type=STAR'],
+    ['jam', 'shape', 'one', '--size=0,10'],
+    ['jam', 'shape', 'one', 'two'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Connector owns one canonical URL-targeted non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'connector',
+    'https://www.figma.com/board/BOARDPLACEHOLDERKEY/FILE_NAME?node-id=1-1',
+    '1-2', '--text=yes', '--line=straight',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'connector', '1:1', '1:2', '--line', 'STRAIGHT', '--text', 'yes',
+  ], { adapter: 'mcp', fileKey: 'BOARDPLACEHOLDERKEY' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.connector');
+  assert.equal(cli.target.fileKey, 'BOARDPLACEHOLDERKEY');
+  assert.deepEqual(cli.argv, [
+    'jam', 'connector', '1:1', '1:2', '--text=yes', '--line=STRAIGHT',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'connector'],
+    ['jam', 'connector', '1:1'],
+    ['jam', 'connector', '1:1', '1:2', '1:3'],
+    ['jam', 'connector', '1:1', '1:2', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Table owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'table', '2rest', '2', '--data=[["A",1]]', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'table', '2', '2', '--at', '10,-20', '--data', '[["A","1"]]',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.table');
+  assert.deepEqual(cli.argv, [
+    'jam', 'table', '2', '2', '--data=[["A","1"]]', '--at=10,-20',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'write');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'table'],
+    ['jam', 'table', '2'],
+    ['jam', 'table', '2', '2', 'extra'],
+    ['jam', 'table', '1000', '1000'],
+    ['jam', 'table', '2', '2', '--data={}'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Section owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'section', 'Phase', '--size=120px,80rest', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'section', '--at', '10,-20', '--size', '120,80', '--', 'Phase',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.section');
+  assert.deepEqual(cli.argv, [
+    'jam', 'section', '--size=120,80', '--at=10,-20', '--', 'Phase',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'section'],
+    ['jam', 'section', 'one', 'two'],
+    ['jam', 'section', 'one', '--size=0,10'],
+    ['jam', 'section', 'one', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
+test('Jam Code owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'code', 'print(1)', '--lang=python', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'code', '--at', '10,-20', '--lang', 'PYTHON', '--', 'print(1)',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.code');
+  assert.deepEqual(cli.argv, [
+    'jam', 'code', '--lang=PYTHON', '--at=10,-20', '--', 'print(1)',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'code'],
+    ['jam', 'code', 'one', 'two'],
+    ['jam', 'code', 'one', '--lang'],
+    ['jam', 'code', 'one', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
 test('nested component property effects follow the canonical action id', () => {
@@ -1016,6 +1390,287 @@ test('Layout Grid Facts closes one policy-identical CLI/MCP safe read', () => {
   assert.equal(cli.audit.capability, 'grid.list');
 });
 
+test('Layout Guide mutations close policy-identical non-retrying CLI/MCP writes', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [
+      ['grid', 'set', '10-3', '--columns=12', '--gutter=20'],
+      ['grid', 'set', '-g20', '-c12', '--', '10:3'],
+      'grid.set',
+    ],
+    [['grid', 'clear', '10-3'], ['grid', 'clear', '--', '10:3'], 'grid.clear'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
+test('Analyze census actions close policy-identical safe current-page reads', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [['analyze', 'colors'], ['analyze', 'colors'], 'analyze.colors'],
+    [['analyze', 'type', '--json'], ['analyze', 'typography', '--json'], 'analyze.typography'],
+    [['analyze', 'spacing'], ['analyze', 'spacing'], 'analyze.spacing'],
+    [['analyze', 'clusters'], ['analyze', 'clusters'], 'analyze.clusters'],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'read');
+    assert.equal(cli.effects.editor, 'read');
+    assert.equal(cli.execution.retry, 'safe-read');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
+test('Dev Resource Read closes one policy-identical CLI/MCP safe read', () => {
+  const cli = planFigmaCommand(['dev', 'list', '10-3'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['dev', 'list', '--', '10:3'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.audit.capability, 'dev.list');
+
+  const selection = planFigmaCommand(['dev', 'list'], { adapter: 'mcp' });
+  assert.equal(selection.effects.editor, 'read');
+});
+
+test('Dev Resource mutations close policy-identical non-retrying writes', () => {
+  for (const [cliArgv, mcpArgv, action] of [
+    [
+      ['dev', 'link', '10-3', 'https://example.test/storybook', '--name', 'Storybook'],
+      ['dev', 'link', '--name=Storybook', '--', '10:3', 'https://example.test/storybook'],
+      'dev.link',
+    ],
+    [
+      ['dev', 'unlink', '10-3', 'https://example.test/storybook'],
+      ['dev', 'unlink', '--', '10:3', 'https://example.test/storybook'],
+      'dev.unlink',
+    ],
+    [
+      ['dev', 'edit', '10-3', 'https://example.test/old', 'https://example.test/new', '-n', 'Docs'],
+      ['dev', 'edit', '--name=Docs', '--', '10:3', 'https://example.test/old', 'https://example.test/new'],
+      'dev.edit',
+    ],
+  ]) {
+    const cli = planFigmaCommand(cliArgv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(mcpArgv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
+test('Section Inventory closes one policy-identical current-page safe read', () => {
+  const cli = planFigmaCommand(['section', 'list'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'list', '--'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.audit.capability, 'section.list');
+});
+
+test('Section Fit closes one policy-identical non-retrying geometry write', () => {
+  const cli = planFigmaCommand(['section', 'fit', '10-3', '--pad=32'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'fit', '--pad', '32', '10:3'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'section.fit');
+});
+
+test('Section Arrange closes one policy-identical non-retrying geometry write', () => {
+  const cli = planFigmaCommand([
+    'section', 'arrange', '10-3', '--cols=2', '--gap=10', '--pad=20', '--group-rows',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'section', 'arrange', '--group-rows', '--pad', '20', '-g10', '-c2', '10:3',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'section.arrange');
+});
+
+test('Section Add closes one policy-identical non-retrying batch write', () => {
+  const cli = planFigmaCommand(['section', 'add', '10-3', '11-1,11:2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'add', '--', '10:3', '11:1,11-2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'section.add');
+});
+
+test('Section Create closes one policy-identical current-page batch write', () => {
+  const cli = planFigmaCommand(['section', 'create', 'Components', '11-1,11:2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['section', 'create', 'Components', '11:1,11-2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'section.create');
+});
+
+test('Annotation Category Inventory closes one policy-identical file safe read', () => {
+  const cli = planFigmaCommand(['annotate', 'categories'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['annotate', 'categories', '--'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.audit.capability, 'annotate.categories');
+});
+
+test('Annotation Read closes one policy-identical node-or-selection safe read', () => {
+  const cli = planFigmaCommand(['annotate', 'list', '1-2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['annotate', 'list', '--', '1:2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.audit.capability, 'annotate.list');
+
+  const selection = planFigmaCommand(['annotate', 'list'], { adapter: 'mcp' });
+  assert.equal(selection.effects.editor, 'read');
+});
+
+test('Annotation Clear closes one policy-identical non-retrying node write', () => {
+  const cli = planFigmaCommand(['annotate', 'clear', '1-2'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['annotate', 'clear', '1:2'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'annotate.clear');
+});
+
+test('Annotation Remove closes one policy-identical non-retrying index mutation', () => {
+  const cli = planFigmaCommand(['annotate', 'remove', '1-2', '00'], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['annotate', 'remove', '1:2', '0'], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'annotate.remove');
+});
+
+test('Annotation Edit closes one policy-identical non-retrying patch mutation', () => {
+  const cli = planFigmaCommand([
+    'annotate', 'edit', '1-2', '00', '--text=New', '--properties=width',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'annotate', 'edit', '--properties=width', '--text=New', '1:2', '0',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'annotate.edit');
+});
+
+test('Annotation Category mutations close policy-identical non-retrying file writes', () => {
+  for (const [argv, action] of [
+    [['annotate', 'category-add', 'Ready', '--color=green'], 'annotate.category-add'],
+    [['annotate', 'category-edit', 'Review', '--label=Ready'], 'annotate.category-edit'],
+    [['annotate', 'category-remove', 'Review'], 'annotate.category-remove'],
+  ]) {
+    const cli = planFigmaCommand(argv, { adapter: 'cli' });
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.allowed, true);
+    assert.deepEqual(cli.argv, mcp.argv);
+    assert.deepEqual(cli.effects, mcp.effects);
+    assert.deepEqual(cli.execution, mcp.execution);
+    assert.equal(cli.effects.figma, 'write');
+    assert.equal(cli.effects.editor, 'none');
+    assert.equal(cli.execution.retry, 'never');
+    assert.equal(cli.audit.capability, action);
+  }
+});
+
+test('Annotation Add closes node/query policy and declares only real editor-context reads', () => {
+  const cli = planFigmaCommand([
+    'annotate', 'add', '--node=1-1', '--category=Review', '--', 'New',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'annotate', 'add', '--category=Review', '--node=1:1', '--', 'New',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(mcp.allowed, true);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'none');
+  assert.equal(cli.execution.retry, 'never');
+  assert.equal(cli.audit.capability, 'annotate.add');
+
+  const query = planFigmaCommand([
+    'annotate', 'add', '--query=Card', '--', 'New',
+  ], { adapter: 'mcp' });
+  assert.equal(query.effects.editor, 'read');
+});
+
 test('literal help after the option terminator retains write policy and Audit classification', () => {
   const plan = planFigmaCommand(['node', 'set-text', '1:2', '--', '--help']);
 
@@ -1056,7 +1711,9 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   });
   assert.equal(tokenLiteral.effects.figma, 'read');
   assert.equal(tokenLiteral.confirmation, 'none');
-  assert.deepEqual(tokenLiteral.argv, ['tokens', 'sync', '--', join(workspaceDir, '--apply')]);
+  assert.deepEqual(tokenLiteral.argv, [
+    'tokens', 'sync', '--collection=Design Tokens', '--', join(workspaceDir, '--apply'),
+  ]);
   assert.equal(planFigmaCommand(['tokens', 'sync', '--apply', 'tokens.json'], {
     workspaceDir,
   }).effects.figma, 'write');
@@ -1066,7 +1723,10 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   });
   assert.equal(gradientLiteral.effects.figma, 'none');
   assert.equal(gradientLiteral.target.kind, 'none');
-  assert.deepEqual(gradientLiteral.argv, ['gradient', 'extract', '--', join(workspaceDir, '--apply-to')]);
+  assert.deepEqual(gradientLiteral.argv, [
+    'gradient', 'extract', '--mode', 'linear', '--direction', 'auto', '--stops', '3',
+    '--', join(workspaceDir, '--apply-to'),
+  ]);
   assert.equal(planFigmaCommand([
     'gradient', 'extract', 'hero.png', '--apply-to', '1:2',
   ], { workspaceDir }).effects.figma, 'write');
@@ -1076,7 +1736,7 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   assert.equal(planFigmaCommand(['verify-build', '--', '--node'], {
     workspaceDir,
   }).target.kind, 'none');
-  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2'], {
+  assert.equal(planFigmaCommand(['verify-build', '.', '--compare', 'shot.png', '--node', '1:2'], {
     workspaceDir,
   }).target.kind, 'plugin-file');
 
@@ -1115,7 +1775,7 @@ test('policy options reject unknown, duplicate, missing, and conflicting forms b
     assert.equal(plan.allowed, false, args.join(' '));
     assert.equal(plan.id, 'unknown', args.join(' '));
     assert.deepEqual(plan.effects, {
-      figma: 'none', workspace: 'none', network: 'none', shared: 'none',
+      figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'none',
     }, args.join(' '));
     assert.equal(plan.target.kind, 'none', args.join(' '));
   }
@@ -1136,7 +1796,9 @@ test('short-attached Legacy option values keep Commander meaning during path pla
     'spec', 'Button', '-fDESIGN.md',
   ], { workspaceDir });
   assert.equal(specPlan.allowed, true);
-  assert.deepEqual(specPlan.argv, ['spec', 'Button', `-f${join(workspaceDir, 'DESIGN.md')}`]);
+  assert.deepEqual(specPlan.argv, [
+    'spec', '--file', join(workspaceDir, 'DESIGN.md'), '--tolerance', '2', '--', 'Button',
+  ]);
 });
 
 test('CLI and MCP receive identical option-region and literal-payload plans', () => {
@@ -1274,6 +1936,150 @@ test('Node Duplicate closes one policy-identical rollback-owned write', () => {
     ['node', 'duplicate', '1:2', '--future'],
     ['node', 'duplicate', 'not-a-node'],
   ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
+test('Node Rename closes one policy-identical rollback-owned write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Rename-Lab?node-id=12-34';
+  const mcp = planFigmaCommand(['node', 'rename', url, '--', '-new-name'], {
+    adapter: 'mcp',
+  });
+  const cli = planFigmaCommand(['node', 'rename', url, '--', '-new-name'], {
+    adapter: 'cli',
+  });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, ['node', 'rename', '12:34', '--', '-new-name']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.rename');
+  for (const args of [
+    ['node', 'rename'],
+    ['node', 'rename', '1:2'],
+    ['node', 'rename', '1:2', 'After', 'extra'],
+    ['node', 'rename', '1:2', '--future'],
+    ['node', 'rename', 'not-a-node', 'After'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
+test('Node Resize closes one policy-identical rollback-owned write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Resize-Lab?node-id=12-34';
+  const mcp = planFigmaCommand(['node', 'resize', url, '--', '-20', 'hug'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(['node', 'resize', url, '--', '-20', 'hug'], { adapter: 'cli' });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, ['node', 'resize', '12:34', '--', '-20', 'hug']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.resize');
+  for (const args of [
+    ['node', 'resize'], ['node', 'resize', '1:2', '20'],
+    ['node', 'resize', '1:2', '20', '30', 'extra'],
+    ['node', 'resize', '1:2', 'wide', '30'], ['node', 'resize', 'not-a-node', '20', '30'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
+test('Node Set closes one policy-identical journaled multi-property write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Set-Lab?node-id=12-34';
+  const mcp = planFigmaCommand([
+    'node', 'set', '--name', 'Card', url, '--opacity=.5',
+    '--fill=var:brand/base', '--collection', 'Tokens',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand([
+    'node', 'set', url, '--fill', 'var:brand/base', '--opacity', '0.5',
+    '--name=Card', '--collection=Tokens',
+  ], { adapter: 'cli' });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, [
+    'node', 'set', '12:34', '--fill=var:brand/base', '--opacity=0.5',
+    '--name=Card', '--collection=Tokens',
+  ]);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.set');
+  for (const args of [
+    ['node', 'set'], ['node', 'set', '1:2'],
+    ['node', 'set', '1:2', '--width=20'],
+    ['node', 'set', '1:2', '--visible=perhaps'],
+    ['node', 'set', '1:2', '--fill=#fff'],
+    ['node', 'set', '1:2', '--batch=[]'],
+    ['node', 'set', 'not-a-node', '--name=Card'],
+    ['node', 'set', '1:2', '--name=Card', '--future=value'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
+test('Node Set Fill closes one policy-identical rollback-owned write', () => {
+  const url = 'https://www.figma.com/design/FILEA/Fill-Lab?node-id=12-34';
+  const mcp = planFigmaCommand(['node', 'set-fill', url, '#aBcDeF'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(['node', 'set-fill', url, 'ABCDEF'], { adapter: 'cli' });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, ['node', 'set-fill', '12:34', '#ABCDEF']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.set-fill');
+  for (const args of [
+    ['node', 'set-fill'],
+    ['node', 'set-fill', '1:2'],
+    ['node', 'set-fill', '1:2', '#fff'],
+    ['node', 'set-fill', '1:2', 'var:'],
+    ['node', 'set-fill', '1:2', '#FFFFFF', 'extra'],
+    ['node', 'set-fill', 'not-a-node', '#FFFFFF'],
+  ]) assert.equal(planFigmaCommand(args).allowed, false, args.join(' '));
+});
+
+test('Node Set Image closes one policy-identical workspace-backed write', () => {
+  const base = resolve('work', 'image-plan');
+  const file = join(base, 'pixel.png');
+  const url = 'https://www.figma.com/design/FILEA/Image-Lab?node-id=12-34';
+  const mcp = planFigmaCommand([
+    'node', 'set-image', '--scale', 'crop', url, 'pixel.png',
+  ], { adapter: 'mcp', workspaceDir: base });
+  const cli = planFigmaCommand([
+    'node', 'set-image', url, 'pixel.png', '--scale=CROP',
+  ], { adapter: 'cli', workspaceDir: base });
+  const { adapter: _mcpAdapter, ...mcpPolicy } = mcp;
+  const { adapter: _cliAdapter, ...cliPolicy } = cli;
+  assert.equal(mcp.allowed, true);
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cliPolicy, mcpPolicy);
+  assert.deepEqual(mcp.argv, [
+    'node', 'set-image', '12:34', '--scale', 'CROP', '--', file,
+  ]);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, {
+    figma: 'write', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
+  });
+  assert.equal(mcp.confirmation, 'configured');
+  assert.equal(mcp.execution.retry, 'never');
+  assert.equal(mcp.audit.capability, 'node.set-image');
+  for (const args of [
+    ['node', 'set-image'],
+    ['node', 'set-image', '1:2'],
+    ['node', 'set-image', '1:2', 'pixel.png', 'extra'],
+    ['node', 'set-image', '1:2', 'pixel.png', '--future'],
+    ['node', 'set-image', 'not-a-node', 'pixel.png'],
+  ]) assert.equal(planFigmaCommand(args, { workspaceDir: base }).allowed, false, args.join(' '));
 });
 
 test('Node Binding Facts use the closed typed-read dispatch in both Adapters', () => {
@@ -1431,7 +2237,7 @@ test('only semantic node fields may derive a Figma URL target', () => {
     ['annotate', 'add', 'Note', '--node', targetUrl],
     ['create', 'frame', 'Card', '--parent', targetUrl],
     ['prototype', 'add', targetUrl, '--navigate-to', targetUrl],
-    ['verify-build', '.', '--node', targetUrl],
+    ['verify-build', '.', '--compare', 'shot.png', '--node', targetUrl],
   ]) {
     const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
     const cli = planFigmaCommand(argv, { adapter: 'cli' });
@@ -1479,7 +2285,8 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['spec', 'Button']).target.kind, 'none');
   assert.equal(planFigmaCommand(['spec', 'Button', '--check', '1:2']).target.kind, 'plugin-file');
   assert.equal(planFigmaCommand(['verify-build', '.']).target.kind, 'none');
-  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2']).target.kind, 'plugin-file');
+  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['verify-build', '.', '--compare', 'shot.png']).target.kind, 'plugin-file');
   assert.equal(planFigmaCommand(['export', 'code-spec', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['inspect', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['verify', '1:2']).execution.retry, 'safe-read');
@@ -1503,18 +2310,42 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['link', 'set', '1:2', 'ui.button']).availability.feature, 'design-links');
 });
 
-test('CLI and MCP decide identical policy for the Design Link tracer only', () => {
+test('CLI and MCP decide identical policy for every Design Link action', () => {
   const cases = [
     {
       argv: ['link', 'inspect', '1:2', '--manifest', '/work/figma-bridge.json'],
-      effects: { figma: 'read', workspace: 'read', network: 'none', shared: 'none' },
+      effects: { figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
       confirmation: 'none',
       retry: 'safe-read',
     },
     {
       argv: ['link', 'set', '1:2', 'ui.button', '--manifest', '/work/figma-bridge.json'],
-      effects: { figma: 'write', workspace: 'write', network: 'none', shared: 'none' },
+      effects: { figma: 'write', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
       confirmation: 'configured',
+      retry: 'never',
+    },
+    {
+      argv: ['link', 'list', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
+      confirmation: 'none',
+      retry: 'never',
+    },
+    {
+      argv: ['link', 'configure', '--tokens', 'tokens.json', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'none', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
+      confirmation: 'none',
+      retry: 'never',
+    },
+    ...['status', 'context'].map((action) => ({
+      argv: ['link', action, 'ui.button', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
+      confirmation: 'none',
+      retry: 'never',
+    })),
+    {
+      argv: ['link', 'accept', 'ui.button', '--manifest', '/work/figma-bridge.json'],
+      effects: { figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
+      confirmation: 'none',
       retry: 'never',
     },
   ];
@@ -1535,14 +2366,6 @@ test('CLI and MCP decide identical policy for the Design Link tracer only', () =
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy);
   }
-
-  for (const argv of [
-    ['link', 'list'],
-    ['link', 'configure', '--tokens', 'tokens.json'],
-    ['link', 'status', 'ui.button'],
-    ['link', 'accept', 'ui.button'],
-    ['link', 'context', 'ui.button'],
-  ]) assert.equal(planFigmaCommand(argv, { adapter: 'cli' }).allowed, false, argv.join(' '));
 });
 
 test('Design Link planning fails closed on malformed argv and keeps inspect registry reads optional', () => {
@@ -1575,12 +2398,12 @@ test('CLI and MCP decide identical policy and accepted outcomes for Design Contr
   const cases = [
     {
       argv: ['contract', 'capture', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
-      effects: { figma: 'read', workspace: 'write', network: 'none', shared: 'none' },
+      effects: { figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
       okExitCodes: [0],
     },
     {
       argv: ['contract', 'check', 'ui.button', '--manifest', '/work/figma-bridge.json', '--file', '/work/ui.button.json'],
-      effects: { figma: 'read', workspace: 'read', network: 'none', shared: 'none' },
+      effects: { figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
       okExitCodes: [0, 1],
     },
   ];
@@ -1649,11 +2472,13 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['extract']).slice(-1), [inWorkspace('DESIGN.md')]);
   assert.deepEqual(argv(['export', 'assets', '1:2']).slice(-2), ['-o', inWorkspace('assets')]);
   assert.deepEqual(argv(['export', 'node', '1:2', '--output=shot.png']).slice(-1), [inWorkspace('shot.png')]);
-  assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-1), [`--output=${inWorkspace('facts.json')}`]);
-  assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-1), [`-o=${inWorkspace('facts.json')}`]);
+  assert.deepEqual(argv(['export', 'node-json', '1:2', '--output=facts.json']).slice(-2), ['-o', inWorkspace('facts.json')]);
+  assert.deepEqual(argv(['export', 'node-json', '1:2', '-o=facts.json']).slice(-2), ['-o', inWorkspace('facts.json')]);
   assert.deepEqual(argv(['export', 'node-json', '1:2']), ['export', 'node-json', '1:2']);
   assert.deepEqual(argv(['export', 'video', '1:2', '--format', 'gif']).slice(-2), ['-o', inWorkspace('video.gif')]);
-  assert.deepEqual(argv(['map', 'storybook', 'url']).slice(-2), ['-o', inWorkspace('figma-map.json')]);
+  assert.deepEqual(argv(['map', 'storybook', 'url']), [
+    'map', 'storybook', '--output', inWorkspace('figma-map.json'), '--', inWorkspace('url'),
+  ]);
   assert.deepEqual(argv(['link', 'list']).slice(-2), ['--manifest', inWorkspace('figma-bridge.json')]);
   assert.deepEqual(argv(['link', 'set', '1:2', 'ui.button', '--manifest=design/links.json']).slice(-1), [
     `--manifest=${inWorkspace('design', 'links.json')}`,
@@ -1666,8 +2491,9 @@ test('catalog prepares every known project-relative path policy', () => {
     argv(['verify-build', '.', '--compare', 'shot.png', '--fidelity-ledger', 'facts.json',
       '--browser-capture=captures/screen.json']),
     ['verify-build', base, '--compare', inWorkspace('shot.png'),
+      '--diff-out', inWorkspace('shot-diff.png'),
       '--fidelity-ledger', inWorkspace('facts.json'),
-      `--browser-capture=${inWorkspace('captures', 'screen.json')}`],
+      '--browser-capture', inWorkspace('captures', 'screen.json')],
   );
   assert.deepEqual(
     argv(['verify', '1:2', '--save', 'shot.png']),
@@ -1680,12 +2506,19 @@ test('catalog prepares every known project-relative path policy', () => {
       '--manifest', inWorkspace('figma-bridge.json'),
     ],
   );
-  assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), ['node', 'set-image', '1:2', inWorkspace('photo.png')]);
-  assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
-    'tokens', 'sync', inWorkspace('tokens.json'), '--lockfile', inWorkspace('.tokens.lock.json'),
+  assert.deepEqual(argv(['node', 'set-image', '1:2', 'photo.png']), [
+    'node', 'set-image', '1:2', '--scale', 'FILL', '--', inWorkspace('photo.png'),
   ]);
-  assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), ['spec', 'Button', `--file=${inWorkspace('design', 'DESIGN.md')}`]);
-  assert.deepEqual(argv(['motion', 'apply', 'motion.json']), ['motion', 'apply', inWorkspace('motion.json')]);
+  assert.deepEqual(argv(['tokens', 'sync', 'tokens.json', '--lockfile', '.tokens.lock.json']), [
+    'tokens', 'sync', '--collection=Design Tokens',
+    `--lockfile=${inWorkspace('.tokens.lock.json')}`, '--', inWorkspace('tokens.json'),
+  ]);
+  assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), [
+    'spec', '--file', inWorkspace('design', 'DESIGN.md'), '--tolerance', '2', '--', 'Button',
+  ]);
+  assert.deepEqual(argv(['motion', 'apply', 'motion.json']), [
+    'motion', 'apply', '--', inWorkspace('motion.json'),
+  ]);
   assert.deepEqual(argv(['history', 'diff', 'latest', 'live', '--changelog', 'changes.md']), [
     'history', 'diff', 'latest', 'live', '--changelog', inWorkspace('changes.md'),
   ]);
@@ -1693,38 +2526,59 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['export', 'dtcg', '12:34']), ['export', 'dtcg', '12:34']);
 });
 
+test('Motion reads close URL identity into one safe cross-Adapter Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Motion-Lab?node-id=1-2';
+  const cli = planFigmaCommand(['motion', 'inspect', url], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['motion', 'inspect', '--', url], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cli.argv, ['motion', 'inspect', '--', '1:2']);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.target.fileKey, 'FILEA');
+  assert.equal(cli.effects.figma, 'read');
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(planFigmaCommand(['motion', 'styles'], { adapter: 'cli' }).allowed, true);
+  assert.equal(planFigmaCommand(['motion', 'inspect', '1:2', 'extra']).allowed, false);
+});
+
 test('catalog reports workspace, network and shared-state effects independently from Figma effects', () => {
   assert.deepEqual(planFigmaCommand(['spec', 'Button', '--file', 'DESIGN.md'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
-  assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], { workspaceDir: '/work' }).effects.workspace, 'write');
+  assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json'], {
+    workspaceDir: '/work',
+  }).effects.workspace, 'read');
+  assert.equal(planFigmaCommand(['tokens', 'sync', 'tokens.json', '--apply'], {
+    workspaceDir: '/work',
+  }).effects.workspace, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot']).effects.shared, 'write');
   assert.equal(planFigmaCommand(['history', 'snapshot', '--json']).effects.shared, 'none');
   assert.equal(planFigmaCommand(['history', 'list']).effects.shared, 'read');
   assert.deepEqual(planFigmaCommand(['api', 'setup']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(planFigmaCommand(['api', 'index']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(planFigmaCommand(['api', 'context']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   assert.deepEqual(planFigmaCommand(['api', 'SceneNode']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   const apiPlan = planFigmaCommand(['api', 'setup']);
   assert.match(apiPlan.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
   assert.doesNotMatch(JSON.stringify(apiPlan.audit), /https?:|node_modules|figma-api[\\/]/i);
   assert.deepEqual(planFigmaCommand(['api']).effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'none',
   });
   assert.equal(planFigmaCommand(['map', 'storybook', 'http://localhost:6006']).effects.network, 'read');
   assert.equal(planFigmaCommand(['map', 'storybook', './storybook-static']).effects.network, 'none');
   assert.equal(planFigmaCommand(['import', 'https://storybook.example.com']).effects.network, 'read');
   assert.deepEqual(
     planFigmaCommand(['import', './tokens.css', '--print-context'], { workspaceDir: '/work' }).effects,
-    { figma: 'none', workspace: 'read', network: 'none', shared: 'none' },
+    { figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
   );
   assert.equal(
     planFigmaCommand(['import', './tokens.css', '--print-context'], { workspaceDir: '/work' })
@@ -1735,37 +2589,70 @@ test('catalog reports workspace, network and shared-state effects independently 
     planFigmaCommand([
       'import', './tokens.css', '--print-context', '--save', './converted.md',
     ], { workspaceDir: '/work' }).effects,
-    { figma: 'none', workspace: 'write', network: 'none', shared: 'none' },
+    { figma: 'none', editor: 'none', workspace: 'write', network: 'none', shared: 'none' },
   );
   assert.equal(planFigmaCommand(['kit', 'init', '.', '--storybook=https://storybook.example.com']).effects.network, 'read');
   assert.deepEqual(planFigmaCommand(['link', 'set', '1:2', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'write', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'write', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'list'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'accept', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'context', 'ui.button'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'read', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'read', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['link', 'configure', '--tokens', 'tokens.json'], { workspaceDir: '/work' }).effects, {
-    figma: 'none', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'none', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
   assert.deepEqual(planFigmaCommand(['export', 'node-json', '1:2', '-o', 'facts.json'], { workspaceDir: '/work' }).effects, {
-    figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+    figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
   });
+});
+
+test('catalog classifies editor selection, viewport, focus, and current-page effects explicitly', () => {
+  const cases = [
+    { argv: ['canvas', 'pages'], effect: 'read' },
+    { argv: ['canvas', 'page', 'Components'], effect: 'write' },
+    { argv: ['canvas', 'page-create', 'Draft'], effect: 'write' },
+    { argv: ['canvas', 'page-create', '--no-switch', 'Draft'], effect: 'none' },
+    { argv: ['create', 'frame', 'Frame'], effect: 'write' },
+    { argv: ['sizes', '1:2'], effect: 'write' },
+    { argv: ['combos', '--dry-run'], effect: 'read' },
+    { argv: ['combos', '1:2', '--dry-run'], effect: 'none' },
+    { argv: ['var', 'visualize', 'Collection'], effect: 'write' },
+    { argv: ['gradient', 'mesh', '#ffffff,#000000'], effect: 'write' },
+    { argv: ['slides', 'inspect'], effect: 'read' },
+    { argv: ['slides', 'create', 'Intro'], effect: 'write' },
+    { argv: ['jam', 'sticky', 'Note'], effect: 'write' },
+    { argv: ['jam', 'board'], effect: 'read' },
+    { argv: ['node', 'bindings'], effect: 'read' },
+    { argv: ['node', 'bindings', '1:2'], effect: 'none' },
+    { argv: ['link', 'inspect'], effect: 'read' },
+    { argv: ['link', 'inspect', '1:2'], effect: 'none' },
+    { argv: ['verify'], effect: 'read' },
+    { argv: ['verify', '1:2'], effect: 'none' },
+    { argv: ['pin', 'left'], effect: 'read' },
+    { argv: ['pin', 'left', '--node', '1:2'], effect: 'none' },
+  ];
+  for (const { argv, effect } of cases) {
+    const plan = planFigmaCommand(argv);
+    assert.equal(plan.allowed, true, argv.join(' '));
+    assert.equal(plan.effects.editor, effect, argv.join(' '));
+    if (effect === 'write') assert.equal(plan.execution.retry, 'never', argv.join(' '));
+  }
 });
 
 test('API reference plans expose only private-state effects and stable material provenance', () => {
   const setup = planFigmaCommand(['api', 'setup']);
   const lookup = planFigmaCommand(['api', 'show', 'FrameNode']);
   assert.deepEqual(setup.effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'write',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'write',
   });
   assert.deepEqual(lookup.effects, {
-    figma: 'none', workspace: 'none', network: 'none', shared: 'read',
+    figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   assert.equal(setup.audit.materialVersion, lookup.audit.materialVersion);
   assert.match(setup.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
@@ -1779,6 +2666,11 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     ['inspect', '1:2', '--format', 'yaml'],
     ['link', 'inspect', '1:2'],
     ['link', 'set', '1:2', 'ui.button'],
+    ['link', 'list'],
+    ['link', 'configure'],
+    ['link', 'status', 'ui.button'],
+    ['link', 'accept', 'ui.button'],
+    ['link', 'context', 'ui.button'],
     ['export', 'assets', '1:2'],
     ['history', 'snapshot', '--json'],
     ['history', 'list'],
@@ -1795,11 +2687,399 @@ test('cross-Adapter conformance keeps policy identical while migration exposure 
     assert.equal(mcpAdapter, 'mcp');
     assert.equal(cliAdapter, 'cli');
     assert.deepEqual(cliPolicy, mcpPolicy, argv.join(' '));
-    if (['export.assets', 'export.code-spec', 'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect', 'link.set', 'verify'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
+    if (['export.assets', 'export.code-spec', 'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect', 'link.set', 'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context', 'verify'].includes(mcp.id)) assert.equal(cliAllowed, mcpAllowed);
     else assert.equal(cliAllowed, false);
   }
   assert.equal(planFigmaCommand(['export', 'assets', '1:2']).execution.mode, 'tracked-job');
   assert.equal(planFigmaCommand(['future-command']).allowed, false);
+});
+
+test('Create Frame owns one canonical cross-Adapter write Plan', () => {
+  const variants = [
+    ['create', 'frame', 'Card'],
+    ['create', 'frame', 'Card', '-w', '100', '-h', '100', '-y', '0'],
+    ['create', 'frame', '--height=100', '--width=100', 'Card'],
+  ];
+  const plans = variants.map((argv) => planFigmaCommand(argv, {
+    adapter: 'mcp', fileKey: 'FILE_A',
+  }));
+  for (const plan of plans) {
+    const cli = planFigmaCommand(plan.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(plan.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.equal(plan.id, 'create.frame');
+    assert.deepEqual(plan.argv, ['create', 'frame', 'Card', '--width=100', '--height=100', '--y=0']);
+    assert.deepEqual(plan.effects, cli.effects);
+    assert.deepEqual(plan.target, cli.target);
+    assert.equal(plan.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'frame'], { adapter: 'mcp' }).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'frame', 'Card', '--future'], { adapter: 'mcp' }).allowed, false);
+});
+
+test('Create Image owns one canonical host-networked cross-Adapter write Plan', () => {
+  const variants = [
+    ['create', 'image', 'https://assets.example/photo.png'],
+    ['create', 'image', 'https://assets.example/photo.png', '-w', '100', '-h', '80'],
+    ['create', 'image', '--height=80', '--width=100', 'https://assets.example/photo.png'],
+  ];
+  for (const argv of variants) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, 'create.image');
+    assert.equal(mcp.effects.network, 'read');
+    assert.equal(mcp.effects.workspace, 'none');
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.deepEqual(mcp.target, cli.target);
+    assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'image'], { adapter: 'mcp' }).allowed, false);
+  assert.equal(planFigmaCommand([
+    'create', 'image', 'https://assets.example/photo.png', '--future',
+  ], { adapter: 'mcp' }).allowed, false);
+});
+
+test('solid Shape creation owns canonical cross-Adapter write Plans', () => {
+  const cases = [
+    [['create', 'rectangle', 'Card', '--fill', '#abc'], 'create.rect', ['create', 'rect', 'Card', '--fill=#AABBCC']],
+    [['create', 'circle', '--width', '80'], 'create.ellipse', ['create', 'ellipse', '--width=80']],
+    [['create', 'polygon', '--points', '6'], 'create.polygon', ['create', 'polygon', '--points=6']],
+    [['create', 'star', '--inner-radius', '.25'], 'create.star', ['create', 'star', '--inner-radius=0.25']],
+  ];
+  for (const [argv, id, canonical] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.argv, canonical);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.deepEqual(mcp.target, cli.target);
+    assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'polygon', '--points', '2']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'ellipse', '--radius', '2']).allowed, false);
+});
+
+test('Vector and Slice creation own canonical cross-Adapter write Plans', () => {
+  const network = { vertices: [], segments: [], regions: [] };
+  const cases = [
+    [['create', 'vector', 'Path', '--network', JSON.stringify(network)], 'create.vector', ['create', 'vector', 'Path', `--network=${JSON.stringify(network)}`]],
+    [['create', 'slice', 'Export', '-w', '320', '-h', '180'], 'create.slice', ['create', 'slice', 'Export', '--width=320', '--height=180']],
+  ];
+  for (const [argv, id, canonical] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, id); assert.deepEqual(mcp.argv, canonical);
+    assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'vector', '--network', '{}']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'slice', '--network', JSON.stringify(network)]).allowed, false);
+});
+
+test('Line creation owns one canonical cross-Adapter write Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=3-1';
+  const mcp = planFigmaCommand([
+    'create', 'line', '--x1', '-4', '--x2', '6', '--color', 'var:color/line',
+    '--parent', url,
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'create.line');
+  assert.deepEqual(mcp.argv, ['create', 'line', '--x1=-4', '--x2=6', '--color=var:color/line', '--parent', '3:1']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  assert.equal(planFigmaCommand(['create', 'line', '--length', '0']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'line', '--color', 'red']).allowed, false);
+});
+
+test('Auto Layout creation owns aliases and one canonical cross-Adapter write Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=3-1';
+  const mcp = planFigmaCommand([
+    'create', 'al', 'Stack', '-d', 'col', '-g', '12', '-p', '20',
+    '--fill', 'var:color/surface', '--parent', url,
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'create.autolayout');
+  assert.deepEqual(mcp.argv, ['create', 'autolayout', 'Stack', '--direction=col', '--gap=12', '--padding=20', '--fill=var:color/surface', '--parent', '3:1']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  assert.equal(planFigmaCommand(['create', 'autolayout', '--direction', 'grid']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'autolayout', '--fill', 'red']).allowed, false);
+});
+
+test('Text creation owns one canonical cross-Adapter write Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=3-1';
+  const mcp = planFigmaCommand([
+    'create', 'text', 'Hello', '-s', '18', '-w', 'BOLD', '--font', 'Roboto',
+    '--color', 'var:color/text', '--width', '240', '--parent', url,
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'create.text');
+  assert.deepEqual(mcp.argv, ['create', 'text', 'Hello', '--size=18', '--color=var:color/text', '--weight=bold', '--font=Roboto', '--width=240', '--parent', '3:1']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+  assert.equal(planFigmaCommand(['create', 'text']).allowed, false);
+  assert.equal(planFigmaCommand(['create', 'text', 'Hello', '--weight', 'black']).allowed, false);
+});
+
+test('Measurement mutations own action-specific canonical cross-Adapter write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const cases = [
+    [['measure', 'add', `${url}:right`, '3-4:left', '--relative', '0.5', '--text', 'Gap'], 'measure.add', ['measure', 'add', '1:2:right', '3:4:left', '--relative=0.5', '--text=Gap']],
+    [['measure', 'edit', 'm:1', '--offset', '-8'], 'measure.edit', ['measure', 'edit', 'm:1', '--offset=-8']],
+    [['measure', 'delete', 'm:1'], 'measure.delete', ['measure', 'delete', 'm:1']],
+  ];
+  for (const [argv, id, canonical] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.argv, canonical); assert.deepEqual(mcp.effects, cli.effects);
+    assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['measure', 'edit', 'm:1']).allowed, false);
+  assert.equal(planFigmaCommand(['measure', 'add', '1:2:right', '3:4:left', '--relative', '2']).allowed, false);
+});
+
+test('Measurement list owns one canonical cross-Adapter safe-read Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const mcp = planFigmaCommand(['measure', 'list', url], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true);
+  assert.equal(mcp.id, 'measure.list');
+  assert.deepEqual(mcp.argv, ['measure', 'list', '--', '1:2']);
+  assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.equal(mcp.execution.retry, 'safe-read');
+  assert.equal(planFigmaCommand(['measure', 'list', '1:2', '3:4']).allowed, false);
+});
+
+test('Prototype mutations own canonical cross-Adapter write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const cases = [
+    [['prototype', 'add', url, '--trigger', 'hover', '--navigate-to', '3:4'], 'prototype.add'],
+    [['prototype', 'set', url, '--json', '[{"trigger":null,"actions":[{"type":"BACK"}]}]'], 'prototype.set'],
+    [['prototype', 'clear', url], 'prototype.clear'],
+  ];
+  for (const [argv, id] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.effects, cli.effects); assert.equal(mcp.execution.retry, 'never');
+    assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['prototype', 'add', '1:2']).allowed, false);
+  assert.equal(planFigmaCommand(['prototype', 'set', '1:2', '--json', '{}']).allowed, false);
+});
+
+test('Library imports own canonical cross-Adapter irreversible write Plans', () => {
+  for (const subcommand of [
+    'import-variable', 'import-style', 'import-component', 'import-component-set',
+  ]) {
+    const raw = ['library', subcommand, ' PUBLISHED_KEY '];
+    const mcp = planFigmaCommand(raw, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(raw, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.deepEqual(cli.argv, ['library', subcommand, '--', 'PUBLISHED_KEY']);
+    assert.deepEqual(mcp.argv, cli.argv);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.equal(mcp.effects.figma, 'write');
+    assert.equal(mcp.execution.retry, 'never');
+  }
+});
+
+test('Shader mutations own canonical cross-Adapter non-retrying write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-2';
+  const cases = [
+    [['shader', 'import', ' SH:1 '], ['shader', 'import', '--', 'SH:1'], 'shader.import'],
+    [[
+      'shader', 'apply', url, 'SH:1', '--field=fill', '--properties', '{"power":2}',
+    ], [
+      'shader', 'apply', '--field', 'fill', '--properties', '{"power":2}', '--', '1:2', 'SH:1',
+    ], 'shader.apply'],
+  ];
+  for (const [raw, canonical, id] of cases) {
+    const mcp = planFigmaCommand(raw, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(mcp.argv, canonical); assert.deepEqual(cli.effects, mcp.effects);
+    assert.equal(mcp.effects.figma, 'write'); assert.equal(mcp.execution.retry, 'never');
+    if (id === 'shader.apply') assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['shader', 'import']).allowed, false);
+  assert.equal(planFigmaCommand(['shader', 'apply', '1:2', 'SH:1']).allowed, false);
+});
+
+test('Shader list owns one canonical cross-Adapter safe-read Plan', () => {
+  const mcp = planFigmaCommand(['shader', 'list'], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILEA' });
+  assert.equal(mcp.allowed, true);
+  assert.equal(mcp.id, 'shader.list');
+  assert.deepEqual(mcp.argv, ['shader', 'list']);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.equal(mcp.execution.retry, 'safe-read');
+  assert.equal(planFigmaCommand(['shader', 'list', 'extra']).allowed, false);
+});
+
+test('Slot create and edit own canonical cross-Adapter non-retrying write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=1-1';
+  const cases = [
+    [[
+      'slot', 'create', url, 'Content', '--settings', '{"minChildren":1}',
+    ], 'slot.create'],
+    [[
+      'slot', 'edit', url, 'Content#1:1', '--name', 'Body', '--preferred', '[]',
+    ], 'slot.edit'],
+  ];
+  for (const [raw, id] of cases) {
+    const mcp = planFigmaCommand(raw, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+    assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['slot', 'create', '1:1']).allowed, false);
+  assert.equal(planFigmaCommand(['slot', 'edit', '1:1', 'Content#1:1']).allowed, false);
+});
+
+test('Slot inspect and validate own canonical cross-Adapter safe-read Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=2-1';
+  for (const argv of [['slot', 'inspect', url], ['slot', 'validate'], ['slot', 'validate', url]]) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true);
+    assert.equal(mcp.id, `slot.${argv[1]}`);
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.equal(mcp.execution.retry, 'safe-read');
+    assert.equal(mcp.effects.editor, argv[1] === 'validate' ? 'read' : 'none');
+  }
+  assert.equal(planFigmaCommand(['slot', 'inspect']).allowed, false);
+  assert.equal(planFigmaCommand(['slot', 'validate', '1:1', '2:1']).allowed, false);
+});
+
+test('Slot reset owns one URL-targeted irreversible non-retrying Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Test?node-id=2-1';
+  const mcp = planFigmaCommand(['slot', 'reset', url], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'slot.reset'); assert.deepEqual(mcp.argv, ['slot', 'reset', '--', '2:1']);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand(['slot', 'reset']).allowed, false);
+});
+
+test('Grid Inspect owns one URL-targeted cross-Adapter safe-read Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const mcp = planFigmaCommand(['layout', 'grid', 'inspect', url], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.inspect');
+  assert.deepEqual(mcp.argv, ['layout', 'grid', 'inspect', '--', '2:1']);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.execution.retry, 'safe-read');
+  assert.equal(mcp.target.fileKey, 'FILEA'); assert.equal(mcp.effects.figma, 'read');
+  assert.equal(planFigmaCommand(['layout', 'grid', 'inspect']).allowed, false);
+  assert.equal(planFigmaCommand(['layout', 'grid', 'inspect', '2:1', '3:1']).allowed, false);
+});
+
+test('Grid Auto Flow owns one URL-targeted rollback-capable non-retrying Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const mcp = planFigmaCommand([
+    'layout', 'grid', 'auto-flow', url,
+    '--positioning=row_auto_flow', '--auto-tracks', 'rows',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.auto-flow');
+  assert.deepEqual(mcp.argv, [
+    'layout', 'grid', 'auto-flow', '--auto-tracks', 'rows',
+    '--positioning', 'row_auto_flow', '--', '2:1',
+  ]);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand(['layout', 'grid', 'auto-flow', '2:1']).allowed, false);
+});
+
+test('Grid Set owns one URL-targeted journaled non-retrying Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const mcp = planFigmaCommand([
+    'layout', 'grid', 'set', '--row-gap=12', url, '--rows', '2',
+    '--row-sizes', '[{"type":"fixed","value":40},{"type":"hug"}]',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.set');
+  assert.deepEqual(mcp.argv, [
+    'layout', 'grid', 'set', '--rows', '2', '--row-gap', '12',
+    '--row-sizes', '[{"type":"FIXED","value":40},{"type":"HUG"}]', '--', '2:1',
+  ]);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand(['layout', 'grid', 'set', '2:1']).allowed, false);
+});
+
+test('Grid Place owns one dual-URL rollback-capable non-retrying Plan', () => {
+  const grid = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const child = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=3-1';
+  const mcp = planFigmaCommand([
+    'layout', 'grid', 'place', child, '--column=2', grid, '--row', '1',
+    '--row-span', '2', '--horizontal-align', 'center',
+  ], { adapter: 'mcp' });
+  const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+  assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+  assert.equal(mcp.id, 'layout.grid.place');
+  assert.deepEqual(mcp.argv, [
+    'layout', 'grid', 'place', '--row', '1', '--column', '2', '--row-span', '2',
+    '--horizontal-align', 'center', '--', '3:1', '2:1',
+  ]);
+  assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+  assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  assert.equal(planFigmaCommand([
+    'layout', 'grid', 'place', '2:1', '3:1', '--row', '0',
+  ]).allowed, false);
+});
+
+test('Grid Track Reorder owns one URL-targeted irreversible non-retrying Plan per axis', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  for (const action of ['reorder-rows', 'reorder-columns']) {
+    const mcp = planFigmaCommand([
+      'layout', 'grid', action, '--to=3', url, '--from', '0,2',
+    ], { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, `layout.grid.${action}`);
+    assert.deepEqual(mcp.argv, [
+      'layout', 'grid', action, '--from', '0,2', '--to', '3', '--', '2:1',
+    ]);
+    assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+    assert.equal(mcp.execution.retry, 'never'); assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand([
+    'layout', 'grid', 'reorder-rows', '2:1', '--from', '0',
+  ]).allowed, false);
+});
+
+test('Font Axis Metadata owns URL-targeted cross-Adapter read and write Plans', () => {
+  const url = 'https://www.figma.com/design/FILEA/FILE_NAME?node-id=2-1';
+  const cases = [
+    [['font', 'axes', url], 'font.axes', 'safe-read', 'read'],
+    [['font', 'remember-axes', url, 'wght=357', '--start', '1', '--end', '4'], 'font.remember-axes', 'never', 'write'],
+    [['font', 'forget-axes', '--start=1', url, '--end=4'], 'font.forget-axes', 'never', 'write'],
+  ];
+  for (const [argv, id, retry, figma] of cases) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: mcp.target.fileKey });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true); assert.equal(mcp.id, id);
+    assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.execution.retry, retry);
+    assert.equal(mcp.effects.figma, figma); assert.equal(mcp.target.fileKey, 'FILEA');
+  }
+  assert.equal(planFigmaCommand(['font', 'axes']).allowed, false);
+  assert.equal(planFigmaCommand(['font', 'remember-axes', '2:1', 'wght=nope']).allowed, false);
 });
 
 test('History defaults and option order produce one cross-Adapter Command Plan', () => {
@@ -1824,6 +3104,26 @@ test('History defaults and option order produce one cross-Adapter Command Plan',
   }
 });
 
+test('History Save owns one canonical cross-Adapter non-retrying write Plan', () => {
+  const variants = [
+    ['history', 'save', 'Release 1', '--description', 'Ready'],
+    ['history', 'save', '--description=Ready', '--', 'Release 1'],
+  ];
+  for (const argv of variants) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true); assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, 'history.save');
+    assert.deepEqual(mcp.argv, [
+      'history', 'save', '--description', 'Ready', '--', 'Release 1',
+    ]);
+    assert.deepEqual(cli.effects, mcp.effects); assert.equal(mcp.effects.figma, 'write');
+    assert.equal(mcp.effects.shared, 'none'); assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['history', 'save']).allowed, false);
+  assert.equal(planFigmaCommand(['history', 'save', 'A', 'B']).allowed, false);
+});
+
 test('Asset Export canonicalizes defaults into one cross-Adapter tracked-job policy', () => {
   const options = { workspaceDir: '/work', fileKey: 'FILE_A' };
   const variants = [
@@ -1838,7 +3138,7 @@ test('Asset Export canonicalizes defaults into one cross-Adapter tracked-job pol
     assert.equal(plan.allowed, true);
     assert.equal(cli.allowed, true);
     assert.deepEqual(plan.effects, {
-      figma: 'read', workspace: 'write', network: 'none', shared: 'none',
+      figma: 'read', editor: 'none', workspace: 'write', network: 'none', shared: 'none',
     });
     assert.equal(plan.confirmation, 'none');
     assert.equal(plan.execution.mode, 'tracked-job');
@@ -1860,7 +3160,7 @@ test('each capability supplies a closed audit projection without user payloads o
   assert.deepEqual(plan.audit, {
     capability: 'render',
     operation: 'write',
-    effects: { figma: 'write', workspace: 'read', network: 'none', shared: 'none' },
+    effects: { figma: 'write', editor: 'none', workspace: 'read', network: 'none', shared: 'none' },
     targetKind: 'plugin-file',
     outputRoles: [],
   });

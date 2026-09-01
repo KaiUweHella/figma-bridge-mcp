@@ -1,4 +1,4 @@
-// Value-returning structural History Command Application.
+// Value-returning structural and named-version History Command Application.
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { buildSnapshotEval, normalizeSnapshot } from '../lib/doc-snapshot.js';
 import { diffSnapshots, formatDiff, formatChangelog, isEmptyDiff } from '../lib/doc-diff.js';
@@ -6,12 +6,71 @@ import { snapshotStore } from '../lib/snapshot-store.js';
 import {
   historyArgvFromRequest,
   historyPlanningArgvFromRequest,
+  MAX_VERSION_DESCRIPTION_CODE_UNITS,
+  MAX_VERSION_TITLE_CODE_UNITS,
   parseHistoryRequest,
 } from './history-request.js';
 
 export { historyArgvFromRequest, historyPlanningArgvFromRequest } from './history-request.js';
 
-const HISTORY_APPLICATION_IDS = new Set(['history.snapshot', 'history.list', 'history.diff']);
+const HISTORY_APPLICATION_IDS = new Set([
+  'history.save', 'history.snapshot', 'history.list', 'history.diff',
+]);
+export const MAX_VERSION_SAVE_ID_CODE_UNITS = 1_024;
+export const MAX_VERSION_SAVE_RESULT_CODE_UNITS = 16_384;
+const js = (value) => JSON.stringify(value).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+
+export function versionHistorySaveCode(request) {
+  const input = parseHistoryRequest(historyArgvFromRequest(request));
+  if (input.action !== 'save') throw new Error('Expected a History Save request.');
+  return `(async () => {
+    const request = ${js(input)};
+    const clean = (value, maximum) => typeof value === 'string' ? value.slice(0, maximum).replace(/[\\u0000-\\u001f\\u007f-\\u009f\\u2028-\\u202e\\u2066-\\u2069]/g, ' ') : '';
+    const saved = await figma.saveVersionHistoryAsync(request.title, request.description || undefined);
+    const id = saved && typeof saved.id === 'string' ? clean(saved.id, ${MAX_VERSION_SAVE_ID_CODE_UNITS}) : null;
+    const serialized = JSON.stringify({ id, title: request.title, description: request.description });
+    if (serialized.length > ${MAX_VERSION_SAVE_RESULT_CODE_UNITS}) throw new Error('History Save result exceeded its bounded response limit.');
+    return serialized;
+  })()`;
+}
+
+function exact(value, keys) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
+}
+const text = (value, maximum, empty = true) => typeof value === 'string'
+  && value.length <= maximum && (empty || value.length > 0);
+function invalid(message) {
+  const error = new Error(message);
+  Object.assign(error, {
+    kind: 'plugin-result', phase: 'plugin-response', outcome: 'unknown-after-dispatch', dispatchState: 'failed',
+  });
+  return error;
+}
+function safe(value) {
+  return String(value).replace(/[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g, ' ');
+}
+
+async function executeSave(request, { evaluate }) {
+  const serialized = await evaluate(versionHistorySaveCode(request));
+  if (typeof serialized !== 'string' || serialized.length > MAX_VERSION_SAVE_RESULT_CODE_UNITS) {
+    throw invalid('History Save returned an invalid bounded result.');
+  }
+  let result;
+  try { result = JSON.parse(serialized); } catch { throw invalid('History Save returned invalid JSON.'); }
+  if (!exact(result, ['id', 'title', 'description'])
+    || result.title !== request.title || result.description !== request.description
+    || !text(result.title, MAX_VERSION_TITLE_CODE_UNITS, false)
+    || !(result.description === null || text(result.description, MAX_VERSION_DESCRIPTION_CODE_UNITS))
+    || !(result.id === null || text(result.id, MAX_VERSION_SAVE_ID_CODE_UNITS, false))) {
+    throw invalid('History Save returned an invalid bounded result.');
+  }
+  const lines = [
+    `✓ Saved Figma version "${safe(result.title)}"${result.id ? ` (${safe(result.id)})` : ''}`,
+    ...(result.description ? [`  ${safe(result.description)}`] : []),
+  ];
+  return { stdout: lines.join('\n'), stderr: '', code: 0, result };
+}
 
 function bytes(value) {
   return value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} kB`;
@@ -134,9 +193,10 @@ async function executeDiff(request, { evaluate, store, workspaceIO }) {
 
 export async function executeHistory(request, adapters = {}) {
   if (typeof adapters.evaluate !== 'function') throw new TypeError('executeHistory requires evaluate(code).');
+  const input = parseHistoryRequest(historyArgvFromRequest(request));
+  if (input.action === 'save') return executeSave(input, adapters);
   const store = adapters.store || snapshotStore;
   if (!store || typeof store.resolve !== 'function') throw new TypeError('executeHistory requires a Snapshot Store.');
-  const input = parseHistoryRequest(historyArgvFromRequest(request));
   if (input.action === 'snapshot') return executeSnapshot(input, { ...adapters, store });
   if (input.action === 'list') return executeList({ ...adapters, store });
   if (input.action === 'diff') return executeDiff(input, { ...adapters, store });

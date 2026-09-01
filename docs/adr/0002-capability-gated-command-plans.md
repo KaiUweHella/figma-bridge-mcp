@@ -5,13 +5,16 @@ execution. Unknown commands default to denied, mutating and non-retryable so
 adding a command cannot accidentally bypass confirmation, targeting, path
 normalization or audit policy.
 
-Effects use one closed four-axis vocabulary: `figma`, `workspace`, `network`
-and `shared`, each with `none`, `read` or `write`. `network` records external
-outbound access; the authenticated localhost Bridge transport remains an
-availability fact. `shared` records persistent local state outside the
-workspace, including downloaded reference material. Adapters may translate a
-Capability-owned timeout class into deployment milliseconds, but they cannot
-replace that class or the accepted outcome codes after planning.
+Effects use one closed five-axis vocabulary: `figma`, `editor`, `workspace`,
+`network` and `shared`, each with `none`, `read` or `write`. `figma` describes
+document content; `editor` describes selection, viewport, focus and current-page
+context. An editor write is auditable and non-retrying but does not by itself
+require document-write confirmation. `network` records external outbound
+access; the authenticated localhost Bridge transport remains an availability
+fact. `shared` records persistent local state outside the workspace, including
+downloaded reference material. Adapters may translate a Capability-owned
+timeout class into deployment milliseconds, but they cannot replace that class
+or the accepted outcome codes after planning.
 
 The Capability Catalog resolves a closed recursive Figma Command Grammar before
 those decisions. Every exposed nested action and documented alias has an
@@ -128,6 +131,42 @@ rejects that degenerate evidence before persistence. The error retains the
 actual raster, logical and scaled geometry and points to a fresh Component
 Inventory identity, exact Variant retry or parent Component Set capture. A
 genuine one-pixel node remains valid.
+
+The documented `export node` and `export screenshot` compatibility names keep
+PNG on that verification path. JPG, SVG and PDF instead use one separate Image
+Export Command Application from Commander and `figma_run`. Their Command Plan
+owns the exact workspace output, target and deadline before readiness; the
+Application validates canonical bounded transport plus the requested container
+before Workspace I/O without projecting vector or document bytes as PNG
+verification evidence.
+
+Live `export node-json` follows the same ownership rule without becoming a REST
+capability. Commander and `figma_run` share one safe-read Node JSON Export
+Application with fallback disabled. The Plan owns the node or URL target and
+optional exact output before readiness; the Plugin and host independently bound
+the `JSON_REST_V1` result, and Workspace publication follows full structural
+validation of the requested node facts.
+
+`export video` likewise uses one closed request and one Plan-bound Video Export
+Application from Commander and `figma_run`. The Plan owns option-order-safe URL
+targeting, one exact Workspace output, a long timeout class and non-retrying
+execution before readiness. The Application resolves only the requested
+top-level animated Frame, preserves Figma's format-specific settings, and
+validates bounded canonical Base64 plus the requested MP4, GIF or WebM container
+before publication. The existing image/SVG Asset Stream remains closed to its
+versioned media kinds; video stays below both generic result ceilings until a
+separate versioned media-stream capability is designed.
+
+The public `sizes` write follows the same ownership rule for three generated
+Components. Its closed request owns optional Component, Instance or Frame
+targeting, base size and signed gap independently of option order. Commander and
+`figma_run` share one non-retrying Application with fallback disabled. It
+preflights the complete bounded source before cloning, owns exactly the three
+requested clones, converts FRAME clones directly without a temporary source
+Component, and freshly verifies page order, names, dimensions and placement.
+Failure removes attributable clones, restores selection and reports the bounded
+rollback or residue outcome instead of reducing an uncertain write to a generic
+timeout.
 
 Local structural history follows the same boundary. `history snapshot`,
 `history list` and `history diff` use one closed request Interface and History
@@ -273,7 +312,14 @@ conditional, variable and transition facts remain complete within explicit
 depth, collection, value, string and serialized-size limits; an excess fails
 instead of returning a plausible partial interaction contract. Safe JSON text
 escapes terminal controls without changing the parsed facts. Mutating
-`prototype add`, `set` and `clear` remain separate non-retrying Commands.
+`prototype add`, `set` and `clear` share a separate action-discriminated
+Prototype Mutation Application. It validates and bounds reaction JSON before
+readiness, journals the complete prior set, invokes `setReactionsAsync()` once,
+and compares a fresh readback. A mismatch restores the journal and reports
+verified rollback, exact reaction residue or unavailable verification. A
+native error followed by exact requested readback remains a successful
+`verified-after-error` outcome. Both Adapters preserve this bounded result
+through one decreasing non-retrying Plan deadline without Commander re-entry.
 
 `var list` and `var find` own one bounded Variable Discovery Application.
 Their closed request owns list/search intent, one optional literal `*`
@@ -349,12 +395,13 @@ validated before projection, and placement options select static generated
 code rather than crossing the Plugin seam as executable input.
 
 Page Navigation is adjacent but separate. `canvas pages` is a bounded safe
-read, while `canvas page` changes only the current editor page and is therefore
-never retried. Their closed request Interface preserves literal dash-prefixed
-queries after `--`; Commander and `figma_run` share one authentic Plan,
-deterministic id/exact-name/unique-substring resolution, bounded ambiguity and
-result validation, and control-safe text projection. Page creation and other
-document mutations remain outside this Application.
+read with `editor: read`, while `canvas page` retains `figma: read`, declares
+`editor: write`, requires no document-write confirmation and is never retried.
+Their closed request Interface preserves literal dash-prefixed queries after
+`--`; Commander and `figma_run` share one authentic Plan, deterministic
+id/exact-name/unique-substring resolution, bounded ambiguity and result
+validation, and control-safe text projection. Page creation and other document
+mutations remain outside this Application.
 
 The mutating `canvas page-create` and `canvas page-divider` actions form a
 separate Page Structure Application. Their closed request owns page names,
@@ -364,4 +411,327 @@ divider indexes are checked before creation, and optional divider names must
 retain Figma's native all-asterisk, all-dash or all-space semantics. If a later
 rename, page switch or divider insertion fails, the Application removes the
 object it created where Figma permits and reports bounded possible residue
-otherwise.
+otherwise. Page creation declares `editor: write` only when its closed switch
+intent makes the new page current; `--no-switch` and page-divider creation
+declare `editor: none`.
+
+The incremental Legacy Write migration now also owns `node rename`. Its closed
+request preserves empty and dash-prefixed names, projects URL target identity
+only from the Node Reference and feeds one non-retrying Command Plan to the
+same Application from Commander and `figma_run`. A matching name is a no-op;
+otherwise a fresh exact-id readback, rather than the setter acknowledgement,
+decides success. Mismatches restore the previous name once and emit the shared
+bounded mutation outcome as verified rollback, partial residue or unavailable
+verification. This reduces the explicit direct Node Write inventory without
+changing another Legacy Command's compatibility behavior.
+
+`node resize` follows as another bounded Legacy Write migration. Its closed
+request treats numeric, KEEP, FILL and HUG axis intent as data, retains signed
+numeric tokens through an explicit literal boundary and projects URL identity
+only from the Node Reference. Commander and `figma_run` execute one
+non-retrying Application. Numeric and KEEP postconditions verify both geometry
+and sizing mode; FILL and HUG verify their native modes while reporting actual
+dimensions separately. Failure restores and freshly verifies both prior sizes
+and both prior modes, producing the shared rollback, residue or unavailable-
+verification outcome instead of accepting a partial two-axis write.
+
+`node reparent` follows the same incremental seam for hierarchy mutation. Its
+closed request keeps child identity, destination identity, optional final
+index, canvas-position intent and JSON projection together before readiness;
+two Figma URLs must identify the same target file. Commander and `figma_run`
+execute one non-retrying Application. The Application bounds and snapshots the
+complete source and destination child order, rejects cycles before mutation,
+and accepts success only after fresh exact hierarchy readback. Canvas-position
+preservation remains a separate observed result because Auto Layout can make
+it inapplicable. A mismatch restores the original parent, child index and local
+position and then reports verified rollback, bounded residue or unavailable
+verification rather than trusting the mutation acknowledgement.
+
+`node group` is the adjacent multi-parent structural slice. Its closed request
+bounds and canonicalizes every selected Node Reference plus optional parent,
+final index, name and JSON projection; any URL identities must name one file.
+Commander and `figma_run` execute one non-retrying Application. Preflight
+captures every affected parent order and selected local position, including
+cross-parent grouping behind an explicit destination. Success requires fresh
+Group identity, exact selected membership and exact readback of every affected
+parent. A mismatch uses the new Group as the rollback boundary, ungroups it,
+restores original parents, indices and positions, and reports verified
+rollback, bounded residue or unavailable verification.
+
+`node ungroup` closes the inverse public action without pretending it is
+generically reversible. One exact Group or Transform Group is preflighted with
+its full bounded child order and original parent position. Commander and
+`figma_run` execute one non-retrying Application and accept success only when a
+fresh read proves the group absent, the ordered children spliced into its old
+index and every child attached to the old parent. If the native operation
+throws or verification disagrees, a freshly unchanged hierarchy is explicit;
+otherwise the Application reports bounded group, parent-order and child-parent
+residue or unavailable verification. It does not recreate a lossy stand-in for
+an arbitrary Transform Group.
+
+`node flatten` owns the adjacent irreversible Vector replacement. Its closed
+request bounds all source Node References plus optional destination, final
+index, name and JSON projection, rejecting duplicate or cross-file identities
+before readiness. One non-retrying Application snapshots every affected
+parent order and accepts success only after fresh proof of the native Vector,
+its exact destination replacement, removal of obsolete source identities and
+unchanged non-destination parent order. Because arbitrary source geometry
+cannot be reconstructed losslessly, a mismatch reports freshly unchanged
+state, bounded Vector/source/parent residue or unavailable verification rather
+than fabricating rollback.
+
+`node boolean` owns the adjacent Boolean Operation replacement. Its closed
+request bounds and canonicalizes the operation, ordered source Node References,
+optional destination, final index, name and JSON projection; URL identities
+must name one file. Commander and `figma_run` execute one non-retrying
+Application whose executable branch is selected only from the four closed
+operations. Success requires fresh proof of a `BOOLEAN_OPERATION`, the matching
+official operation enum, exact ordered source membership and exact replacement
+in every affected parent. A thrown or mismatched native operation reports
+freshly unchanged state, bounded Boolean/parent/member residue or unavailable
+verification instead of trusting the returned node or claiming synthetic
+reconstruction.
+
+`node bind` owns the adjacent single-Node Variable mutation while the separate
+`node bindings` Application remains its read-only discovery counterpart. The
+closed request canonicalizes one Node Reference, supported property, Variable
+query and optional Collection query; ambiguous resources and `--batch` fail
+before readiness. One shared non-retrying Application journals the complete
+prior scalar alias topology or Paint list, applies the exact legacy single-
+property outcome and accepts success only from fresh alias readback. Padding
+and independent-corner bindings are verified as multi-field topology. A
+partial setter or postcondition mismatch restores and re-reads the full prior
+topology, otherwise reporting bounded field residue or unavailable
+verification. Commander and `figma_run` do not retain a second binding path.
+
+`node set-fill` owns the narrower complete-Paint-list replacement. Its closed
+request preserves literal RGB and explicit `var:` intent while rejecting
+ambiguous exact Variable names instead of selecting the first matching
+Collection. One shared non-retrying Application snapshots the complete prior
+Paint list and accepts success only after fresh proof of the exact literal RGB
+or Variable alias on the single resulting Solid Paint. A mismatch restores and
+re-reads the complete prior list, otherwise reporting bounded fill residue or
+unavailable verification. Commander and `figma_run` share that same outcome
+semantics and retain no direct fill mutation path.
+
+`node set-image` owns the adjacent workspace-backed Image Paint replacement.
+Its closed request preserves the legacy scale modes and the legacy fallback of
+unknown scale values to `FILL`, while the Capability Catalog canonicalizes and
+authorizes the source path before Plugin readiness. One shared non-retrying
+Application creates the Image resource, replaces the complete Paint list and
+requires fresh Image-hash, scale-mode and default-presentation readback.
+Placeholder annotation clearing remains best-effort but its effective outcome
+is explicit. A mismatch restores and verifies the prior Paint and annotation
+fields; because Figma has no Image-resource deletion operation, every failure
+after `createImage()` still reports possible Image-resource residue instead of
+claiming complete rollback. Commander and `figma_run` share this exact seam.
+
+Generic `node set` completes the direct Node Write migration without widening
+its disabled batch surface. Its closed request owns one Node Reference, the
+legacy typed property vocabulary, optional Collection query and deterministic
+property order. Commander and `figma_run` execute one non-retrying Command
+Application. Before the first setter, the Application resolves every supported
+Paint Variable without first-match ambiguity and journals every supported
+scalar, Paint list, effect list, corner, constraint, padding and size field.
+Unsupported properties remain bounded `skipped` facts; a request with no
+supported property is a no-mutation refusal. Success requires one fresh read
+matching every effective property. A setter failure or mismatch restores the
+complete journal in reverse order and reports verified rollback, exact
+property residue or unavailable verification. Explicit `var:` bindings remain
+native aliases, literal colours remain literal, and `--batch` stays gated until
+it has its own bounded typed mutation contract.
+
+`create frame` is the first primitive-creation tracer off the compatibility
+process seam. Its closed request canonicalizes bounded geometry, smart
+positioning, optional parent/index, literal fill or explicit `var:` fill and
+corner radius; a parent URL contributes target identity but never reaches the
+Plugin payload. Commander and `figma_run` execute one non-retrying Application
+under the Plan deadline. Resource and hierarchy preflight happen before the
+single `createFrame()` call, and success requires fresh identity, membership,
+geometry, Paint, radius and selection readback. Failure removes only the new
+frame and restores selection, then reports verified rollback, exact created-
+node/membership/selection residue or unavailable verification. A mechanical
+public Create-family legacy-write budget records the remaining actions and may
+only decrease as adjacent primitives migrate.
+
+Rectangle, Ellipse, Polygon and Star form the adjacent solid-Shape creation
+Application. One closed union preserves their aliases, defaults and distinct
+options while allowing only the four corresponding native factory calls.
+Literal and explicit Variable fill/stroke resources resolve before creation;
+duplicate exact Variable names are a no-mutation refusal. The shared
+Application freshly verifies factory type, parent order, geometry, Paints,
+Rectangle radius/opacity and Polygon/Star point geometry, then removes only its
+new Shape and restores selection on failure. Both Adapters consume the same
+non-retrying Plan and bounded outcome. The mechanically pinned public Create
+legacy-write count consequently falls from nine to five.
+
+Vector and Slice share the adjacent Canvas Node creation Application. Its
+closed union preserves their distinct options and existing smart-position gap;
+VectorNetwork JSON is bounded before dispatch and compared exactly after the
+asynchronous setter. Slice geometry and both kinds' identity, hierarchy,
+position and selection require fresh readback after one native factory call.
+Failure removes only the newly created node, restores selection and reports
+verified rollback, exact residue or unavailable verification. Both Adapters
+consume the same non-retrying Plan and bounded outcome. The mechanically pinned
+public Create legacy-write count consequently falls from five to three.
+
+Line creation is a separate closed Application because endpoint-derived
+rotation and zero-height geometry do not share the solid-Shape contract. It
+preserves the existing smart-position gap and length fallback, resolves an
+explicit stroke Variable before the factory call without first-match
+ambiguity, and freshly verifies hierarchy, geometry, rotation, Paint, stroke
+weight and selection. Failure removes only the newly created Line, restores
+selection and reports verified rollback, exact residue or unavailable
+verification. Both Adapters use the same non-retrying Plan and bounded outcome;
+the mechanically pinned public Create legacy-write count falls from three to
+two.
+
+Auto Layout creation remains distinct from generic Frame creation because its
+closed result must prove layout direction, both hug-sizing modes, uniform gap
+and padding as well as its optional Paint and radius. The Application preserves
+the `al` alias and existing smart-position behavior, resolves explicit
+Variables before its one factory call, then freshly verifies hierarchy,
+selection and every requested layout fact. Failure removes only the new Frame
+and reports verified rollback, exact residue or unavailable verification. Both
+Adapters use the same non-retrying Plan and bounded outcome; the mechanically
+pinned public Create legacy-write count falls from two to one.
+
+Text creation completes the public Create-family migration. Its closed request
+bounds content without echoing it in the result, normalizes the supported font
+weights, and preserves intrinsic versus fixed-width auto-resize behavior. The
+Application resolves an explicit fill Variable and loads the exact font before
+the first factory call. It then freshly verifies characters, font, size, Paint,
+geometry, hierarchy and selection. Failure removes only the new Text node and
+reports verified rollback, exact residue or unavailable verification. Both
+Adapters use the same non-retrying Plan and bounded outcome; the mechanically
+pinned public Create legacy-write count reaches zero.
+
+Dev Mode Measurement add, edit and delete form one action-discriminated write
+Application. Its closed request canonicalizes endpoint sides, URL-derived file
+identity, fixed/relative offsets and bounded free text. Preflight requires Dev
+Mode, exact nodes or Measurement identity and a bounded unique page inventory.
+Fresh collection readback proves every mutation. Add removes only its new
+Measurement on failure; edit restores the prior offset and text; irreversible
+delete distinguishes verified deletion, unchanged state, partial residue and
+unavailable verification. Both Adapters consume the same non-retrying Plan and
+bounded outcome without Commander re-entry.
+
+Published Variable, Style, Component and Component Set imports form one closed
+irreversible Library Import Application. The request admits exactly one bounded
+stable key and selects exactly one corresponding native import method. After
+that single call, a fresh lookup by returned id must prove the requested key,
+resource kind and remote identity; Variable imports also prove their remote
+Collection. Descriptions are bounded before crossing the Plugin seam. Because
+Figma exposes no safe inverse and the imported resource may have existed before
+the call, a native error or unavailable lookup reports possible unknown residue,
+while a mismatched fresh identity reports partial residue. Neither case deletes
+or retries the resource. CLI and MCP share the same decreasing deadline and
+non-retrying Plan; the mechanically pinned direct Library Import legacy-write
+count reaches zero.
+
+Shader import and apply form one action-discriminated Shader Mutation
+Application. Its closed request bounds the Shader id and property JSON, admits
+only fill, stroke or effect placement, and projects file identity only from the
+apply target Node Reference. Import invokes `importShaderById` exactly once and
+then verifies exact id, imported state and type against a fresh bounded
+`listAvailableShaders` result. With no safe inverse, native or verification
+uncertainty reports possible residue and is never retried. Apply does not import:
+it requires one uniquely available, already imported and type-compatible
+Shader, journals the complete existing field, assigns once and verifies fresh
+placement while preserving the existing prefix unless replacement was explicit.
+A mismatch restores the journal when possible and otherwise reports exact field
+residue. CLI and MCP share one decreasing deadline, bounded response and
+non-retrying Plan; the mechanically pinned direct Shader legacy-write count
+reaches zero.
+
+Slot creation and Slot-property editing form one configuration Application,
+while reset is a distinct irreversible Application. The closed request bounds the
+Component Node Reference, generated property name, `SlotSettings`, preferred
+published Component keys and description. Create snapshots existing Slot and
+definition identities, calls `createSlot()` once, optionally edits the newly
+created definition, and freshly proves one exact descendant plus one definition.
+Failure removes only those new identities and reports any remaining or missing
+topology. Edit resolves one exact full property name, journals its effective
+configuration, preserves unspecified settings, and freshly proves the returned
+name and definition; failure restores the journal when possible. CLI and MCP
+share one decreasing deadline and non-retrying Plan without Commander re-entry.
+`slot reset` separately snapshots bounded child identities and limit violations,
+calls `resetSlot()` exactly once, then reads the resulting Slot facts freshly.
+A normal native return plus fresh readback is `native-confirmed`, not an
+independently derived default-state proof. Because the Plugin API exposes
+neither the target default subtree nor a safe inverse, any dispatch error or
+missing readback is `verification-unavailable` and is never retried. The
+mechanically pinned direct Slot legacy-write count reaches zero.
+
+`layout grid auto-flow` owns the first mutation slice of the Auto Layout Grid
+family. Its closed request treats `gridAutoTracks` and
+`gridItemsPositioning` as one coupled intent and preserves only the official
+`NONE|ROWS` and `MANUAL|ROW_AUTO_FLOW` values. One shared, non-retrying
+Application snapshots both fields, avoids exact no-ops, assigns each field at
+most once, and requires fresh proof of both values. A thrown setter with an
+exact fresh result is `verified-after-error`; every other mismatch restores
+and re-reads both prior fields, then reports verified rollback, exact field
+residue or unavailable verification. Commander and `figma_run` retain no
+second auto-flow write path. The measured remaining Auto Layout Grid legacy
+writes are `set`, `reorder-rows`, and `reorder-columns`.
+
+`layout grid place` owns the neighbouring child-placement slice. Its closed
+request binds one Grid and Scene child to one Figma target, validates manual
+positioning, finite Grid bounds, requested spans, alignment values, ancestry
+and occupied cells before the first write. The shared non-retrying Application
+performs one native `appendChildAt`, applies only explicit child fields and
+accepts a thrown acknowledgement only when fresh hierarchy and Grid readback
+prove the complete requested result. Any other post-dispatch mismatch restores
+the original parent order, free-layout position or prior Grid cell, spans and
+alignments, then reports verified rollback, bounded residue or unavailable
+verification. Commander and `figma_run` retain no second placement path.
+
+`layout grid reorder-rows|reorder-columns` owns the irreversible native track
+permutation slice. Its closed request bounds the source indices and insertion
+index before dispatch. One shared non-retrying Application calls the selected
+native reorder method once, validates its complete permutation, then freshly
+proves the reordered track definitions, every child anchor and span, and all
+unchanged Grid facts. The Plugin API exposes no generally safe inverse for
+non-contiguous or spanning moves, so this seam does not invent rollback: a
+thrown call is `no-mutation` only when exact fresh state proves the prior Grid;
+confirmed differences are `partial-residue`, and unreadable post-state remains
+`verification-unavailable`. Commander and `figma_run` retain no second track
+reorder path. The measured remaining Auto Layout Grid legacy write is `set`.
+
+`layout grid set` closes the final Auto Layout Grid write. Its request owns the
+complete optional dimension, gap and bounded track-size grammar, including the
+existing conversion from a non-Grid layout. The shared non-retrying
+Application snapshots Grid configuration and bounded child facts, refuses a
+manual shrink beneath an occupied span, avoids an exact no-op, and freshly
+proves the coupled requested configuration plus preservation of unspecified
+facts. Failure restores the prior Grid journal and manual child placement, or
+the prior non-Grid mode and free child geometry, then reports exact rollback,
+bounded residue or unavailable verification. Commander and `figma_run` retain
+no second configuration path. The mechanically pinned direct Auto Layout Grid
+legacy-write count reaches zero.
+
+All migrated Command Applications now share one Command Failure Outcome
+projection. It validates the closed terminal Dispatch state and version-1
+mutation report, accepts only the reviewed mutation outcomes and bounded
+cardinalities, and drops residue identities plus implementation-specific
+details. CLI error text, MCP structured error content and private Audit schema
+6 therefore carry the same attempted, restored and residue counts. Existing
+typed mutation-report property names remain readable through an explicit
+allowlist; new Applications use `mutationReport`. Invalid or forged reports
+are omitted rather than converted into policy evidence. Audit History keeps
+schemas 2–5 readable and folds schema-6 Dispatch and mutation facts forward.
+
+`combos` now closes the remaining Component Combinations seam. One bounded
+request and non-retrying Application serve Commander and `figma_run`; dry-run
+is analysis-only, while writes own every label and conversion identity, require
+the complete Cartesian grid, freshly verify it, and preserve rollback or
+bounded residue. Neither Adapter re-enters the legacy two-eval Action.
+
+`tokens sync` now owns its complete three-way transaction as one Command
+Application. Commander and `figma_run` share the same closed request, source
+preparation, exact Collection observation, preflight revalidation, mutation
+receipt and lock publication without Commander re-entry. Dry-run is a safe
+Workspace/Figma read; apply is non-retrying and keeps one decreasing deadline.
+One per-lockfile process lease spans prior-lock read through atomic publication,
+while malformed or incomplete post-dispatch evidence remains a structured
+verification failure and can never advance the lock.

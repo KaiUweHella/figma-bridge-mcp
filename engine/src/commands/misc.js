@@ -8,11 +8,6 @@ import {
 } from '../../../src/engine.js';
 import { normalizeNodeId } from '../lib/node-id.js';
 import {
-  annotationAddCode, annotationCategoriesCode, annotationCategoryCreateCode,
-  annotationCategoryEditCode, annotationCategoryRemoveCode, annotationEditCode,
-  annotationRemoveCode, parseProperties,
-} from '../lib/annotation-management.js';
-import {
   program,
   checkConnection,
   daemonExec,
@@ -81,6 +76,66 @@ import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanningArgvFromRequest,
 } from '../application/layout-grid-facts-command.js';
+import {
+  executeLayoutGuideMutationPlan,
+  layoutGuideMutationPlanningArgvFromRequest,
+} from '../application/layout-guide-mutation-command.js';
+import {
+  devResourceReadPlanningArgvFromRequest,
+  executeDevResourceReadPlan,
+} from '../application/dev-resource-read-command.js';
+import {
+  devResourceMutationPlanningArgvFromRequest,
+  executeDevResourceMutationPlan,
+} from '../application/dev-resource-mutation-command.js';
+import {
+  executeSectionInventoryPlan,
+  sectionInventoryArgvFromRequest,
+} from '../application/section-inventory-command.js';
+import {
+  executeSectionFitPlan,
+  sectionFitPlanningArgvFromRequest,
+} from '../application/section-fit-command.js';
+import {
+  executeSectionArrangePlan,
+  sectionArrangePlanningArgvFromRequest,
+} from '../application/section-arrange-command.js';
+import {
+  executeSectionAddPlan,
+  sectionAddPlanningArgvFromRequest,
+} from '../application/section-add-command.js';
+import {
+  executeSectionCreatePlan,
+  sectionCreatePlanningArgvFromRequest,
+} from '../application/section-create-command.js';
+import {
+  annotationCategoryInventoryArgvFromRequest,
+  executeAnnotationCategoryInventoryPlan,
+} from '../application/annotation-category-inventory-command.js';
+import {
+  annotationReadPlanningArgvFromRequest,
+  executeAnnotationReadPlan,
+} from '../application/annotation-read-command.js';
+import {
+  annotationClearPlanningArgvFromRequest,
+  executeAnnotationClearPlan,
+} from '../application/annotation-clear-command.js';
+import {
+  annotationRemovePlanningArgvFromRequest,
+  executeAnnotationRemovePlan,
+} from '../application/annotation-remove-command.js';
+import {
+  annotationEditPlanningArgvFromRequest,
+  executeAnnotationEditPlan,
+} from '../application/annotation-edit-command.js';
+import {
+  annotationCategoryMutationArgvFromRequest,
+  executeAnnotationCategoryMutationPlan,
+} from '../application/annotation-category-mutation-command.js';
+import {
+  annotationAddPlanningArgvFromRequest,
+  executeAnnotationAddPlan,
+} from '../application/annotation-add-command.js';
 
 // NOTE: there is deliberately NO `blocks` command — this tool ships no
 // pre-built page content. Agents compose layouts themselves via `render`.
@@ -88,6 +143,30 @@ import {
 
 // ============ DEV RESOURCES ============
 // Link Figma nodes to dev artifacts (Storybook, GitHub, docs, etc.)
+
+async function runDevResourceMutationCommand(request) {
+  try {
+    const plan = planFigmaCommand(devResourceMutationPlanningArgvFromRequest(request), {
+      adapter: 'cli',
+      fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+        return executeDevResourceMutationPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Dev Resource Mutation failed: ' + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
 
 const devCmd = program
   .command('dev')
@@ -97,99 +176,60 @@ devCmd
   .command('link <nodeId> <url>')
   .description('Add a dev resource link to a node')
   .option('-n, --name <name>', 'Display name for the link')
+  .allowExcessArguments(false)
   .action(async (nodeId, url, options) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (typeof n.addDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
-      await n.addDevResourceAsync(${JSON.stringify(url)}, ${JSON.stringify(options.name || '')});
-      const all = await n.getDevResourcesAsync();
-      return { id: n.id, name: n.name, count: all.length };
-    })()`;
-    try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Linked: ${r.name} (${r.id}) → ${url}`);
-      console.log(chalk.gray(`  Total dev resources: ${r.count}`));
-    } catch (e) {
-      handleEvalError(e);
-    }
+    await runDevResourceMutationCommand({
+      action: 'link', nodeId, url, name: options.name || null,
+    });
   });
 
 devCmd
   .command('list [nodeId]')
   .description('List dev resources on a node (or current selection)')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const target = nodeId
-      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
-      : `figma.currentPage.selection[0]`;
-    const code = `(async () => {
-      const n = ${target};
-      if (!n) throw new Error('No node found');
-      if (typeof n.getDevResourcesAsync !== 'function') throw new Error('Node does not support dev resources');
-      const r = await n.getDevResourcesAsync();
-      return { id: n.id, name: n.name, resources: r };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.bold(`${r.name} (${r.id})`));
-      if (!r.resources || r.resources.length === 0) {
-        console.log(chalk.gray('  (no dev resources)'));
-        return;
-      }
-      r.resources.forEach((res, i) => {
-        console.log(`  ${i + 1}. ${res.name || '(unnamed)'}`);
-        console.log(chalk.gray(`     ${res.url}`));
+      const plan = planFigmaCommand(devResourceReadPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeDevResourceReadPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Dev Resource Read failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
 devCmd
   .command('unlink <nodeId> <url>')
   .description('Remove a dev resource link from a node')
+  .allowExcessArguments(false)
   .action(async (nodeId, url) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (typeof n.deleteDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
-      await n.deleteDevResourceAsync(${JSON.stringify(url)});
-      const all = await n.getDevResourcesAsync();
-      return { id: n.id, name: n.name, count: all.length };
-    })()`;
-    try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Unlinked from ${r.name} (${r.id})`);
-      console.log(chalk.gray(`  Remaining dev resources: ${r.count}`));
-    } catch (e) {
-      handleEvalError(e);
-    }
+    await runDevResourceMutationCommand({ action: 'unlink', nodeId, url });
   });
 
 devCmd
   .command('edit <nodeId> <currentUrl> <newUrl>')
   .description('Edit an existing dev resource (replace URL and/or name)')
   .option('-n, --name <name>', 'New display name')
+  .allowExcessArguments(false)
   .action(async (nodeId, currentUrl, newUrl, options) => {
-    await checkConnection();
-    const updateObj = { url: newUrl };
-    if (options.name) updateObj.name = options.name;
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (typeof n.editDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
-      await n.editDevResourceAsync(${JSON.stringify(currentUrl)}, ${JSON.stringify(updateObj)});
-      return { id: n.id, name: n.name };
-    })()`;
-    try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Edited dev resource on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
-    }
+    await runDevResourceMutationCommand({
+      action: 'edit', nodeId, currentUrl, newUrl, name: options.name || null,
+    });
   });
 
 // ============ SECTIONS ============
@@ -199,57 +239,35 @@ const sectionCmd = program
   .command('section')
   .description('Manage Figma sections (organize frames into named groups)');
 
-// The one place the section geometry lives: wrap section `s` around its
-// children (relative coords) with PAD margin + HEADER allowance, shifting
-// the children by the inverse so nothing moves on the canvas. Shared by
-// `create` and `fit` — two copies of this math drift, and a drifted copy
-// means sections that jump or overlap on every reflow.
-const SECTION_HEADER = 40;
-function sectionFitSnippet(padExpr) {
-  return `
-      const PAD = ${padExpr}, HEADER = ${SECTION_HEADER};
-      const minX = Math.min(...s.children.map(c => c.x));
-      const minY = Math.min(...s.children.map(c => c.y));
-      const maxX = Math.max(...s.children.map(c => c.x + c.width));
-      const maxY = Math.max(...s.children.map(c => c.y + c.height));
-      const dx = minX - PAD;
-      const dy = minY - PAD - HEADER;
-      s.x += dx;
-      s.y += dy;
-      s.resizeWithoutConstraints(maxX - minX + 2 * PAD, maxY - minY + 2 * PAD + HEADER);
-      for (const c of s.children) { c.x -= dx; c.y -= dy; }
-`;
-}
-
 sectionCmd
   .command('create <name> [nodeIds]')
   .description('Create a section, optionally moving comma-separated node IDs into it')
+  .allowExcessArguments(false)
   .action(async (name, nodeIds) => {
-    await checkConnection();
-    const ids = nodeIds ? JSON.stringify(nodeIds.split(',').map(s => s.trim())) : '[]';
-    const code = `(async () => {
-      const ids = ${ids};
-      const s = figma.createSection();
-      s.name = ${JSON.stringify(name)};
-      for (const id of ids) {
-        const n = await figma.getNodeByIdAsync(id);
-        if (!n) throw new Error('Node not found: ' + id);
-        // Preserve the node's visual position across reparenting: appendChild
-        // keeps x/y numbers, which become section-relative.
-        const b = n.absoluteBoundingBox;
-        s.appendChild(n);
-        if (b) { n.x = b.x - s.x; n.y = b.y - s.y; }
-      }
-      if (s.children.length > 0) {
-        ${sectionFitSnippet(64)}
-      }
-      return { id: s.id, name: s.name, count: ids.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Created section "${r.name}" (${r.id}) with ${r.count} child(ren)`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionCreatePlanningArgvFromRequest({
+        name,
+        nodeIds: nodeIds === undefined
+          ? [] : nodeIds.split(',').map((value) => value.trim()),
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionCreatePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Create failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -257,23 +275,31 @@ sectionCmd
   .command('fit <sectionId>')
   .description('Shrink/grow a section to wrap its children (children stay visually in place)')
   .option('--pad <n>', 'Padding around children', '64')
+  .allowExcessArguments(false)
   .action(async (sectionId, options) => {
-    await checkConnection();
-    const pad = Number(options.pad) || 64;
-    const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(sectionId).id)});
-      if (!s) throw new Error('Section not found: ${sectionId}');
-      if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
-      if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
-      ${sectionFitSnippet(pad)}
-      return { id: s.id, name: s.name, width: s.width, height: s.height };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (r.empty) console.log(chalk.yellow('⚠'), `Section "${r.name}" is empty — nothing to fit`);
-      else console.log(chalk.green('✓'), `Fitted "${r.name}" to ${Math.round(r.width)}×${Math.round(r.height)}`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionFitPlanningArgvFromRequest({
+        sectionId,
+        pad: options.pad,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionFitPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Fit failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -284,100 +310,91 @@ sectionCmd
   .option('-g, --gap <n>', 'Gap between children', '48')
   .option('--pad <n>', 'Padding around children', '64')
   .option('--group-rows', 'Start a new row per node type (component sets, then components, instances, frames), sorted by name within each group')
+  .allowExcessArguments(false)
   .action(async (sectionId, options) => {
-    await checkConnection();
-    const cols = Math.max(1, parseInt(options.cols) || 4);
-    const gap = Number(options.gap) || 48;
-    const pad = Number(options.pad) || 64;
-    const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(normalizeNodeId(sectionId).id)});
-      if (!s) throw new Error('Section not found: ${sectionId}');
-      if (s.type !== 'SECTION') throw new Error('Not a section: ' + s.type);
-      if (s.children.length === 0) return { id: s.id, name: s.name, empty: true };
-      const COLS = ${cols}, GAP = ${gap}, PAD = ${pad}, HEADER = ${SECTION_HEADER};
-      const GROUP = ${options.groupRows === true};
-      // --group-rows: one row per node type keeps a design-system section
-      // scannable (variant sets together, loose components together).
-      const rank = t => ({ COMPONENT_SET: 0, COMPONENT: 1, INSTANCE: 2, FRAME: 3 })[t] ?? 4;
-      const kids = GROUP
-        ? [...s.children].sort((a, b) => (rank(a.type) - rank(b.type)) || a.name.localeCompare(b.name))
-        : [...s.children].sort((a, b) => (a.y - b.y) || (a.x - b.x));
-      let x = PAD, y = PAD + HEADER, rowH = 0, col = 0, maxRight = 0, prevType = null;
-      for (const c of kids) {
-        const typeBreak = GROUP && prevType !== null && c.type !== prevType;
-        if (col === COLS || typeBreak) { col = 0; x = PAD; y += rowH + GAP; rowH = 0; }
-        c.x = x; c.y = y;
-        maxRight = Math.max(maxRight, x + c.width);
-        rowH = Math.max(rowH, c.height);
-        x += c.width + GAP;
-        col++;
-        prevType = c.type;
-      }
-      s.resizeWithoutConstraints(maxRight + PAD, y + rowH + PAD);
-      return { id: s.id, name: s.name, width: s.width, height: s.height, count: kids.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (r.empty) console.log(chalk.yellow('⚠'), `Section "${r.name}" is empty — nothing to arrange`);
-      else console.log(chalk.green('✓'), `Arranged ${r.count} children in "${r.name}" (${Math.round(r.width)}×${Math.round(r.height)})`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionArrangePlanningArgvFromRequest({
+        sectionId,
+        cols: options.cols,
+        gap: options.gap,
+        pad: options.pad,
+        groupRows: options.groupRows === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionArrangePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Arrange failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
 sectionCmd
   .command('list')
   .description('List all sections on the current page')
+  .allowExcessArguments(false)
   .action(async () => {
-    await checkConnection();
-    const code = `(async () => {
-      const sections = figma.currentPage.findAll(n => n.type === 'SECTION');
-      return sections.map(s => ({ id: s.id, name: s.name, count: s.children.length }));
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      if (!r || r.length === 0) {
-        console.log(chalk.gray('(no sections on this page)'));
-        return;
-      }
-      r.forEach(s => {
-        console.log(`  ${s.name}  ${chalk.gray('(' + s.id + ')')}  ${chalk.gray(s.count + ' children')}`);
+      const plan = planFigmaCommand(sectionInventoryArgvFromRequest({}), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionInventoryPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Inventory failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
 sectionCmd
   .command('add <sectionId> <nodeIds>')
   .description('Add comma-separated nodes into an existing section')
+  .allowExcessArguments(false)
   .action(async (sectionId, nodeIds) => {
-    await checkConnection();
-    const ids = JSON.stringify(nodeIds.split(',').map(s => s.trim()));
-    const code = `(async () => {
-      const s = await figma.getNodeByIdAsync(${JSON.stringify(sectionId)});
-      if (!s) throw new Error('Section not found: ${sectionId}');
-      if (s.type !== 'SECTION') throw new Error('Not a section: ${sectionId}');
-      const ids = ${ids};
-      for (const id of ids) {
-        const n = await figma.getNodeByIdAsync(id);
-        if (!n) throw new Error('Node not found: ' + id);
-        // Preserve the node's visual position across reparenting — x/y are
-        // parent-relative, so a raw appendChild makes the node jump.
-        const b = n.absoluteBoundingBox;
-        s.appendChild(n);
-        if (b && s.absoluteBoundingBox) {
-          n.x = b.x - s.absoluteBoundingBox.x;
-          n.y = b.y - s.absoluteBoundingBox.y;
-        }
-      }
-      return { id: s.id, name: s.name, count: s.children.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Added to section "${r.name}" (${r.id}). Total children: ${r.count}`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(sectionAddPlanningArgvFromRequest({
+        sectionId, nodeIds: nodeIds.split(',').map((value) => value.trim()),
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeSectionAddPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Section Add failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -399,41 +416,39 @@ gridCmd
   .option('--color <hex>', 'Grid color (hex)', '#FF008B')
   .option('--opacity <n>', 'Grid opacity (0-1)', parseFloat, 0.1)
   .option('--append', 'Append to existing grids instead of replacing')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    if (!options.columns && !options.rows) {
-      console.error(chalk.red('✗'), 'Specify at least --columns or --rows');
-      process.exit(1);
-    }
-    const alignmentMap = { stretch: 'STRETCH', min: 'MIN', center: 'CENTER', max: 'MAX' };
-    const alignment = alignmentMap[options.alignment.toLowerCase()] || 'STRETCH';
-    const hex = options.color.replace('#', '');
-    const r = parseInt(hex.slice(0, 2), 16) / 255;
-    const g = parseInt(hex.slice(2, 4), 16) / 255;
-    const b = parseInt(hex.slice(4, 6), 16) / 255;
-    const colorObj = `{r:${r.toFixed(4)},g:${g.toFixed(4)},b:${b.toFixed(4)},a:${options.opacity}}`;
-
-    const grids = [];
-    if (options.columns) {
-      grids.push(`{pattern:'COLUMNS',alignment:'${alignment}',count:${options.columns},gutterSize:${options.gutter},offset:${options.margin},color:${colorObj},visible:true}`);
-    }
-    if (options.rows) {
-      grids.push(`{pattern:'ROWS',alignment:'${alignment}',count:${options.rows},gutterSize:${options.gutter},offset:${options.margin},color:${colorObj},visible:true}`);
-    }
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support Layout Guides (must be FRAME, COMPONENT, or COMPONENT_SET)');
-      const newGrids = [${grids.join(',')}];
-      n.layoutGrids = ${options.append ? '[...n.layoutGrids, ...newGrids]' : 'newGrids'};
-      return { id: n.id, name: n.name, count: n.layoutGrids.length };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Set grid on ${r.name} (${r.id})`);
-      console.log(chalk.gray(`  Total grids: ${r.count}`));
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(layoutGuideMutationPlanningArgvFromRequest({
+        action: 'set', nodeId,
+        columns: options.columns ?? null,
+        rows: options.rows ?? null,
+        gutter: options.gutter,
+        margin: options.margin,
+        alignment: options.alignment,
+        color: options.color,
+        opacity: options.opacity,
+        append: options.append === true,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeLayoutGuideMutationPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Layout Guide mutation failed: '
+        + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -472,20 +487,31 @@ gridCmd
 gridCmd
   .command('clear <nodeId>')
   .description('Remove all Layout Guides from a frame')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('layoutGrids' in n)) throw new Error('Node does not support Layout Guides');
-      n.layoutGrids = [];
-      return { id: n.id, name: n.name };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Cleared grids on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(layoutGuideMutationPlanningArgvFromRequest({
+        action: 'clear', nodeId,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeLayoutGuideMutationPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Layout Guide mutation failed: '
+        + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -1087,60 +1113,35 @@ annotateCmd
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern> (case-insensitive)')
   .option('-c, --category <idOrLabel>', 'Annotation category ID or label')
   .option('-p, --properties <list>', 'Comma-separated Figma annotation property names')
+  .allowExcessArguments(false)
   .action(async (text, options) => {
-    await checkConnection();
-    if (!options.node && !options.query) {
-      console.error(chalk.red('✗'), 'Provide either --node <id> or --query <pattern>');
-      process.exit(1);
-    }
-    if (options.node) {
-      try {
-        const r = await daemonExec('eval', { code: annotationAddCode({ nodeId: options.node, text, markdown: options.markdown, category: options.category, properties: options.properties }) });
-        console.log(chalk.green('✓'), `Annotated ${r.name} (${r.id}) at index ${r.index}`);
-      } catch (e) { handleEvalError(e); }
-      return;
-    }
-    const labelKey = options.markdown ? 'labelMarkdown' : 'label';
-    const properties = parseProperties(options.properties);
-    const targetSelector = options.query
-      ? `(figma.currentPage.findAll(n => 'annotations' in n && typeof n.name === 'string' && n.name.toLowerCase().includes(${JSON.stringify(options.query.toLowerCase())})))`
-      : `[await figma.getNodeByIdAsync(${JSON.stringify(options.node)})].filter(Boolean)`;
-    const code = `(async () => {
-      const nodes = ${targetSelector};
-      if (nodes.length === 0) throw new Error(${options.query ? `'No nodes matched query: ${options.query}'` : `'Node not found: ${options.node}'`});
-      let category = null;
-      if (${JSON.stringify(options.category || null)}) {
-        const query = ${JSON.stringify(options.category || null)};
-        category = await figma.annotations.getAnnotationCategoryByIdAsync(query);
-        if (!category) {
-          const categories = await figma.annotations.getAnnotationCategoriesAsync();
-          const matches = categories.filter(c => c.label === query || c.label.toLowerCase().includes(query.toLowerCase()));
-          if (matches.length !== 1) throw new Error(matches.length ? 'Ambiguous annotation category: ' + query : 'Annotation category not found: ' + query);
-          category = matches[0];
-        }
-      }
-      const results = [];
-      for (const n of nodes) {
-        if (!('annotations' in n)) continue;
-        const existing = (n.annotations || []).map(a => {
-          const c = {};
-          if (a.labelMarkdown) c.labelMarkdown = a.labelMarkdown;
-          else if (a.label) c.label = a.label;
-          if (a.categoryId) c.categoryId = a.categoryId;
-          if (a.properties) c.properties = a.properties;
-          return c;
-        });
-        n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)}, ...(category ? { categoryId: category.id } : {})${properties === undefined ? '' : `, properties: ${JSON.stringify(properties)}`} }];
-        results.push({ id: n.id, name: n.name });
-      }
-      return results;
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Annotated ${r.length} node(s):`);
-      r.forEach(n => console.log(chalk.gray(`  ${n.name} (${n.id})`)));
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(annotationAddPlanningArgvFromRequest({
+        text,
+        markdown: options.markdown === true,
+        nodeId: options.node || null,
+        query: options.query,
+        category: options.category,
+        properties: options.properties,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationAddPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Add failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
@@ -1148,83 +1149,193 @@ annotateCmd.command('edit <nodeId> <index>')
   .description('Edit one zero-based annotation index')
   .option('-t, --text <text>').option('-m, --markdown').option('-c, --category <idOrLabel>', 'Pass an empty string to clear')
   .option('-p, --properties <list>', 'Comma-separated properties; pass an empty string to clear')
+  .allowExcessArguments(false)
   .action(async (nodeId, index, options) => {
-    try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationEditCode({ nodeId, index, text: options.text, markdown: options.markdown, category: options.category, properties: options.properties }) }), null, 2)); }
-    catch (e) { handleEvalError(e); }
+    try {
+      const plan = planFigmaCommand(annotationEditPlanningArgvFromRequest({
+        nodeId,
+        index,
+        text: options.text,
+        markdown: options.markdown === true,
+        category: options.category,
+        properties: options.properties,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationEditPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Edit failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 annotateCmd.command('remove <nodeId> <index>')
   .description('Remove one zero-based annotation index')
+  .allowExcessArguments(false)
   .action(async (nodeId, index) => {
-    try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationRemoveCode({ nodeId, index }) }), null, 2)); }
-    catch (e) { handleEvalError(e); }
+    try {
+      const plan = planFigmaCommand(annotationRemovePlanningArgvFromRequest({ nodeId, index }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationRemovePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Remove failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
-annotateCmd.command('categories').description('List annotation categories in the open file').action(async () => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoriesCode() }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
+annotateCmd.command('categories')
+  .description('List annotation categories in the open file')
+  .allowExcessArguments(false)
+  .action(async () => {
+    try {
+      const plan = planFigmaCommand(annotationCategoryInventoryArgvFromRequest({}), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationCategoryInventoryPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Category Inventory failed: '
+        + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
 
-annotateCmd.command('category-add <label>').requiredOption('--color <color>').action(async (label, options) => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryCreateCode({ label, color: options.color }) }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
-annotateCmd.command('category-edit <category>').option('--label <label>').option('--color <color>').action(async (category, options) => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryEditCode({ category, label: options.label, color: options.color }) }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
-annotateCmd.command('category-remove <category>').action(async (category) => {
-  try { await checkConnection(); console.log(JSON.stringify(await daemonExec('eval', { code: annotationCategoryRemoveCode({ category }) }), null, 2)); }
-  catch (e) { handleEvalError(e); }
-});
+async function runAnnotationCategoryMutationCommand(request) {
+  try {
+    const plan = planFigmaCommand(annotationCategoryMutationArgvFromRequest(request), {
+      adapter: 'cli',
+      fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+        return executeAnnotationCategoryMutationPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code,
+            ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+    console.log(result.stdout);
+  } catch (error) {
+    console.error(chalk.red('✗ Annotation Category Mutation failed: '
+      + (error?.message || String(error))));
+    process.exitCode = 1;
+  }
+}
+
+annotateCmd.command('category-add <label>')
+  .requiredOption('--color <color>')
+  .allowExcessArguments(false)
+  .action(async (label, options) => {
+    await runAnnotationCategoryMutationCommand({ action: 'add', label, color: options.color });
+  });
+annotateCmd.command('category-edit <category>')
+  .option('--label <label>')
+  .option('--color <color>')
+  .allowExcessArguments(false)
+  .action(async (category, options) => {
+    await runAnnotationCategoryMutationCommand({
+      action: 'edit', category, label: options.label, color: options.color,
+    });
+  });
+annotateCmd.command('category-remove <category>')
+  .allowExcessArguments(false)
+  .action(async (category) => {
+    await runAnnotationCategoryMutationCommand({ action: 'remove', category });
+  });
 
 annotateCmd
   .command('list [nodeId]')
   .description('List annotations on a node (or current selection)')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const target = nodeId
-      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
-      : `figma.currentPage.selection[0]`;
-    const code = `(async () => {
-      const n = ${target};
-      if (!n) throw new Error('No node found');
-      if (!('annotations' in n)) throw new Error('Node does not support annotations');
-      return { id: n.id, name: n.name, annotations: n.annotations || [] };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.bold(`${r.name} (${r.id})`));
-      if (!r.annotations || r.annotations.length === 0) {
-        console.log(chalk.gray('  (no annotations)'));
-        return;
-      }
-      r.annotations.forEach((a, i) => {
-        const label = a.label || a.labelMarkdown || '(empty)';
-        console.log(`  ${i + 1}. ${label}`);
+      const plan = planFigmaCommand(annotationReadPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-    } catch (e) {
-      handleEvalError(e);
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationReadPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Read failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 
 annotateCmd
   .command('clear <nodeId>')
   .description('Remove all annotations from a node')
+  .allowExcessArguments(false)
   .action(async (nodeId) => {
-    await checkConnection();
-    const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('annotations' in n)) throw new Error('Node does not support annotations');
-      n.annotations = [];
-      return { id: n.id, name: n.name };
-    })()`;
     try {
-      const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Cleared annotations on ${r.name} (${r.id})`);
-    } catch (e) {
-      handleEvalError(e);
+      const plan = planFigmaCommand(annotationClearPlanningArgvFromRequest({ nodeId }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey });
+          return executeAnnotationClearPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Annotation Clear failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

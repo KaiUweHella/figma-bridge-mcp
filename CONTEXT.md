@@ -22,8 +22,15 @@ Closed protocol discriminants must have matching validation branches.
 _Avoid_: mixed global type environment, whole-legacy typecheck, optional seam
 
 **Command Capability**:
-The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma/workspace/external-network/shared-local-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity. External network excludes the authenticated localhost Bridge transport, which is recorded separately as availability.
+The resolved policy for one concrete **Figma Command** before execution: Adapter exposure, Figma-document/editor-context/workspace/external-network/shared-local-state effects, target requirement, normalized paths, confirmation, retry, timeout, accepted exit codes and background-job identity. External network excludes the authenticated localhost Bridge transport, which is recorded separately as availability.
 _Avoid_: allowlist entry, command metadata
+
+**Editor Context Effect**:
+The closed `none|read|write` **Command Capability** effect for selection,
+viewport, focus and current-page state, separate from the `figma` document
+effect. Editor writes are non-retrying and auditable but do not by themselves
+require document-mutation confirmation.
+_Avoid_: document write, harmless read, implicit UI side effect
 
 **Figma Command Grammar**:
 The closed recursive set of exposed Figma Command action paths and documented aliases. It resolves argv to a stable payload-free action id and syntactic option facts from before the first `--` terminator before capability policy, confirmation, audit or Adapter dispatch. Migrated Command Applications own a closed request Interface; policy-relevant Legacy Commands instead have a small compatibility option schema that rejects unknown, duplicate, valueless or conflicting policy options while preserving Commander short and inline value forms. Unknown nested actions are not commands and later tokens are payload.
@@ -52,6 +59,37 @@ _Avoid_: implicit full-document load, connection-only freshness claim, unscoped 
 **Node Binding Facts**:
 The bounded, versioned outline of direct `node.boundVariables` for one explicit node or the current selection. It preserves scalar aliases, array positions and component-property names, and resolves variable id, name, type and collection identity when available. Local identities resolve from one bounded Variable and Collection catalog before any exact remote lookup; an unavailable remote identity remains explicit and unresolved. It is a fast discovery read, not a complete provenance claim: bindings inside style, paint, effect or text-range structures, mode values and resolved runtime values remain Design Capture concerns.
 _Avoid_: binding dump, token proof, complete variable capture
+
+**Node Variable Binding**:
+The bounded, non-retrying attachment of one uniquely resolved local Variable
+to one supported property on one exact canvas Node. Variable and optional
+Collection ambiguity, type compatibility, target support and rollback
+topology are resolved before the first write. Scalar, multi-side padding,
+independent-corner and first-Solid-Paint outcomes are freshly read back; a
+mismatch restores the complete prior binding or Paint topology and reports
+verified rollback, bounded field residue or unavailable verification.
+_Avoid_: Commander bind handler, setter-return success, first collection match, partial padding rollback
+
+**Node Solid Fill**:
+The bounded, non-retrying replacement of one exact fill-capable canvas Node's
+complete Paint list with one Solid Paint. The requested source is either an
+exact RGB literal or one uniquely resolved local COLOR Variable; Variable-name
+ambiguity remains a refusal and points to the collection-aware binding command.
+Success requires fresh literal RGB or Variable-alias readback. A mismatch
+restores and verifies the complete prior Paint list, otherwise reporting
+bounded fill residue or unavailable verification.
+_Avoid_: Commander fill handler, setter-return success, first Variable-name match, partial Paint rollback
+
+**Node Image Fill**:
+The bounded, non-retrying replacement of one exact fill-capable canvas Node's
+complete Paint list with one workspace-backed Image Paint. Image bytes are
+authorized and read before Plugin readiness; success requires fresh Image hash,
+scale-mode and default-presentation readback. Placeholder annotations are
+cleared best-effort and their effective outcome stays explicit. Node fields can
+be restored after a mismatch, but Figma exposes no Image-resource deletion API,
+so every failure after `createImage()` reports possible image-resource residue
+rather than claiming full rollback.
+_Avoid_: Commander image handler, unbounded file read, setter-return success, synthetic Image rollback
 
 **Component Identity Facts**:
 The exact, versioned and deeply bounded resolution of one explicit Figma
@@ -240,6 +278,82 @@ _Avoid_: generated font binding eval, setter-result success, retryable binding, 
 The bounded, non-retrying placement of one explicit canvas node at an absolute-canvas X/Y coordinate, with optional top-level Page reparenting. Its closed request distinguishes signed numeric positionals from unknown options before readiness, shares the coordinate validator used by Node Property mutation, and preserves Figma URL targeting independently of option order. Success is claimed only after a fresh absolute-position readback matches the requested coordinates; CLI and MCP execute the same Command Plan and Application without re-entering Commander.
 _Avoid_: Commander move handler, parent-relative placement claim, setter-only success, implicit page selection
 
+**Node Rename**:
+The bounded, non-retrying replacement of one exact Node Reference's native
+name. Its closed request preserves empty and dash-prefixed names and projects
+Figma URL identity only from the node field. A matching name is an explicit
+no-op; otherwise success requires a fresh exact-id readback. A thrown setter
+acknowledgement may still succeed when that readback matches. Every mismatch
+attempts to restore the previous name and reports verified rollback, bounded
+residue or unavailable verification through the shared mutation outcome.
+_Avoid_: Commander rename handler, setter-result success, retryable rename, unverified rollback
+
+**Node Resize**:
+The bounded, non-retrying change of one exact resizable Node's two sizing axes.
+Each closed axis intent is either a finite native size, `keep`, `fill` or `hug`;
+the report keeps that intent separate from the freshly observed width, height
+and Auto Layout sizing modes. Native minimums and obvious FILL/HUG context are
+preflighted before mutation. A mismatch restores both prior dimensions and
+both sizing modes, then reports verified rollback, bounded residue or
+unavailable verification through the shared mutation outcome.
+_Avoid_: Commander resize handler, pixel claim for FILL/HUG, retryable resize, unverified rollback
+
+**Node Reparent**:
+The bounded, non-retrying move of one exact canvas Node into one exact
+child-bearing destination. Its closed request preserves the optional final
+child index, canvas-position intent and two independently targetable Node
+References. Source membership, destination ancestry and the complete bounded
+child order are preflighted before mutation; success requires fresh exact-id
+readback of both affected hierarchies. Position preservation is a separately
+reported observed fact and may be false for Auto Layout. Failure restores and
+freshly verifies the prior parent, order and local position, otherwise reports
+bounded hierarchy/position residue or unavailable verification.
+_Avoid_: Commander reparent handler, parent-id-only success, implicit Auto Layout position claim, unverified rollback
+
+**Node Group**:
+The bounded, non-retrying grouping of two or more distinct exact canvas Nodes.
+Its closed request keeps variadic Node References, optional destination, final
+index and name together and rejects cross-file identity before readiness. The
+Application snapshots every affected parent order and selected local position,
+then requires a fresh Group identity, exact selected membership and exact
+affected-parent readback. A mismatch ungroups the created object, restores all
+original parents, indices and positions, and reports verified rollback,
+bounded structural residue or unavailable verification.
+_Avoid_: Commander group handler, count-only success, partial parent verification, unverified ungroup rollback
+
+**Node Ungroup**:
+The bounded, non-retrying dissolution of one exact attached Group or Transform
+Group. Success requires fresh proof that the group identity is absent, its
+complete ordered children replaced it at the original parent index, and every
+child now belongs to that parent. Because reconstructing an arbitrary native
+Transform Group would overclaim rollback, a mismatched postcondition reports
+verified unchanged state, bounded group/parent/child residue, or unavailable
+verification instead of fabricating restoration.
+_Avoid_: Commander ungroup handler, returned-array success, recreated Transform Group claim, unbounded residue
+
+**Node Boolean**:
+The bounded, non-retrying combination of two or more distinct exact canvas
+Nodes through one closed union, subtract, intersect or exclude operation. Its
+request keeps ordered source identity, optional destination, final index and
+name together and rejects cross-file placement before readiness. Success
+requires a fresh Boolean Operation identity with the official operation enum,
+exact ordered membership and exact replacement across every affected parent.
+Because a mismatched native Boolean result may have already changed geometry
+and hierarchy, failure reports verified unchanged state, bounded Boolean and
+hierarchy residue, or unavailable verification without claiming reconstruction.
+_Avoid_: Commander boolean handler, dynamic method input, returned-node success, synthetic rollback
+
+**Node Flatten**:
+The bounded, non-retrying irreversible replacement of one or more exact canvas
+Nodes with one native Vector. Its closed request keeps every source identity,
+optional destination, final index and name together. Preflight snapshots every
+affected parent order and rejects detached, duplicate, cross-file or cyclic
+placement. Success requires a fresh Vector identity, exact replacement in the
+destination, removal of obsolete source identities and exact unaffected parent
+orders. A mismatch reports verified unchanged state, bounded irreversible
+Vector/source/parent residue, or unavailable verification.
+_Avoid_: Commander flatten handler, returned-vector success, synthetic rollback, partial parent verification
+
 **Node Deletion**:
 The bounded, non-retrying removal of one or more exact Node References. Its
 closed request rejects duplicates and cross-file identity before confirmation
@@ -356,6 +470,24 @@ verifies either the complete result or bounded rollback residue. Bridge mode
 topology is rejected with a direction to Exact Variable Snapshot Import; it is
 never collapsed silently into one default-mode Variable.
 _Avoid_: token import eval, modes[0], partial import success, first-name collection choice
+
+**Token Sync**:
+The bounded, versioned three-way reconciliation of one DTCG JSON or CSS source,
+one exact local Variable Collection and one workspace lockfile. Dry-run and
+apply consume the same closed Command Plan and source projection. For backward
+compatibility this command alone continues to read and write the Collection's
+first declared mode; it reports additional modes instead of silently changing
+that established policy to the declared default. Duplicate Collection names,
+duplicate Variable names, flattened source-name collisions, aliases and
+three-way conflicts remain explicit no-mutation facts. Apply revalidates the
+complete preflight immediately before writing, stops on the first failed
+operation, freshly verifies bounded residue and is never retried. The lock is
+advanced only after verified complete Figma success while one process-safe
+lease covers prior-lock read through atomic sibling-file replacement. A failed
+lock publication preserves the previous lock bytes and reports any already
+committed Figma residue; destructive retype/delete operations do not invent a
+rollback that the Plugin API cannot prove.
+_Avoid_: Commander re-entry, first-name resolution, done/failed-only receipt, lock-as-success, partial lock write, retry after dispatch
 
 **DESIGN.md Context Projection**:
 The bounded repository-only summary of one DESIGN.md inside existing Workspace
@@ -646,6 +778,79 @@ safe-read Command Application; it is interaction evidence, not executable
 application behavior or permission to mutate reactions.
 _Avoid_: reaction dump, prototype eval, application-flow proof
 
+**Prototype Mutation**:
+The closed, bounded and rollback-owned change of one explicit node's native
+prototype reactions. Add, exact replacement and clear all journal the complete
+prior reaction set, call the async native setter once, and compare a fresh
+readback before reporting verified application, verified-after-error, rollback
+or exact reaction residue through the same CLI/MCP Command Application.
+_Avoid_: reaction eval, optimistic prototype write, retry after dispatch
+
+**Library Import**:
+The closed irreversible materialization of one published Variable, Style,
+Component or Component Set by its exact stable key. One native import call is
+followed by a fresh ID lookup that verifies key, resource kind and remote
+identity through the same CLI/MCP Command Application. Figma exposes no safe
+inverse and a resource may already have been materialized, so verification
+failure reports possible residue without deleting or retrying the import.
+_Avoid_: library import eval, optimistic imported identity, import retry
+
+**Shader Mutation**:
+The closed import or node-field application of one native Figma Shader by its
+exact stable id. Import makes one irreversible native materialization call and
+then verifies fresh inventory identity. Apply requires an already imported,
+type-compatible Shader, journals the complete paint/effect field, assigns once
+and proves exact fresh placement; it never imports implicitly. Both actions
+share one non-retrying CLI/MCP Command Application and report verified state,
+rollback, residue or unavailable verification explicitly.
+_Avoid_: shader write eval, implicit Shader import, optimistic field assignment, retry after dispatch
+
+**Slot Configuration**:
+The closed creation of one native Slot inside a local Component or edit of one
+exact Slot property definition. It preserves bounded SlotSettings, preferred
+published Component keys and description facts, verifies the fresh Slot and
+definition topology, and removes or restores only identities owned by the
+request when verification fails. Slot reset is a separate irreversible,
+native-confirmed operation: it reports bounded fresh before/after facts without
+pretending that Figma's unexposed default subtree was independently derived or
+that a safe inverse exists.
+_Avoid_: slot configuration eval, optimistic property rename, inferred reset postcondition
+
+**Grid Auto Flow Mutation**:
+The closed, rollback-owned change of one native Auto Layout Grid container's
+`gridAutoTracks` and `gridItemsPositioning` facts. Both fields are one coupled
+intent: exact no-ops do not dispatch, success requires fresh readback of both,
+and a mismatch restores and re-reads both prior values. CLI and MCP share one
+non-retrying Command Application and report verified-after-error, rollback,
+exact field residue or unavailable verification without changing Grid policy.
+_Avoid_: Grid auto-flow eval, optimistic two-field assignment, partial field success
+
+**Grid Configuration Mutation**:
+The closed, journaled change of a Grid-capable container's layout mode,
+dimensions, gaps and explicit row/column track definitions. It preserves the
+established non-Grid-to-Grid conversion, refuses a manual shrink beneath an
+occupied child span, skips exact no-ops and freshly proves requested plus
+unspecified facts. Failure restores prior Grid and child-placement facts, or
+the prior non-Grid mode and free child geometry, and reports residue explicitly.
+_Avoid_: Grid configuration eval, occupied destructive shrink, optimistic track setters
+
+**Grid Child Placement**:
+The closed, rollback-owned placement of one Scene child into one native manual
+Auto Layout Grid cell. It preflights hierarchy, dimensions, spans, alignment
+and occupancy, freshly proves the resulting parent, cell and requested fields,
+and restores the prior parent order plus free-layout or Grid placement state on
+failure. CLI and MCP share one non-retrying Command Application.
+_Avoid_: Grid placement eval, unverified reparenting, retry after `appendChildAt`
+
+**Grid Track Reorder**:
+The closed, irreversible permutation of native Auto Layout Grid rows or
+columns. It dispatches exactly one native reorder call, validates the returned
+permutation and freshly proves track definitions plus every child anchor/span.
+Because arbitrary track moves have no safe inverse, failure reports exact
+no-mutation, partial residue or unavailable verification instead of claiming
+rollback. CLI and MCP share one non-retrying Command Application.
+_Avoid_: Grid reorder eval, inferred inverse permutation, retry after dispatch
+
 **Canvas Awareness**:
 The bounded read-only aggregate of the fully loaded current Figma page used for
 safe Code-to-Figma placement. It reports top-level bounds and counts or one
@@ -657,7 +862,8 @@ _Avoid_: canvas eval, document layout dump, placement guess
 The bounded listing of current-document pages and the explicit non-retrying
 switch of Figma's current editor page through one shared Command Application.
 It changes editor context, not document content, and never creates, deletes,
-renames, or guesses a page when a query is ambiguous.
+renames, or guesses a page when a query is ambiguous. Its Command Plan keeps
+`figma: read` and declares `editor: write` without document-write confirmation.
 _Avoid_: page eval, document mutation, implicit page selection
 
 **Page Structure**:
@@ -675,6 +881,16 @@ Workspace artifacts use Workspace I/O; temporary artifacts use one private
 directory. Inline Base64 declares no file. Bounded PNG IHDR dimensions stay
 distinct from logical node geometry and requested/applied scale.
 _Avoid_: screenshot temp file, incidental render output
+
+**Video Export**:
+The bounded Figma Design read that resolves an explicit node or descendant to
+its top-level animated Frame and exports MP4, GIF or WebM through one shared
+CLI/MCP **Command Application**. Its long-running, non-retrying Command Plan
+owns the exact Workspace output before readiness. Format-specific settings,
+canonical Base64, requested-frame evidence and the matching media container
+must all validate before Workspace I/O. Its generic-result byte ceiling is not
+the image/SVG-only **Authenticated Asset Stream**.
+_Avoid_: video eval handler, unvalidated extension write, widened Asset Stream
 
 **Raster Export Compatibility**:
 The closed compatibility request behind the documented `export node` and
@@ -905,6 +1121,16 @@ _Avoid_: handwritten MCP JSX dialect, name-based Instance example, ordinary-succ
 The closed, versioned and deeply bounded result of one simple or compound Semantic Render Command. It retains only created-root identity, executor and structural facts, explicit compound-stage progress, resource decisions, overflow, local notices and truthful mutation residue. CLI text, MCP structured content, JSON/YAML, Audit completion and process code are projections of this value; raw Plugin results and error prose are not Outcomes.
 _Avoid_: render response, console result, Plugin result
 
+**Command Failure Outcome**:
+The shared bounded projection of a failed Command Application's terminal
+Dispatch Receipt and mutation cardinalities. It retains only a closed error
+kind, `not-dispatched|failed|unknown` state, mutation outcome, attempted and
+restored counts, and residue count. CLI text, MCP structured content and Audit
+schema 6 consume the same projection; residue identities, field names, error
+details and command payloads never cross it. Older typed mutation reports are
+adapted only through an explicit field allowlist.
+_Avoid_: error object serialization, residue identity, prose-derived retry state
+
 **Figma Render Executor**:
 The static plugin runtime that applies one or a bounded batch of structurally preflighted **Semantic Render Plans** through native Figma operations. It advertises explicit single/batch plan capabilities during the authenticated handshake and must reject unsupported structure before creating canvas nodes. External component, image, font and variable resources are prepared explicitly before the visible tree; batch failures remove already-created root frames. Generated JavaScript remains a temporary compatibility adapter only for locally unsupported, unmigrated facts. A supported typed plan never changes protocol identity through eval, even when an older Plugin rejects the capability before dispatch.
 _Avoid_: eval renderer, plugin action, plan interpreter
@@ -1014,6 +1240,14 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 >
 > **Domain expert:** Node Duplicate never retries `clone()`. The Command Application owns only the new copy, removes it on a failed postcondition and freshly verifies both affected parent orders. Free-layout offsets are exact; Row, Column and Grid parents report `auto-layout-managed` coordinates because Figma owns child placement there. Its bounded mutation report distinguishes a complete rollback, remaining residue and unavailable verification without changing any supported placement, naming or offset option.
 
+> **Developer:** Is a successful `node rename` just a setter acknowledgement?
+>
+> **Domain expert:** No. Node Rename reads the exact node again and succeeds only when the requested name is observed. A thrown setter may still have committed, so the readback decides. A mismatch triggers one restoration of the previous name; the report distinguishes verified rollback, remaining name residue and unavailable verification.
+
+> **Developer:** Does `node resize 1:2 fill hug` report a requested pixel size?
+>
+> **Domain expert:** No. FILL and HUG are native Auto Layout sizing intents. Node Resize reports them separately from the actual width and height read back from Figma. Numeric axes must reach their requested size and FIXED mode; KEEP must preserve its prior size and mode. Any mismatch triggers restoration of both prior dimensions and both sizing modes.
+
 > **Developer:** Does the renderer need to parse JSX again after structural validation?
 >
 > **Domain expert:** No. JSX and browser capture are adapters into a Semantic Render Plan. Validation and execution share that same ordered plan; neither path serializes and reparses another adapter's syntax.
@@ -1071,3 +1305,51 @@ _Avoid_: parity checklist, competitor score from prose, unavailable-as-unsupport
 > **Developer:** Can the pinned Figma typings prove that every live runtime field exists?
 >
 > **Domain expert:** No. Release checks keep official typings, the Bridge projection contract and a content-free live-runtime exception policy independent. New union values, missing required fields and wrong runtime types fail until reviewed; an unavailable sample stays unsampled rather than becoming assumed compatibility.
+
+> **Developer:** If `node set` changes several properties and a later setter fails, are the earlier changes still reported as success?
+>
+> **Domain expert:** No. Generic Node Set is one journaled mutation. It preflights every supported property and resource, writes once, then freshly verifies the complete effective result. Any failure restores all journaled fields in reverse order and reports verified rollback, exact remaining property residue or unavailable verification. Unsupported properties remain explicit skips; ambiguous Variables stop before the first write.
+
+> **Developer:** Does `create frame` still disappear behind a generic Commander timeout after Figma has created something?
+>
+> **Domain expert:** No. Frame creation is a Plan-bound Command Application in both Adapters. It resolves the target parent and any explicit `var:` fill before the factory call, creates once, and freshly verifies identity, hierarchy, geometry, fill, radius and selection. A mismatch removes only the new frame, restores the prior selection and reports verified rollback, exact residue or unavailable verification. The remaining public Create-family legacy writes are counted separately and may only decrease.
+
+> **Developer:** Do Rectangle, Ellipse, Polygon and Star use the same truthful creation outcome?
+>
+> **Domain expert:** Yes. Their shared Shape Application closes each action's valid options, resolves explicit fill and stroke Variables without first-match ambiguity, selects only the matching native factory, and verifies shape-specific geometry and properties after one dispatch. Failure removes only the created Shape and reports the same rollback/residue facts. The public Create-family legacy budget is now five: Vector, Slice, Text, Line and Auto Layout.
+
+> **Developer:** Are Vector and Slice still unstructured compatibility writes?
+>
+> **Domain expert:** No. They share a closed Canvas Node Application across both Adapters. VectorNetwork JSON is bounded before dispatch and freshly compared after the asynchronous setter; Slice geometry and both kinds' identity, hierarchy, position and selection are verified after one native factory call. Failure removes only the created node and reports rollback or exact residue. The remaining public Create-family legacy budget is three: Text, Line and Auto Layout.
+
+> **Developer:** Does `create line` retain endpoint and Variable-stroke semantics outside the shared execution contract?
+>
+> **Domain expert:** No. One Line Application preserves the established smart-position gap and endpoint-derived length/rotation rules, resolves an explicit `var:` stroke without ambiguous first-match selection, and freshly verifies hierarchy, geometry, Paint, stroke weight and selection. Failure removes only the created Line and reports rollback or exact residue. Text and Auto Layout are the two remaining public Create-family legacy writes.
+
+> **Developer:** Is `create autolayout` just a Frame alias with an optimistic success string?
+>
+> **Domain expert:** No. Its own closed Application preserves the `al` alias, row/column intent, hug sizing, uniform gap/padding, smart positioning and optional fill/radius. Explicit Variables resolve before creation; fresh readback verifies every requested layout and hierarchy fact. Failure removes only the new Frame and reports rollback or exact residue. Text is the last remaining public Create-family legacy write.
+
+> **Developer:** Can `create text` create a node before discovering that its font or Variable is unavailable?
+>
+> **Domain expert:** No. The Text Application bounds content and typography inputs, resolves the explicit fill Variable and loads the exact font before the first factory call. Its single mutation is followed by fresh character, font, Paint, sizing, hierarchy and selection verification; fixed width remains `HEIGHT` auto-resize and intrinsic width remains `WIDTH_AND_HEIGHT`. Failure removes only the new Text node and reports rollback or exact residue. The mechanically measured public Create-family legacy-write count is now zero.
+
+> **Developer:** Do Dev Mode Measurement writes still return only whatever the direct eval happened to print?
+>
+> **Domain expert:** No. Add, edit and delete share a closed Measurement Mutation Application. It preflights Dev Mode, endpoints or exact Measurement identity and bounded page facts, then freshly verifies the whole collection. Failed add removes only the new Measurement; failed edit restores its prior offset and text; delete is irreversible and distinguishes verified deletion, unchanged state and partial residue. Both Adapters preserve the same bounded outcome without retry.
+
+> **Developer:** Can a Library import be retried when its terminal response or returned metadata is incomplete?
+>
+> **Domain expert:** No. Variable, Style, Component and Component Set imports share one closed irreversible Application. It calls the selected native import exactly once, freshly verifies the returned id against the requested published key, kind and remote identity, and keeps descriptions bounded. A native error or unavailable readback remains `verification-unavailable`; a mismatched fresh resource is `partial-residue`. Neither Adapter guesses whether the resource existed beforehand, deletes it, or retries the import. The mechanically measured direct Library Import legacy-write count is zero.
+
+> **Developer:** Can Shader import or apply still bypass the Plan boundary, or can apply silently import a missing Shader?
+>
+> **Domain expert:** No. Import and apply share one closed, non-retrying Shader Mutation Application. Import calls the native materializer once and verifies the exact id, imported state and type against a fresh bounded Shader inventory; because it has no safe inverse, uncertain verification reports possible residue. Apply accepts only a uniquely available, already imported, type-compatible Shader, journals the complete target field, performs one assignment and verifies fresh exact placement or restores that journal. It never calls the import API. CLI and MCP preserve the same bounded outcome, and the mechanically measured direct Shader legacy-write count is zero.
+
+> **Developer:** Can Slot creation and definition editing share one safe outcome with `resetSlot()`?
+>
+> **Domain expert:** The configuration actions share rollback semantics; reset has its own truthful outcome. `slot create` snapshots existing Slot and definition identities, calls `createSlot()` once, and proves the exact new descendant and requested configuration; failure removes only the new identities. `slot edit` journals the effective definition, preserves unspecified settings, and proves a rename/configuration through fresh readback or restores that definition. `slot reset` calls `resetSlot()` once and reports `native-confirmed` only after the native call returns and a fresh bounded before/after fact pair is available. Because Figma exposes neither the intended default child subtree nor an inverse, a dispatch error remains `verification-unavailable` even when readback changed. All three actions are non-retrying in both Adapters, and the direct Slot legacy-write count is zero.
+
+> **Developer:** Can `layout grid auto-flow` leave one of its two native fields changed after reporting failure?
+>
+> **Domain expert:** Only as explicitly reported residue. The shared Grid Auto Flow Application snapshots both fields, skips an exact no-op, assigns each once and accepts success only when a fresh lookup proves both requested values. Any mismatch restores both prior values and re-reads them; a failed restoration names the remaining field residue, while unavailable readback stays verification-unavailable. CLI and MCP use the same non-retrying Plan. Grid child placement has the same authoritative seam. Row and column reordering share a separate irreversible Application: it validates the native permutation and fresh tracks plus child anchors/spans, but never claims a rollback that Figma cannot safely provide. Grid configuration now owns dimensions, gaps, track definitions and non-Grid conversion with an occupied-span preflight and a journaled rollback. The measured direct Auto Layout Grid legacy-write count is zero.

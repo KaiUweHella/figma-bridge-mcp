@@ -1,7 +1,5 @@
 // Commands: tokens (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync } from 'fs';
-import { join, resolve as resolvePath, dirname } from 'path';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
@@ -58,6 +56,11 @@ import {
   tokenImportPlanningArgvFromRequest,
 } from '../application/token-import-command.js';
 import {
+  executeTokenSyncPlan,
+  tokenSyncPlanningArgvFromRequest,
+  withTokenSyncPlanLock,
+} from '../application/token-sync-command.js';
+import {
   designMdPlanningArgvFromRequest,
   executeDesignMdContextPlan,
 } from '../application/design-md-context-command.js';
@@ -71,24 +74,10 @@ import {
   checkConnection,
   daemonExec,
   daemonTypedRead,
-  fastEval,
   handleEvalError,
   hexToRgb,
   spinnerSucceed
 } from '../lib/cli-core.js';
-import {
-  LOCKFILE_NAME,
-  parseTokenFile,
-  parseLock,
-  buildLock,
-  planSync,
-  planTouchesFigma,
-  formatPlan,
-  resolveConflicts,
-  canonicalValue,
-  hexToFigmaRgb,
-} from '../lib/token-sync.js';
-import { variableScopePolicyCode, variableScopeQuestions } from '../lib/variable-scope-policy.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 
 // ============ COLLECTIONS ============
@@ -403,146 +392,6 @@ tokens
     }
   });
 
-// ============ SYNC (two-way, lockfile-mediated) ============
-//
-// `tokens import` only ever creates: a value edited in code never reaches an
-// existing Figma variable, and a value edited in Figma never reaches code.
-// `tokens sync` closes the loop, and refuses to guess when both sides moved.
-// See lib/token-sync.js for the decision table — this command only supplies
-// the three inputs and applies the resulting plan.
-
-/** Read the collection's variables out of Figma in the sync shape. */
-async function readFigmaTokens(collectionName) {
-  const code = `(async () => {
-  const cols = await figma.variables.getLocalVariableCollectionsAsync();
-  const col = cols.find(c => c.name === ${JSON.stringify(collectionName)});
-  if (!col) return { missing: true };
-  const modeId = col.modes[0].modeId;
-  const vars = await figma.variables.getLocalVariablesAsync();
-  const out = [];
-  // Names that live in OTHER collections. export dtcg flattens every local
-  // variable into one file, while sync targets a single collection — so the
-  // obvious round-trip (export, then sync) otherwise reports "create
-  // everything" and would duplicate a whole design system into the wrong place.
-  const elsewhere = {};
-  for (const v of vars) {
-    if (v.variableCollectionId !== col.id) {
-      const owner = cols.find(c => c.id === v.variableCollectionId);
-      if (owner) (elsewhere[v.name] = owner.name);
-      continue;
-    }
-    const value = v.valuesByMode[modeId];
-    // An alias points at another variable rather than holding a value; there
-    // is no scalar to compare, so it is surfaced instead of silently synced.
-    if (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS') {
-      out.push({ name: v.name, id: v.id, type: v.resolvedType, alias: true });
-      continue;
-    }
-    out.push({
-      name: v.name,
-      id: v.id,
-      type: v.resolvedType,
-      value,
-      scopes: Array.isArray(v.scopes) ? Array.from(v.scopes) : [],
-      codeSyntax: v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : {},
-    });
-  }
-  return { collectionId: col.id, modeId, modes: col.modes.length, variables: out, elsewhere };
-})()`;
-  return fastEval(code);
-}
-
-/** Apply a plan. Returns the per-operation counts Figma actually performed. */
-async function applyPlan(plan, collectionName) {
-  const ops = {
-    create: plan.create.map((t) => ({ name: t.name, type: t.type, value: encodeForFigma(t),
-      ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
-      ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}) })),
-    // Figma variables cannot change resolvedType in place, so a type change is
-    // a delete-and-recreate. It is listed separately because it DOES drop the
-    // bindings pointing at that variable — the report warns about it.
-    update: plan.update.filter((t) => !t.typeChange)
-      .map((t) => ({ id: t.id, name: t.name, type: t.type, value: encodeForFigma(t),
-        ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
-        ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}) })),
-    retype: plan.update.filter((t) => t.typeChange)
-      .map((t) => ({ id: t.id, name: t.name, type: t.type, value: encodeForFigma(t),
-        ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
-        ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}) })),
-    rename: plan.rename.map((t) => ({ id: t.id, name: t.name })),
-    remove: plan.delete.filter((d) => d.willDelete).map((d) => ({ id: d.id, name: d.name })),
-  };
-
-  const code = `(async () => {
-  const ops = ${JSON.stringify(ops)};
-  ${variableScopePolicyCode()}
-  const cols = await figma.variables.getLocalVariableCollectionsAsync();
-  let col = cols.find(c => c.name === ${JSON.stringify(collectionName)});
-  if (!col) col = figma.variables.createVariableCollection(${JSON.stringify(collectionName)});
-  const modeId = col.modes[0].modeId;
-  const done = { created: 0, updated: 0, retyped: 0, renamed: 0, deleted: 0 };
-  const failed = [];
-
-  const byId = new Map();
-  for (const v of await figma.variables.getLocalVariablesAsync()) byId.set(v.id, v);
-  const applyMetadata = (v, op) => {
-    if ('scopes' in op) v.scopes = op.scopes;
-    if ('codeSyntax' in op && typeof v.setVariableCodeSyntax === 'function') {
-      const current = v.codeSyntax && typeof v.codeSyntax === 'object' ? v.codeSyntax : {};
-      if (typeof v.removeVariableCodeSyntax === 'function') {
-        for (const platform of Object.keys(current)) {
-          if (!(platform in op.codeSyntax)) v.removeVariableCodeSyntax(platform);
-        }
-      }
-      for (const platform of Object.keys(op.codeSyntax)) v.setVariableCodeSyntax(platform, op.codeSyntax[platform]);
-    }
-  };
-
-  for (const op of ops.rename) {
-    try { const v = byId.get(op.id); if (v) { v.name = op.name; done.renamed++; } }
-    catch (e) { failed.push(op.name + ': rename failed — ' + e.message); }
-  }
-  for (const op of ops.update) {
-    try { const v = byId.get(op.id); if (v) { v.setValueForMode(modeId, op.value); applyMetadata(v, op); done.updated++; } }
-    catch (e) { failed.push(op.name + ': update failed — ' + e.message); }
-  }
-  for (const op of ops.retype) {
-    try {
-      const old = byId.get(op.id);
-      if (old) old.remove();
-      const v = figma.variables.createVariable(op.name, col, op.type);
-      if (!('scopes' in op)) __scopeTokenVariable(v, op.name, op.type);
-      v.setValueForMode(modeId, op.value);
-      applyMetadata(v, op);
-      done.retyped++;
-    } catch (e) { failed.push(op.name + ': retype failed — ' + e.message); }
-  }
-  for (const op of ops.create) {
-    try {
-      const v = figma.variables.createVariable(op.name, col, op.type);
-      if (!('scopes' in op)) __scopeTokenVariable(v, op.name, op.type);
-      v.setValueForMode(modeId, op.value);
-      applyMetadata(v, op);
-      done.created++;
-    } catch (e) { failed.push(op.name + ': create failed — ' + e.message); }
-  }
-  for (const op of ops.remove) {
-    try { const v = byId.get(op.id); if (v) { v.remove(); done.deleted++; } }
-    catch (e) { failed.push(op.name + ': delete failed — ' + e.message); }
-  }
-  return { done, failed };
-})()`;
-  return fastEval(code);
-}
-
-/** Token value in the form Figma's setValueForMode expects. */
-function encodeForFigma(token) {
-  if (token.type === 'COLOR') return hexToFigmaRgb(token.value);
-  if (token.type === 'FLOAT') return Number(canonicalValue('FLOAT', token.value));
-  if (token.type === 'BOOLEAN') return canonicalValue('BOOLEAN', token.value);
-  return String(token.value ?? '');
-}
-
 tokens
   .command('sync <file>')
   .description('Two-way sync between a token file (DTCG JSON or CSS variables) and a Figma collection')
@@ -551,203 +400,44 @@ tokens
   .option('--prune', 'Also delete Figma variables that sync created and code no longer has')
   .option('--ours', 'Resolve every conflict in favour of the code file')
   .option('--theirs', 'Resolve every conflict in favour of Figma (writes nothing to Figma)')
-  .option('--lockfile <path>', `Lockfile path (default: ${LOCKFILE_NAME} beside the token file)`)
+  .option('--lockfile <path>', 'Lockfile path (default: figma-tokens.lock.json beside the token file)')
+  .allowExcessArguments(false)
   .action(async (file, options) => {
-    await checkConnection();
-
-    if (options.ours && options.theirs) {
-      console.error(chalk.red('✗ --ours and --theirs are mutually exclusive.'));
-      process.exitCode = 1;
-      return;
-    }
-
-    const filePath = resolvePath(file);
-    if (!existsSync(filePath)) {
-      console.error(chalk.red(`✗ Token file not found: ${filePath}`));
-      process.exitCode = 1;
-      return;
-    }
-    const lockPath = options.lockfile
-      ? resolvePath(options.lockfile)
-      : join(dirname(filePath), LOCKFILE_NAME);
-
-    let codeTokens;
     try {
-      codeTokens = parseTokenFile(filePath, workspaceIO().readText(filePath, { role: 'token-file' }));
-    } catch (e) {
-      console.error(chalk.red(`✗ ${e.message}`));
-      process.exitCode = 1;
-      return;
-    }
-    const declaredElsewhere = [];
-    for (const [name, token] of codeTokens) {
-      if (token.collection
-        && token.collection.localeCompare(options.collection, undefined, { sensitivity: 'accent' }) !== 0) {
-        declaredElsewhere.push({ name, collection: token.collection });
-        codeTokens.delete(name);
-      }
-    }
-    if (declaredElsewhere.length) {
-      console.log(chalk.gray(`  Ignoring ${declaredElsewhere.length} token(s) whose exported collection metadata targets another collection.`));
-    }
-    if (!codeTokens.size) {
-      console.error(chalk.yellow(`⚠ No tokens found in ${filePath}.`));
-      console.error(chalk.gray('  Syncing an empty file would look like "delete everything" — stopping instead.'));
-      process.exitCode = 1;
-      return;
-    }
-
-    const lock = existsSync(lockPath)
-      ? parseLock(workspaceIO().readText(lockPath, { role: 'token-lockfile' }))
-      : null;
-    if (existsSync(lockPath) && !lock) {
-      console.log(chalk.yellow(`⚠ ${lockPath} is unreadable or from a newer version — treating this as a first sync.`));
-    }
-
-    let figmaSide;
-    try {
-      figmaSide = await readFigmaTokens(options.collection);
-    } catch (e) {
-      handleEvalError(e);
-    }
-
-    const aliases = [];
-    const figmaTokens = new Map();
-    if (!figmaSide.missing) {
-      for (const v of figmaSide.variables) {
-        if (v.alias) { aliases.push(v.name); continue; }
-        figmaTokens.set(v.name, {
-          type: v.type, value: v.value, id: v.id,
-          scopes: v.scopes || [], codeSyntax: v.codeSyntax || {},
+      const plan = planFigmaCommand(tokenSyncPlanningArgvFromRequest({
+        file,
+        collection: options.collection || 'Design Tokens',
+        apply: options.apply === true,
+        prune: options.prune === true,
+        ours: options.ours === true,
+        theirs: options.theirs === true,
+        lockfile: options.lockfile || null,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const io = workspaceIO();
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          return withTokenSyncPlanLock(plan, {
+            workspaceIO: io,
+            remainingMs,
+          }, async (prepared) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+            return executeTokenSyncPlan(plan, prepared, {
+              workspaceIO: io,
+              fileKey,
+              remainingMs,
+              evaluate: (code, context = {}) => daemonExec('eval', {
+                code, ...(fileKey ? { fileKey } : {}),
+              }, context.timeoutMs),
+            });
+          });
         });
-      }
-    }
-
-    let plan = planSync(codeTokens, figmaTokens, lock, { prune: !!options.prune });
-    if (options.ours) plan = resolveConflicts(plan, 'ours');
-    if (options.theirs) plan = resolveConflicts(plan, 'theirs');
-
-    console.log(formatPlan(plan, {
-      collection: options.collection + (figmaSide.missing ? ' (will be created)' : ''),
-      file: filePath,
-      apply: !!options.apply,
-      prune: !!options.prune,
-    }));
-
-    const plannedScopeQuestions = variableScopeQuestions([
-      ...plan.create,
-      ...plan.update.filter((token) => token.typeChange),
-    ], options.collection);
-    printVariableScopeQuestions(plannedScopeQuestions);
-
-    // A plan that is ALL creates, for names that already exist in another
-    // collection, is almost always the wrong --collection rather than a genuine
-    // new design system. Applying it would duplicate everything.
-    const misplaced = plan.create
-      .map((t) => [t.name, (figmaSide.elsewhere || {})[t.name]])
-      .filter(([, owner]) => owner);
-    if (misplaced.length && misplaced.length >= plan.create.length / 2) {
-      const owners = [...new Set(misplaced.map(([, owner]) => owner))];
-      console.log(chalk.yellow(`\n⚠ ${misplaced.length} of these names already exist in `
-        + `${owners.map((o) => `"${o}"`).join(', ')}, not in "${options.collection}".`));
-      console.log(chalk.yellow('  Applying this would duplicate them. Did you mean '
-        + `--collection ${JSON.stringify(owners[0])}?`));
-      console.log(chalk.gray('  (`export dtcg` writes every local variable into one file, '
-        + 'while sync targets a single collection.)'));
-    }
-
-    if (figmaSide.modes > 1) {
-      console.log(chalk.yellow(`\n⚠ "${options.collection}" has ${figmaSide.modes} modes; sync reads and writes the first one only.`));
-    }
-    if (aliases.length) {
-      console.log(chalk.yellow(`\n⚠ ${aliases.length} alias variable(s) skipped (they point at other variables, not values):`));
-      console.log(chalk.gray('  ' + aliases.slice(0, 8).join(', ') + (aliases.length > 8 ? ', …' : '')));
-    }
-
-    if (plan.conflict.length) {
-      console.log(chalk.red(`\n✗ ${plan.conflict.length} conflict(s) — nothing was applied.`));
+      console.log(result.stdout);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      if (result.code !== 0) process.exitCode = result.code;
+    } catch (error) {
+      handleEvalError(error);
       process.exitCode = 1;
-      return;
-    }
-
-    if (!options.apply) {
-      if (planTouchesFigma(plan)) {
-        console.log(chalk.gray('\n  Dry run. Re-run with --apply to write these changes to Figma.'));
-        process.exitCode = 1;
-      } else {
-        console.log(chalk.green('\n✓ Figma is already in sync with this file.'));
-      }
-      return;
-    }
-
-    const retypes = plan.update.filter((t) => t.typeChange);
-    if (retypes.length) {
-      console.log(chalk.yellow(`\n⚠ ${retypes.length} variable(s) change type. Figma cannot retype a variable in place,`));
-      console.log(chalk.yellow('  so these are recreated — any layer bound to them loses that binding.'));
-    }
-
-    const spinner = progress('Applying to Figma…').start();
-    let result;
-    try {
-      result = await applyPlan(plan, options.collection);
-    } catch (e) {
-      spinner.fail('Sync failed');
-      handleEvalError(e);
-    }
-    const d = result.done || {};
-    spinnerSucceed(spinner,
-      `${d.created || 0} created, ${d.updated || 0} updated, ${d.retyped || 0} retyped, `
-      + `${d.renamed || 0} renamed, ${d.deleted || 0} deleted`);
-
-    if (result.failed && result.failed.length) {
-      console.log(chalk.red(`\n✗ ${result.failed.length} operation(s) failed:`));
-      for (const f of result.failed.slice(0, 10)) console.log(chalk.red('  ' + f));
-      console.log(chalk.yellow('\n  The lockfile was NOT updated — fix these and re-run, or the next'));
-      console.log(chalk.yellow('  sync would treat the failed writes as deliberate Figma edits.'));
-      process.exitCode = 1;
-      return;
-    }
-
-    // Only now, after every write succeeded, does the lock advance — a lock
-    // written after a partial failure would record a state Figma is not in,
-    // and the next run would read the difference as a designer edit.
-    const synced = new Map();
-    for (const [name, t] of codeTokens) {
-      const existing = figmaTokens.get(name);
-      synced.set(name, {
-        type: t.type,
-        value: t.value,
-        id: existing?.id || t.variableId,
-        ...(Object.hasOwn(t, 'scopes') ? { scopes: t.scopes } : {}),
-        ...(Object.hasOwn(t, 'codeSyntax') ? { codeSyntax: t.codeSyntax } : {}),
-      });
-    }
-    // A token dropped from the code file but NOT pruned is still in Figma and
-    // still sync's responsibility. Letting it fall out of the lock here would
-    // demote it to an untracked variable on the next run — which sync refuses
-    // to prune, so it could never be removed again.
-    for (const d of plan.delete) {
-      if (d.willDelete) continue;
-      synced.set(d.name, { type: d.type, value: d.value, id: d.id });
-    }
-    for (const t of plan.pull) {
-      // Figma is ahead here and the code file was not changed by us, so the
-      // lock must keep pointing at the last AGREED state, not at either side.
-      synced.delete(t.name);
-    }
-    // A rename moved the entry to its new name; the old key must not linger,
-    // or the next run would see a tracked variable that no longer exists.
-    for (const r of plan.rename) synced.delete(r.from);
-    workspaceIO().write(lockPath, JSON.stringify(buildLock({
-      collection: options.collection,
-      fileKey: figmaSide.fileKey || null,
-      tokens: synced,
-    }), null, 2) + '\n', { role: 'token-lockfile', createParents: true });
-    console.log(chalk.gray(`  lockfile: ${lockPath}`));
-
-    if (plan.pull.length) {
-      console.log(chalk.yellow(`\n⚠ ${plan.pull.length} token(s) are newer in Figma. Update ${filePath} to match,`));
-      console.log(chalk.yellow('  then re-run sync so the lockfile can record them as agreed.'));
     }
   });
 

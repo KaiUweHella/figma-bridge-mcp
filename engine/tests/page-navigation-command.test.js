@@ -137,6 +137,14 @@ test('Page Navigation accepts only authentic Plans with action-specific retry', 
   assert.equal(page.allowed, true);
   assert.equal(pages.execution.retry, 'safe-read');
   assert.equal(page.execution.retry, 'never');
+  assert.deepEqual(pages.effects, {
+    figma: 'read', editor: 'read', workspace: 'none', network: 'none', shared: 'none',
+  });
+  assert.deepEqual(page.effects, {
+    figma: 'read', editor: 'write', workspace: 'none', network: 'none', shared: 'none',
+  });
+  assert.equal(page.confirmation, 'none');
+  assert.equal(page.audit.operation, 'write');
   assert.equal(page.id, 'canvas.page');
   assert.equal(pageNavigationPlanRoute(pages), 'command-application');
   assert.equal(pageNavigationPlanRoute(page), 'command-application');

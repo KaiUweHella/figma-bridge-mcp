@@ -10,15 +10,19 @@ import {
   constants,
   existsSync,
   fstatSync,
+  fsyncSync,
   ftruncateSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 
@@ -184,7 +188,7 @@ export function createWorkspaceIO({
   root = process.cwd(),
   extraRoots = [],
   limits = {},
-  testHooks = /** @type {{beforeReadOpen?:(path:string)=>void, beforeWriteOpen?:(path:string)=>void}} */ ({}),
+  testHooks = /** @type {{beforeReadOpen?:(path:string)=>void, beforeWriteOpen?:(path:string)=>void, beforeReplaceOpen?:(staged:string,target:string)=>void, beforeReplaceCommit?:(staged:string,target:string)=>void}} */ ({}),
 } = {}) {
   const launchRoot = path.resolve(root);
   const configured = [root, ...extraRoots];
@@ -399,6 +403,67 @@ export function createWorkspaceIO({
     }
   }
 
+  /**
+   * Replace one regular Workspace file atomically. Every byte reaches a new,
+   * fsynced sibling before rename is the sole commit point; failures before
+   * that point leave the previous target untouched and remove the stage.
+   */
+  function replace(input, data, {
+    role = 'workspace-output',
+    mode = 0o644,
+    createParents = false,
+    encoding = null,
+  } = {}) {
+    const safeRole = normalizeRole(role);
+    const target = canonicalWrite(input, { role: safeRole, createParents, kind: 'file' });
+    const parent = path.dirname(target.canonical);
+    const staged = path.join(parent,
+      `.${path.basename(target.canonical)}.${process.pid}.${randomUUID()}.tmp`);
+    const original = target.exists ? lstatSync(target.canonical) : null;
+    let fd;
+    let ownsStage = false;
+    try {
+      testHooks.beforeReplaceOpen?.(staged, target.canonical);
+      fd = openSync(staged, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL
+        | (constants.O_NOFOLLOW || 0), mode);
+      ownsStage = true;
+      const opened = fstatSync(fd);
+      if (!opened.isFile()) throw new WorkspaceIOError(safeRole, 'atomic stage is not a regular file');
+      const actualStage = canonicalRead(staged, { role: safeRole, kind: 'file' });
+      if (!inodeMatches(opened, lstatSync(actualStage.canonical))) {
+        throw new WorkspaceIOError(safeRole, 'atomic stage changed while it was opened');
+      }
+      writeFileSync(fd, data, encoding ? { encoding } : undefined);
+      fsyncSync(fd);
+      closeSync(fd); fd = undefined;
+      testHooks.beforeReplaceCommit?.(staged, target.canonical);
+      const current = canonicalWrite(input, { role: safeRole, createParents: false, kind: 'file' });
+      if (current.canonical !== target.canonical || current.exists !== target.exists) {
+        throw new WorkspaceIOError(safeRole, 'target changed before atomic commit');
+      }
+      if (original && !inodeMatches(original, lstatSync(current.canonical))) {
+        throw new WorkspaceIOError(safeRole, 'target changed before atomic commit');
+      }
+      const stagedMetadata = lstatSync(staged);
+      if (!stagedMetadata.isFile() || stagedMetadata.isSymbolicLink()
+        || !inodeMatches(opened, stagedMetadata)) {
+        throw new WorkspaceIOError(safeRole, 'atomic stage changed before commit');
+      }
+      renameSync(staged, target.canonical);
+      ownsStage = false;
+      // renameSync is the commit point. No fallible work follows it.
+      return target.canonical;
+    } catch (error) {
+      if (error instanceof WorkspaceIOError) throw error;
+      throw new WorkspaceIOError(safeRole, 'atomic replacement failed');
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+      if (ownsStage) {
+        try { unlinkSync(staged); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+      }
+    }
+  }
+
   return Object.freeze({
     roots: Object.freeze(roots.map(({ canonical }) => canonical)),
     limits: effectiveLimits,
@@ -409,6 +474,7 @@ export function createWorkspaceIO({
     readText,
     readJson,
     write,
+    replace,
   });
 }
 

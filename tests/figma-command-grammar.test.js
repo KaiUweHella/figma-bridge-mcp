@@ -55,14 +55,19 @@ test('the variables root alias resolves to the canonical var grammar', () => {
   assert.deepEqual(variableRoot.aliases, ['variables']);
 });
 
-test('inherited create escape hatches stay explicit and unavailable', () => {
+test('Create Image is exposed while inherited create escape hatches stay unavailable', () => {
   const create = listFigmaCommandGrammar().find((node) => node.name === 'create');
-  for (const name of ['image', 'component', 'group']) {
+  for (const name of ['component', 'group']) {
     const blocked = create.children.find((node) => node.name === name);
     assert.equal(blocked.exposed, false, name);
     assert.equal(resolveFigmaCommandAction(['create', name]).accepted, false, name);
     assert.equal(planFigmaCommand(['create', name]).allowed, false, name);
   }
+  const image = create.children.find((node) => node.name === 'image');
+  assert.equal(image.exposed, true);
+  assert.equal(resolveFigmaCommandAction([
+    'create', 'image', 'https://assets.example/photo.png', '-h', '100',
+  ]).accepted, true);
 });
 
 test('unsafe legacy variable bulk deletion stays explicit and unavailable', () => {
@@ -234,7 +239,6 @@ test('every policy-schema Legacy action rejects unknown and duplicate options', 
   const cases = [
     [['export', 'screenshot'], ['-o', 'shot.png']],
     [['export', 'node', '1:2'], ['--output', 'node.png']],
-    [['export', 'video', '1:2'], ['--fps', '30']],
     [['export', 'node-json', '1:2'], ['-o', 'node.json']],
     [['export', 'dtcg'], ['--dialect', 'legacy']],
     [['gradient', 'extract', 'hero.png'], ['--mode', 'linear']],

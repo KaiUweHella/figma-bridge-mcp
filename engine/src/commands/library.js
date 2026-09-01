@@ -1,52 +1,94 @@
 import chalk from 'chalk';
-import { checkConnection, fastEval, handleEvalError, program } from '../lib/cli-core.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
-  importComponentCode, importStyleCode, importVariableCode, libraryCollectionsCode,
-  libraryVariablesCode, parseLibraryVariableType,
-} from '../lib/library-management.js';
+  executeLibraryImportPlan,
+  libraryImportArgvFromRequest,
+} from '../application/library-import-command.js';
+import {
+  executeLibraryReadPlan,
+  libraryReadArgvFromRequest,
+} from '../application/library-read-command.js';
+import {
+  daemonExec, handleEvalError, program,
+} from '../lib/cli-core.js';
 
 const library = program.command('library').description('Discover enabled variable libraries and import published assets by key');
-const print = (value) => console.log(JSON.stringify(value, null, 2));
-const run = async (code) => { await checkConnection(); return fastEval(code); };
+
+async function runLibraryRead(request) {
+  try {
+    const plan = planFigmaCommand(libraryReadArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeLibraryReadPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
+async function runLibraryImport(request) {
+  try {
+    const plan = planFigmaCommand(libraryImportArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+        return executeLibraryImportPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    const resource = result.result.resource;
+    const label = request.action === 'variable' ? 'variable'
+      : request.action === 'style' ? `${resource.type} style`
+        : request.action === 'component-set' ? 'component set' : 'component';
+    console.log(chalk.green('✓'), `Imported ${label} ${resource.name}.`);
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
 
 library.command('collections')
   .description('List variable collections from libraries enabled in the current Figma file')
-  .action(async () => {
-    try { print(await run(libraryCollectionsCode())); } catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async () => runLibraryRead({ action: 'collections' }));
 
 library.command('variables <collection>')
   .description('List published variables in one enabled library collection')
   .option('-t, --type <type>', 'Filter by BOOLEAN, COLOR, EASING, FLOAT, STRING, or TIMING')
-  .action(async (collection, options) => {
-    try { print(await run(libraryVariablesCode({ collection, type: parseLibraryVariableType(options.type) }))); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (collection, options) => runLibraryRead({
+    action: 'variables', collection, type: options.type,
+  }));
 
 library.command('import-variable <key>')
   .description('Import one published variable by key')
-  .action(async (key) => {
-    try { const result = await run(importVariableCode({ key })); console.log(chalk.green('✓'), `Imported variable ${result.name}.`); print(result); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (key) => runLibraryImport({ action: 'variable', key }));
 
 library.command('import-style <key>')
   .description('Import one published paint, text, effect, or grid style by key')
-  .action(async (key) => {
-    try { const result = await run(importStyleCode({ key })); console.log(chalk.green('✓'), `Imported ${result.type} style ${result.name}.`); print(result); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (key) => runLibraryImport({ action: 'style', key }));
 
 library.command('import-component <key>')
   .description('Import one published component by key')
-  .action(async (key) => {
-    try { const result = await run(importComponentCode({ key })); console.log(chalk.green('✓'), `Imported component ${result.name}.`); print(result); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (key) => runLibraryImport({ action: 'component', key }));
 
 library.command('import-component-set <key>')
   .description('Import one published component set by key')
-  .action(async (key) => {
-    try { const result = await run(importComponentCode({ key, set: true })); console.log(chalk.green('✓'), `Imported component set ${result.name}.`); print(result); }
-    catch (error) { handleEvalError(error); }
-  });
+  .allowExcessArguments(false)
+  .action(async (key) => runLibraryImport({ action: 'component-set', key }));

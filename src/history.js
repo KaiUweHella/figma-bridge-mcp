@@ -9,7 +9,7 @@ import { AUDIT_LOG_PATH } from "./config.js";
 import { extractNodeIds } from "./engine.js";
 import { AUDIT_SCHEMA_VERSION, summarizeSensitive } from "./audit-trail.js";
 
-const STRUCTURED_AUDIT_SCHEMAS = new Set([2, 3, AUDIT_SCHEMA_VERSION]);
+const STRUCTURED_AUDIT_SCHEMAS = new Set([2, 3, 4, 5, AUDIT_SCHEMA_VERSION]);
 
 function isStructuredAuditEntry(entry) {
   return STRUCTURED_AUDIT_SCHEMAS.has(entry?.schema);
@@ -66,6 +66,8 @@ export function foldCompletions(entries) {
           ? { durationMs: d.outcome.durationMs }
           : {}),
         ...(d.outcome.errorKind ? { errorKind: d.outcome.errorKind } : {}),
+        ...(d.outcome.dispatchState ? { dispatchState: d.outcome.dispatchState } : {}),
+        ...(d.outcome.mutation ? { mutation: d.outcome.mutation } : {}),
       };
     }
     return { ...e, ok: d.ok === true, ...(d.error ? { error: d.error } : {}) };

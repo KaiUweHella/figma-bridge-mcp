@@ -230,12 +230,12 @@ test('normalizeOutputArgs anchors map storybook output to the client workspace',
   const { normalizeOutputArgs } = await import('../src/engine.js');
   const base = resolve('work', 'project');
   const inWorkspace = (...parts) => join(base, ...parts);
-  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base).slice(-2),
-    ['-o', inWorkspace('figma-map.json')]);
+  assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'http://localhost:6006'], base),
+    ['map', 'storybook', '--output', inWorkspace('figma-map.json'), '--', 'http://localhost:6006']);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '-o', 'maps/m.json'], base),
-    ['map', 'storybook', inWorkspace('u'), '-o', inWorkspace('maps', 'm.json')]);
+    ['map', 'storybook', '--output', inWorkspace('maps', 'm.json'), '--', inWorkspace('u')]);
   assert.deepEqual(normalizeOutputArgs(['map', 'storybook', 'u', '--output=m.json'], base),
-    ['map', 'storybook', inWorkspace('u'), `--output=${inWorkspace('m.json')}`]);
+    ['map', 'storybook', '--output', inWorkspace('m.json'), '--', inWorkspace('u')]);
 });
 
 test('Design Link Registry projection tolerates missing/corrupt files and keeps legacy Storybook mappings', async () => {
@@ -415,21 +415,33 @@ test('the live STDIO server advertises the complete tool surface to MCP clients'
   }
 });
 
-test('figma_run routes the accepted Design Link tracer without a family-wide capture', () => {
+test('figma_run routes every Design Link action through one target-aware Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
-  assert.doesNotMatch(source, /normalized\[0\] === "link"/);
-  assert.match(source, /designLinkPlanRoute\(plan\)/);
-  assert.match(source, /executeDesignLinkPlan\(plan, adapters\)/);
-  assert.match(source, /executeDesignLink\(designLinkRequestFromArgv\(normalized\), adapters\)/);
-  assert.match(source, /compatibilityFallback: designLinkRoute === "command-application" \? false/);
+  const start = source.indexOf('const designLinkRoute = designLinkPlanRoute(plan)');
+  const end = source.indexOf('const designContractRoute = designContractPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /if \(plan\.target\.kind !== "none"\)/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeDesignLinkPlan\(plan, adapters\)/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /executeDesignLink\(|runCliPlan\(/);
 });
 
 test('figma_run routes Design Contract capture/check through the shared Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
-  assert.match(source, /designContractPlanRoute\(plan\)/);
-  assert.match(source, /executeDesignContractPlan\(plan/);
-  assert.match(source, /formatDesignContractAdapterResult\(result\)/);
-  assert.match(source, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
+  const start = source.indexOf('const designContractRoute = designContractPlanRoute(plan)');
+  const end = source.indexOf('const createFrameRoute = createFramePlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeDesignContractPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(route, /formatDesignContractAdapterResult\(result\)/);
+  assert.match(route, /result\.action === "check" && !result\.check\.ok \? 1 : 0/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'Design Contract must not re-enter Commander');
 });
 
 test('figma_run routes Node Text through the shared non-retrying Application', () => {
@@ -470,6 +482,230 @@ test('figma_run routes Node Duplicate through the rollback-verified Command Appl
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Node Duplicate must not re-enter Commander');
 });
+
+test('figma_run routes Create Frame through the rollback-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createFrameRoute = createFramePlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateFramePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Frame must not re-enter Commander');
+});
+
+test('figma_run materializes Create Image before readiness and never re-enters Commander', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createImageRoute = createImagePlanRoute(plan)');
+  const end = source.indexOf('const createShapeRoute = createShapePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /prepareCreateImagePlan\(plan/);
+  assert.ok(slice.indexOf('prepareCreateImagePlan(plan') < slice.indexOf('ensurePluginReadiness({'),
+    'network preparation must complete before Plugin readiness');
+  assert.match(slice, /executeCreateImagePlan\(plan, prepared/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Image must not re-enter Commander');
+});
+
+test('figma_run routes solid Shape creation through the rollback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createShapeRoute = createShapePlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateShapePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Shape must not re-enter Commander');
+});
+
+test('figma_run routes Vector and Slice creation through the verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createCanvasNodeRoute = createCanvasNodePlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateCanvasNodePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Canvas Node must not re-enter Commander');
+});
+
+test('figma_run routes Line creation through the rollback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createLineRoute = createLinePlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateLinePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Line must not re-enter Commander');
+});
+
+test('figma_run routes Auto Layout creation through the rollback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createAutoLayoutRoute = createAutoLayoutPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateAutoLayoutPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Auto Layout must not re-enter Commander');
+});
+
+test('figma_run routes Text creation through the font-preflighted Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createTextRoute = createTextPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeCreateTextPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Text must not re-enter Commander');
+});
+
+test('figma_run routes Measurement mutations through the structured Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const measurementMutationRoute = measurementMutationPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMeasurementMutationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Measurement Mutation must not re-enter Commander');
+});
+
+test('figma_run routes Measurement reads through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const measurementReadRoute = measurementReadPlanRoute(plan)');
+  const end = source.indexOf('const libraryImportRoute = libraryImportPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMeasurementReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Measurement Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Measurement reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_run', { args: ['measure', 'list', '1:2', '3:4'] });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+});
+
+test('figma_run routes Node Rename through the rollback-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeRenameRoute = nodeRenamePlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeRenamePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Rename must not re-enter Commander');
+});
+
+test('figma_run routes Node Resize through the rollback-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeResizeRoute = nodeResizePlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeResizePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Resize must not re-enter Commander');
+});
+
+test('figma_run routes Node Reparent through the hierarchy-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeReparentRoute = nodeReparentPlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeReparentPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Node Reparent must not re-enter Commander');
+});
+
+test('figma_run routes Node Group through the rollback-owned Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeGroupRoute = nodeGroupPlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /executeNodeGroupPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run routes Node Ungroup through the hierarchy-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8'); const start = source.indexOf('const nodeUngroupRoute = nodeUngroupPlanRoute(plan)'); const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start); const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/); assert.match(slice, /compatibilityFallback: false/); assert.match(slice, /executeNodeUngroupPlan\(plan/); assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+test('figma_run routes Node Boolean through the hierarchy-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeBooleanRoute = nodeBooleanPlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /executeNodeBooleanPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+test('figma_run routes Node Bind through the readback-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeBindRoute = nodeBindPlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /executeNodeBindPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+test('figma_run routes Node Set through the journaled multi-property Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeSetRoute = nodeSetPlanRoute(plan)');
+  const end = source.indexOf('const nodeSetFillRoute = nodeSetFillPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeSetPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+test('figma_run routes Node Set Fill through the readback-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeSetFillRoute = nodeSetFillPlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeNodeSetFillPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+test('figma_run routes Node Set Image through the prepared readback-verified Command Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeSetImageRoute = nodeSetImagePlanRoute(plan)');
+  const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /prepareNodeSetImagePlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executePreparedNodeSetImage\(prepared/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+test('figma_run routes Node Flatten through the irreversible verified Command Application', () => { const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8'); const start = source.indexOf('const nodeFlattenRoute = nodeFlattenPlanRoute(plan)'); const end = source.indexOf('const nodeDeleteRoute = nodeDeletePlanRoute(plan)', start); const slice = source.slice(start, end); assert.match(slice, /runInProcessCommandPlan\(plan/); assert.match(slice, /compatibilityFallback: false/); assert.match(slice, /executeNodeFlattenPlan\(plan/); assert.doesNotMatch(slice, /runCliPlan\(/); });
 
 test('figma_run routes Node Delete through the shared hierarchy-verified Command Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
@@ -533,6 +769,561 @@ test('figma_run routes Prototype Inspection through the shared bounded-read Appl
   assert.match(slice, /executePrototypeInspectionPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Prototype Inspection must not re-enter Commander');
+});
+
+test('figma_run routes Prototype mutations through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const prototypeMutationRoute = prototypeMutationPlanRoute(plan)');
+  const end = source.indexOf('const tokenPresetRoute = tokenPresetPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executePrototypeMutationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Prototype Mutation must not re-enter Commander');
+});
+
+test('figma_run routes Library imports through the irreversible verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const libraryImportRoute = libraryImportPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeLibraryImportPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Library Import must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Library imports before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['library', 'import-variable'],
+    ['library', 'import-style', 'KEY', 'EXTRA'],
+    ['library', 'import-component', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Library reads through the shared bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const libraryReadRoute = libraryReadPlanRoute(plan)');
+  const end = source.indexOf('const shaderMutationRoute = shaderMutationPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeLibraryReadPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Library Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Library reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['library', 'collections', 'extra'],
+    ['library', 'collections', '--future', 'private-value'],
+    ['library', 'variables'],
+    ['library', 'variables', 'Brand', '--type', 'NUMBER'],
+    ['library', 'variables', 'Brand', '--type', 'COLOR', '--type', 'FLOAT'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Shader writes through the verified mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const shaderMutationRoute = shaderMutationPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeShaderMutationPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Shader Mutation must not re-enter Commander');
+});
+
+test('figma_run routes Shader reads through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const shaderReadRoute = shaderReadPlanRoute(plan)');
+  const end = source.indexOf('const drawCommandRoute = drawCommandPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeShaderReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Shader Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Shader reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['shader', 'list', 'extra'],
+    ['shader', 'list', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Shader writes before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['shader', 'import'],
+    ['shader', 'import', 'SH:1', 'EXTRA'],
+    ['shader', 'apply', '1:2', 'SH:1'],
+    ['shader', 'apply', '1:2', 'SH:1', '--field', 'unknown'],
+    ['shader', 'apply', '1:2', 'SH:1', '--field', 'fill', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Draw reads and writes through the shared verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const drawCommandRoute = drawCommandPlanRoute(plan)');
+  const end = source.indexOf('const slotConfigurationRoute = slotConfigurationPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeDrawCommandPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Draw Command must not re-enter Commander');
+});
+
+test('figma_run routes Motion Clear through the verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionClearRoute = motionClearPlanRoute(plan)');
+  const end = source.indexOf('const motionTimelineRoute = motionTimelinePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMotionClearPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Clear must not re-enter Commander');
+});
+
+test('figma_run routes Motion Add through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionAddRoute = motionAddPlanRoute(plan)');
+  const end = source.indexOf('const motionPresetRoute = motionPresetPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMotionAddPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Add must not re-enter Commander');
+});
+
+test('figma_run routes Motion Preset through the shared track transaction', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionPresetRoute = motionPresetPlanRoute(plan)');
+  const end = source.indexOf('const motionStaggerRoute = motionStaggerPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeMotionPresetPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Preset must not re-enter Commander');
+});
+
+test('figma_run routes Motion Stagger through one atomic multi-target transaction', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionStaggerRoute = motionStaggerPlanRoute(plan)');
+  const end = source.indexOf('const motionClearRoute = motionClearPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeMotionStaggerPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Stagger must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Motion Stagger before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'stagger', '1:2'],
+    ['motion', 'stagger', '1:2', '--preset', 'private-value'],
+    ['motion', 'stagger', '1:2', '--preset', 'fade-in', '--field', 'opacity'],
+    ['motion', 'stagger', '1:2', '--preset', 'fade-in', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Motion Preset before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'preset', '1:2'],
+    ['motion', 'preset', '1:2', 'private-value'],
+    ['motion', 'preset', '1:2', 'fade-in', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Motion Add before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'add', '1:2'],
+    ['motion', 'add', '1:2', '--field', 'opacity', '--keys', 'private-value'],
+    ['motion', 'add', '1:2', '--field', 'opacity', '--keys', '0:0', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Motion Clear before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'clear'],
+    ['motion', 'clear', '1:2', '--field', 'private-value'],
+    ['motion', 'clear', '1:2', '--styles', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Motion Style through the verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionStyleRoute = motionStylePlanRoute(plan)');
+  const end = source.indexOf('const motionTimelineRoute = motionTimelinePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMotionStylePlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Style must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Motion Style before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'style', '1:2'],
+    ['motion', 'style', '1:2', 'opacity', '--timing', 'private-value'],
+    ['motion', 'style', '1:2', 'opacity', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Motion Timeline reads and writes through the verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionTimelineRoute = motionTimelinePlanRoute(plan)');
+  const end = source.indexOf('const motionReadRoute = motionReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMotionTimelinePlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Timeline must not re-enter Commander');
+});
+
+test('figma_run routes Motion reads through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionReadRoute = motionReadPlanRoute(plan)');
+  const end = source.indexOf('const drawCommandRoute = drawCommandPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMotionReadPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Draw requests before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['draw', 'inspect'],
+    ['draw', 'inspect', '1:2', '--future', 'private-value'],
+    ['draw', 'text-path', '1:2'],
+    ['draw', 'transform-group', '1:2', '--modifiers', '[]'],
+    ['draw', 'stroke-profile', '1:2'],
+    ['draw', 'pattern', '1:2', '1:3'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Slot create/edit through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slotConfigurationRoute = slotConfigurationPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeSlotConfigurationPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slot Configuration must not re-enter Commander');
+});
+
+test('figma_run routes Slot reads through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slotReadRoute = slotReadPlanRoute(plan)');
+  const end = source.indexOf('const gridInspectRoute = gridInspectPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeSlotReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Slot Read must not re-enter Commander');
+});
+
+test('figma_run routes Grid Inspect through the bounded safe-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridInspectRoute = gridInspectPlanRoute(plan)');
+  const end = source.indexOf('const gridSetRoute = gridSetPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridInspectPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Inspect must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Grid Inspect before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'inspect'],
+    ['layout', 'grid', 'inspect', '2:1', '3:1'],
+    ['layout', 'grid', 'inspect', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Slot reads before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['slot', 'inspect'],
+    ['slot', 'inspect', '1:1', '2:1'],
+    ['slot', 'validate', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Slot create/edit before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['slot', 'create', '1:1'],
+    ['slot', 'create', '1:1', 'Content', '--settings', '{"future":true}'],
+    ['slot', 'edit', '1:1', 'Content#1:1'],
+    ['slot', 'edit', '1:1', 'Content#1:1', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Slot reset through the irreversible native-confirmed Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slotResetRoute = slotResetPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeSlotResetPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Slot Reset must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Slot reset before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['slot', 'reset'], ['slot', 'reset', '2:1', '3:1'],
+    ['slot', 'reset', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Grid Auto Flow through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridAutoFlowRoute = gridAutoFlowPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridAutoFlowPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Auto Flow must not re-enter Commander');
+});
+
+test('figma_run routes Grid Set through the journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridSetRoute = gridSetPlanRoute(plan)');
+  const end = source.indexOf('const gridAutoFlowRoute = gridAutoFlowPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridSetPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Set must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Grid Set before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'set', '2:1'],
+    ['layout', 'grid', 'set', '2:1', '--rows', '0'],
+    ['layout', 'grid', 'set', '2:1', '--rows', '2', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run rejects malformed Grid Auto Flow before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'auto-flow', '2:1'],
+    ['layout', 'grid', 'auto-flow', '2:1', '--auto-tracks', 'columns', '--positioning', 'manual'],
+    ['layout', 'grid', 'auto-flow', '2:1', '--auto-tracks', 'rows', '--positioning', 'manual', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Grid Place through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridPlaceRoute = gridPlacePlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridPlacePlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Place must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Grid Place before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'place', '2:1', '3:1', '--row', '0'],
+    ['layout', 'grid', 'place', '2:1', '3:1', '--row', '-1', '--column', '0'],
+    ['layout', 'grid', 'place', '2:1', '3:1', '--row', '0', '--column', '0', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('figma_run routes Grid Track Reorder through the irreversible Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const gridTrackReorderRoute = gridTrackReorderPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeGridTrackReorderPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Grid Track Reorder must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Grid Track Reorder before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['layout', 'grid', 'reorder-rows', '2:1', '--from', '0'],
+    ['layout', 'grid', 'reorder-columns', '2:1', '--from', '-1', '--to', '1'],
+    ['layout', 'grid', 'reorder-rows', '2:1', '--from', '0', '--to', '1', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
+test('MCP error results retain one validated bounded mutation projection', async () => {
+  const { errorResult } = await import('../src/server.js');
+  const structuredContent = {
+    schemaVersion: 1, status: 'failed', errorKind: 'execution', dispatchState: 'failed',
+    mutation: {
+      schemaVersion: 1, outcome: 'partial-residue', attempted: 2, restored: 1, residueCount: 1,
+    },
+  };
+  const result = errorResult('Mutation failed', { structuredContent });
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, structuredContent);
+  const forged = errorResult('Mutation failed', {
+    structuredContent: { ...structuredContent, privateNode: '12:34' },
+  });
+  assert.equal(Object.hasOwn(forged, 'structuredContent'), false);
 });
 
 test('figma_run rejects malformed Prototype Inspection before readiness or dispatch', async () => {
@@ -742,6 +1533,45 @@ test('figma_run routes Token Import through pre-read and its shared journaled Ap
   assert.match(slice, /compatibilityFallback:\s*false/);
   assert.match(slice, /executeTokenImportPlan\(plan, prepared/);
   assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run routes Token Sync through one pre-read, revalidating Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const tokenSyncRoute = tokenSyncPlanRoute(plan)');
+  const end = source.indexOf('const tokenImportRoute = tokenImportPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /withTokenSyncPlanLock\(plan/);
+  assert.ok(slice.indexOf('withTokenSyncPlanLock') < slice.indexOf('ensurePluginReadiness'));
+  assert.match(slice, /const remainingMs = \(\) => Math\.max\(0, deadline - Date\.now\(\)\)/);
+  assert.match(slice, /workspaceIO: WORKSPACE_IO,\s+remainingMs,/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeTokenSyncPlan\(plan, prepared/);
+  assert.match(slice, /workspaceIO: WORKSPACE_IO/);
+  assert.match(slice, /fileKey,/);
+  assert.match(slice, /fileKey,\s+remainingMs,/);
+  assert.match(slice, /timeoutMs: context\.timeoutMs/);
+  assert.doesNotMatch(slice, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(|program\.parseAsync/);
+});
+
+test('figma_run confirms Token Sync apply and rejects malformed input before source or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const preview = await handleTool('figma_run', {
+    args: ['tokens', 'sync', 'package.json', '--apply'],
+  });
+  assert.equal(preview.isError, undefined);
+  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  for (const args of [
+    ['tokens', 'sync'], ['tokens', 'sync', 'one.json', 'two.json'],
+    ['tokens', 'sync', '--ours', '--theirs', 'tokens.json'],
+    ['tokens', 'sync', '--collection'],
+    ['tokens', 'sync', '--future', 'private-value', 'tokens.json'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
 });
 
 test('figma_run routes DESIGN.md context without confirmation, readiness, or Commander', async () => {
@@ -1365,7 +2195,7 @@ test('figma_run rejects malformed Variable Discovery before readiness or dispatc
 test('figma_run routes Variable Resolution through the shared target-bound Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const variableResolutionRoute = variableResolutionPlanRoute(plan)');
-  const end = source.indexOf('const fontInspectionRoute = fontInspectionPlanRoute(plan)', start);
+  const end = source.indexOf('const fontAxisMetadataRoute = fontAxisMetadataPlanRoute(plan)', start);
   const slice = source.slice(start, end);
   assert.match(slice, /runInProcessCommandPlan\(plan/);
   assert.match(slice, /compatibilityFallback:\s*false/);
@@ -1373,6 +2203,35 @@ test('figma_run routes Variable Resolution through the shared target-bound Appli
   assert.match(slice, /executeVariableResolutionPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Variable Resolution must not re-enter Commander');
+});
+
+test('figma_run routes Font Axis Metadata through the bounded readback-verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const fontAxisMetadataRoute = fontAxisMetadataPlanRoute(plan)');
+  const end = source.indexOf('const fontInspectionRoute = fontInspectionPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeFontAxisMetadataPlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Font Axis Metadata must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Font Axis Metadata before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['font', 'axes'],
+    ['font', 'axes', '1:1', '2:2'],
+    ['font', 'remember-axes', '1:1', 'wght=nope'],
+    ['font', 'forget-axes', '1:1', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value|Plugin not connected|figma_connect/);
+  }
 });
 
 test('figma_run routes Font Inspection through the shared bounded-read Application', () => {
@@ -1740,6 +2599,58 @@ test('figma_run routes Component Create through the rollback-owned Application',
   assert.match(slice, /executeComponentCreatePlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Component Create must not re-enter Commander');
+});
+
+test('figma_run routes Size Variants through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sizeVariantsRoute = sizeVariantsPlanRoute(plan)');
+  const end = source.indexOf('const nodeJsonExportRoute = nodeJsonExportPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{\s*deadline/);
+  assert.match(slice, /executeSizeVariantsPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Size Variants must not re-enter Commander after dispatch');
+});
+
+test('figma_run rejects malformed Size Variants before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['sizes', 'bad'],
+    ['sizes', '1:1', '2:2'],
+    ['sizes', '--base', 'huge'],
+    ['sizes', '--gap', '1.5'],
+    ['sizes', '--base', 'small', '--base', 'large'],
+    ['sizes', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+  }
+});
+
+test('figma_run routes Component Combinations through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentCombinationsRoute = componentCombinationsPlanRoute(plan)');
+  const end = source.indexOf('const sizeVariantsRoute = sizeVariantsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeComponentCombinationsPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Component Combinations before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['combos', 'bad'], ['combos', '1:1', '2:2'], ['combos', '--gap', '1.5'],
+    ['combos', '--dry-run', '--dry-run'], ['combos', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+  }
 });
 
 test('figma_run routes Component Swap through the one-shot verified Application', () => {
@@ -2137,12 +3048,677 @@ test('figma_run routes Layout Grid Facts through the shared bounded-read Applica
     'Layout Grid Facts must not re-enter Commander');
 });
 
+test('figma_run routes Layout Guide mutations through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const layoutGuideMutationRoute = layoutGuideMutationPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeLayoutGuideMutationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Layout Guide mutations must not re-enter Commander');
+});
+
+test('figma_run routes Analyze census reads through the bounded Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const analysisCensusRoute = analysisCensusPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnalysisCensusPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Analyze census must not re-enter Commander');
+});
+
+test('figma_run routes Slides Inspect through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesInspectRoute = slidesInspectPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesInspectPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Inspect must not re-enter Commander');
+});
+
+test('figma_run routes Slides Create through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesCreateRoute = slidesCreatePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesCreatePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Create must not re-enter Commander');
+});
+
+test('figma_run routes Slides Duplicate through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesDuplicateRoute = slidesDuplicatePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesDuplicatePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Duplicate must not re-enter Commander');
+});
+
+test('figma_run routes Slides Move through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesMoveRoute = slidesMovePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesMovePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Move must not re-enter Commander');
+});
+
+test('figma_run routes Slides properties through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesPropertyRoute = slidesPropertyPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesPropertyPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides properties must not re-enter Commander');
+});
+
+test('figma_run routes Slides Delete through the irreversible verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const slidesDeleteRoute = slidesDeletePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSlidesDeletePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Slides Delete must not re-enter Commander');
+});
+
+test('figma_run routes Jam Board through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamBoardRoute = jamBoardPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamBoardPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Jam Board must not re-enter Commander');
+});
+
+test('figma_run routes Jam Arrange through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamArrangeRoute = jamArrangePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamArrangePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Jam Arrange must not re-enter Commander');
+});
+
+test('figma_run routes Jam Sticky through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamStickyRoute = jamStickyPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamStickyPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Jam Sticky must not re-enter Commander');
+});
+
+test('figma_run routes Jam Stickies through the shared rollback-owned batch Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamStickiesRoute = jamStickiesPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamStickiesPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Jam Stickies must not re-enter Commander');
+});
+
+test('figma_run routes Jam Shape through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamShapeRoute = jamShapePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamShapePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Jam Shape must not re-enter Commander');
+});
+
+test('figma_run routes Jam Connector through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamConnectorRoute = jamConnectorPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamConnectorPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Jam Connector must not re-enter Commander');
+});
+
+test('figma_run routes Jam Table through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamTableRoute = jamTablePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamTablePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Jam Table must not re-enter Commander');
+});
+
+test('figma_run routes Jam Section through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamSectionRoute = jamSectionPlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamSectionPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Jam Section must not re-enter Commander');
+});
+
+test('figma_run routes Jam Code through the shared rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const jamCodeRoute = jamCodePlanRoute(plan)');
+  const end = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeJamCodePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Jam Code must not re-enter Commander');
+});
+
+test('figma_run routes Dev Resource Read through the shared bounded-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const devResourceReadRoute = devResourceReadPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeDevResourceReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Dev Resource Read must not re-enter Commander');
+});
+
+test('figma_run routes Dev Resource mutations through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const devResourceMutationRoute = devResourceMutationPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeDevResourceMutationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Dev Resource Mutation must not re-enter Commander');
+});
+
+test('figma_run routes Section Inventory through the bounded current-page Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sectionInventoryRoute = sectionInventoryPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSectionInventoryPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Section Inventory must not re-enter Commander');
+});
+
+test('figma_run routes Section Fit through the rollback-verified geometry Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sectionFitRoute = sectionFitPlanRoute(plan)');
+  const end = source.indexOf('const annotationCategoryInventoryRoute = annotationCategoryInventoryPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSectionFitPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Section Fit must not re-enter Commander');
+});
+
+test('figma_run routes Section Arrange through the rollback-verified geometry Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sectionArrangeRoute = sectionArrangePlanRoute(plan)');
+  const end = source.indexOf('const annotationCategoryInventoryRoute = annotationCategoryInventoryPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSectionArrangePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Section Arrange must not re-enter Commander');
+});
+
+test('figma_run routes Section Add through the rollback-verified batch Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sectionAddRoute = sectionAddPlanRoute(plan)');
+  const end = source.indexOf('const annotationCategoryInventoryRoute = annotationCategoryInventoryPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSectionAddPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Section Add must not re-enter Commander');
+});
+
+test('figma_run routes Section Create through the rollback-verified creation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const sectionCreateRoute = sectionCreatePlanRoute(plan)');
+  const end = source.indexOf('const annotationCategoryInventoryRoute = annotationCategoryInventoryPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeSectionCreatePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Section Create must not re-enter Commander');
+});
+
+test('figma_run routes Annotation Category Inventory through the bounded file-read Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationCategoryInventoryRoute = annotationCategoryInventoryPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationCategoryInventoryPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Category Inventory must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Category Inventory before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'categories', 'private'],
+    ['annotate', 'categories', '--future'],
+    ['annotate', 'categories', '--', 'private'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run routes Annotation Read through the bounded node-or-selection Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationReadRoute = annotationReadPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationReadPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Read must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Read before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'list', '1:2', '1:3'],
+    ['annotate', 'list', '--future'],
+    ['annotate', 'list', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run routes Annotation Clear through the rollback-verified mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationClearRoute = annotationClearPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationClearPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Clear must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Clear before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'clear'],
+    ['annotate', 'clear', '1:2', '1:3'],
+    ['annotate', 'clear', '--future'],
+    ['annotate', 'clear', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run routes Annotation Remove through the index-exact mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationRemoveRoute = annotationRemovePlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationRemovePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Remove must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Remove before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'remove'],
+    ['annotate', 'remove', '1:2'],
+    ['annotate', 'remove', '1:2', '-1'],
+    ['annotate', 'remove', '1:2', '0', 'extra'],
+    ['annotate', 'remove', 'not-a-node', '0'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run routes Annotation Edit through the patch-exact mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationEditRoute = annotationEditPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationEditPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Edit must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Edit before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'edit', '1:2', '0'],
+    ['annotate', 'edit', '1:2', '-1', '--text=x'],
+    ['annotate', 'edit', '1:2', '0', '--text=x', '--text=y'],
+    ['annotate', 'edit', '1:2', '0', '--properties=future'],
+    ['annotate', 'edit', '1:2', '0', '--text=x', 'extra'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run routes Annotation Category writes through one mutation Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf(
+    'const annotationCategoryMutationRoute = annotationCategoryMutationPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationCategoryMutationPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Category Mutation must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Category writes before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'category-add', 'Ready'],
+    ['annotate', 'category-add', 'Ready', '--color=purple'],
+    ['annotate', 'category-edit', 'Review'],
+    ['annotate', 'category-edit', 'Review', '--label=x', '--label=y'],
+    ['annotate', 'category-remove', 'Review', '--color=blue'],
+    ['annotate', 'category-remove', 'Review', 'extra'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run routes Annotation Add through the bounded journaled Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const annotationAddRoute = annotationAddPlanRoute(plan)');
+  const end = source.indexOf('const pageStructureRoute = pageStructurePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{/);
+  assert.match(slice, /fileKey, expectedEditor/);
+  assert.match(slice, /executeAnnotationAddPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Annotation Add must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Annotation Add before readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['annotate', 'add', 'Note'],
+    ['annotate', 'add', '--node=1:1'],
+    ['annotate', 'add', '--node=1:1', '--node=1:2', 'Note'],
+    ['annotate', 'add', '--query=Card', '--properties=future', 'Note'],
+    ['annotate', 'add', '--query=Card', 'Note', 'extra'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Section Inventory before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['section', 'list', 'private'],
+    ['section', 'list', '--future'],
+    ['section', 'list', '--', 'private'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Section Fit before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['section', 'fit'],
+    ['section', 'fit', '1:1', '1:2'],
+    ['section', 'fit', '1:1', '--pad=-1'],
+    ['section', 'fit', '1:1', '--pad=1', '--pad=2'],
+    ['section', 'fit', '1:1', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Section Arrange before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['section', 'arrange'],
+    ['section', 'arrange', '1:1', '1:2'],
+    ['section', 'arrange', '1:1', '--cols=0'],
+    ['section', 'arrange', '1:1', '--gap=-1'],
+    ['section', 'arrange', '1:1', '--group-rows', '--group-rows'],
+    ['section', 'arrange', '1:1', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Section Add before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['section', 'add'],
+    ['section', 'add', '1:1'],
+    ['section', 'add', '1:1', '2:1,'],
+    ['section', 'add', '1:1', '2:1,2-1'],
+    ['section', 'add', '1:1', '1:1'],
+    ['section', 'add', '1:1', '2:1', '3:1'],
+    ['section', 'add', '1:1', '2:1', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Section Create before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['section', 'create'],
+    ['section', 'create', ''],
+    ['section', 'create', 'Name', '2:1,'],
+    ['section', 'create', 'Name', '2:1,2-1'],
+    ['section', 'create', 'Name', 'not-a-node'],
+    ['section', 'create', 'Name', '2:1', '3:1'],
+    ['section', 'create', '--future', 'Name'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Dev Resource mutations before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['dev', 'link', '1:2'],
+    ['dev', 'unlink', '--name=forbidden', '1:2', 'https://example.test'],
+    ['dev', 'edit', '1:2', 'https://example.test/old'],
+    ['dev', 'link', '--future', 'private', '1:2', 'https://example.test'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Dev Resource Read argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['dev', 'list', '1:2', '1:3'],
+    ['dev', 'list', '--future', 'private-value'],
+    ['dev', 'list', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
 test('figma_run rejects malformed Layout Grid Facts argv before readiness or dispatch', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
     ['grid', 'list', '10:3', '10:4'],
     ['grid', 'list', '--future', 'private-value'],
     ['grid', 'list', '--json', '--json'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Layout Guide mutation argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['grid', 'set', '10:3'],
+    ['grid', 'set', '10:3', '--columns=0'],
+    ['grid', 'set', '10:3', '--columns=1', '--future'],
+    ['grid', 'clear', '10:3', '--append'],
+    ['grid', 'clear', 'not-a-node'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+  }
+});
+
+test('figma_run rejects malformed Analyze census argv before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['analyze', 'colors', 'private-value'],
+    ['analyze', 'typography', '--future'],
+    ['analyze', 'spacing', '--json', '--json'],
+    ['analyze', 'clusters', '--', '--json'],
   ]) {
     const result = await handleTool('figma_run', { args });
     assert.equal(result.isError, true, args.join(' '));
@@ -2245,13 +3821,16 @@ test('figma_run and figma_history share the Plan-bound History Application', () 
     assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
     assert.match(slice, /executeHistoryPlan\(plan/);
     assert.doesNotMatch(slice, /runCli(?:Plan)?\(/,
-      'local History must not re-enter Commander');
+      'History must not re-enter Commander');
   }
 });
 
 test('figma_run rejects malformed History argv before readiness or shared-state access', async () => {
   const { handleTool } = await import('../src/server.js');
   for (const args of [
+    ['history', 'save'],
+    ['history', 'save', 'Release 1', 'private-value'],
+    ['history', 'save', 'Release 1', '--description', 'a', '-d', 'b'],
     ['history', 'list', 'extra'],
     ['history', 'snapshot', '--depth', '-1'],
     ['history', 'diff', 'latest', 'live', '--json', '--changelog'],
@@ -2260,6 +3839,7 @@ test('figma_run rejects malformed History argv before readiness or shared-state 
     assert.equal(result.isError, true, args.join(' '));
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /Plugin not connected|figma_connect/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
   }
 });
 
@@ -2279,8 +3859,8 @@ test('figma_run and figma_render share simple and compound non-retrying Semantic
   assert.match(helper, /semanticRenderOutcomeCode\(outcome\)/);
   assert.match(helper, /structuredContent: outcome/,
     'MCP text and structured content must project the same Application Outcome');
-  assert.match(source, /structuredContent: err\?\.semanticRenderOutcome/,
-    'known failure and rollback facts must survive the MCP error projection');
+  assert.match(source, /structuredContent: err\?\.semanticRenderOutcome \|\| projectPublicFailure\(err\)/,
+    'known failure, Dispatch and rollback facts must survive the MCP error projection');
   assert.doesNotMatch(helper, /runCliPlan\(|runCli\(/);
 
   assert.match(source, /semanticRenderRoute === "command-application"[\s\S]*?runSemanticRenderApplication\(plan, input\.label, preparedSemanticRender\)/);
@@ -2409,6 +3989,12 @@ test('explicit Command Preview is payload-free and wins over confirm:true', asyn
   assert.equal(facts.dispatched, false);
   assert.equal(facts.capability, 'var.create');
   assert.equal(facts.effects.figma, 'write');
+  assert.equal(facts.effects.editor, 'none');
+  const navigationFacts = commandPlanPreviewFacts(planFigmaRunCommand([
+    'canvas', 'page', 'Components',
+  ]));
+  assert.equal(navigationFacts.effects.figma, 'read');
+  assert.equal(navigationFacts.effects.editor, 'write');
   assert.equal(facts.confirmationPolicy, 'required');
   assert.equal(JSON.stringify(facts).includes('private-variable-name'), false);
   const plan = planFigmaRunCommand(['var', 'create', '-c', 'Tokens', '-t', 'FLOAT', 'name']);
@@ -2662,6 +4248,39 @@ test('figma_run rejects malformed Node Duplicate before confirmation or readines
     assert.equal(result.isError, true, args.join(' '));
     assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
     assert.doesNotMatch(result.content[0].text, /Plugin not connected|figma_connect|PREVIEW|private-value/);
+  }
+});
+
+test('figma_run rejects malformed Node Rename before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['node', 'rename'],
+    ['node', 'rename', '1:2'],
+    ['node', 'rename', '--future', 'private-value'],
+    ['node', 'rename', '1:2', 'After', 'private-value'],
+    ['node', 'rename', 'not-a-node', 'After'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text,
+      /Plugin not connected|figma_connect|PREVIEW|private-value/);
+  }
+});
+
+test('figma_run rejects malformed Node Resize before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['node', 'resize'], ['node', 'resize', '1:2', '20'],
+    ['node', 'resize', '--future', '20', '30'],
+    ['node', 'resize', '1:2', '20', '30', 'private-value'],
+    ['node', 'resize', 'not-a-node', '20', '30'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text,
+      /Plugin not connected|figma_connect|PREVIEW|private-value/);
   }
 });
 
@@ -3009,7 +4628,101 @@ test('figma_run rejects malformed Code Spec argv before readiness or capture', a
   }
 });
 
-test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Screenshot Application', async () => {
+test('figma_run routes Component Spec through repository-first conditional execution', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentSpecRoute = componentSpecPlanRoute(plan)');
+  const end = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /prepareComponentSpecPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /if \(plan\.target\.kind !== "none"\)/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeComponentSpecPlan\(plan, prepared/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'Component Spec must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Component Spec before workspace or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['spec'],
+    ['spec', 'Button', 'Card'],
+    ['spec', 'Button', '--check', 'bad-node'],
+    ['spec', 'Button', '--tolerance', '2px'],
+    ['spec', 'Button', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
+test('figma_run routes Storybook Map through source-first in-process execution', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const storybookMapRoute = storybookMapPlanRoute(plan)');
+  const end = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /prepareStorybookMapPlan\(plan, \{ workspaceIO: WORKSPACE_IO \}\)/);
+  assert.ok(route.indexOf('prepareStorybookMapPlan') < route.indexOf('ensurePluginReadiness'));
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeStorybookMapPlan\(plan, prepared/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.match(route, /enrichFigmaMap\(normalized, plan\.target\.fileKey\)/,
+    'the opt-in REST metadata enrichment remains after publication');
+  assert.doesNotMatch(route, /runCliPlan\(/, 'Storybook Map must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Storybook Map argv before workspace, network, or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['map', 'storybook'],
+    ['map', 'storybook', 'one', 'two'],
+    ['map', 'storybook', 'source', '--output'],
+    ['map', 'storybook', 'source', '--json', '--json'],
+    ['map', 'storybook', 'source', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
+test('figma_run routes verify-build through the conditional in-process Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const verifyBuildRoute = verifyBuildPlanRoute(plan)');
+  const end = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /if \(plan\.target\.kind !== "none"\)/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeVerifyBuildPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'verify-build must not re-enter Commander');
+});
+
+test('figma_run rejects malformed verify-build before workspace or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['verify-build'],
+    ['verify-build', '.', 'extra'],
+    ['verify-build', '.', '--max-diff', '101'],
+    ['verify-build', '.', '--fidelity-ledger', 'private-value'],
+    ['verify-build', '.', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
+test('figma_screenshot and every image export format use their Plan-bound Applications', async () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const dedicatedStart = source.indexOf('case "figma_screenshot"');
   const dedicated = source.slice(dedicatedStart, source.indexOf('case "figma_spec"', dedicatedStart));
@@ -3026,7 +4739,17 @@ test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Sc
   assert.match(generic, /executeScreenshotPlan\(plan/);
   assert.doesNotMatch(generic, /runCliPlan\(/);
 
+  const imageStart = source.indexOf('const imageExportRoute = imageExportPlanRoute(plan)');
+  const image = source.slice(imageStart, genericStart);
+  assert.match(image, /runInProcessCommandPlan\(plan/);
+  assert.match(image, /compatibilityFallback:\s*false/);
+  assert.match(image, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(image, /executeImageExportPlan\(plan/);
+  assert.match(image, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(image, /runCliPlan\(/);
+
   const { screenshotPlanRoute } = await import('../engine/src/application/screenshot-command.js');
+  const { imageExportPlanRoute } = await import('../engine/src/application/image-export-command.js');
   const { planFigmaCommand } = await import('../src/capability-catalog.js');
   for (const args of [
     ['export', 'node', '1:2'],
@@ -3037,6 +4760,94 @@ test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Sc
   assert.equal(screenshotPlanRoute(planFigmaCommand([
     'export', 'node', '1:2', '--format', 'svg',
   ])), 'not-screenshot');
+  for (const format of ['jpg', 'svg', 'pdf']) {
+    assert.equal(imageExportPlanRoute(planFigmaCommand([
+      'export', 'node', '1:2', '--format', format,
+    ])), 'command-application');
+  }
+});
+
+test('figma_run routes node-json through the same bounded safe-read Application', async () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const nodeJsonExportRoute = nodeJsonExportPlanRoute(plan)');
+  const end = source.indexOf('const imageExportRoute = imageExportPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback:\s*false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeNodeJsonExportPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'node-json must not re-enter Commander');
+
+  const { nodeJsonExportPlanRoute } = await import(
+    '../engine/src/application/node-json-export-command.js'
+  );
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const plan = planFigmaCommand(['export', 'node-json', '1:2'], { adapter: 'mcp' });
+  assert.equal(nodeJsonExportPlanRoute(plan), 'command-application');
+  assert.equal(plan.execution.retry, 'safe-read');
+  assert.equal(plan.effects.figma, 'read');
+});
+
+test('figma_run routes video export through the same bounded Plan-bound Application', async () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const videoExportRoute = videoExportPlanRoute(plan)');
+  const end = source.indexOf('const nodeJsonExportRoute = nodeJsonExportPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback:\s*false/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeVideoExportPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'video export must not re-enter Commander');
+
+  const { videoExportPlanRoute } = await import(
+    '../engine/src/application/video-export-command.js'
+  );
+  const { planFigmaCommand } = await import('../src/capability-catalog.js');
+  const plan = planFigmaCommand(['export', 'video', '--format', 'gif',
+    'https://www.figma.com/design/FILEA/Motion?node-id=1-2'], { adapter: 'mcp' });
+  assert.equal(videoExportPlanRoute(plan), 'command-application');
+  assert.equal(plan.execution.retry, 'never');
+  assert.equal(plan.execution.timeout, 'long');
+  assert.equal(plan.target.fileKey, 'FILEA');
+  assert.equal(plan.effects.figma, 'read');
+  assert.equal(plan.effects.workspace, 'write');
+});
+
+test('malformed video exports stop before Plugin readiness or Workspace persistence', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['export', 'video'],
+    ['export', 'video', 'bad-node'],
+    ['export', 'video', '1:2', '2:3'],
+    ['export', 'video', '1:2', '--output'],
+    ['export', 'video', '1:2', '--format', 'avi'],
+    ['export', 'video', '1:2', '--future', 'private-value'],
+    ['export', 'video', '1:2', '-o', 'one.mp4', '-o', 'two.mp4'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
+test('malformed node-json requests stop before Plugin readiness or Workspace persistence', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['export', 'node-json'],
+    ['export', 'node-json', 'bad-node'],
+    ['export', 'node-json', '1:2', '2:3'],
+    ['export', 'node-json', '1:2', '--output'],
+    ['export', 'node-json', '1:2', '--future', 'private-value'],
+    ['export', 'node-json', '1:2', '-o', 'one.json', '-o', 'two.json'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
 });
 
 test('malformed Screenshot requests stop before readiness or persistence', async () => {
@@ -3271,20 +5082,49 @@ test('normalizeOutputArgs: verify-build paths resolve against the client workspa
       '--diff-out', 'diff.png', '--fidelity-ledger', 'facts.json',
       '--browser-capture=capture.json', '--node', '12:34', '--max-diff', '5'], base),
     ['verify-build', base, '--compare', inWorkspace('shot.png'),
-      `--design=${inWorkspace('fig.png')}`, '--diff-out', inWorkspace('diff.png'),
+      '--design', inWorkspace('fig.png'), '--node', '12:34',
+      '--diff-out', inWorkspace('diff.png'), '--max-diff', '5',
       '--fidelity-ledger', inWorkspace('facts.json'),
-      `--browser-capture=${inWorkspace('capture.json')}`,
-      '--node', '12:34', '--max-diff', '5'],
+      '--browser-capture', inWorkspace('capture.json')],
   );
   // --node/--max-diff values are NOT paths and must never be absolutized —
   // and the value after them must not be mistaken for the positional.
   const args = normalizeOutputArgs(['verify-build', '--node', '1:2', 'proj'], base);
-  assert.deepEqual(args, ['verify-build', '--node', '1:2', inWorkspace('proj')]);
+  assert.deepEqual(args, ['verify-build', inWorkspace('proj'), '--node', '1:2']);
   // absolute inputs pass through untouched
   const absoluteProject = resolve('abs', 'dir');
   const absoluteBuild = resolve('abs', 'b.png');
   assert.deepEqual(
     normalizeOutputArgs(['verify-build', absoluteProject, '--compare', absoluteBuild], base),
-    ['verify-build', absoluteProject, '--compare', absoluteBuild],
+    ['verify-build', absoluteProject, '--compare', absoluteBuild,
+      '--diff-out', resolve('abs', 'b-diff.png')],
   );
+});
+
+test('figma_run routes Pin through the same target-aware rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const pinRoute = pinPlanRoute(plan)');
+  const end = source.indexOf('const nodeTextRoute = nodeTextPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /ensurePluginReadiness\(\{ deadline, maxWaitMs: 8000, fileKey, expectedEditor \}\)/);
+  assert.match(slice, /executePinPlan\(plan/);
+  assert.match(slice, /evaluateFigma\(code, \{[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Pin requests before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['pin', 'future-edge'],
+    ['pin', '--node', '3:1', '--query', 'private-value', 'left'],
+    ['pin', '--offset', 'globalThis.privateValue', 'left'],
+    ['pin', '--query', 'Frame', 'left'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
 });

@@ -188,11 +188,12 @@ function releaseOwnedLock(lockDir, ownerPath) {
  * Execute one publication transaction while holding the output lock.
  * The output directory is first canonicalized by the supplied WorkspaceIO.
  * @param {string} outputDir
- * @param {{io?: {ensureDirectory:(path:string, options?:object)=>string, readText:(path:string, options?:object)=>string, write:(path:string, data:string, options?:object)=>string}, remainingMs?:()=>number, now?:()=>number, wait?:(delay:number)=>Promise<void>, testHooks?:{beforeRecover?:(owner:object|null)=>Promise<void>|void}}} options
+ * @param {{io?: {ensureDirectory:(path:string, options?:object)=>string, readText:(path:string, options?:object)=>string, write:(path:string, data:string, options?:object)=>string}, lockDirectory?:string, remainingMs?:()=>number, now?:()=>number, wait?:(delay:number)=>Promise<void>, testHooks?:{beforeRecover?:(owner:object|null)=>Promise<void>|void}}} options
  * @param {()=>Promise<any>} operation
  */
 export async function withAssetOutputLock(outputDir, {
   io,
+  lockDirectory = ASSET_OUTPUT_LOCK_DIRECTORY,
   remainingMs = () => Number.POSITIVE_INFINITY,
   now = () => Date.now(),
   wait = (delay) => new Promise((resolve) => setTimeout(resolve, delay)),
@@ -203,8 +204,12 @@ export async function withAssetOutputLock(outputDir, {
     throw new TypeError('Asset output lock requires WorkspaceIO.');
   }
   if (typeof operation !== 'function') throw new TypeError('Asset output lock requires an operation.');
+  if (typeof lockDirectory !== 'string' || lockDirectory.length > 128
+    || !/^\.[a-z0-9][a-z0-9.-]*\.lock$/u.test(lockDirectory)) {
+    throw new TypeError('Asset output lock requires one safe sibling lock-directory name.');
+  }
   const canonicalOut = io.ensureDirectory(outputDir, { role: 'asset-export-directory' });
-  const lockDir = join(canonicalOut, ASSET_OUTPUT_LOCK_DIRECTORY);
+  const lockDir = join(canonicalOut, lockDirectory);
   const ownerPath = join(lockDir, OWNER_FILE);
   const token = randomUUID();
 
@@ -217,7 +222,7 @@ export async function withAssetOutputLock(outputDir, {
         // before owner metadata is written. Re-enter WorkspaceIO after mkdir,
         // then let WorkspaceIO safely open the owner leaf as well.
         const canonicalLock = io.ensureDirectory(lockDir, { role: 'asset-export-lock-directory' });
-        if (!exactChild(canonicalOut, canonicalLock, ASSET_OUTPUT_LOCK_DIRECTORY)) {
+        if (!exactChild(canonicalOut, canonicalLock, lockDirectory)) {
           throw workspacePolicyError('Asset Export output lock changed during acquisition.');
         }
         const canonicalOwner = io.write(

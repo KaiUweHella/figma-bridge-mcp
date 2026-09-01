@@ -13,13 +13,22 @@ import {
   parseAssetExportRequest,
 } from '../engine/src/application/asset-export-request.js';
 import { acceptsDesignContractArgv } from '../engine/src/application/design-contract-request.js';
-import { acceptsDesignLinkArgv } from '../engine/src/application/design-link-request.js';
+import {
+  acceptsDesignLinkArgv,
+  parseDesignLinkRequest,
+} from '../engine/src/application/design-link-request.js';
 import {
   acceptsCodeSpecArgv,
   codeSpecArgvFromRequest,
   codeSpecFigmaUrlFileKeyFromArgv,
   parseCodeSpecRequest,
 } from '../engine/src/application/code-spec-request.js';
+import {
+  acceptsComponentSpecArgv,
+  componentSpecArgvFromRequest,
+  componentSpecFigmaUrlFileKeyFromArgv,
+  parseComponentSpecRequest,
+} from '../engine/src/application/component-spec-request.js';
 import {
   acceptsTokenExportArgv,
   parseTokenExportRequest,
@@ -56,6 +65,236 @@ import {
   nodeDuplicateFigmaUrlFileKeyFromArgv,
   parseNodeDuplicateRequest,
 } from '../engine/src/application/node-duplicate-request.js';
+import {
+  acceptsCreateFrameArgv,
+  createFrameArgvFromRequest,
+  createFrameFigmaUrlFileKeyFromArgv,
+  parseCreateFrameRequest,
+} from '../engine/src/application/create-frame-request.js';
+import {
+  acceptsCreateImageArgv,
+  createImageArgvFromRequest,
+  parseCreateImageRequest,
+} from '../engine/src/application/create-image-request.js';
+import {
+  acceptsCreateShapeArgv,
+  createShapeArgvFromRequest,
+  createShapeFigmaUrlFileKeyFromArgv,
+  parseCreateShapeRequest,
+} from '../engine/src/application/create-shape-request.js';
+import {
+  acceptsCreateCanvasNodeArgv,
+  createCanvasNodeArgvFromRequest,
+  createCanvasNodeFigmaUrlFileKeyFromArgv,
+  parseCreateCanvasNodeRequest,
+} from '../engine/src/application/create-canvas-node-request.js';
+import {
+  acceptsCreateLineArgv,
+  createLineArgvFromRequest,
+  createLineFigmaUrlFileKeyFromArgv,
+  parseCreateLineRequest,
+} from '../engine/src/application/create-line-request.js';
+import {
+  acceptsCreateAutoLayoutArgv,
+  createAutoLayoutArgvFromRequest,
+  createAutoLayoutFigmaUrlFileKeyFromArgv,
+  parseCreateAutoLayoutRequest,
+} from '../engine/src/application/create-auto-layout-request.js';
+import {
+  acceptsCreateTextArgv,
+  createTextArgvFromRequest,
+  createTextFigmaUrlFileKeyFromArgv,
+  parseCreateTextRequest,
+} from '../engine/src/application/create-text-request.js';
+import {
+  acceptsMeasurementMutationArgv,
+  measurementMutationArgvFromRequest,
+  measurementMutationFigmaUrlFileKeyFromArgv,
+  parseMeasurementMutationRequest,
+} from '../engine/src/application/measurement-mutation-request.js';
+import {
+  acceptsMeasurementReadArgv,
+  measurementReadArgvFromRequest,
+  measurementReadFigmaUrlFileKeyFromArgv,
+  parseMeasurementReadRequest,
+} from '../engine/src/application/measurement-read-request.js';
+import {
+  acceptsLibraryImportArgv,
+  libraryImportArgvFromRequest,
+  parseLibraryImportRequest,
+} from '../engine/src/application/library-import-request.js';
+import {
+  acceptsLibraryReadArgv,
+  libraryReadArgvFromRequest,
+  parseLibraryReadRequest,
+} from '../engine/src/application/library-read-request.js';
+import {
+  acceptsShaderMutationArgv,
+  parseShaderMutationRequest,
+  shaderMutationArgvFromRequest,
+  shaderMutationFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/shader-mutation-request.js';
+import {
+  acceptsShaderReadArgv,
+  parseShaderReadRequest,
+  shaderReadArgvFromRequest,
+} from '../engine/src/application/shader-read-request.js';
+import {
+  acceptsGradientApplyArgv,
+  gradientApplyArgvFromRequest,
+  gradientApplyFigmaUrlFileKeyFromArgv,
+  parseGradientApplyRequest,
+} from '../engine/src/application/gradient-apply-request.js';
+import {
+  acceptsGradientExtractArgv,
+  gradientExtractArgvFromRequest,
+  gradientExtractFigmaUrlFileKeyFromArgv,
+  parseGradientExtractRequest,
+} from '../engine/src/application/gradient-extract-request.js';
+import {
+  acceptsGradientMeshArgv,
+  gradientMeshArgvFromRequest,
+  gradientMeshFigmaUrlFileKeyFromArgv,
+  parseGradientMeshRequest,
+} from '../engine/src/application/gradient-mesh-request.js';
+import {
+  acceptsDrawArgv,
+  drawArgvFromRequest,
+  drawFigmaUrlFileKeyFromArgv,
+  parseDrawRequest,
+} from '../engine/src/application/draw-request.js';
+import {
+  acceptsMotionAddArgv,
+  motionAddArgvFromRequest,
+  motionAddFigmaUrlFileKeyFromArgv,
+  parseMotionAddRequest,
+} from '../engine/src/application/motion-add-request.js';
+import {
+  acceptsMotionApplyArgv,
+  motionApplyArgvFromRequest,
+  parseMotionApplyRequest,
+} from '../engine/src/application/motion-apply-request.js';
+import {
+  acceptsMotionClearArgv,
+  motionClearArgvFromRequest,
+  motionClearFigmaUrlFileKeyFromArgv,
+  parseMotionClearRequest,
+} from '../engine/src/application/motion-clear-request.js';
+import {
+  acceptsMotionPresetArgv,
+  motionPresetArgvFromRequest,
+  motionPresetFigmaUrlFileKeyFromArgv,
+  parseMotionPresetRequest,
+} from '../engine/src/application/motion-preset-request.js';
+import {
+  acceptsMotionReadArgv,
+  motionReadArgvFromRequest,
+  motionReadFigmaUrlFileKeyFromArgv,
+  parseMotionReadRequest,
+} from '../engine/src/application/motion-read-request.js';
+import {
+  acceptsMotionStyleArgv,
+  motionStyleArgvFromRequest,
+  motionStyleFigmaUrlFileKeyFromArgv,
+  parseMotionStyleRequest,
+} from '../engine/src/application/motion-style-request.js';
+import {
+  acceptsMotionStaggerArgv,
+  motionStaggerArgvFromRequest,
+  motionStaggerFigmaUrlFileKeyFromArgv,
+  parseMotionStaggerRequest,
+} from '../engine/src/application/motion-stagger-request.js';
+import {
+  acceptsMotionTimelineArgv,
+  motionTimelineArgvFromRequest,
+  motionTimelineFigmaUrlFileKeyFromArgv,
+  parseMotionTimelineRequest,
+} from '../engine/src/application/motion-timeline-request.js';
+import {
+  acceptsSlotConfigurationArgv,
+  parseSlotConfigurationRequest,
+  slotConfigurationArgvFromRequest,
+  slotConfigurationFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slot-configuration-request.js';
+import {
+  acceptsSlotReadArgv,
+  parseSlotReadRequest,
+  slotReadArgvFromRequest,
+  slotReadFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slot-read-request.js';
+import {
+  acceptsSlotResetArgv,
+  parseSlotResetRequest,
+  slotResetArgvFromRequest,
+  slotResetFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slot-reset-request.js';
+import {
+  acceptsGridAutoFlowArgv,
+  gridAutoFlowArgvFromRequest,
+  gridAutoFlowFigmaUrlFileKeyFromArgv,
+  parseGridAutoFlowRequest,
+} from '../engine/src/application/grid-auto-flow-request.js';
+import {
+  acceptsGridInspectArgv,
+  gridInspectArgvFromRequest,
+  gridInspectFigmaUrlFileKeyFromArgv,
+  parseGridInspectRequest,
+} from '../engine/src/application/grid-inspect-request.js';
+import {
+  acceptsGridPlaceArgv,
+  gridPlaceArgvFromRequest,
+  gridPlaceFigmaUrlFileKeyFromArgv,
+  parseGridPlaceRequest,
+} from '../engine/src/application/grid-place-request.js';
+import {
+  acceptsGridSetArgv,
+  gridSetArgvFromRequest,
+  gridSetFigmaUrlFileKeyFromArgv,
+  parseGridSetRequest,
+} from '../engine/src/application/grid-set-request.js';
+import {
+  acceptsGridTrackReorderArgv,
+  gridTrackReorderArgvFromRequest,
+  gridTrackReorderFigmaUrlFileKeyFromArgv,
+  parseGridTrackReorderRequest,
+} from '../engine/src/application/grid-track-reorder-request.js';
+import {
+  acceptsNodeRenameArgv,
+  nodeRenameArgvFromRequest,
+  nodeRenameFigmaUrlFileKeyFromArgv,
+  parseNodeRenameRequest,
+} from '../engine/src/application/node-rename-request.js';
+import {
+  acceptsNodeResizeArgv,
+  nodeResizeArgvFromRequest,
+  nodeResizeFigmaUrlFileKeyFromArgv,
+  parseNodeResizeRequest,
+} from '../engine/src/application/node-resize-request.js';
+import {
+  acceptsPinArgv,
+  parsePinRequest,
+  pinArgvFromRequest,
+  pinFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/pin-request.js';
+import {
+  acceptsNodeReparentArgv,
+  nodeReparentArgvFromRequest,
+  nodeReparentFigmaUrlFileKeyFromArgv,
+  parseNodeReparentRequest,
+} from '../engine/src/application/node-reparent-request.js';
+import {
+  acceptsNodeGroupArgv,
+  nodeGroupArgvFromRequest,
+  nodeGroupFigmaUrlFileKeyFromArgv,
+  parseNodeGroupRequest,
+} from '../engine/src/application/node-group-request.js';
+import { acceptsNodeUngroupArgv, nodeUngroupArgvFromRequest, nodeUngroupFigmaUrlFileKeyFromArgv, parseNodeUngroupRequest } from '../engine/src/application/node-ungroup-request.js';
+import { acceptsNodeBooleanArgv, nodeBooleanArgvFromRequest, nodeBooleanFigmaUrlFileKeyFromArgv, parseNodeBooleanRequest } from '../engine/src/application/node-boolean-request.js';
+import { acceptsNodeBindArgv, nodeBindArgvFromRequest, nodeBindFigmaUrlFileKeyFromArgv, parseNodeBindRequest } from '../engine/src/application/node-bind-request.js';
+import { acceptsNodeSetFillArgv, nodeSetFillArgvFromRequest, nodeSetFillFigmaUrlFileKeyFromArgv, parseNodeSetFillRequest } from '../engine/src/application/node-set-fill-request.js';
+import { acceptsNodeSetImageArgv, nodeSetImageArgvFromRequest, nodeSetImageFigmaUrlFileKeyFromArgv, parseNodeSetImageRequest } from '../engine/src/application/node-set-image-request.js';
+import { acceptsNodeSetArgv, nodeSetArgvFromRequest, nodeSetFigmaUrlFileKeyFromArgv, parseNodeSetRequest } from '../engine/src/application/node-set-request.js';
+import { acceptsNodeFlattenArgv, nodeFlattenArgvFromRequest, nodeFlattenFigmaUrlFileKeyFromArgv, parseNodeFlattenRequest } from '../engine/src/application/node-flatten-request.js';
 import {
   acceptsNodeDeleteArgv,
   nodeDeleteArgvFromRequest,
@@ -143,6 +382,81 @@ import {
   slidesReferenceArgvFromRequest,
   slidesReferenceFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/slides-reference-request.js';
+import {
+  acceptsSlidesCreateArgv,
+  parseSlidesCreateRequest,
+  slidesCreateArgvFromRequest,
+} from '../engine/src/application/slides-create-request.js';
+import {
+  acceptsSlidesDuplicateArgv,
+  parseSlidesDuplicateRequest,
+  slidesDuplicateArgvFromRequest,
+  slidesDuplicateFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-duplicate-request.js';
+import {
+  acceptsSlidesMoveArgv,
+  parseSlidesMoveRequest,
+  slidesMoveArgvFromRequest,
+  slidesMoveFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-move-request.js';
+import {
+  acceptsSlidesPropertyArgv,
+  parseSlidesPropertyRequest,
+  slidesPropertyArgvFromRequest,
+  slidesPropertyFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-property-request.js';
+import {
+  acceptsSlidesDeleteArgv,
+  parseSlidesDeleteRequest,
+  slidesDeleteArgvFromRequest,
+  slidesDeleteFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-delete-request.js';
+import {
+  acceptsJamBoardArgv,
+  jamBoardArgvFromRequest,
+  parseJamBoardRequest,
+} from '../engine/src/application/jam-board-request.js';
+import {
+  acceptsJamArrangeArgv,
+  jamArrangeArgvFromRequest,
+  parseJamArrangeRequest,
+} from '../engine/src/application/jam-arrange-request.js';
+import {
+  acceptsJamStickyArgv,
+  jamStickyArgvFromRequest,
+  parseJamStickyRequest,
+} from '../engine/src/application/jam-sticky-request.js';
+import {
+  acceptsJamStickiesArgv,
+  jamStickiesArgvFromRequest,
+  parseJamStickiesRequest,
+} from '../engine/src/application/jam-stickies-request.js';
+import {
+  acceptsJamShapeArgv,
+  jamShapeArgvFromRequest,
+  parseJamShapeRequest,
+} from '../engine/src/application/jam-shape-request.js';
+import {
+  acceptsJamConnectorArgv,
+  jamConnectorArgvFromRequest,
+  jamConnectorFigmaUrlFileKeyFromArgv,
+  parseJamConnectorRequest,
+} from '../engine/src/application/jam-connector-request.js';
+import {
+  acceptsJamTableArgv,
+  jamTableArgvFromRequest,
+  parseJamTableRequest,
+} from '../engine/src/application/jam-table-request.js';
+import {
+  acceptsJamSectionArgv,
+  jamSectionArgvFromRequest,
+  parseJamSectionRequest,
+} from '../engine/src/application/jam-section-request.js';
+import {
+  acceptsJamCodeArgv,
+  jamCodeArgvFromRequest,
+  parseJamCodeRequest,
+} from '../engine/src/application/jam-code-request.js';
 import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
@@ -232,6 +546,12 @@ import {
   prototypeInspectionFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/prototype-inspection-request.js';
 import {
+  acceptsPrototypeMutationArgv,
+  parsePrototypeMutationRequest,
+  prototypeMutationArgvFromRequest,
+  prototypeMutationFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/prototype-mutation-request.js';
+import {
   acceptsVariableDiscoveryArgv,
   parseVariableDiscoveryRequest,
   variableDiscoveryArgvFromRequest,
@@ -277,6 +597,11 @@ import {
   tokenImportArgvFromRequest,
 } from '../engine/src/application/token-import-request.js';
 import {
+  acceptsTokenSyncArgv,
+  parseTokenSyncRequest,
+  tokenSyncArgvFromRequest,
+} from '../engine/src/application/token-sync-request.js';
+import {
   acceptsDesignMdArgv,
   designMdArgvFromRequest,
   parseDesignMdRequest,
@@ -286,6 +611,12 @@ import {
   designSourceImportArgvFromRequest,
   parseDesignSourceImportRequest,
 } from '../engine/src/application/design-source-import-request.js';
+import {
+  acceptsStorybookMapArgv,
+  parseStorybookMapRequest,
+  storybookMapArgvFromRequest,
+  storybookMapSourceIsRemote,
+} from '../engine/src/application/storybook-map-request.js';
 import {
   acceptsVariableSetValueArgv,
   parseVariableSetValueRequest,
@@ -339,6 +670,12 @@ import {
   fontInspectionFigmaUrlFileKeyFromArgv,
   parseFontInspectionRequest,
 } from '../engine/src/application/font-inspection-request.js';
+import {
+  acceptsFontAxisMetadataArgv,
+  fontAxisMetadataArgvFromRequest,
+  fontAxisMetadataFigmaUrlFileKeyFromArgv,
+  parseFontAxisMetadataRequest,
+} from '../engine/src/application/font-axis-metadata-request.js';
 import {
   acceptsFontVariableBindingArgv,
   fontVariableBindingArgvFromRequest,
@@ -410,17 +747,157 @@ import {
   parseLayoutGridFactsRequest,
 } from '../engine/src/application/layout-grid-facts-request.js';
 import {
+  acceptsLayoutGuideMutationArgv,
+  layoutGuideMutationArgvFromRequest,
+  layoutGuideMutationFigmaUrlFileKeyFromArgv,
+  parseLayoutGuideMutationRequest,
+} from '../engine/src/application/layout-guide-mutation-request.js';
+import {
+  acceptsAnalysisCensusArgv,
+  analysisCensusArgvFromRequest,
+  parseAnalysisCensusRequest,
+} from '../engine/src/application/analysis-census-request.js';
+import {
+  acceptsAnalysisLintArgv,
+  analysisLintArgvFromRequest,
+  analysisLintFigmaUrlFileKeyFromArgv,
+  parseAnalysisLintRequest,
+} from '../engine/src/application/analysis-lint-request.js';
+import {
+  acceptsA11yVisionArgv,
+  a11yVisionArgvFromRequest,
+  a11yVisionFigmaUrlFileKeyFromArgv,
+  parseA11yVisionRequest,
+} from '../engine/src/application/a11y-vision-request.js';
+import {
+  acceptsA11yReadArgv,
+  a11yReadArgvFromRequest,
+  a11yReadFigmaUrlFileKeyFromArgv,
+  parseA11yReadRequest,
+} from '../engine/src/application/a11y-read-request.js';
+import {
+  acceptsDevResourceReadArgv,
+  devResourceReadArgvFromRequest,
+  devResourceReadFigmaUrlFileKeyFromArgv,
+  parseDevResourceReadRequest,
+} from '../engine/src/application/dev-resource-read-request.js';
+import {
+  acceptsDevResourceMutationArgv,
+  devResourceMutationArgvFromRequest,
+  devResourceMutationFigmaUrlFileKeyFromArgv,
+  parseDevResourceMutationRequest,
+} from '../engine/src/application/dev-resource-mutation-request.js';
+import {
+  acceptsSectionInventoryArgv,
+  parseSectionInventoryRequest,
+  sectionInventoryArgvFromRequest,
+} from '../engine/src/application/section-inventory-request.js';
+import {
+  acceptsSectionFitArgv,
+  parseSectionFitRequest,
+  sectionFitArgvFromRequest,
+  sectionFitFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-fit-request.js';
+import {
+  acceptsSectionArrangeArgv,
+  parseSectionArrangeRequest,
+  sectionArrangeArgvFromRequest,
+  sectionArrangeFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-arrange-request.js';
+import {
+  acceptsSectionAddArgv,
+  parseSectionAddRequest,
+  sectionAddArgvFromRequest,
+  sectionAddFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-add-request.js';
+import {
+  acceptsSectionCreateArgv,
+  parseSectionCreateRequest,
+  sectionCreateArgvFromRequest,
+  sectionCreateFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/section-create-request.js';
+import {
+  acceptsAnnotationCategoryInventoryArgv,
+  annotationCategoryInventoryArgvFromRequest,
+  parseAnnotationCategoryInventoryRequest,
+} from '../engine/src/application/annotation-category-inventory-request.js';
+import {
+  acceptsAnnotationReadArgv,
+  annotationReadArgvFromRequest,
+  annotationReadFigmaUrlFileKeyFromArgv,
+  parseAnnotationReadRequest,
+} from '../engine/src/application/annotation-read-request.js';
+import {
+  acceptsAnnotationClearArgv,
+  annotationClearArgvFromRequest,
+  annotationClearFigmaUrlFileKeyFromArgv,
+  parseAnnotationClearRequest,
+} from '../engine/src/application/annotation-clear-request.js';
+import {
+  acceptsAnnotationRemoveArgv,
+  annotationRemoveArgvFromRequest,
+  annotationRemoveFigmaUrlFileKeyFromArgv,
+  parseAnnotationRemoveRequest,
+} from '../engine/src/application/annotation-remove-request.js';
+import {
+  acceptsAnnotationEditArgv,
+  annotationEditArgvFromRequest,
+  annotationEditFigmaUrlFileKeyFromArgv,
+  parseAnnotationEditRequest,
+} from '../engine/src/application/annotation-edit-request.js';
+import {
+  acceptsAnnotationCategoryMutationArgv,
+  annotationCategoryMutationArgvFromRequest,
+  parseAnnotationCategoryMutationRequest,
+} from '../engine/src/application/annotation-category-mutation-request.js';
+import {
+  acceptsAnnotationAddArgv,
+  annotationAddArgvFromRequest,
+  annotationAddFigmaUrlFileKeyFromArgv,
+  parseAnnotationAddRequest,
+} from '../engine/src/application/annotation-add-request.js';
+import {
   acceptsScreenshotArgv,
   parseScreenshotRequest,
   screenshotArgvFromRequest,
   screenshotFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/screenshot-request.js';
 import {
+  acceptsVerifyBuildArgv,
+  parseVerifyBuildRequest,
+  verifyBuildArgvFromRequest,
+  verifyBuildFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/verify-build-request.js';
+import {
   acceptsLegacyRasterExportArgv,
   legacyRasterExportArgvFromRequest,
   legacyRasterExportFigmaUrlFileKeyFromArgv,
   parseLegacyRasterExportRequest,
 } from '../engine/src/application/legacy-raster-export-request.js';
+import {
+  acceptsNodeJsonExportArgv,
+  nodeJsonExportArgvFromRequest,
+  nodeJsonExportFigmaUrlFileKeyFromArgv,
+  parseNodeJsonExportRequest,
+} from '../engine/src/application/node-json-export-request.js';
+import {
+  acceptsVideoExportArgv,
+  parseVideoExportRequest,
+  videoExportArgvFromRequest,
+  videoExportFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/video-export-request.js';
+import {
+  acceptsSizeVariantsArgv,
+  parseSizeVariantsRequest,
+  sizeVariantsArgvFromRequest,
+  sizeVariantsFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/size-variants-request.js';
+import {
+  acceptsComponentCombinationsArgv,
+  componentCombinationsArgvFromRequest,
+  componentCombinationsFigmaUrlFileKeyFromArgv,
+  parseComponentCombinationsRequest,
+} from '../engine/src/application/component-combinations-request.js';
 import {
   planVerificationArtifacts,
   verificationArtifactDirectory,
@@ -476,22 +953,22 @@ const COMMANDS = Object.freeze({
   grid: readGroup('Inspect or manage Layout Guides (not Auto Layout Grid)', ['list']),
   dev: readGroup('Inspect or manage dev-resource links', ['list']),
   annotate: readGroup('Inspect or manage annotations and categories', ['list', 'categories']),
-  a11y: { summary: 'Run accessibility checks', mutation: 'read' },
+  a11y: readGroup('Run accessibility checks', ['contrast', 'touch', 'text', 'focus', 'audit']),
   canvas: readGroup('Inspect pages or mutate the canvas', ['info', 'pages', 'page', 'next']),
   find: { summary: 'Find nodes by name', mutation: 'read', retry: 'safe-read', path: 'node-discovery-input' },
   verify: { summary: 'Capture a verification screenshot', mutation: 'read', path: 'verify-image', retry: 'safe-read' },
   inspect: { summary: 'Inspect one node as structured facts', mutation: 'read', retry: 'safe-read', path: 'inspect-input' },
   export: { summary: 'Export design facts, images and assets', mutation: 'read' },
   gradient: { summary: 'Extract and apply gradients', mutation: 'gradient', target: 'conditional', path: 'gradient-input' },
-  pin: { summary: 'Pin nodes to parent edges', mutation: 'write' },
+  pin: { summary: 'Pin nodes to parent edges', mutation: 'write', path: 'pin-input' },
   api: { summary: 'Read the offline Figma Plugin reference', mutation: 'read', target: 'none' },
   import: { summary: 'Import a design source into Figma', mutation: 'write', path: 'design-source-import-input' },
   motion: readGroup('Inspect or manage motion data', ['styles', 'inspect'], { path: 'motion-inputs' }),
   extract: { summary: 'Extract the open file into DESIGN.md', mutation: 'read', path: 'design-doc' },
-  spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'spec-file' },
+  spec: { summary: 'Read or enforce an extracted component spec', mutation: 'read', target: 'conditional', path: 'component-spec-input' },
   analyze: { summary: 'Analyze colors, typography and spacing', mutation: 'read' },
   font: readGroup('Inspect typography, bind variables, or preserve variable-axis metadata', ['inspect', 'axes'], { retry: 'safe-read' }),
-  map: { summary: 'Map Figma components to code', mutation: 'read', path: 'map-file' },
+  map: { summary: 'Map Figma components to code', mutation: 'read', path: 'storybook-map-input' },
   link: readGroup('Link durable Design Entities across code and Figma', ['inspect', 'list', 'configure', 'status', 'accept', 'context'], {
     target: 'conditional', path: 'design-link-registry',
   }),
@@ -516,20 +993,84 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
-  'component.prop.list',
+  'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
+  'motion.styles', 'motion.inspect',
+  'shader.list', 'dev.list', 'section.list', 'annotate.categories', 'annotate.list',
+  'slot.inspect', 'slot.validate',
+  'layout.grid.inspect',
+  'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
+  'analyze.lint',
+  'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
+  'jam.board',
+  'export.node-json',
+]);
+// Editor context is deliberately separate from document content. Keep these
+// action ids closed and source-audited: they are the commands that directly
+// read or write selection, viewport, focus, or the current page.
+const EDITOR_CONTEXT_READ_ACTIONS = new Set([
+  'canvas.info', 'canvas.next', 'canvas.pages',
+  'slot.validate',
+  'slides.inspect',
+  'export.screenshot',
+  'section.list',
+  'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
+  'section.create',
+  'jam.board', 'jam.arrange', 'jam.connector', 'jam.section', 'jam.code',
+]);
+const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
+  'sizes', 'var.visualize', 'gradient.mesh',
+  'slides.create', 'slides.duplicate',
+  'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.table',
+  'canvas.page',
 ]);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
+  'combos',
+  'sizes',
   'import',
+  'create.frame',
+  'create.image',
+  'create.rect', 'create.ellipse', 'create.polygon', 'create.star',
+  'create.vector', 'create.slice',
+  'create.line',
+  'create.autolayout',
+  'create.text',
+  'measure.add', 'measure.edit', 'measure.delete',
+  'measure.list',
+  'library.import-variable', 'library.import-style',
+  'library.import-component', 'library.import-component-set',
+  'library.collections', 'library.variables',
+  'shader.import', 'shader.apply',
+  'shader.list',
+  'draw.inspect', 'draw.text-path', 'draw.transform-group',
+  'draw.brush', 'draw.stroke-profile', 'draw.pattern',
+  'gradient.apply', 'gradient.extract', 'gradient.mesh',
+  'motion.add', 'motion.apply', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
+  'motion.timeline',
+  'slot.create', 'slot.edit',
+  'slot.reset',
+  'slot.inspect', 'slot.validate',
+  'layout.grid.inspect',
+  'layout.grid.set', 'layout.grid.auto-flow', 'layout.grid.place',
+  'layout.grid.reorder-rows', 'layout.grid.reorder-columns',
   'canvas.info', 'canvas.next', 'canvas.page', 'canvas.page-create',
   'canvas.page-divider', 'canvas.pages',
   'contract.capture', 'contract.check',
+  'spec',
+  'map.storybook',
   'export.assets', 'export.code-spec', 'export.css', 'export.dtcg',
-  'export.node', 'export.screenshot',
-  'history.snapshot', 'history.list', 'history.diff', 'inspect', 'link.inspect',
-  'link.set', 'node.bindings', 'node.css', 'node.delete', 'node.duplicate', 'node.move', 'node.set-text',
+  'export.node', 'export.screenshot', 'export.video', 'export.node-json',
+  'history.save', 'history.snapshot', 'history.list', 'history.diff', 'inspect',
+  'pin',
+  'link.inspect', 'link.set', 'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
+  'node.bind', 'node.bindings', 'node.boolean', 'node.css', 'node.delete', 'node.duplicate', 'node.flatten', 'node.group', 'node.move', 'node.rename', 'node.reparent', 'node.resize', 'node.set', 'node.set-fill', 'node.set-image', 'node.set-text', 'node.ungroup',
   'node.to-component', 'node.tree', 'find',
-  'font.bind', 'font.unbind', 'font.inspect', 'prototype.inspect', 'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'font.bind', 'font.unbind', 'font.inspect',
+  'font.axes', 'font.remember-axes', 'font.forget-axes',
+  'prototype.inspect',
+  'prototype.add', 'prototype.set', 'prototype.clear',
+  'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'verify-build',
   'var.list', 'var.find',
   'var.create',
   'var.create-batch',
@@ -538,6 +1079,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'tokens.radii',
   'tokens.add',
   'tokens.import',
+  'tokens.sync',
   'tokens.import-design-md',
   'tokens.overlap',
   'tokens.rebind',
@@ -570,7 +1112,31 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'style.consumers',
   'style.publish-status',
   'style.show',
+  'grid.set',
   'grid.list',
+  'grid.clear',
+  'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
+  'analyze.lint',
+  'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
+  'a11y.vision',
+  'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
+  'slides.transition', 'slides.skip', 'slides.delete',
+  'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
+  'jam.table', 'jam.section', 'jam.code',
+  'dev.list',
+  'dev.link', 'dev.unlink', 'dev.edit',
+  'section.list',
+  'section.fit',
+  'section.arrange',
+  'section.add',
+  'section.create',
+  'annotate.categories',
+  'annotate.list',
+  'annotate.clear',
+  'annotate.remove',
+  'annotate.edit',
+  'annotate.category-add', 'annotate.category-edit', 'annotate.category-remove',
+  'annotate.add',
 ]);
 const VALUE_FLAGS = new Set(['--sections', '--pages', '-s', '--scale', '-f', '--format', '-d', '--depth']);
 const UNKNOWN = Object.freeze({
@@ -638,6 +1204,12 @@ export function legacyCommandRiskGateReason(args) {
 
 function mutatesDesign(entry, args, options, actionId) {
   if (!args.length) return false;
+  if (actionId === 'combos') {
+    return !parseComponentCombinationsRequest(args).dryRun;
+  }
+  if (actionId === 'motion.timeline') {
+    return parseMotionTimelineRequest(args).duration !== null;
+  }
   if (SAFE_READ_ACTIONS.has(actionId)) return false;
   const sub = args[1];
   if (actionId === 'import') {
@@ -648,7 +1220,7 @@ function mutatesDesign(entry, args, options, actionId) {
   if (entry.mutation === 'render') return semanticRenderPolicyFromArgv(args).mutatesDesign;
   if (entry.mutation === 'read') return false;
   if (entry.mutation === 'gradient') {
-    return sub !== 'extract' || hasOption(options, '--apply-to');
+    return sub !== 'extract' || parseGradientExtractRequest(args).selector !== null;
   }
   if (entry.mutation === 'layout') return !(sub === 'grid' && args[2] === 'inspect');
   const subIsAction = sub !== undefined && !sub.startsWith('-');
@@ -672,9 +1244,11 @@ function targetPolicy(name, entry, args, options) {
     && hasOption(options, '--print-context')) return 'none';
   if (entry.target !== 'conditional') return entry.target || 'figma';
   if (name === 'spec') return hasOption(options, '--check') ? 'figma' : 'none';
-  if (name === 'verify-build') return hasOption(options, '--node') ? 'figma' : 'none';
+  if (name === 'verify-build') {
+    return parseVerifyBuildRequest(args).needsFigma ? 'figma' : 'none';
+  }
   if (name === 'gradient') {
-    return args[1] === 'extract' && !hasOption(options, '--apply-to') ? 'none' : 'figma';
+    return args[1] === 'extract' && parseGradientExtractRequest(args).selector === null ? 'none' : 'figma';
   }
   if (name === 'link') return ['list', 'configure'].includes(args[1]) ? 'none' : 'figma';
   if (name === 'render' || name === 'render-batch') return semanticRenderPolicyFromArgv(args).target;
@@ -687,18 +1261,27 @@ function specializedPolicy(name, entry, args, actionId) {
   let timeoutClass = entry.timeout || 'default';
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
+  if (name === 'combos') {
+    pathPolicy = 'component-combinations-input';
+    if (parseComponentCombinationsRequest(args).dryRun) retry = 'safe-read';
+  }
+  if (name === 'sizes') pathPolicy = 'size-variants-input';
   let confirmation = null;
   if (name === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'design-source-import-input';
   }
   if (SAFE_READ_ACTIONS.has(actionId)) retry = 'safe-read';
+  if (actionId === 'motion.timeline') {
+    retry = parseMotionTimelineRequest(args).duration === null ? 'safe-read' : 'never';
+  }
   if (name === 'export') {
     if (sub === 'assets') {
       execution = 'background';
       timeoutClass = 'background';
       pathPolicy = 'assets-dir';
     } else if (sub === 'video') {
+      timeoutClass = 'long';
       pathPolicy = 'video-output';
     } else if (sub === 'node' || sub === 'screenshot') {
       pathPolicy = 'export-image';
@@ -714,14 +1297,49 @@ function specializedPolicy(name, entry, args, actionId) {
     }
   }
   if (name === 'link' && sub === 'inspect') retry = 'safe-read';
+  if (name === 'spec') {
+    retry = hasOption(resolveFigmaCommandAction(args).options, '--check') ? 'safe-read' : 'never';
+    pathPolicy = 'component-spec-input';
+  }
   if (name === 'node' && sub === 'bindings') retry = 'safe-read';
   if (name === 'node' && sub === 'css') retry = 'safe-read';
   if (name === 'node' && sub === 'tree') retry = 'safe-read';
   if (name === 'node' && sub === 'to-component') pathPolicy = 'node-to-component-input';
   if (name === 'node' && sub === 'duplicate') pathPolicy = 'node-duplicate-input';
+  if (name === 'create' && sub === 'frame') pathPolicy = 'create-frame-input';
+  if (actionId === 'create.image') pathPolicy = 'create-image-input';
+  if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(actionId)) {
+    pathPolicy = 'create-shape-input';
+  }
+  if (['create.vector', 'create.slice'].includes(actionId)) pathPolicy = 'create-canvas-node-input';
+  if (actionId === 'create.line') pathPolicy = 'create-line-input';
+  if (actionId === 'create.autolayout') pathPolicy = 'create-auto-layout-input';
+  if (actionId === 'create.text') pathPolicy = 'create-text-input';
+  if (['measure.add', 'measure.edit', 'measure.delete'].includes(actionId)) {
+    pathPolicy = 'measurement-mutation-input';
+  }
+  if (actionId === 'measure.list') pathPolicy = 'measurement-read-input';
+  if (actionId.startsWith('library.import-')) pathPolicy = 'library-import-input';
+  if (['library.collections', 'library.variables'].includes(actionId)) pathPolicy = 'library-read-input';
+  if (['shader.import', 'shader.apply'].includes(actionId)) pathPolicy = 'shader-mutation-input';
+  if (actionId === 'shader.list') pathPolicy = 'shader-read-input';
+  if (actionId.startsWith('draw.')) pathPolicy = 'draw-input';
+  if (['slot.create', 'slot.edit'].includes(actionId)) pathPolicy = 'slot-configuration-input';
+  if (actionId === 'slot.reset') pathPolicy = 'slot-reset-input';
+  if (['slot.inspect', 'slot.validate'].includes(actionId)) pathPolicy = 'slot-read-input';
+  if (actionId === 'layout.grid.inspect') pathPolicy = 'grid-inspect-input';
+  if (actionId === 'layout.grid.auto-flow') pathPolicy = 'grid-auto-flow-input';
+  if (actionId === 'layout.grid.place') pathPolicy = 'grid-place-input';
+  if (actionId === 'layout.grid.set') pathPolicy = 'grid-set-input';
+  if (['layout.grid.reorder-rows', 'layout.grid.reorder-columns'].includes(actionId)) {
+    pathPolicy = 'grid-track-reorder-input';
+  }
   if (name === 'prototype' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'prototype-inspection-input';
+  }
+  if (name === 'prototype' && ['add', 'set', 'clear'].includes(sub)) {
+    pathPolicy = 'prototype-mutation-input';
   }
   if (name === 'var' && sub === 'show') {
     retry = 'safe-read';
@@ -744,6 +1362,11 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'tokens' && sub === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'token-import-input';
+  }
+  if (name === 'tokens' && sub === 'sync') {
+    timeoutClass = 'long';
+    retry = args.includes('--apply') ? 'never' : 'safe-read';
+    pathPolicy = 'token-sync-input';
   }
   if (name === 'tokens' && sub === 'import-design-md') {
     timeoutClass = hasOption(resolveFigmaCommandAction(args).options, '--print-context')
@@ -795,6 +1418,9 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
     pathPolicy = 'font-inspection-input';
+  }
+  if (name === 'font' && ['axes', 'remember-axes', 'forget-axes'].includes(sub)) {
+    pathPolicy = 'font-axis-metadata-input';
   }
   if (name === 'font' && ['bind', 'unbind'].includes(sub)) pathPolicy = 'font-variable-binding-input';
   if (name === 'component' && sub === 'main') {
@@ -871,6 +1497,48 @@ function specializedPolicy(name, entry, args, actionId) {
     retry = 'safe-read';
     pathPolicy = 'layout-grid-facts-input';
   }
+  if (name === 'grid' && ['set', 'clear'].includes(sub)) {
+    pathPolicy = 'layout-guide-mutation-input';
+  }
+  if (['analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters']
+    .includes(actionId)) {
+    pathPolicy = 'analysis-census-input';
+  }
+  if (actionId === 'analyze.lint') pathPolicy = 'analysis-lint-input';
+  if (actionId === 'a11y.vision') pathPolicy = 'a11y-vision-input';
+  if (['a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit']
+    .includes(actionId)) pathPolicy = 'a11y-read-input';
+  if (name === 'dev' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'dev-resource-read-input';
+  }
+  if (name === 'dev' && ['link', 'unlink', 'edit'].includes(sub)) {
+    pathPolicy = 'dev-resource-mutation-input';
+  }
+  if (name === 'section' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'section-inventory-input';
+  }
+  if (name === 'section' && sub === 'fit') pathPolicy = 'section-fit-input';
+  if (name === 'section' && sub === 'arrange') pathPolicy = 'section-arrange-input';
+  if (name === 'section' && sub === 'add') pathPolicy = 'section-add-input';
+  if (name === 'section' && sub === 'create') pathPolicy = 'section-create-input';
+  if (name === 'annotate' && sub === 'categories') {
+    retry = 'safe-read';
+    pathPolicy = 'annotation-category-inventory-input';
+  }
+  if (name === 'annotate' && sub === 'list') {
+    retry = 'safe-read';
+    pathPolicy = 'annotation-read-input';
+  }
+  if (name === 'annotate' && sub === 'clear') pathPolicy = 'annotation-clear-input';
+  if (name === 'annotate' && sub === 'remove') pathPolicy = 'annotation-remove-input';
+  if (name === 'annotate' && sub === 'edit') pathPolicy = 'annotation-edit-input';
+  if (name === 'annotate'
+    && ['category-add', 'category-edit', 'category-remove'].includes(sub)) {
+    pathPolicy = 'annotation-category-mutation-input';
+  }
+  if (name === 'annotate' && sub === 'add') pathPolicy = 'annotation-add-input';
   if (name === 'canvas' && ['info', 'next'].includes(sub)) {
     retry = 'safe-read';
     pathPolicy = 'canvas-awareness-input';
@@ -884,8 +1552,25 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'slides') {
     if (sub === 'inspect') retry = 'safe-read';
-    pathPolicy = 'slides-reference-input';
+    pathPolicy = sub === 'create' ? 'slides-create-input'
+      : sub === 'duplicate' ? 'slides-duplicate-input'
+        : sub === 'move' ? 'slides-move-input'
+          : ['transition', 'skip'].includes(sub)
+            ? 'slides-property-input'
+            : sub === 'delete' ? 'slides-delete-input' : 'slides-reference-input';
   }
+  if (name === 'jam' && sub === 'board') {
+    retry = 'safe-read';
+    pathPolicy = 'jam-board-input';
+  }
+  if (name === 'jam' && sub === 'arrange') pathPolicy = 'jam-arrange-input';
+  if (name === 'jam' && sub === 'sticky') pathPolicy = 'jam-sticky-input';
+  if (name === 'jam' && sub === 'stickies') pathPolicy = 'jam-stickies-input';
+  if (name === 'jam' && sub === 'shape') pathPolicy = 'jam-shape-input';
+  if (name === 'jam' && sub === 'connector') pathPolicy = 'jam-connector-input';
+  if (name === 'jam' && sub === 'table') pathPolicy = 'jam-table-input';
+  if (name === 'jam' && sub === 'section') pathPolicy = 'jam-section-input';
+  if (name === 'jam' && sub === 'code') pathPolicy = 'jam-code-input';
   return { execution, timeoutClass, pathPolicy, retry, confirmation };
 }
 
@@ -916,6 +1601,12 @@ function commandCapability(args) {
   if (name === 'contract' && !action.help && !acceptsDesignContractArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'pin' && !action.help && !acceptsPinArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'spec' && !action.help && !acceptsComponentSpecArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'export' && args[1] === 'assets' && !action.help && !acceptsAssetExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -924,6 +1615,130 @@ function commandCapability(args) {
   }
   if (name === 'export' && ['css', 'dtcg'].includes(args[1])
     && !action.help && !acceptsTokenExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'create' && args[1] === 'frame'
+    && !action.help && !acceptsCreateFrameArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.image' && !action.help && !acceptsCreateImageArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(action.actionId)
+    && !action.help && !acceptsCreateShapeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['create.vector', 'create.slice'].includes(action.actionId)
+    && !action.help && !acceptsCreateCanvasNodeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.line' && !action.help && !acceptsCreateLineArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.autolayout'
+    && !action.help && !acceptsCreateAutoLayoutArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.text' && !action.help && !acceptsCreateTextArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['measure.add', 'measure.edit', 'measure.delete'].includes(action.actionId)
+    && !action.help && !acceptsMeasurementMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'measure.list' && !action.help && !acceptsMeasurementReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId.startsWith('library.import-')
+    && !action.help && !acceptsLibraryImportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['library.collections', 'library.variables'].includes(action.actionId)
+    && !action.help && !acceptsLibraryReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['shader.import', 'shader.apply'].includes(action.actionId)
+    && !action.help && !acceptsShaderMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'shader.list' && !action.help && !acceptsShaderReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'gradient.apply'
+    && !action.help && !acceptsGradientApplyArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'gradient.extract'
+    && !action.help && !acceptsGradientExtractArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'gradient.mesh'
+    && !action.help && !acceptsGradientMeshArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId.startsWith('draw.') && !action.help && !acceptsDrawArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['motion.styles', 'motion.inspect'].includes(action.actionId)
+    && !action.help && !acceptsMotionReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.add'
+    && !action.help && !acceptsMotionAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.apply'
+    && !action.help && !acceptsMotionApplyArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.preset'
+    && !action.help && !acceptsMotionPresetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.stagger'
+    && !action.help && !acceptsMotionStaggerArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.clear'
+    && !action.help && !acceptsMotionClearArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.style'
+    && !action.help && !acceptsMotionStyleArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.timeline'
+    && !action.help && !acceptsMotionTimelineArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['slot.create', 'slot.edit'].includes(action.actionId)
+    && !action.help && !acceptsSlotConfigurationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'slot.reset' && !action.help && !acceptsSlotResetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['slot.inspect', 'slot.validate'].includes(action.actionId)
+    && !action.help && !acceptsSlotReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'layout.grid.inspect'
+    && !action.help && !acceptsGridInspectArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'layout.grid.auto-flow'
+    && !action.help && !acceptsGridAutoFlowArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'layout.grid.place'
+    && !action.help && !acceptsGridPlaceArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'layout.grid.set' && !action.help && !acceptsGridSetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['layout.grid.reorder-rows', 'layout.grid.reorder-columns'].includes(action.actionId)
+    && !action.help && !acceptsGridTrackReorderArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'node' && args[1] === 'set-text' && !action.help && !acceptsNodeTextArgv(args)) {
@@ -936,6 +1751,26 @@ function commandCapability(args) {
     && !action.help && !acceptsNodeDuplicateArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'node' && args[1] === 'rename' && !action.help && !acceptsNodeRenameArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'resize' && !action.help && !acceptsNodeResizeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'reparent'
+    && !action.help && !acceptsNodeReparentArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'group' && !action.help && !acceptsNodeGroupArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'node' && args[1] === 'ungroup' && !action.help && !acceptsNodeUngroupArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'boolean' && !action.help && !acceptsNodeBooleanArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'bind' && !action.help && !acceptsNodeBindArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'set' && !action.help && !acceptsNodeSetArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'set-fill' && !action.help && !acceptsNodeSetFillArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'set-image' && !action.help && !acceptsNodeSetImageArgv(args)) return Object.freeze({ ...UNKNOWN, name });
+  if (name === 'node' && args[1] === 'flatten' && !action.help && !acceptsNodeFlattenArgv(args)) return Object.freeze({ ...UNKNOWN, name });
   if (name === 'node' && args[1] === 'delete' && !action.help && !acceptsNodeDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -1004,7 +1839,65 @@ function commandCapability(args) {
     && !action.help && !acceptsComponentNestedExposeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'slides' && !action.help && !acceptsSlidesReferenceArgv(args)) {
+  if (name === 'slides' && args[1] === 'create'
+    && !action.help && !acceptsSlidesCreateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] === 'duplicate'
+    && !action.help && !acceptsSlidesDuplicateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] === 'move'
+    && !action.help && !acceptsSlidesMoveArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && ['transition', 'skip'].includes(args[1])
+    && !action.help && !acceptsSlidesPropertyArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] === 'delete'
+    && !action.help && !acceptsSlidesDeleteArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'board'
+    && !action.help && !acceptsJamBoardArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'arrange'
+    && !action.help && !acceptsJamArrangeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'sticky'
+    && !action.help && !acceptsJamStickyArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'stickies'
+    && !action.help && !acceptsJamStickiesArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'shape'
+    && !action.help && !acceptsJamShapeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'connector'
+    && !action.help && !acceptsJamConnectorArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'table'
+    && !action.help && !acceptsJamTableArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'section'
+    && !action.help && !acceptsJamSectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'code'
+    && !action.help && !acceptsJamCodeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides'
+    && !['create', 'duplicate', 'move', 'transition', 'skip', 'delete'].includes(args[1])
+    && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'find' && !action.help && !acceptsNodeDiscoveryArgv(args)) {
@@ -1012,6 +1905,10 @@ function commandCapability(args) {
   }
   if (name === 'prototype' && args[1] === 'inspect'
     && !action.help && !acceptsPrototypeInspectionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'prototype' && ['add', 'set', 'clear'].includes(args[1])
+    && !action.help && !acceptsPrototypeMutationArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'var' && args[1] === 'show'
@@ -1046,11 +1943,18 @@ function commandCapability(args) {
     && !action.help && !acceptsTokenImportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'tokens' && args[1] === 'sync'
+    && !action.help && !acceptsTokenSyncArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'tokens' && args[1] === 'import-design-md'
     && !action.help && !acceptsDesignMdArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'import' && !action.help && !acceptsDesignSourceImportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'map.storybook' && !action.help && !acceptsStorybookMapArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'tokens' && args[1] === 'overlap'
@@ -1125,6 +2029,10 @@ function commandCapability(args) {
     && !action.help && !acceptsFontInspectionArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'font' && ['axes', 'remember-axes', 'forget-axes'].includes(args[1])
+    && !action.help && !acceptsFontAxisMetadataArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'font' && ['bind', 'unbind'].includes(args[1])
     && !action.help && !acceptsFontVariableBindingArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1177,6 +2085,79 @@ function commandCapability(args) {
     && !action.help && !acceptsLayoutGridFactsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'grid' && ['set', 'clear'].includes(args[1])
+    && !action.help && !acceptsLayoutGuideMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'analyze' && ['colors', 'typography', 'type', 'spacing', 'clusters'].includes(args[1])
+    && !action.help && !acceptsAnalysisCensusArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'a11y.vision'
+    && !action.help && !acceptsA11yVisionArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'a11y' && action.actionId !== 'a11y.vision'
+    && !action.help && !acceptsA11yReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'dev' && args[1] === 'list'
+    && !action.help && !acceptsDevResourceReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'dev' && ['link', 'unlink', 'edit'].includes(args[1])
+    && !action.help && !acceptsDevResourceMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'list'
+    && !action.help && !acceptsSectionInventoryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'fit'
+    && !action.help && !acceptsSectionFitArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'arrange'
+    && !action.help && !acceptsSectionArrangeArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'add'
+    && !action.help && !acceptsSectionAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'section' && args[1] === 'create'
+    && !action.help && !acceptsSectionCreateArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'categories'
+    && !action.help && !acceptsAnnotationCategoryInventoryArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'list'
+    && !action.help && !acceptsAnnotationReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'clear'
+    && !action.help && !acceptsAnnotationClearArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'remove'
+    && !action.help && !acceptsAnnotationRemoveArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'edit'
+    && !action.help && !acceptsAnnotationEditArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate'
+    && ['category-add', 'category-edit', 'category-remove'].includes(args[1])
+    && !action.help && !acceptsAnnotationCategoryMutationArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'annotate' && args[1] === 'add'
+    && !action.help && !acceptsAnnotationAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'canvas' && ['info', 'next'].includes(args[1])
     && !action.help && !acceptsCanvasAwarenessArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1192,15 +2173,32 @@ function commandCapability(args) {
   if (name === 'inspect' && !action.help && !acceptsInspectArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
-  if (name === 'history' && ['snapshot', 'list', 'diff'].includes(args[1])
+  if (name === 'history' && ['save', 'snapshot', 'list', 'diff'].includes(args[1])
     && !action.help && !acceptsHistoryArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'verify' && !action.help && !acceptsScreenshotArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'verify-build' && !action.help && !acceptsVerifyBuildArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'export' && ['node', 'screenshot'].includes(args[1])
     && !action.help && !acceptsLegacyRasterExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'export' && args[1] === 'video'
+    && !action.help && !acceptsVideoExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'export' && args[1] === 'node-json'
+    && !action.help && !acceptsNodeJsonExportArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'sizes' && !action.help && !acceptsSizeVariantsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'combos' && !action.help && !acceptsComponentCombinationsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
@@ -1237,11 +2235,18 @@ function isBackgroundCommand(args) {
 }
 
 function acceptedExitCodes(args) {
+  if (args?.[0] === 'tokens' && args?.[1] === 'sync') return [0, 1];
   if (args?.[0] === 'history' && args?.[1] === 'diff') return [0, 1];
   if (args?.[0] === 'contract' && args?.[1] === 'check') return [0, 1];
+  if (args?.[0] === 'spec' && acceptsComponentSpecArgv(args)
+    && parseComponentSpecRequest(args).checkNodeId) return [0, 1];
   // Exit 1 is a valid verify report containing findings, not a transport
   // failure. MCP callers need the report in order to fix those findings.
   if (args?.[0] === 'verify-build') return [0, 1];
+  if (args?.[0] === 'analyze' && args?.[1] === 'lint'
+    && acceptsAnalysisLintArgv(args) && parseAnalysisLintRequest(args).failOnIssues) return [0, 1];
+  if (args?.[0] === 'a11y' && acceptsA11yReadArgv(args)
+    && parseA11yReadRequest(args).failOnIssues) return [0, 1];
   if ((args?.[0] === 'render' || args?.[0] === 'render-batch') && acceptsSemanticRenderArgv(args)) {
     const route = semanticRenderArgvRoute(args);
     if (route.kind === 'simple' || route.kind === 'compound' || route.reason === 'structural-gate') return [0, 1];
@@ -1523,67 +2528,43 @@ function outputFlag(args, baseDir, defaultValue, options) {
   return value;
 }
 
-function optionalOutputFlag(args, baseDir, options) {
-  const matches = optionEntries(options, ['-o', '--output']);
-  if (matches.length > 1) throw new Error(`Duplicate output option ${matches[1].name}.`);
-  const entry = matches[0];
-  if (!entry) return null;
-  if (!entry.inline && typeof args[entry.index + 1] === 'string'
-    && args[entry.index + 1] !== '--' && !args[entry.index + 1].startsWith('-')) {
-    args[entry.index + 1] = absolute(baseDir, args[entry.index + 1]);
-    return args[entry.index + 1];
+function normalizeVerifyBuild(args, baseDir, { markRead, markWrite }) {
+  const request = parseVerifyBuildRequest(args);
+  const projectDir = absolute(baseDir, request.projectDir);
+  const assetsPath = request.assetsPath ? absolute(baseDir, request.assetsPath) : null;
+  const comparePath = request.comparePath ? absolute(baseDir, request.comparePath) : null;
+  const designPath = request.designPath ? absolute(baseDir, request.designPath) : null;
+  const fidelityLedgerPath = request.fidelityLedgerPath
+    ? absolute(baseDir, request.fidelityLedgerPath) : null;
+  const browserCapturePath = request.browserCapturePath
+    ? absolute(baseDir, request.browserCapturePath) : null;
+  const diffOutPath = request.diffOutPath
+    ? absolute(baseDir, request.diffOutPath)
+    : comparePath
+      ? path.join(path.dirname(comparePath), `${path.basename(comparePath, path.extname(comparePath))}-diff.png`)
+      : null;
+  args.splice(0, args.length, ...verifyBuildArgvFromRequest({
+    ...request,
+    projectDir,
+    assetsPath,
+    comparePath,
+    designPath,
+    diffOutPath,
+    fidelityLedgerPath,
+    browserCapturePath,
+  }));
+  markRead(projectDir, 'verify-build-project', 'directory');
+  if (assetsPath) markRead(assetsPath, 'verify-build-assets', 'any');
+  if (comparePath) {
+    markRead(comparePath, 'verify-build-compare');
+    if (designPath) markRead(designPath, 'verify-build-design');
+    markWrite(diffOutPath, 'verify-build-diff-out');
   }
-  if (!entry.inline) throw new Error(`${entry.name} requires a path value.`);
-  const inline = inlineOptionValue(args[entry.index], entry.name);
-  if (!inline?.value) throw new Error(`${entry.name} requires a path value.`);
-  const value = absolute(baseDir, inline.value);
-  args[entry.index] = `${entry.name}${inline.separator}${value}`;
-  return value;
-}
-
-function normalizeVerifyBuild(args, baseDir, notePath) {
-  const pathFlags = new Set([
-    '--assets', '--compare', '--design', '--diff-out', '--fidelity-ledger', '--browser-capture',
-  ]);
-  const skipValue = new Set(['--node', '--max-diff']);
-  let positionalDone = false;
-  let literal = false;
-  for (let index = 1; index < args.length; index++) {
-    const arg = args[index];
-    if (!literal && arg === '--') { literal = true; continue; }
-    if (literal) {
-      if (!positionalDone) {
-        args[index] = absolute(baseDir, arg);
-        notePath(args[index], 'read', 'verify-build-project', 'directory');
-        positionalDone = true;
-      }
-      continue;
-    }
-    const combined = arg.match(/^(--[a-z-]+)=(.*)$/);
-    if (combined) {
-      if (pathFlags.has(combined[1])) {
-        const value = absolute(baseDir, combined[2]);
-        args[index] = `${combined[1]}=${value}`;
-        notePath(value, combined[1] === '--diff-out' ? 'write' : 'read', `verify-build-${combined[1].slice(2)}`, combined[1] === '--assets' ? 'any' : 'file');
-      }
-      continue;
-    }
-    if (pathFlags.has(arg)) {
-      if (typeof args[index + 1] === 'string') {
-        args[index + 1] = absolute(baseDir, args[index + 1]);
-        notePath(args[index + 1], arg === '--diff-out' ? 'write' : 'read', `verify-build-${arg.slice(2)}`, arg === '--assets' ? 'any' : 'file');
-      }
-      index++;
-      continue;
-    }
-    if (skipValue.has(arg)) { index++; continue; }
-    if (arg.startsWith('-')) continue;
-    if (!positionalDone) {
-      args[index] = absolute(baseDir, arg);
-      notePath(args[index], 'read', 'verify-build-project', 'directory');
-      positionalDone = true;
-    }
+  if (fidelityLedgerPath) {
+    markRead(fidelityLedgerPath, 'verify-build-fidelity-ledger');
+    markRead(browserCapturePath, 'verify-build-browser-capture');
   }
+  return { diffOutPath: comparePath ? diffOutPath : null };
 }
 
 function insertBeforeTerminator(args, ...values) {
@@ -1649,6 +2630,20 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
   };
   switch (capability.pathPolicy) {
+    case 'component-combinations-input': {
+      const request = parseComponentCombinationsRequest(args);
+      if (projectUrlTarget) {
+        figmaUrlFileKey = componentCombinationsFigmaUrlFileKeyFromArgv(args);
+      }
+      args.splice(0, args.length, ...componentCombinationsArgvFromRequest(request));
+      break;
+    }
+    case 'size-variants-input': {
+      const request = parseSizeVariantsRequest(args);
+      if (projectUrlTarget) figmaUrlFileKey = sizeVariantsFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...sizeVariantsArgvFromRequest(request));
+      break;
+    }
     case 'assets-dir':
       outputPath = outputFlag(args, baseDir, 'assets', capability.options);
       // Canonical semantic argv gives equivalent default spellings and option
@@ -1679,9 +2674,18 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       break;
     case 'video-output': {
-      const format = String(flagValue(args, ['--format', '-f'], capability.options) || 'mp4').toLowerCase();
-      outputPath = outputFlag(args, baseDir, `video.${format}`, capability.options);
-      markWrite(outputPath, 'video-output');
+      const request = parseVideoExportRequest(args);
+      const explicitPath = absolute(baseDir, request.outputPath);
+      const closedFileKey = videoExportFigmaUrlFileKeyFromArgv(args);
+      // The closed request owns option order and therefore the positional URL.
+      // Legacy fixed-index projection cannot see a URL that follows options.
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...videoExportArgvFromRequest({
+        ...request,
+        outputPath: explicitPath,
+      }));
+      outputRole = 'video-output';
+      markWrite(explicitPath, 'video-output');
       break;
     }
     case 'token-export-input': {
@@ -1697,8 +2701,20 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'node-json-output': {
-      const output = optionalOutputFlag(args, baseDir, capability.options);
-      if (output) markWrite(output, 'node-json-output');
+      const request = parseNodeJsonExportRequest(args);
+      const closedFileKey = nodeJsonExportFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget && closedFileKey !== figmaUrlFileKey) {
+        throw new Error('Node JSON Export target projection disagrees with its closed request Interface.');
+      }
+      const output = request.outputPath ? absolute(baseDir, request.outputPath) : null;
+      args.splice(0, args.length, ...nodeJsonExportArgvFromRequest({
+        ...request,
+        outputPath: output,
+      }));
+      if (output) {
+        outputRole = 'node-json-output';
+        markWrite(output, 'node-json-output');
+      }
       break;
     }
     case 'design-doc': {
@@ -1720,17 +2736,21 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       break;
     }
-    case 'map-file':
-      if (args[1] === 'storybook') {
-        const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
-        if (typeof args[sourceIndex] === 'string' && !isUrl(args[sourceIndex])) {
-          args[sourceIndex] = absolute(baseDir, args[sourceIndex]);
-          markRead(args[sourceIndex], 'storybook-source', 'any');
-        }
-      }
-      outputPath = outputFlag(args, baseDir, 'figma-map.json', capability.options);
+    case 'storybook-map-input': {
+      const request = parseStorybookMapRequest(args);
+      const source = storybookMapSourceIsRemote(request.source)
+        ? request.source : absolute(baseDir, request.source);
+      const output = absolute(baseDir, request.output);
+      args.splice(0, args.length, ...storybookMapArgvFromRequest({
+        ...request, source, output,
+      }));
+      if (!storybookMapSourceIsRemote(source)) markRead(source, 'storybook-source', 'any');
+      outputPath = output;
+      outputRole = 'component-map-output';
+      markOptionalRead(output, 'component-map-output', 'file');
       markWrite(outputPath, 'component-map-output');
       break;
+    }
     case 'design-link-registry': {
       const supplied = pathFlag(args, ['--manifest'], baseDir, capability.options);
       const manifest = supplied?.value || absolute(baseDir, 'figma-bridge.json');
@@ -1761,8 +2781,14 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'verify-build':
-      normalizeVerifyBuild(args, baseDir, notePath);
-      markRead();
+      if (projectUrlTarget) figmaUrlFileKey = verifyBuildFigmaUrlFileKeyFromArgv(args);
+      {
+        const normalized = normalizeVerifyBuild(args, baseDir, { markRead, markWrite });
+        if (normalized.diffOutPath) {
+          outputPath = normalized.diffOutPath;
+          outputRole = 'verify-build-diff-out';
+        }
+      }
       break;
     case 'verify-image': {
       if (projectUrlTarget) figmaUrlFileKey = screenshotFigmaUrlFileKeyFromArgv(args);
@@ -1871,16 +2897,61 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         const closedNodeMoveFileKey = nodeMoveFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeMoveFileKey;
         args.splice(0, args.length, ...nodeMoveArgvFromRequest(parseNodeMoveRequest(args)));
+      } else if (args[1] === 'rename') {
+        const closedNodeRenameFileKey = nodeRenameFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeRenameFileKey;
+        args.splice(0, args.length,
+          ...nodeRenameArgvFromRequest(parseNodeRenameRequest(args)));
+      } else if (args[1] === 'resize') {
+        const closedNodeResizeFileKey = nodeResizeFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeResizeFileKey;
+        args.splice(0, args.length,
+          ...nodeResizeArgvFromRequest(parseNodeResizeRequest(args)));
+      } else if (args[1] === 'reparent') {
+        const closedNodeReparentFileKey = nodeReparentFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeReparentFileKey;
+        args.splice(0, args.length,
+          ...nodeReparentArgvFromRequest(parseNodeReparentRequest(args)));
+      } else if (args[1] === 'group') {
+        const closedNodeGroupFileKey = nodeGroupFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeGroupFileKey;
+        args.splice(0, args.length, ...nodeGroupArgvFromRequest(parseNodeGroupRequest(args)));
+      } else if (args[1] === 'ungroup') {
+        const closedNodeUngroupFileKey = nodeUngroupFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeUngroupFileKey;
+        args.splice(0, args.length, ...nodeUngroupArgvFromRequest(parseNodeUngroupRequest(args)));
+      } else if (args[1] === 'boolean') {
+        const closedNodeBooleanFileKey = nodeBooleanFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeBooleanFileKey;
+        args.splice(0, args.length, ...nodeBooleanArgvFromRequest(parseNodeBooleanRequest(args)));
+      } else if (args[1] === 'bind') {
+        const closedNodeBindFileKey = nodeBindFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeBindFileKey;
+        args.splice(0, args.length, ...nodeBindArgvFromRequest(parseNodeBindRequest(args)));
+      } else if (args[1] === 'set') {
+        const closedNodeSetFileKey = nodeSetFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeSetFileKey;
+        args.splice(0, args.length, ...nodeSetArgvFromRequest(parseNodeSetRequest(args)));
+      } else if (args[1] === 'set-fill') {
+        const closedNodeSetFillFileKey = nodeSetFillFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeSetFillFileKey;
+        args.splice(0, args.length, ...nodeSetFillArgvFromRequest(parseNodeSetFillRequest(args)));
+      } else if (args[1] === 'flatten') {
+        const closedNodeFlattenFileKey = nodeFlattenFigmaUrlFileKeyFromArgv(args); if (projectUrlTarget) figmaUrlFileKey = closedNodeFlattenFileKey;
+        args.splice(0, args.length, ...nodeFlattenArgvFromRequest(parseNodeFlattenRequest(args)));
       } else if (args[1] === 'delete') {
         const closedNodeDeleteFileKey = nodeDeleteFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget) figmaUrlFileKey = closedNodeDeleteFileKey;
         args.splice(0, args.length, ...nodeDeleteArgvFromRequest(parseNodeDeleteRequest(args)));
       } else if (args[1] === 'set-image') {
-        const imageIndex = positionalIndexes(args, 2)[1];
+        const imageIndex = positionalIndexes(args, 2, ['--scale'])[1];
         if (typeof args[imageIndex] === 'string') {
           args[imageIndex] = absolute(baseDir, args[imageIndex]);
           markRead(args[imageIndex], 'node-image');
         }
+        const closedNodeSetImageFileKey = nodeSetImageFigmaUrlFileKeyFromArgv(args);
+        if (projectUrlTarget) figmaUrlFileKey = closedNodeSetImageFileKey;
+        args.splice(0, args.length, ...nodeSetImageArgvFromRequest(parseNodeSetImageRequest(args)));
       }
       break;
     }
@@ -1896,6 +2967,131 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length,
         ...nodeDuplicateArgvFromRequest(parseNodeDuplicateRequest(args)));
+      break;
+    }
+    case 'create-frame-input': {
+      const closedFileKey = createFrameFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createFrameArgvFromRequest(parseCreateFrameRequest(args)));
+      break;
+    }
+    case 'create-image-input': {
+      args.splice(0, args.length,
+        ...createImageArgvFromRequest(parseCreateImageRequest(args)));
+      break;
+    }
+    case 'create-shape-input': {
+      const closedFileKey = createShapeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createShapeArgvFromRequest(parseCreateShapeRequest(args)));
+      break;
+    }
+    case 'create-canvas-node-input': {
+      const closedFileKey = createCanvasNodeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createCanvasNodeArgvFromRequest(parseCreateCanvasNodeRequest(args)));
+      break;
+    }
+    case 'create-line-input': {
+      const closedFileKey = createLineFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...createLineArgvFromRequest(parseCreateLineRequest(args)));
+      break;
+    }
+    case 'create-auto-layout-input': {
+      const closedFileKey = createAutoLayoutFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...createAutoLayoutArgvFromRequest(parseCreateAutoLayoutRequest(args)));
+      break;
+    }
+    case 'create-text-input': {
+      const closedFileKey = createTextFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...createTextArgvFromRequest(parseCreateTextRequest(args)));
+      break;
+    }
+    case 'measurement-mutation-input': {
+      if (projectUrlTarget) figmaUrlFileKey = measurementMutationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...measurementMutationArgvFromRequest(parseMeasurementMutationRequest(args)));
+      break;
+    }
+    case 'measurement-read-input': {
+      if (projectUrlTarget) figmaUrlFileKey = measurementReadFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...measurementReadArgvFromRequest(parseMeasurementReadRequest(args)));
+      break;
+    }
+    case 'library-import-input': {
+      args.splice(0, args.length,
+        ...libraryImportArgvFromRequest(parseLibraryImportRequest(args)));
+      break;
+    }
+    case 'library-read-input': {
+      args.splice(0, args.length,
+        ...libraryReadArgvFromRequest(parseLibraryReadRequest(args)));
+      break;
+    }
+    case 'shader-mutation-input': {
+      if (projectUrlTarget) figmaUrlFileKey = shaderMutationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...shaderMutationArgvFromRequest(parseShaderMutationRequest(args)));
+      break;
+    }
+    case 'shader-read-input': {
+      args.splice(0, args.length,
+        ...shaderReadArgvFromRequest(parseShaderReadRequest(args)));
+      break;
+    }
+    case 'draw-input': {
+      if (projectUrlTarget) figmaUrlFileKey = drawFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...drawArgvFromRequest(parseDrawRequest(args)));
+      break;
+    }
+    case 'slot-configuration-input': {
+      if (projectUrlTarget) figmaUrlFileKey = slotConfigurationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...slotConfigurationArgvFromRequest(parseSlotConfigurationRequest(args)));
+      break;
+    }
+    case 'slot-reset-input': {
+      if (projectUrlTarget) figmaUrlFileKey = slotResetFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...slotResetArgvFromRequest(parseSlotResetRequest(args)));
+      break;
+    }
+    case 'slot-read-input': {
+      if (projectUrlTarget) figmaUrlFileKey = slotReadFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...slotReadArgvFromRequest(parseSlotReadRequest(args)));
+      break;
+    }
+    case 'grid-inspect-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridInspectFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...gridInspectArgvFromRequest(parseGridInspectRequest(args)));
+      break;
+    }
+    case 'grid-auto-flow-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridAutoFlowFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...gridAutoFlowArgvFromRequest(parseGridAutoFlowRequest(args)));
+      break;
+    }
+    case 'grid-place-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridPlaceFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...gridPlaceArgvFromRequest(parseGridPlaceRequest(args)));
+      break;
+    }
+    case 'grid-set-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridSetFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...gridSetArgvFromRequest(parseGridSetRequest(args)));
+      break;
+    }
+    case 'grid-track-reorder-input': {
+      if (projectUrlTarget) figmaUrlFileKey = gridTrackReorderFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...gridTrackReorderArgvFromRequest(parseGridTrackReorderRequest(args)));
       break;
     }
     case 'component-main-input': {
@@ -2050,6 +3246,131 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...layoutGridFactsArgvFromRequest(parseLayoutGridFactsRequest(args)));
       break;
     }
+    case 'layout-guide-mutation-input': {
+      const closedFileKey = layoutGuideMutationFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...layoutGuideMutationArgvFromRequest(parseLayoutGuideMutationRequest(args)));
+      break;
+    }
+    case 'analysis-census-input': {
+      args.splice(0, args.length,
+        ...analysisCensusArgvFromRequest(parseAnalysisCensusRequest(args)));
+      break;
+    }
+    case 'analysis-lint-input': {
+      const closedFileKey = analysisLintFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...analysisLintArgvFromRequest(parseAnalysisLintRequest(args)));
+      break;
+    }
+    case 'a11y-vision-input': {
+      const closedFileKey = a11yVisionFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...a11yVisionArgvFromRequest(parseA11yVisionRequest(args)));
+      break;
+    }
+    case 'a11y-read-input': {
+      const closedFileKey = a11yReadFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...a11yReadArgvFromRequest(parseA11yReadRequest(args)));
+      break;
+    }
+    case 'dev-resource-read-input': {
+      const closedFileKey = devResourceReadFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...devResourceReadArgvFromRequest(parseDevResourceReadRequest(args)));
+      break;
+    }
+    case 'dev-resource-mutation-input': {
+      const closedFileKey = devResourceMutationFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...devResourceMutationArgvFromRequest(parseDevResourceMutationRequest(args)));
+      break;
+    }
+    case 'section-inventory-input': {
+      args.splice(0, args.length,
+        ...sectionInventoryArgvFromRequest(parseSectionInventoryRequest(args)));
+      break;
+    }
+    case 'section-fit-input': {
+      const closedFileKey = sectionFitFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionFitArgvFromRequest(parseSectionFitRequest(args)));
+      break;
+    }
+    case 'section-arrange-input': {
+      const closedFileKey = sectionArrangeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionArrangeArgvFromRequest(parseSectionArrangeRequest(args)));
+      break;
+    }
+    case 'section-add-input': {
+      const closedFileKey = sectionAddFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionAddArgvFromRequest(parseSectionAddRequest(args)));
+      break;
+    }
+    case 'section-create-input': {
+      const closedFileKey = sectionCreateFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...sectionCreateArgvFromRequest(parseSectionCreateRequest(args)));
+      break;
+    }
+    case 'annotation-category-inventory-input': {
+      args.splice(0, args.length, ...annotationCategoryInventoryArgvFromRequest(
+        parseAnnotationCategoryInventoryRequest(args)));
+      break;
+    }
+    case 'annotation-read-input': {
+      const closedFileKey = annotationReadFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationReadArgvFromRequest(parseAnnotationReadRequest(args)));
+      break;
+    }
+    case 'annotation-clear-input': {
+      const closedFileKey = annotationClearFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationClearArgvFromRequest(parseAnnotationClearRequest(args)));
+      break;
+    }
+    case 'annotation-remove-input': {
+      const closedFileKey = annotationRemoveFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationRemoveArgvFromRequest(parseAnnotationRemoveRequest(args)));
+      break;
+    }
+    case 'annotation-edit-input': {
+      const closedFileKey = annotationEditFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...annotationEditArgvFromRequest(parseAnnotationEditRequest(args)));
+      break;
+    }
+    case 'annotation-category-mutation-input': {
+      args.splice(0, args.length, ...annotationCategoryMutationArgvFromRequest(
+        parseAnnotationCategoryMutationRequest(args)));
+      break;
+    }
+    case 'annotation-add-input': {
+      const closedFileKey = annotationAddFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...annotationAddArgvFromRequest(
+        parseAnnotationAddRequest(args)));
+      break;
+    }
     case 'canvas-awareness-input': {
       args.splice(0, args.length,
         ...canvasAwarenessArgvFromRequest(parseCanvasAwarenessRequest(args)));
@@ -2074,6 +3395,77 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...slidesReferenceArgvFromRequest(parseSlidesReferenceRequest(args)));
       break;
     }
+    case 'slides-create-input': {
+      args.splice(0, args.length,
+        ...slidesCreateArgvFromRequest(parseSlidesCreateRequest(args)));
+      break;
+    }
+    case 'slides-duplicate-input': {
+      const closedFileKey = slidesDuplicateFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesDuplicateArgvFromRequest(parseSlidesDuplicateRequest(args)));
+      break;
+    }
+    case 'slides-move-input': {
+      const closedFileKey = slidesMoveFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesMoveArgvFromRequest(parseSlidesMoveRequest(args)));
+      break;
+    }
+    case 'slides-property-input': {
+      const closedFileKey = slidesPropertyFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesPropertyArgvFromRequest(parseSlidesPropertyRequest(args)));
+      break;
+    }
+    case 'slides-delete-input': {
+      const closedFileKey = slidesDeleteFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...slidesDeleteArgvFromRequest(parseSlidesDeleteRequest(args)));
+      break;
+    }
+    case 'jam-board-input': {
+      args.splice(0, args.length, ...jamBoardArgvFromRequest(parseJamBoardRequest(args)));
+      break;
+    }
+    case 'jam-arrange-input': {
+      args.splice(0, args.length, ...jamArrangeArgvFromRequest(parseJamArrangeRequest(args)));
+      break;
+    }
+    case 'jam-sticky-input': {
+      args.splice(0, args.length, ...jamStickyArgvFromRequest(parseJamStickyRequest(args)));
+      break;
+    }
+    case 'jam-stickies-input': {
+      args.splice(0, args.length, ...jamStickiesArgvFromRequest(parseJamStickiesRequest(args)));
+      break;
+    }
+    case 'jam-shape-input': {
+      args.splice(0, args.length, ...jamShapeArgvFromRequest(parseJamShapeRequest(args)));
+      break;
+    }
+    case 'jam-connector-input': {
+      const closedFileKey = jamConnectorFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...jamConnectorArgvFromRequest(parseJamConnectorRequest(args)));
+      break;
+    }
+    case 'jam-table-input': {
+      args.splice(0, args.length, ...jamTableArgvFromRequest(parseJamTableRequest(args)));
+      break;
+    }
+    case 'jam-section-input': {
+      args.splice(0, args.length, ...jamSectionArgvFromRequest(parseJamSectionRequest(args)));
+      break;
+    }
+    case 'jam-code-input': {
+      args.splice(0, args.length, ...jamCodeArgvFromRequest(parseJamCodeRequest(args)));
+      break;
+    }
     case 'node-discovery-input': {
       args.splice(0, args.length,
         ...nodeDiscoveryArgvFromRequest(parseNodeDiscoveryRequest(args)));
@@ -2086,6 +3478,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       }
       args.splice(0, args.length,
         ...prototypeInspectionArgvFromRequest(parsePrototypeInspectionRequest(args)));
+      break;
+    }
+    case 'prototype-mutation-input': {
+      if (projectUrlTarget) figmaUrlFileKey = prototypeMutationFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length,
+        ...prototypeMutationArgvFromRequest(parsePrototypeMutationRequest(args)));
       break;
     }
     case 'variable-facts-input': {
@@ -2128,6 +3526,24 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       const file = absolute(baseDir, request.file);
       args.splice(0, args.length, ...tokenImportArgvFromRequest({ ...request, file }));
       markRead(file, 'token-file');
+      break;
+    }
+    case 'token-sync-input': {
+      const request = parseTokenSyncRequest(args);
+      const file = absolute(baseDir, request.file);
+      const lockfile = request.lockfile === null
+        ? absolute(baseDir, path.join(path.dirname(file), 'figma-tokens.lock.json'))
+        : absolute(baseDir, request.lockfile);
+      args.splice(0, args.length, ...tokenSyncArgvFromRequest({
+        ...request, file,
+        lockfile: request.lockfile === null ? null : lockfile,
+      }));
+      markRead(file, 'token-file');
+      if (request.apply) {
+        markWrite(lockfile, 'token-lockfile');
+        outputRole = 'token-lockfile';
+      }
+      else markOptionalRead(lockfile, 'token-lockfile');
       break;
     }
     case 'token-overlap-input': {
@@ -2226,6 +3642,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...fontInspectionArgvFromRequest(parseFontInspectionRequest(args)));
       break;
     }
+    case 'font-axis-metadata-input': {
+      const closedFileKey = fontAxisMetadataFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length,
+        ...fontAxisMetadataArgvFromRequest(parseFontAxisMetadataRequest(args)));
+      break;
+    }
     case 'font-variable-binding-input': {
       const closedFileKey = fontVariableBindingFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -2242,18 +3665,36 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       args.splice(0, args.length, ...inspectArgvFromRequest(parseInspectRequest(args)));
       break;
     }
+    case 'pin-input': {
+      if (projectUrlTarget) figmaUrlFileKey = pinFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...pinArgvFromRequest(parsePinRequest(args)));
+      break;
+    }
     case 'code-spec-input': {
       if (projectUrlTarget) figmaUrlFileKey = codeSpecFigmaUrlFileKeyFromArgv(args);
       args.splice(0, args.length, ...codeSpecArgvFromRequest(parseCodeSpecRequest(args)));
       break;
     }
     case 'gradient-input': {
-      const [imageIndex] = positionalIndexes(args, 2, [
-        '--mode', '--apply-to', '--direction', '--stops', '--blur',
-      ]);
-      if (args[1] === 'extract' && typeof args[imageIndex] === 'string') {
-        args[imageIndex] = absolute(baseDir, args[imageIndex]);
-        markRead(args[imageIndex], 'gradient-image');
+      if (args[1] === 'apply' && acceptsGradientApplyArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = gradientApplyFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...gradientApplyArgvFromRequest(parseGradientApplyRequest(args)));
+        break;
+      }
+      if (args[1] === 'extract' && acceptsGradientExtractArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = gradientExtractFigmaUrlFileKeyFromArgv(args);
+        const request = parseGradientExtractRequest(args);
+        const image = absolute(baseDir, request.image);
+        args.splice(0, args.length,
+          ...gradientExtractArgvFromRequest({ ...request, image }));
+        markRead(image, 'gradient-image');
+        break;
+      }
+      if (args[1] === 'mesh' && acceptsGradientMeshArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = gradientMeshFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...gradientMeshArgvFromRequest(parseGradientMeshRequest(args)));
       }
       break;
     }
@@ -2305,22 +3746,70 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
-      const [motionInputIndex] = positionalIndexes(args, 2);
-      if (args[1] === 'apply' && typeof args[motionInputIndex] === 'string'
-        && !args[motionInputIndex].trimStart().startsWith('{')) {
-        args[motionInputIndex] = absolute(baseDir, args[motionInputIndex]);
-        markRead(args[motionInputIndex], 'motion-file');
+      if (args[1] === 'apply' && acceptsMotionApplyArgv(args)) {
+        const request = parseMotionApplyRequest(args);
+        const source = request.sourceKind === 'file' ? absolute(baseDir, request.source) : request.source;
+        args.splice(0, args.length,
+          ...motionApplyArgvFromRequest({ ...request, source }));
+        if (request.sourceKind === 'file') markRead(source, 'motion-file');
+        break;
+      }
+      if (args[1] === 'add' && acceptsMotionAddArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionAddFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionAddArgvFromRequest(parseMotionAddRequest(args)));
+        break;
+      }
+      if (args[1] === 'preset' && acceptsMotionPresetArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionPresetFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionPresetArgvFromRequest(parseMotionPresetRequest(args)));
+        break;
+      }
+      if (args[1] === 'stagger' && acceptsMotionStaggerArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionStaggerFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionStaggerArgvFromRequest(parseMotionStaggerRequest(args)));
+        break;
+      }
+      if (args[1] === 'style' && acceptsMotionStyleArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionStyleFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionStyleArgvFromRequest(parseMotionStyleRequest(args)));
+        break;
+      }
+      if (args[1] === 'clear' && acceptsMotionClearArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionClearFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionClearArgvFromRequest(parseMotionClearRequest(args)));
+        break;
+      }
+      if (args[1] === 'timeline' && acceptsMotionTimelineArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionTimelineFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionTimelineArgvFromRequest(parseMotionTimelineRequest(args)));
+        break;
+      }
+      if (['styles', 'inspect'].includes(args[1]) && acceptsMotionReadArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionReadFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionReadArgvFromRequest(parseMotionReadRequest(args)));
+        break;
       }
       break;
     }
-    case 'spec-file': {
-      const supplied = pathFlag(args, ['-f', '--file'], baseDir, capability.options);
-      if (supplied) markRead(supplied.value, 'design-spec-file');
+    case 'component-spec-input': {
+      const closedFileKey = componentSpecFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      const request = parseComponentSpecRequest(args);
+      const file = request.file ? absolute(baseDir, request.file) : null;
+      args.splice(0, args.length, ...componentSpecArgvFromRequest({ ...request, file }));
+      if (file) markRead(file, 'design-spec-file');
       else markRead(absolute(baseDir, '.'), 'design-spec-search', 'directory');
       break;
     }
     case 'history-output': {
-      if (['snapshot', 'list', 'diff'].includes(args[1])) {
+      if (['save', 'snapshot', 'list', 'diff'].includes(args[1])) {
         const request = parseHistoryRequest(args);
         const closedFileKey = historyFigmaUrlFileKeyFromArgv(args);
         if (projectUrlTarget && closedFileKey !== figmaUrlFileKey) {
@@ -2390,9 +3879,9 @@ function flagValue(args, flags, options) {
 
 /** External outbound access only; authenticated localhost transport is separate. */
 function networkEffect(args, capability) {
-  if (args[0] === 'map' && args[1] === 'storybook') {
-    const [sourceIndex] = positionalIndexes(args, 2, ['-o', '--output']);
-    if (isUrl(args[sourceIndex] || '')) return 'read';
+  if (capability.actionId === 'create.image') return 'read';
+  if (acceptsStorybookMapArgv(args)) {
+    if (storybookMapSourceIsRemote(parseStorybookMapRequest(args).source)) return 'read';
   }
   if (args[0] === 'import') {
     const [sourceIndex] = positionalIndexes(args, 1, ['-c', '--collection', '--save']);
@@ -2417,6 +3906,46 @@ function sharedEffect(args, artifactOutputs, capability) {
     if (args[1] === 'snapshot') return hasOption(capability.options, '--json') ? 'none' : 'write';
     if (args[1] === 'list' || args[1] === 'diff') return 'read';
   }
+  return 'none';
+}
+
+function editorEffect(args, capability) {
+  if (!capability.available || capability.help || capability.target === 'none') return 'none';
+  const { actionId } = capability;
+  if (actionId === 'canvas.page-create') {
+    return hasOption(capability.options, '--no-switch') ? 'none' : 'write';
+  }
+  if (actionId === 'combos') {
+    if (!hasOption(capability.options, '--dry-run')) return 'write';
+    const [nodeIndex] = positionalIndexes(args, 1, ['-g', '--gap']);
+    return nodeIndex === undefined ? 'read' : 'none';
+  }
+  if (actionId?.startsWith('create.')) return 'write';
+  if (EDITOR_CONTEXT_WRITE_ACTIONS.has(actionId)) return 'write';
+  if (actionId === 'extract' && hasOption(capability.options, '--selection')) return 'read';
+  if (actionId === 'verify' && !parseScreenshotRequest(args).nodeId) return 'read';
+  if (actionId === 'export.code-spec' && !parseCodeSpecRequest(args).nodeId) return 'read';
+  if (actionId === 'node.bindings' && !parseNodeBindingsRequest(args).nodeId) return 'read';
+  if (actionId === 'component.prop.list'
+    && !parseComponentPropertyListRequest(args).componentId) return 'read';
+  if (actionId === 'grid.list' && !parseLayoutGridFactsRequest(args).nodeId) return 'read';
+  if (actionId === 'analyze.lint' && !parseAnalysisLintRequest(args).nodeId) return 'read';
+  if (actionId === 'a11y.vision' && !parseA11yVisionRequest(args).nodeId) return 'read';
+  if (actionId?.startsWith('a11y.') && actionId !== 'a11y.vision'
+    && !parseA11yReadRequest(args).nodeId) return 'read';
+  if (actionId === 'dev.list' && !parseDevResourceReadRequest(args).nodeId) return 'read';
+  if (actionId === 'annotate.list' && !parseAnnotationReadRequest(args).nodeId) return 'read';
+  if (actionId === 'annotate.add' && parseAnnotationAddRequest(args).selector === 'query') {
+    return 'read';
+  }
+  if (actionId === 'link.inspect'
+    && !parseDesignLinkRequest(args, { requireManifest: false }).nodeId) return 'read';
+  if (actionId === 'gradient.extract'
+    && parseGradientExtractRequest(args).selector?.kind === 'selection') {
+    return 'read';
+  }
+  if (actionId === 'pin' && parsePinRequest(args).selector.kind === 'selection') return 'read';
+  if (EDITOR_CONTEXT_READ_ACTIONS.has(actionId)) return 'read';
   return 'none';
 }
 
@@ -2480,6 +4009,7 @@ export function planFigmaCommand(rawArgs, {
   }
   const effects = Object.freeze({
     figma: capability.mutatesDesign ? 'write' : capability.target === 'none' ? 'none' : 'read',
+    editor: editorEffect(prepared.args, capability),
     workspace: capability.help ? 'none' : prepared.workspace,
     network: capability.help ? 'none' : networkEffect(prepared.args, capability),
     shared: capability.help ? 'none'
@@ -2508,7 +4038,7 @@ export function planFigmaCommand(rawArgs, {
       ? 'read'
       : 'none';
   const jobKey = backgroundJobIdentity(argv, target.fileKey);
-  const retry = capability.mutatesDesign ? 'never' : capability.retry;
+  const retry = capability.mutatesDesign || effects.editor === 'write' ? 'never' : capability.retry;
   const plan = {
     id: capability.actionId || 'unknown',
     adapter,

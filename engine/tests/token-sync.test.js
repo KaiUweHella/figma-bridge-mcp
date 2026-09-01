@@ -103,6 +103,15 @@ test('DTCG parsing refuses circular and unresolved aliases loudly', () => {
   assert.throws(() => parseDtcgFlat('not json'), /Not valid JSON/);
 });
 
+test('flattened DTCG and repeated CSS identities are rejected instead of last-write-wins', () => {
+  assert.throws(() => parseDtcgFlat(JSON.stringify({
+    'a/b': { $type: 'number', $value: 1 },
+    a: { b: { $type: 'number', $value: 2 } },
+  })), /Duplicate token name.*a\/b/);
+  assert.throws(() => parseCssFlat(':root { --space-md: 8px; --space-md: 12px; }'),
+    /Duplicate token name.*space\/md/);
+});
+
 test('composite tokens are skipped rather than mangled into a variable', () => {
   const tokens = parseDtcgFlat(JSON.stringify({
     heading: { $type: 'typography', $value: { fontFamily: 'Inter', fontSize: '24px' } },

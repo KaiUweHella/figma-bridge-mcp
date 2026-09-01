@@ -197,6 +197,7 @@ export async function restFetch(path, opts = {}) {
     operation: method === "POST" ? "write" : "read",
     effects: {
       figma: method === "POST" ? "write" : "read",
+      editor: "none",
       workspace: "none",
       network: method === "POST" ? "write" : "read",
       shared: "read",

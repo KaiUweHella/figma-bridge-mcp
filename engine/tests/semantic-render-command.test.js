@@ -459,7 +459,7 @@ test('compound assets and verification are explicit Command Plan effects', async
   const cli = planFigmaCommand(argv, { ...options, adapter: 'cli' });
   assert.equal(semanticRenderPlanRoute(mcp), 'compound-command-application');
   assert.deepEqual(mcp.effects, {
-    figma: 'write', workspace: 'read', network: 'read', shared: 'write',
+    figma: 'write', editor: 'none', workspace: 'read', network: 'read', shared: 'write',
   });
   assert.equal(mcp.outputs.length, 2);
   assert.deepEqual(mcp.outputs.map((output) => basename(output.path)), [
@@ -1444,7 +1444,7 @@ test('bounded Outcome preserves successful unbound generated literal evidence', 
     renderPlan: async () => nativeResult({
       variableReport: {
         references: 4, reused: 0, created: 0, bound: 0,
-        literal: 0, ambiguous: 4, unsupported: 0,
+        literal: 4, ambiguous: 4, unsupported: 0,
       },
     }),
     evaluate: async () => { throw new Error('must not run'); },
@@ -1452,11 +1452,13 @@ test('bounded Outcome preserves successful unbound generated literal evidence', 
 
   assert.deepEqual(result.resources.variableReport, {
     references: 4, reused: 0, created: 0, bound: 0,
-    literal: 0, ambiguous: 4, unsupported: 0,
+    literal: 4, ambiguous: 4, unsupported: 0,
   });
   assert.equal(result.status, 'completed');
   assert.equal(semanticRenderOutcomeCode(result), 0);
   assert.deepEqual(result.degradations, []);
+  assert.match(formatSemanticRenderResult(result),
+    /4 generated literal binding candidate\(s\) stayed literal; exact values were preserved/);
   assert.match(formatSemanticRenderResult(result),
     /4 generated binding candidate\(s\) stayed unbound because reuse was ambiguous or incompatible/);
 });

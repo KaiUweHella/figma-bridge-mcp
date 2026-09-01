@@ -4,6 +4,8 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
+  readdirSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -117,6 +119,62 @@ test('secure output detects a parent swap before bytes can escape', (t) => {
   assert.equal(readFileSync(join(outside, 'result.txt'), 'utf8'), 'outside-original');
 });
 
+test('atomic replacement preserves prior bytes and removes its stage when commit fails', (t) => {
+  const { workspace } = fixture(t);
+  const target = join(workspace, 'figma-tokens.lock.json');
+  const prior = '{"version":1,"prior":true}\n';
+  writeFileSync(target, prior);
+  const io = createWorkspaceIO({
+    root: workspace,
+    testHooks: {
+      beforeReplaceCommit() { throw new Error('injected pre-commit failure'); },
+    },
+  });
+
+  assert.throws(
+    () => io.replace(target, '{"version":1,"prior":false}\n', { role: 'token-lockfile' }),
+    /atomic replacement failed/,
+  );
+  assert.equal(readFileSync(target, 'utf8'), prior);
+  assert.deepEqual(readdirSync(workspace), ['figma-tokens.lock.json']);
+});
+
+test('atomic replacement validates its opened stage before any bytes cross a swapped parent', (t) => {
+  const { workspace, outside } = fixture(t);
+  const outputDir = join(workspace, 'output');
+  const movedDir = join(workspace, 'output-safe');
+  const target = join(outputDir, 'figma-tokens.lock.json');
+  mkdirSync(outputDir);
+  writeFileSync(target, 'prior\n');
+  const io = createWorkspaceIO({
+    root: workspace,
+    testHooks: {
+      beforeReplaceOpen() {
+        renameSync(outputDir, movedDir);
+        symlinkSync(outside, outputDir);
+      },
+    },
+  });
+
+  assert.throws(
+    () => io.replace(target, 'sensitive-next-state\n', { role: 'token-lockfile' }),
+    /outside|atomic replacement failed/,
+  );
+  assert.equal(readFileSync(join(movedDir, 'figma-tokens.lock.json'), 'utf8'), 'prior\n');
+  assert.deepEqual(readdirSync(outside), []);
+});
+
+test('atomic replacement commits one complete sibling file', (t) => {
+  const { workspace } = fixture(t);
+  const target = join(workspace, 'figma-tokens.lock.json');
+  writeFileSync(target, 'prior\n');
+  const io = createWorkspaceIO({ root: workspace });
+
+  assert.equal(io.replace(target, 'next\n', { role: 'token-lockfile' }), realpathSync.native(target));
+  assert.equal(readFileSync(target, 'utf8'), 'next\n');
+  assert.deepEqual(readdirSync(workspace), ['figma-tokens.lock.json']);
+});
+
 test('whole-file reads enforce byte limits before retaining content', (t) => {
   const { workspace } = fixture(t);
   const file = join(workspace, 'large.json');
@@ -158,7 +216,7 @@ test('Command Capabilities enforce roles without disclosing rejected absolute pa
   assert.equal(planFigmaCommand(['tokens', 'sync', join(extra, 'tokens.json')], {
     workspaceDir: workspace,
     workspaceIO: io,
-  }).effects.workspace, 'write');
+  }).effects.workspace, 'read');
 
   assert.throws(
     () => planFigmaCommand(['motion', 'apply', join(outside, 'private.json')], {

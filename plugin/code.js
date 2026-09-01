@@ -2950,6 +2950,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null, {
     if (candidates.length > 1) {
       if (intent.generated) {
         report.ambiguous++;
+        report.literal++;
         return { variable: null, value: fallback, unbound: 'ambiguous' };
       }
       failures.push(`${label}: variable is ambiguous (${candidates.map((item) => item.name).join(', ')})`);
@@ -2964,6 +2965,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null, {
       const value = variableValue(variable);
       if (intent.generated && value !== fallback) {
         report.unsupported++;
+        report.literal++;
         return { variable: null, value: fallback, unbound: 'value-mismatch' };
       }
       reusedVariableIds.add(variable.id);
@@ -2982,6 +2984,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null, {
       const defaultCollections = collections.filter((candidate) => candidate.name.toLowerCase() === 'tokens');
       if (defaultCollections.length > 1) {
         report.ambiguous++;
+        report.literal++;
         return { variable: null, value: fallback, unbound: 'ambiguous-collection' };
       }
       collection = defaultCollections[0] || null;
@@ -3155,7 +3158,7 @@ async function prepareStructuredVariables(figmaApi, plan, journal = null, {
   Object.assign(report, {
     reused: reusedVariableIds.size,
     created: createdVariables.length,
-    bound: intents.length - report.literal - report.ambiguous - report.unsupported,
+    bound: intents.length - report.literal,
   });
   return { bindings, createdVariables: createdVariables.sort(), scopeQuestions, fontNames, runFontNames, variableReport: report };
 }

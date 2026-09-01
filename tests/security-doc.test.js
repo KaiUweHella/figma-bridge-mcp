@@ -96,6 +96,95 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-IMAGE-EXPORT",
+    [
+      [
+        "engine/tests/image-export-command.test.js",
+        "JPG, SVG and PDF use one Plan-bound Image Export Application for CLI and MCP",
+      ],
+      [
+        "engine/tests/image-export-command.test.js",
+        "format bytes and Plugin evidence are validated before Workspace publication",
+      ],
+      [
+        "engine/tests/image-export-command.test.js",
+        "SVG and PDF require complete bounded containers before publication",
+      ],
+      [
+        "engine/tests/image-export-command.test.js",
+        "Image Export leaves bounded envelope room inside the Plugin transport",
+      ],
+    ],
+  ],
+  [
+    "SEC-NODE-JSON",
+    [
+      [
+        "engine/tests/node-json-export-command.test.js",
+        "CLI and MCP use one safe-read Plan-bound Node JSON Export Application",
+      ],
+      [
+        "engine/tests/node-json-export-command.test.js",
+        "malformed or unbounded Plugin facts fail before Workspace publication",
+      ],
+      [
+        "engine/tests/node-json-export-command.test.js",
+        "Node JSON Export leaves bounded room inside the generic Plugin result transport",
+      ],
+    ],
+  ],
+  [
+    "SEC-VIDEO-EXPORT",
+    [
+      [
+        "engine/tests/video-export-command.test.js",
+        "CLI and MCP own one bounded Plan and format-specific Video Export",
+      ],
+      [
+        "engine/tests/video-export-command.test.js",
+        "Plugin evidence and each video container validate before publication",
+      ],
+      [
+        "engine/tests/video-export-command.test.js",
+        "Video Export refuses forged plans and keeps envelope headroom",
+      ],
+    ],
+  ],
+  [
+    "SEC-SIZE-VARIANTS",
+    [
+      [
+        "engine/tests/size-variants-command.test.js",
+        "component source creates and freshly verifies exactly three scaled Components",
+      ],
+      [
+        "engine/tests/size-variants-command.test.js",
+        "failed postcondition removes every owned clone and reports rolled-back",
+      ],
+      [
+        "engine/tests/size-variants-command.test.js",
+        "failed cleanup reports bounded partial residue without retry",
+      ],
+    ],
+  ],
+  [
+    "SEC-COMPONENT-COMBINATIONS",
+    [
+      [
+        "engine/tests/component-combinations-command.test.js",
+        "dry run returns bounded facts without creating nodes",
+      ],
+      [
+        "engine/tests/component-combinations-command.test.js",
+        "write creates every combination and freshly verifies the labeled grid",
+      ],
+      [
+        "engine/tests/component-combinations-command.test.js",
+        "a failed combination removes labels and every intermediate node",
+      ],
+    ],
+  ],
+  [
     "SEC-TARGET",
     [
       [
@@ -565,6 +654,35 @@ const EVIDENCE = Object.freeze([
       [
         "tests/release-integrity.test.js",
         "publish workflow releases the verified tarball and retains all evidence",
+      ],
+    ],
+  ],
+  [
+    "SEC-TOKEN-SYNC",
+    [
+      [
+        "engine/tests/token-sync-command.test.js",
+        "apply revalidates the exact preflight and makes no mutation after a race",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "invalid mutation evidence cannot hide a committed write or advance the lock",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "forged failure residue cannot claim operations outside the attempted Plan prefix",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "one lockfile serializes concurrent Token Sync transactions",
+      ],
+      [
+        "engine/tests/token-sync-command.test.js",
+        "lock publication failure reports verified committed Figma residue",
+      ],
+      [
+        "tests/workspace-io.test.js",
+        "atomic replacement preserves prior bytes and removes its stage when commit fails",
       ],
     ],
   ],

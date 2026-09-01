@@ -1,176 +1,14 @@
-// Command: verify-build — mechanical + visual build-vs-design check.
-//
-// Mechanical pass (always, no Figma needed): greps a project directory
-// against the assets.json manifest(s) written by `export assets` — every
-// exported file must be referenced somewhere in the build (the absolutely-
-// positioned/overhanging SVGs are the ones that get lost) — plus a
-// border-image lint (gradient stroke + radius built with border-image
-// silently loses the radius).
-//
-// Visual pass (--compare <buildPng>): diffs a screenshot of the BUILD
-// against the design render — the build-side sister of `verify` (which
-// screenshots the Figma side). Reference comes from --design <png> (fully
-// offline) or is fetched live from Figma (--node, or the manifest's root).
-// Informational by default; --max-diff <pct> opts into gating the exit code.
+// Command: verify-build — mechanical and visual build-vs-design verification.
+
 import chalk from 'chalk';
-import { createHash } from 'node:crypto';
-import { readdirSync } from 'fs';
-import { join, resolve, relative, basename, extname, dirname } from 'path';
-import { PNG } from 'pngjs';
-import { program, checkConnection, daemonExec } from '../lib/cli-core.js';
-import { verifyBuild, describeMissing } from '../lib/verify-build.js';
-import { diffImages, describeRegions } from '../lib/image-diff.js';
-import { loadImage } from '../gradient-extractor.js';
-import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
-import { verifyBrowserFidelityLedger } from '../lib/browser-fidelity-ledger.js';
-import { BROWSER_DOM_CAPTURE_LIMITS } from '../lib/browser-dom-capture.js';
-
-// Directories that are never part of the source build.
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt',
-  '.svelte-kit', 'coverage', '.turbo', '.cache',
-]);
-
-// Text files a build references assets from. SVG/JSON are included: an SVG
-// can <use> another asset, and config JSON can point at files. The manifest
-// files themselves (assets.json) are excluded — they reference everything.
-const TEXT_EXT = new Set([
-  '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.css', '.scss', '.sass',
-  '.less', '.html', '.htm', '.vue', '.svelte', '.astro', '.md', '.mdx',
-  '.json', '.svg',
-]);
-
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
-// Cap on the live-fetched reference render (largest node dimension in px).
-const FETCH_MAX_DIM = 2000;
-
-/** Recursively collect { manifests, files } under dir. */
-function scanProject(dir) {
-  const manifests = [];
-  const files = [];
-  let entriesSeen = 0;
-  const walk = (d, depth = 0) => {
-    if (depth > workspaceIO().limits.nestingDepth) {
-      throw new Error(`Workspace verify-build-project rejected: nesting exceeds ${workspaceIO().limits.nestingDepth}.`);
-    }
-    const accepted = workspaceIO().authorizePath(d, {
-      access: 'read', role: 'verify-build-project', kind: 'directory',
-    });
-    let entries;
-    try { entries = readdirSync(accepted.canonical, { withFileTypes: true }); } catch { return; }
-    entriesSeen += entries.length;
-    if (entriesSeen > workspaceIO().limits.collectionEntries) {
-      throw new Error(`Workspace verify-build-project rejected: collection exceeds ${workspaceIO().limits.collectionEntries} entries.`);
-    }
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) walk(join(accepted.canonical, e.name), depth + 1);
-        continue;
-      }
-      if (!e.isFile()) continue;
-      const path = join(accepted.canonical, e.name);
-      if (e.name === 'assets.json') {
-        try { manifests.push({ path, data: workspaceIO().readJson(path, { role: 'asset-manifest' }) }); } catch {}
-        continue;
-      }
-      if (!TEXT_EXT.has(extname(e.name).toLowerCase())) continue;
-      try {
-        files.push({ path, text: workspaceIO().readText(path, { role: 'verify-build-source', maxBytes: MAX_FILE_BYTES }) });
-      } catch {}
-    }
-  };
-  walk(dir);
-  return { manifests, files };
-}
-
-/** Read exactly the files named by each manifest, relative to that manifest. */
-function readManifestAssetFiles(manifests) {
-  const seen = new Set();
-  const assetFiles = [];
-  for (const manifest of manifests) {
-    for (const asset of manifest.data?.assets || []) {
-      if (!asset?.file) continue;
-      const path = join(dirname(manifest.path), asset.file);
-      if (seen.has(path)) continue;
-      seen.add(path);
-      try {
-        assetFiles.push({
-          file: asset.file,
-          path,
-          kind: asset.kind,
-          bytes: workspaceIO().read(path, { role: 'exported-asset' }),
-        });
-      } catch {
-        // Omission is intentional: verifyBuild reports it as a missing
-        // physical file whenever Manifest v2 supplied an expected digest.
-      }
-    }
-  }
-  return assetFiles;
-}
-
-/** Distinct export-root ids across the manifests ({ id, name } each). */
-function manifestRoots(manifests) {
-  const byId = new Map();
-  for (const m of manifests) {
-    const roots = m.data?.roots
-      || (m.data?.root ? [{ id: m.data.root, name: m.data.rootName }] : []);
-    for (const r of roots) if (r?.id && !byId.has(r.id)) byId.set(r.id, r);
-  }
-  return [...byId.values()];
-}
-
-/** Load an image file with an actionable error instead of a decoder throw. */
-function loadImageOrExit(path, role) {
-  const ext = extname(path).toLowerCase();
-  if (!['.png', '.jpg', '.jpeg'].includes(ext)) {
-    console.error(chalk.red(`✗ verify-build: ${role} must be a PNG or JPEG, got "${basename(path)}".`));
-    process.exit(1);
-  }
-  try {
-    return loadImage(path);
-  } catch (e) {
-    console.error(chalk.red(`✗ verify-build: cannot read ${role} ${path}: ${e.message}`));
-    process.exit(1);
-  }
-}
-
-/**
- * Fetch the design reference PNG live from Figma (same export approach as
- * `verify`, scale capped so huge frames stay tractable). Returns
- * { image, scale, nodeName } — region coordinates get divided by `scale`
- * later so findings always speak NODE pixels.
- */
-async function fetchDesignReference(nodeId) {
-  await checkConnection();
-  const code = `(async () => {
-    const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-    if (!node) return { error: 'Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '" — Safe Mode only reaches the file open in Figma Desktop.' };
-    if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-    const maxDim = Math.max(node.width || 1, node.height || 1);
-    const scale = Math.min(1, ${FETCH_MAX_DIM} / maxDim);
-    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
-    return { name: node.name, scale, base64: figma.base64Encode(bytes) };
-  })()`;
-  const result = await daemonExec('eval', { code }, 60000);
-  if (result.error) {
-    console.error(chalk.red('✗ ' + result.error));
-    process.exit(1);
-  }
-  const png = PNG.sync.read(Buffer.from(result.base64, 'base64'));
-  return {
-    image: { width: png.width, height: png.height, data: new Uint8Array(png.data) },
-    scale: result.scale,
-    nodeName: result.name,
-  };
-}
-
-/** Encode { width, height, data } RGBA as a PNG buffer. */
-function encodePng(img) {
-  const png = new PNG({ width: img.width, height: img.height });
-  Buffer.from(img.data.buffer, img.data.byteOffset, img.data.byteLength).copy(png.data);
-  return PNG.sync.write(png);
-}
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executeVerifyBuildPlan,
+  verifyBuildPlanningArgvFromRequest,
+} from '../application/verify-build-command.js';
+import { program, daemonExec, handleEvalError } from '../lib/cli-core.js';
+import { workspaceIO } from '../lib/workspace-io.js';
 
 program
   .command('verify-build <projectDir>')
@@ -184,210 +22,49 @@ program
   .option('--fidelity-ledger <path>', 'bounded source-fact ledger for mechanical Figma-to-browser acceptance')
   .option('--browser-capture <path>', 'browser DOM capture paired with --fidelity-ledger')
   .option('--json', 'Machine-readable JSON output')
+  .allowExcessArguments(false)
   .action(async (projectDir, options) => {
-    const root = resolve(projectDir);
     try {
-      workspaceIO().authorizePath(root, { access: 'read', role: 'verify-build-project', kind: 'directory' });
-    } catch {
-      console.error(chalk.red(`✗ verify-build: ${root} is not a readable directory.`));
-      process.exit(1);
-    }
-    const { manifests: foundManifests, files } = scanProject(root);
-    let manifests = foundManifests;
-    if (options.assets) {
-      const p = resolve(options.assets);
-      const manifestPath = basename(p) === 'assets.json' ? p : join(p, 'assets.json');
-      try {
-        manifests = [{ path: manifestPath, data: workspaceIO().readJson(manifestPath, { role: 'asset-manifest' }) }];
-      } catch (e) {
-        console.error(chalk.red(`✗ verify-build: cannot read ${manifestPath}: ${e.message}`));
-        process.exit(1);
-      }
-    }
-    if (!manifests.length) {
-      console.error(chalk.red('✗ verify-build: no assets.json found under ' + root + '.'));
-      console.error('  Run `export assets <nodeId> -o <projectDir>/src/assets` first, or point at the manifest with --assets <path>.');
-      process.exit(1);
-    }
-
-    const result = verifyBuild(manifests.map((m) => m.data), files, readManifestAssetFiles(manifests));
-
-    // ---- scoped source-fact pass (optional) ----
-    let fidelity = null;
-    if (Boolean(options.fidelityLedger) !== Boolean(options.browserCapture)) {
-      console.error(chalk.red('✗ verify-build: --fidelity-ledger and --browser-capture must be passed together.'));
-      process.exit(1);
-    }
-    if (options.fidelityLedger) {
-      try {
-        const ledger = workspaceIO().readJson(resolve(options.fidelityLedger), { role: 'verify-build-fidelity-ledger' });
-        const capturePath = resolve(options.browserCapture);
-        const captureBytes = workspaceIO().read(capturePath, {
-          role: 'verify-build-browser-capture', maxBytes: BROWSER_DOM_CAPTURE_LIMITS.jsonBytes,
-        });
-        const capture = parseBoundedJson(captureBytes.toString('utf8'), {
-          role: 'verify-build-browser-capture',
-          limits: { ...workspaceIO().limits, ...BROWSER_DOM_CAPTURE_LIMITS },
-        });
-        fidelity = verifyBrowserFidelityLedger(ledger, capture, {
-          captureHash: createHash('sha256').update(captureBytes).digest('hex'),
-        });
-      } catch (error) {
-        console.error(chalk.red(`✗ verify-build: fidelity ledger failed: ${error.message}`));
-        process.exit(1);
-      }
-    }
-
-    // ---- visual pass (optional) ----
-    let visual = null;
-    if (options.compare) {
-      const buildPath = resolve(options.compare);
-      const build = loadImageOrExit(buildPath, 'build screenshot (--compare)');
-      let design, reference, nodeScale = 1;
-      if (options.design) {
-        if (options.node) console.error(chalk.yellow('⚠ both --design and --node given — using the --design file, no Figma fetch.'));
-        const designPath = resolve(options.design);
-        design = loadImageOrExit(designPath, 'design reference (--design)');
-        reference = { source: 'file', path: designPath };
-      } else {
-        let nodeId = options.node;
-        if (!nodeId) {
-          const roots = manifestRoots(manifests);
-          if (roots.length === 1) nodeId = roots[0].id;
-          else if (roots.length === 0) {
-            console.error(chalk.red('✗ verify-build --compare: assets.json names no export root — pass --node <nodeId> or --design <png>.'));
-            process.exit(1);
-          } else {
-            console.error(chalk.red(`✗ verify-build --compare: assets.json has ${roots.length} export roots — pass --node to pick the frame to compare against:`));
-            for (const r of roots) console.error(`  - ${r.id}  "${r.name || ''}"`);
-            process.exit(1);
-          }
-        }
-        const fetched = await fetchDesignReference(nodeId);
-        design = fetched.image;
-        nodeScale = fetched.scale;
-        reference = { source: 'figma', nodeId, nodeName: fetched.nodeName, scale: fetched.scale };
-      }
-      const diff = diffImages(design, build);
-      // Live fetch at scale s: the design image is node-px × s. Convert the
-      // findings so they always speak NODE pixels — the coordinate system of
-      // the spec and assets.json. (--design files: coordinates stay in that
-      // image's own pixel space; the caller knows what scale it was taken at.)
-      const toNode = (v) => Math.round(v / nodeScale);
-      const regions = diff.regions.map((r) => ({
-        x0: toNode(r.x0), y0: toNode(r.y0), x1: toNode(r.x1), y1: toNode(r.y1), diffPct: r.diffPct,
-      }));
-      const diffOut = options.diffOut
-        ? resolve(options.diffOut)
-        : join(dirname(buildPath), basename(buildPath, extname(buildPath)) + '-diff.png');
-      workspaceIO().write(diffOut, encodePng(diff.diffImage), {
-        role: 'verify-build-diff-out',
-        createParents: true,
+      const io = workspaceIO();
+      const plan = planFigmaCommand(verifyBuildPlanningArgvFromRequest({
+        projectDir,
+        assetsPath: options.assets,
+        comparePath: options.compare,
+        designPath: options.design,
+        nodeId: options.node,
+        diffOutPath: options.diffOut,
+        maxDiff: options.maxDiff,
+        fidelityLedgerPath: options.fidelityLedger,
+        browserCapturePath: options.browserCapture,
+        json: options.json === true,
+      }), {
+        adapter: 'cli',
+        workspaceDir: io.roots[0],
+        workspaceIO: io,
+        fileKey: program.opts().figmaFile || null,
       });
-      visual = {
-        diffPct: diff.diffPct,
-        compare: diff.compare,
-        heightMismatch: diff.heightMismatch,
-        regions,
-        coordinateSpace: reference.source === 'figma' ? 'node px' : 'design-image px',
-        reference,
-        diffOut,
-      };
-    }
-
-    const maxDiff = options.maxDiff !== undefined ? parseFloat(options.maxDiff) : null;
-    const visualFail = visual && maxDiff !== null && Number.isFinite(maxDiff) && visual.diffPct > maxDiff;
-    const integrityFail = result.integrity.mismatched.length || result.integrity.missingFiles.length;
-    const fidelityFail = fidelity && !fidelity.passed;
-    const exitCode = result.missing.length || integrityFail || visualFail || fidelityFail ? 1 : 0;
-
-    if (options.json) {
-      console.log(JSON.stringify({
-        projectDir: root,
-        manifests: manifests.map((m) => relative(root, m.path) || m.path),
-        total: result.total,
-        referenced: result.referenced.length,
-        missing: result.missing.map(({ file, entries }) => ({ file, entries })),
-        integrity: {
-          ...result.integrity,
-          mismatched: result.integrity.mismatched.map((item) => ({
-            ...item,
-            ...(item.path ? { path: relative(root, item.path) || item.path } : {}),
-          })),
+      const execution = await runInProcessCommandPlan(
+        plan,
+        { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          if (plan.target.kind !== 'none') {
+            await ensurePluginReadiness({
+              deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+            });
+          }
+          return executeVerifyBuildPlan(plan, {
+            workspaceIO: io,
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
         },
-        borderImage: result.borderImage.map((b) => ({ file: relative(root, b.path), line: b.line })),
-        ...(visual ? { visual } : {}),
-        ...(fidelity ? { fidelity } : {}),
-      }, null, 2));
-      process.exit(exitCode);
+      );
+      if (execution.stderr) console.error(chalk.yellow(execution.stderr));
+      if (execution.stdout) console.log(execution.stdout);
+      if (execution.code !== 0) process.exitCode = execution.code;
+    } catch (error) {
+      handleEvalError(error);
     }
-
-    console.log(`manifest(s): ${manifests.map((m) => relative(root, m.path) || m.path).join(', ')}`);
-    console.log(`${result.referenced.length}/${result.total} asset file(s) referenced in the build (${files.length} project files scanned)`);
-    if (result.missing.length) {
-      console.log(chalk.red(`✗ ${result.missing.length} exported file(s) are NOT referenced anywhere:`));
-      for (const m of result.missing) console.log('  - ' + describeMissing(m));
-      console.log('  Each of these is real artwork from the design. Prefer rootX/rootY in the export-root coordinate space (rotation-safe); x/y are immediate-parent offsets. Placement fields are in assets.json — never approximate the asset with CSS.');
-    } else if (result.total) {
-      console.log(chalk.green('✓ every exported asset file is referenced.'));
-    }
-    if (result.integrity.mismatched.length) {
-      console.log(chalk.red(`✗ ${result.integrity.mismatched.length} exported asset file(s) differ from their Manifest v2 digest:`));
-      for (const item of result.integrity.mismatched) {
-        console.log(`  - ${item.file}${item.path ? ` (${relative(root, item.path)})` : ''}`);
-        console.log(`    expected ${item.expected}; actual ${item.actual || item.reason}`);
-      }
-    }
-    if (result.integrity.missingFiles.length) {
-      console.log(chalk.red(`✗ ${result.integrity.missingFiles.length} Manifest v2 asset file(s) are missing from disk:`));
-      for (const item of result.integrity.missingFiles) console.log(`  - ${item.file}`);
-    }
-    if (result.integrity.checked.length) {
-      console.log(chalk.green('✓'), `${result.integrity.checked.length} Manifest v2 asset digest(s) verified.`);
-    }
-    if (result.integrity.unverified.length) {
-      console.log(chalk.yellow(`⚠ ${result.integrity.unverified.length} legacy asset file(s) have no Manifest v2 digest yet.`));
-    }
-    if (result.borderImage.length) {
-      console.log(chalk.yellow(`⚠ border-image found (ignores border-radius — gradient strokes on rounded boxes lose their corners; use the wrapper/padding or mask pattern instead):`));
-      for (const b of result.borderImage) console.log(`  - ${relative(root, b.path)}:${b.line}`);
-    }
-
-    if (fidelity) {
-      console.log('');
-      console.log(`source-fact ledger: ${fidelity.summary.matched}/${fidelity.summary.total} matched, `
-        + `${fidelity.summary.approvedDeviations} approved deviation(s), ${fidelity.summary.missing} missing`);
-      for (const fact of fidelity.facts.filter((item) => item.status !== 'matched')) {
-        const marker = fact.status === 'approved-deviation' ? '⚠' : '✗';
-        const line = `${marker} ${fact.id} [${fact.sourceNodeId}] → ${fact.property}: expected ${JSON.stringify(fact.expected)}`
-          + `${Object.hasOwn(fact, 'actual') ? `, actual ${JSON.stringify(fact.actual)}` : ''}`;
-        console.log(fact.status === 'approved-deviation' ? chalk.yellow(line) : chalk.red(line));
-      }
-      if (fidelity.passed) console.log(chalk.green('✓ every required source fact is accounted for.'));
-    }
-
-    if (visual) {
-      const ref = visual.reference.source === 'figma'
-        ? `Figma node ${visual.reference.nodeId} "${visual.reference.nodeName}" (fetched at scale ${visual.reference.scale})`
-        : visual.reference.path;
-      console.log('');
-      console.log(`visual diff vs ${ref}:`);
-      const pctLine = `${visual.diffPct}% of the compared area differs`;
-      console.log(visual.diffPct > 10 ? chalk.red('✗ ' + pctLine) : visual.diffPct > 2 ? chalk.yellow('⚠ ' + pctLine) : chalk.green('✓ ' + pctLine));
-      if (visual.heightMismatch) {
-        const h = visual.heightMismatch;
-        console.log(chalk.yellow(`⚠ the build is ${h.deltaPct}% ${h.direction} than the design (normalized heights ${h.buildH} vs ${h.designH}) — a missing or extra block; only the overlapping rows were compared.`));
-      }
-      if (visual.regions.length) {
-        console.log(`  worst regions (${visual.coordinateSpace}, worst first):`);
-        for (const line of describeRegions({ regions: visual.regions })) console.log('  - ' + line);
-      }
-      console.log(`  diff image: ${visual.diffOut} — Read it; red = differing pixels on a dimmed design.`);
-      console.log('  A solid red band with correct content above it usually means a block was inserted/dropped there — everything below shifts. Cross-check the missing-asset findings above; region coordinates match the spec and assets.json placement fields.');
-      if (visualFail) console.log(chalk.red(`✗ --max-diff ${maxDiff}% exceeded.`));
-    } else if (!result.missing.length && !integrityFail) {
-      console.log(chalk.yellow('⚠ ASSET-ONLY CHECK PASSED; VISUAL FIDELITY IS NOT VERIFIED. Do not declare the implementation done yet.'));
-      console.log('  Screenshot your build at the design\'s width and re-run with --compare <build.png> (add --design <figma.png> to stay offline). This catches omitted gradients, wrong component variants/sizes, and shifted absolute overlays.');
-    }
-    process.exit(exitCode);
   });

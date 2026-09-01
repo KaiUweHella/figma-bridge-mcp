@@ -53,7 +53,6 @@ test('Component Nested Expose request closes Boolean values and URL targeting', 
     ['component', 'nested', 'expose', '2:3', 'true', '--future'],
   ]) assert.throws(() => parseComponentNestedExposeRequest(argv), /Invalid component nested expose command/);
 });
-
 test('primary nested instances expose, hide and skip same-value writes', async () => {
   const live = fixture();
   const exposed = await executeComponentNestedExpose({ instanceId: '2:3', exposed: true, json: false }, {
@@ -110,4 +109,3 @@ test('one authentic non-retrying component.nested.expose plan crosses the Applic
   assert.equal(result.result.status, 'exposed');
   assert.equal(evaluations, 1);
 });
-

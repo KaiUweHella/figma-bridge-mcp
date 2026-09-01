@@ -41,8 +41,8 @@ import {
 
 export { designLinkArgvFromRequest } from './design-link-request.js';
 
-const DESIGN_LINK_APPLICATION_IDS = new Set(['link.inspect', 'link.set']);
-const DESIGN_LINK_COMPATIBILITY_IDS = new Set([
+const DESIGN_LINK_APPLICATION_IDS = new Set([
+  'link.inspect', 'link.set',
   'link.list', 'link.configure', 'link.status', 'link.accept', 'link.context',
 ]);
 
@@ -357,11 +357,10 @@ export function designLinkPlanRoute(plan) {
   }
   if (!plan.allowed) return 'not-design-link';
   if (DESIGN_LINK_APPLICATION_IDS.has(plan.id)) return 'command-application';
-  if (DESIGN_LINK_COMPATIBILITY_IDS.has(plan.id)) return 'in-process-compatibility';
   return 'not-design-link';
 }
 
-/** Execute only the accepted tracer through the Command Application Seam. */
+/** Execute every accepted Design Link action through the Command Application Seam. */
 export async function executeDesignLinkPlan(plan, adapters = {}) {
   if (designLinkPlanRoute(plan) !== 'command-application') {
     throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Design Link Command Application.`);

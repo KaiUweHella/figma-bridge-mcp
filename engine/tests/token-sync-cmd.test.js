@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { PLUGIN_BUILD_VERSION } from '../src/lib/plugin-version.js';
 
 const execFileAsync = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -29,7 +30,8 @@ function startFakeDaemon(state) {
     req.on('end', () => {
       res.setHeader('Content-Type', 'application/json');
       if (req.url === '/health') {
-        res.end(JSON.stringify({ status: 'ok', mode: 'safe', plugin: true }));
+        res.end(JSON.stringify({ status: 'ok', mode: 'safe', plugin: true,
+          bridgeBuildVersion: PLUGIN_BUILD_VERSION }));
         return;
       }
       if (req.url === '/exec') {
@@ -57,24 +59,32 @@ function startFakeDaemon(state) {
 // point of the stub is to run the real thing rather than a paraphrase of it.
 async function runFakeFigma(code, state) {
   const figma = {
+    fileKey: null,
     variables: {
       async getLocalVariableCollectionsAsync() { return state.collections; },
       async getLocalVariablesAsync() { return state.variables; },
       createVariableCollection(name) {
-        const col = { id: `C${state.collections.length + 1}`, name, modes: [{ modeId: 'M1' }] };
+        const col = { id: `C${state.collections.length + 1}`, name, remote: false,
+          modes: [{ modeId: 'M1', name: 'Mode 1' }], variableIds: [] };
         state.collections.push(col);
         return col;
       },
       createVariable(name, col, type) {
         const v = {
           id: `V${++state.seq}`, name, variableCollectionId: col.id,
-          resolvedType: type, valuesByMode: {},
-          setValueForMode(modeId, value) { this.valuesByMode[modeId] = value; },
+          resolvedType: type, remote: false, valuesByMode: {}, scopes: [], codeSyntax: {},
+          setValueForMode(modeId, value) {
+            if (state.failValueName === this.name) throw new Error('injected setter failure');
+            this.valuesByMode[modeId] = value;
+          },
           setVariableCodeSyntax(platform, syntax) { this.codeSyntax = { ...(this.codeSyntax || {}), [platform]: syntax }; },
           removeVariableCodeSyntax(platform) { if (this.codeSyntax) delete this.codeSyntax[platform]; },
-          remove() { state.variables = state.variables.filter((x) => x.id !== v.id); },
+          remove() {
+            state.variables = state.variables.filter((x) => x.id !== v.id);
+            col.variableIds = col.variableIds.filter((id) => id !== v.id);
+          },
         };
-        state.variables.push(v);
+        state.variables.push(v); col.variableIds.push(v.id);
         return v;
       },
     },
@@ -85,29 +95,36 @@ async function runFakeFigma(code, state) {
 }
 
 function makeVar(state, name, type, value) {
+  const col = state.collections.find((item) => item.id === 'C1');
   const v = {
     id: `V${++state.seq}`, name, variableCollectionId: 'C1',
-    resolvedType: type, valuesByMode: { M1: value },
+    resolvedType: type, remote: false, valuesByMode: { M1: value }, scopes: [], codeSyntax: {},
     setValueForMode(modeId, val) { this.valuesByMode[modeId] = val; },
     setVariableCodeSyntax(platform, syntax) { this.codeSyntax = { ...(this.codeSyntax || {}), [platform]: syntax }; },
     removeVariableCodeSyntax(platform) { if (this.codeSyntax) delete this.codeSyntax[platform]; },
-    remove() { state.variables = state.variables.filter((x) => x.id !== v.id); },
+    remove() {
+      state.variables = state.variables.filter((x) => x.id !== v.id);
+      col.variableIds = col.variableIds.filter((id) => id !== v.id);
+    },
   };
-  state.variables.push(v);
+  state.variables.push(v); col.variableIds.push(v.id);
   return v;
 }
 
 function freshState() {
   return {
     seq: 0,
-    collections: [{ id: 'C1', name: 'Design Tokens', modes: [{ modeId: 'M1' }] }],
+    failValueName: null,
+    collections: [{ id: 'C1', name: 'Design Tokens', remote: false,
+      modes: [{ modeId: 'M1', name: 'Mode 1' }], variableIds: [] }],
     variables: [],
   };
 }
 
 /** A second collection, so cross-collection cases can be exercised. */
 function addCollection(state, name) {
-  const col = { id: `C${state.collections.length + 1}`, name, modes: [{ modeId: 'M1' }] };
+  const col = { id: `C${state.collections.length + 1}`, name, remote: false,
+    modes: [{ modeId: 'M1', name: 'Mode 1' }], variableIds: [] };
   state.collections.push(col);
   return col;
 }
@@ -176,7 +193,7 @@ test('--apply creates the variables and records them in the lockfile', async (t)
   assert.equal(colour.resolvedType, 'COLOR');
   // Written as Figma's float triple, not as the hex string from the file.
   assert.ok(Math.abs(colour.valuesByMode.M1.r - 13 / 255) < 1e-6);
-  assert.equal(colour.scopes, undefined, 'unrelated tokens keep Figma defaults');
+  assert.deepEqual(colour.scopes, [], 'unrelated tokens keep Figma defaults');
 
   const spacing = state.variables.find((v) => v.name === 'space/md');
   assert.deepEqual(spacing.scopes, ['GAP']);
@@ -185,6 +202,34 @@ test('--apply creates the variables and records them in the lockfile', async (t)
   assert.equal(lock.version, 1);
   assert.equal(lock.tokens['brand/primary'].value, '#0d7c74');
   assert.equal(lock.tokens['space/md'].value, 16);
+});
+
+test('a later apply failure reports the earlier Figma mutation as bounded residue', async (t) => {
+  const state = freshState();
+  const { server, port } = await startFakeDaemon(state);
+  const dir = mkdtempSync(join(tmpdir(), 'tokensync-'));
+  t.after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  writeFileSync(join(dir, 'tokens.json'), DTCG('#0D7C74'));
+  const initial = await runSync(['tokens.json', '--apply'], { port, cwd: dir });
+  assert.equal(initial.code, 0, initial.out);
+  const originalLock = readFileSync(join(dir, 'figma-tokens.lock.json'), 'utf8');
+
+  writeFileSync(join(dir, 'tokens.json'), JSON.stringify({
+    brand: { primary: { $type: 'color', $value: '#123456' } },
+    space: { $type: 'dimension', md: { $value: '24px' } },
+  }));
+  state.failValueName = 'space/md';
+
+  const failed = await runSync(['tokens.json', '--apply'], { port, cwd: dir });
+  assert.equal(failed.code, 1, failed.out);
+  assert.match(failed.out, /partial-residue/);
+  assert.match(failed.out, /dispatch:failed/);
+  assert.equal(
+    readFileSync(join(dir, 'figma-tokens.lock.json'), 'utf8'),
+    originalLock,
+    'a failed apply must not advance the lockfile',
+  );
 });
 
 test('DTCG 2025 values and explicit Figma metadata are applied and locked', async (t) => {
@@ -409,6 +454,8 @@ test('syncing into the wrong collection is caught before it duplicates everythin
   v.variableCollectionId = other.id;
   const v2 = makeVar(state, 'space/md', 'FLOAT', 16);
   v2.variableCollectionId = other.id;
+  state.collections[0].variableIds = [];
+  other.variableIds.push(v.id, v2.id);
 
   const { server, port } = await startFakeDaemon(state);
   const dir = mkdtempSync(join(tmpdir(), 'tokensync-'));

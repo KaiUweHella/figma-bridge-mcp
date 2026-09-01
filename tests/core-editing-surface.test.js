@@ -97,7 +97,11 @@ test('create is Safe-Mode reachable and child creation names its parent explicit
     assert.match(help('create', primitive), /--parent <nodeId>/, `${primitive} must accept --parent`);
   }
 
-  for (const blocked of ['image', 'component', 'group']) {
+  assert.equal(planFigmaCommand([
+    'create', 'image', 'https://assets.example/photo.png',
+  ]).allowed, true, 'remote image creation must use the bounded Safe-Mode path');
+
+  for (const blocked of ['component', 'group']) {
     assert.equal(
       planFigmaCommand(['create', blocked]).allowed,
       false,
@@ -123,7 +127,7 @@ test('new editing primitives are write-gated and target the connected plugin fil
 test('blocked legacy create subcommands are rejected before any Figma connection', async () => {
   const { runCli } = await import('../src/engine.js');
   await assert.rejects(
-    () => runCli(['create', 'image', 'https://example.invalid/image.png']),
-    /Command not allowed: create image/,
+    () => runCli(['create', 'component', 'Legacy component']),
+    /Command not allowed: create component/,
   );
 });

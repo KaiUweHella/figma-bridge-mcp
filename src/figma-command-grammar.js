@@ -10,6 +10,13 @@ const ACTION_VALUE_HELP_TOKENS = Object.freeze({
   // Commander already assigns -h to --height for this concrete action.
   // Treating it as help would erase a real write from Capability policy.
   'component.create': new Set(['-h']),
+  'create.frame': new Set(['-h']),
+  'create.image': new Set(['-h']),
+  'create.rect': new Set(['-h']),
+  'create.ellipse': new Set(['-h']),
+  'create.polygon': new Set(['-h']),
+  'create.star': new Set(['-h']),
+  'create.slice': new Set(['-h']),
 });
 
 const EMPTY_OPTION_FACTS = Object.freeze({
@@ -22,6 +29,15 @@ function valueOption(...aliases) {
     name: aliases.find((alias) => alias.startsWith('--')) || aliases[0],
     aliases: Object.freeze(aliases),
     value: true,
+  });
+}
+
+function signedValueOption(...aliases) {
+  return Object.freeze({
+    name: aliases.find((alias) => alias.startsWith('--')) || aliases[0],
+    aliases: Object.freeze(aliases),
+    value: true,
+    allowLeadingDash: true,
   });
 }
 
@@ -52,10 +68,6 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   ]),
   'export.node': optionSchema([
     valueOption('-o', '--output'), valueOption('-s', '--scale'), valueOption('-f', '--format'),
-  ]),
-  'export.video': optionSchema([
-    valueOption('-o', '--output'), valueOption('-f', '--format'), valueOption('--fps'),
-    valueOption('--quality'), valueOption('--loop'),
   ]),
   'export.node-json': optionSchema([valueOption('-o', '--output')]),
   'export.dtcg': optionSchema([valueOption('--dialect')]),
@@ -105,7 +117,25 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
     valueOption('-c', '--collection'), flagOption('--print-context'),
     valueOption('--save'), valueOption('--type'),
   ]),
+  'motion.add': optionSchema([
+    valueOption('-f', '--field'), valueOption('-k', '--keys'),
+    signedValueOption('--from'), signedValueOption('--to'), valueOption('-d', '--dur'),
+    valueOption('--at'), valueOption('-e', '--ease'),
+  ]),
   'motion.apply': optionSchema(),
+  'motion.preset': optionSchema([
+    valueOption('-d', '--dur'), valueOption('--at'), valueOption('-e', '--ease'),
+  ]),
+  'motion.stagger': optionSchema([
+    valueOption('-p', '--preset'), valueOption('-f', '--field'),
+    signedValueOption('--from'), signedValueOption('--to'), valueOption('-s', '--step'),
+    valueOption('-d', '--dur'), valueOption('-e', '--ease'),
+  ]),
+  'motion.clear': optionSchema([valueOption('-f', '--field'), flagOption('--styles')]),
+  'motion.style': optionSchema([
+    valueOption('-d', '--dur'), valueOption('--at'), valueOption('-t', '--timing'),
+  ]),
+  'motion.timeline': optionSchema([valueOption('-d', '--duration')]),
   'kit.init': optionSchema([
     valueOption('--storybook'), valueOption('--out'), valueOption('--node'),
   ]),
@@ -162,7 +192,7 @@ function acceptsPolicyOptions(actionId, args) {
       } else {
         const value = args[index + 1];
         if (typeof value !== 'string' || value === '--'
-          || (value !== '-' && value.startsWith('-'))) return false;
+          || (!option.allowLeadingDash && value !== '-' && value.startsWith('-'))) return false;
         index++;
       }
     } else if (parsed.inline) {
@@ -246,9 +276,9 @@ const COMMAND_GRAMMAR = Object.freeze({
     ...actionGroup('frame rect ellipse polygon star vector slice text line autolayout', {
       aliases: { rect: ['rectangle'], ellipse: ['circle'], autolayout: ['al'] },
     }).children,
+    image: action(),
     // These inherited commands bypass the bounded Safe-Mode primitives. Keep
     // them in the grammar contract so Commander drift cannot expose them.
-    image: blockedAction(),
     component: blockedAction(),
     group: blockedAction(),
   }),

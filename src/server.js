@@ -14,7 +14,12 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, streamFigmaAsset, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
-import { formatPublicError, projectMcpErrorContext } from "./error-projection.js";
+import {
+  formatPublicError,
+  isPublicFailureProjection,
+  projectMcpErrorContext,
+  projectPublicFailure,
+} from "./error-projection.js";
 import {
   explainFigmaCommandRejection,
   legacyCommandRiskGateReason,
@@ -43,6 +48,16 @@ import {
   executeCodeSpecPlan,
 } from "../engine/src/application/code-spec-command.js";
 import {
+  componentSpecPlanRoute,
+  executeComponentSpecPlan,
+  prepareComponentSpecPlan,
+} from "../engine/src/application/component-spec-command.js";
+import {
+  executeStorybookMapPlan,
+  prepareStorybookMapPlan,
+  storybookMapPlanRoute,
+} from "../engine/src/application/storybook-map-command.js";
+import {
   executeInspectPlan,
   inspectPlanningArgvFromRequest,
   inspectPlanRoute,
@@ -53,6 +68,30 @@ import {
   screenshotPlanningArgvFromRequest,
 } from "../engine/src/application/screenshot-command.js";
 import {
+  executeImageExportPlan,
+  imageExportPlanRoute,
+} from "../engine/src/application/image-export-command.js";
+import {
+  executeNodeJsonExportPlan,
+  nodeJsonExportPlanRoute,
+} from "../engine/src/application/node-json-export-command.js";
+import {
+  executeVideoExportPlan,
+  videoExportPlanRoute,
+} from "../engine/src/application/video-export-command.js";
+import {
+  executeSizeVariantsPlan,
+  sizeVariantsPlanRoute,
+} from "../engine/src/application/size-variants-command.js";
+import {
+  componentCombinationsPlanRoute,
+  executeComponentCombinationsPlan,
+} from "../engine/src/application/component-combinations-command.js";
+import {
+  executeVerifyBuildPlan,
+  verifyBuildPlanRoute,
+} from "../engine/src/application/verify-build-command.js";
+import {
   executeHistoryPlan,
   historyPlanRoute,
   historyPlanningArgvFromRequest,
@@ -60,8 +99,6 @@ import {
 import {
   designLinkFileKeyFromArgv,
   designLinkPlanRoute,
-  designLinkRequestFromArgv,
-  executeDesignLink,
   executeDesignLinkPlan,
   formatDesignLinkResult,
 } from "../engine/src/application/design-link-command.js";
@@ -91,6 +128,170 @@ import {
   nodeDuplicatePlanRoute,
 } from "../engine/src/application/node-duplicate-command.js";
 import {
+  createFramePlanRoute,
+  executeCreateFramePlan,
+} from "../engine/src/application/create-frame-command.js";
+import {
+  createImagePlanRoute,
+  executeCreateImagePlan,
+  prepareCreateImagePlan,
+} from "../engine/src/application/create-image-command.js";
+import {
+  createShapePlanRoute,
+  executeCreateShapePlan,
+} from "../engine/src/application/create-shape-command.js";
+import {
+  createCanvasNodePlanRoute,
+  executeCreateCanvasNodePlan,
+} from "../engine/src/application/create-canvas-node-command.js";
+import {
+  createLinePlanRoute,
+  executeCreateLinePlan,
+} from "../engine/src/application/create-line-command.js";
+import {
+  createAutoLayoutPlanRoute,
+  executeCreateAutoLayoutPlan,
+} from "../engine/src/application/create-auto-layout-command.js";
+import {
+  createTextPlanRoute,
+  executeCreateTextPlan,
+} from "../engine/src/application/create-text-command.js";
+import {
+  executeMeasurementMutationPlan,
+  measurementMutationPlanRoute,
+} from "../engine/src/application/measurement-mutation-command.js";
+import {
+  executeMeasurementReadPlan,
+  measurementReadPlanRoute,
+} from "../engine/src/application/measurement-read-command.js";
+import {
+  executeLibraryImportPlan,
+  libraryImportPlanRoute,
+} from "../engine/src/application/library-import-command.js";
+import {
+  executeLibraryReadPlan,
+  libraryReadPlanRoute,
+} from "../engine/src/application/library-read-command.js";
+import {
+  executeShaderMutationPlan,
+  shaderMutationPlanRoute,
+} from "../engine/src/application/shader-mutation-command.js";
+import {
+  executeShaderReadPlan,
+  shaderReadPlanRoute,
+} from "../engine/src/application/shader-read-command.js";
+import {
+  executeGradientApplyPlan,
+  gradientApplyPlanRoute,
+} from "../engine/src/application/gradient-apply-command.js";
+import {
+  executeGradientExtractPlan,
+  gradientExtractPlanRoute,
+  gradientExtractRequiresFigma,
+  prepareGradientExtractPlan,
+} from "../engine/src/application/gradient-extract-command.js";
+import {
+  executeGradientMeshPlan,
+  gradientMeshPlanRoute,
+  prepareGradientMeshPlan,
+} from "../engine/src/application/gradient-mesh-command.js";
+import {
+  drawCommandPlanRoute,
+  executeDrawCommandPlan,
+} from "../engine/src/application/draw-command.js";
+import {
+  executeMotionAddPlan,
+  motionAddPlanRoute,
+} from "../engine/src/application/motion-add-command.js";
+import {
+  executePreparedMotionApply,
+  motionApplyPlanRoute,
+  prepareMotionApplyPlan,
+} from "../engine/src/application/motion-apply-command.js";
+import {
+  executeMotionClearPlan,
+  motionClearPlanRoute,
+} from "../engine/src/application/motion-clear-command.js";
+import {
+  executeMotionPresetPlan,
+  motionPresetPlanRoute,
+} from "../engine/src/application/motion-preset-command.js";
+import {
+  executeMotionReadPlan,
+  motionReadPlanRoute,
+} from "../engine/src/application/motion-read-command.js";
+import {
+  executeMotionStylePlan,
+  motionStylePlanRoute,
+} from "../engine/src/application/motion-style-command.js";
+import {
+  executeMotionStaggerPlan,
+  motionStaggerPlanRoute,
+} from "../engine/src/application/motion-stagger-command.js";
+import {
+  executeMotionTimelinePlan,
+  motionTimelinePlanRoute,
+} from "../engine/src/application/motion-timeline-command.js";
+import {
+  executeSlotConfigurationPlan,
+  slotConfigurationPlanRoute,
+} from "../engine/src/application/slot-configuration-command.js";
+import {
+  executeSlotReadPlan,
+  slotReadPlanRoute,
+} from "../engine/src/application/slot-read-command.js";
+import {
+  executeSlotResetPlan,
+  slotResetPlanRoute,
+} from "../engine/src/application/slot-reset-command.js";
+import {
+  executeGridAutoFlowPlan,
+  gridAutoFlowPlanRoute,
+} from "../engine/src/application/grid-auto-flow-command.js";
+import {
+  executeGridInspectPlan,
+  gridInspectPlanRoute,
+} from "../engine/src/application/grid-inspect-command.js";
+import {
+  executeGridSetPlan,
+  gridSetPlanRoute,
+} from "../engine/src/application/grid-set-command.js";
+import {
+  executeGridPlacePlan,
+  gridPlacePlanRoute,
+} from "../engine/src/application/grid-place-command.js";
+import {
+  executeGridTrackReorderPlan,
+  gridTrackReorderPlanRoute,
+} from "../engine/src/application/grid-track-reorder-command.js";
+import {
+  executeNodeRenamePlan,
+  nodeRenamePlanRoute,
+} from "../engine/src/application/node-rename-command.js";
+import {
+  executeNodeResizePlan,
+  nodeResizePlanRoute,
+} from "../engine/src/application/node-resize-command.js";
+import {
+  executePinPlan,
+  pinPlanRoute,
+} from "../engine/src/application/pin-command.js";
+import {
+  executeNodeReparentPlan,
+  nodeReparentPlanRoute,
+} from "../engine/src/application/node-reparent-command.js";
+import {
+  executeNodeGroupPlan,
+  nodeGroupPlanRoute,
+} from "../engine/src/application/node-group-command.js";
+import { executeNodeUngroupPlan, nodeUngroupPlanRoute } from "../engine/src/application/node-ungroup-command.js";
+import { executeNodeBooleanPlan, nodeBooleanPlanRoute } from "../engine/src/application/node-boolean-command.js";
+import { executeNodeBindPlan, nodeBindPlanRoute } from "../engine/src/application/node-bind-command.js";
+import { executeNodeSetFillPlan, nodeSetFillPlanRoute } from "../engine/src/application/node-set-fill-command.js";
+import { executePreparedNodeSetImage, nodeSetImagePlanRoute, prepareNodeSetImagePlan } from "../engine/src/application/node-set-image-command.js";
+import { executeNodeSetPlan, nodeSetPlanRoute } from "../engine/src/application/node-set-command.js";
+import { executeNodeFlattenPlan, nodeFlattenPlanRoute } from "../engine/src/application/node-flatten-command.js";
+import {
   executeNodeDeletePlan,
   formatNodeDeleteResult,
   nodeDeletePlanRoute,
@@ -119,6 +320,10 @@ import {
   executePrototypeInspectionPlan,
   prototypeInspectionPlanRoute,
 } from "../engine/src/application/prototype-inspection-command.js";
+import {
+  executePrototypeMutationPlan,
+  prototypeMutationPlanRoute,
+} from "../engine/src/application/prototype-mutation-command.js";
 import {
   collectionCatalogPlanRoute,
   executeCollectionCatalogPlan,
@@ -176,6 +381,11 @@ import {
   prepareTokenImportPlan,
   tokenImportPlanRoute,
 } from "../engine/src/application/token-import-command.js";
+import {
+  executeTokenSyncPlan,
+  tokenSyncPlanRoute,
+  withTokenSyncPlanLock,
+} from "../engine/src/application/token-sync-command.js";
 import {
   designMdContextPlanRoute,
   executeDesignMdContextPlan,
@@ -243,6 +453,10 @@ import {
   executeFontInspectionPlan,
   fontInspectionPlanRoute,
 } from "../engine/src/application/font-inspection-command.js";
+import {
+  executeFontAxisMetadataPlan,
+  fontAxisMetadataPlanRoute,
+} from "../engine/src/application/font-axis-metadata-command.js";
 import {
   executeFontVariableBindingPlan,
   fontVariableBindingPlanRoute,
@@ -347,6 +561,142 @@ import {
   executeLayoutGridFactsPlan,
   layoutGridFactsPlanRoute,
 } from "../engine/src/application/layout-grid-facts-command.js";
+import {
+  executeLayoutGuideMutationPlan,
+  layoutGuideMutationPlanRoute,
+} from "../engine/src/application/layout-guide-mutation-command.js";
+import {
+  analysisCensusPlanRoute,
+  executeAnalysisCensusPlan,
+} from "../engine/src/application/analysis-census-command.js";
+import {
+  analysisLintPlanRoute,
+  executeAnalysisLintPlan,
+} from "../engine/src/application/analysis-lint-command.js";
+import {
+  a11yVisionPlanRoute,
+  executeA11yVisionPlan,
+} from "../engine/src/application/a11y-vision-command.js";
+import {
+  a11yReadPlanRoute,
+  executeA11yReadPlan,
+} from "../engine/src/application/a11y-read-command.js";
+import {
+  executeSlidesInspectPlan,
+  slidesInspectPlanRoute,
+} from "../engine/src/application/slides-inspect-command.js";
+import {
+  executeSlidesCreatePlan,
+  slidesCreatePlanRoute,
+} from "../engine/src/application/slides-create-command.js";
+import {
+  executeSlidesDuplicatePlan,
+  slidesDuplicatePlanRoute,
+} from "../engine/src/application/slides-duplicate-command.js";
+import {
+  executeSlidesMovePlan,
+  slidesMovePlanRoute,
+} from "../engine/src/application/slides-move-command.js";
+import {
+  executeSlidesPropertyPlan,
+  slidesPropertyPlanRoute,
+} from "../engine/src/application/slides-property-command.js";
+import {
+  executeSlidesDeletePlan,
+  slidesDeletePlanRoute,
+} from "../engine/src/application/slides-delete-command.js";
+import {
+  executeJamBoardPlan,
+  jamBoardPlanRoute,
+} from "../engine/src/application/jam-board-command.js";
+import {
+  executeJamArrangePlan,
+  jamArrangePlanRoute,
+} from "../engine/src/application/jam-arrange-command.js";
+import {
+  executeJamStickyPlan,
+  jamStickyPlanRoute,
+} from "../engine/src/application/jam-sticky-command.js";
+import {
+  executeJamStickiesPlan,
+  jamStickiesPlanRoute,
+} from "../engine/src/application/jam-stickies-command.js";
+import {
+  executeJamShapePlan,
+  jamShapePlanRoute,
+} from "../engine/src/application/jam-shape-command.js";
+import {
+  executeJamConnectorPlan,
+  jamConnectorPlanRoute,
+} from "../engine/src/application/jam-connector-command.js";
+import {
+  executeJamTablePlan,
+  jamTablePlanRoute,
+} from "../engine/src/application/jam-table-command.js";
+import {
+  executeJamSectionPlan,
+  jamSectionPlanRoute,
+} from "../engine/src/application/jam-section-command.js";
+import {
+  executeJamCodePlan,
+  jamCodePlanRoute,
+} from "../engine/src/application/jam-code-command.js";
+import {
+  devResourceReadPlanRoute,
+  executeDevResourceReadPlan,
+} from "../engine/src/application/dev-resource-read-command.js";
+import {
+  devResourceMutationPlanRoute,
+  executeDevResourceMutationPlan,
+} from "../engine/src/application/dev-resource-mutation-command.js";
+import {
+  executeSectionInventoryPlan,
+  sectionInventoryPlanRoute,
+} from "../engine/src/application/section-inventory-command.js";
+import {
+  executeSectionFitPlan,
+  sectionFitPlanRoute,
+} from "../engine/src/application/section-fit-command.js";
+import {
+  executeSectionArrangePlan,
+  sectionArrangePlanRoute,
+} from "../engine/src/application/section-arrange-command.js";
+import {
+  executeSectionAddPlan,
+  sectionAddPlanRoute,
+} from "../engine/src/application/section-add-command.js";
+import {
+  executeSectionCreatePlan,
+  sectionCreatePlanRoute,
+} from "../engine/src/application/section-create-command.js";
+import {
+  annotationCategoryInventoryPlanRoute,
+  executeAnnotationCategoryInventoryPlan,
+} from "../engine/src/application/annotation-category-inventory-command.js";
+import {
+  annotationReadPlanRoute,
+  executeAnnotationReadPlan,
+} from "../engine/src/application/annotation-read-command.js";
+import {
+  annotationClearPlanRoute,
+  executeAnnotationClearPlan,
+} from "../engine/src/application/annotation-clear-command.js";
+import {
+  annotationRemovePlanRoute,
+  executeAnnotationRemovePlan,
+} from "../engine/src/application/annotation-remove-command.js";
+import {
+  annotationEditPlanRoute,
+  executeAnnotationEditPlan,
+} from "../engine/src/application/annotation-edit-command.js";
+import {
+  annotationCategoryMutationPlanRoute,
+  executeAnnotationCategoryMutationPlan,
+} from "../engine/src/application/annotation-category-mutation-command.js";
+import {
+  annotationAddPlanRoute,
+  executeAnnotationAddPlan,
+} from "../engine/src/application/annotation-add-command.js";
 import {
   canvasAwarenessPlanRoute,
   executeCanvasAwarenessPlan,
@@ -1429,7 +1779,7 @@ function textResult(text, { audit = getAuditStatus() } = {}) {
   return identifiedResult({ content: [{ type: "text", text: body }] }, audit);
 }
 
-function errorResult(text, { audit = getAuditStatus(), structuredContent = null } = {}) {
+export function errorResult(text, { audit = getAuditStatus(), structuredContent = null } = {}) {
   let body = String(text || "The Figma Bridge request failed.");
   const errorContext = projectMcpErrorContext(body);
   if (body.startsWith(`[${MCP_SERVER_ID}]`)) {
@@ -1454,7 +1804,8 @@ function errorResult(text, { audit = getAuditStatus(), structuredContent = null 
         error: errorContext,
       },
     },
-    ...(isSemanticRenderOutcome(structuredContent) ? { structuredContent } : {}),
+    ...(isSemanticRenderOutcome(structuredContent) || isPublicFailureProjection(structuredContent)
+      ? { structuredContent } : {}),
   }, audit);
 }
 
@@ -1555,6 +1906,7 @@ export function commandPlanPreviewFacts(plan, reason = "explicit-preview") {
     capability: plan.id,
     effects: Object.freeze({
       figma: effects.figma || "none",
+      editor: effects.editor || "none",
       workspace: effects.workspace || "none",
       network: effects.network || "none",
       shared: effects.shared || "none",
@@ -2257,16 +2609,23 @@ export async function handleTool(name, rawArgs) {
       if (designLinkRoute !== "not-design-link") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
-          compatibilityFallback: designLinkRoute === "command-application" ? false : undefined,
+          compatibilityFallback: false,
         },
-          async ({ fileKey, expectedEditor, timeoutMs }) => {
+          async ({ fileKey, expectedEditor, deadline }) => {
+            if (plan.target.kind !== "none") {
+              await ensurePluginReadiness({
+                deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+              });
+            }
             const adapters = {
-              evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
+              evaluate: (code) => evaluateFigma(code, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: Math.max(1, deadline - Date.now()),
+              }),
               workspaceIO: WORKSPACE_IO,
             };
-            const result = designLinkRoute === "command-application"
-              ? await executeDesignLinkPlan(plan, adapters)
-              : await executeDesignLink(designLinkRequestFromArgv(normalized), adapters);
+            const result = await executeDesignLinkPlan(plan, adapters);
             return { stdout: formatDesignLinkResult(result), stderr: "" };
           });
         return resultFromCli(res);
@@ -2276,9 +2635,16 @@ export async function handleTool(name, rawArgs) {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
           compatibilityFallback: false,
-        }, async ({ fileKey, expectedEditor, timeoutMs }) => {
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
           const result = await executeDesignContractPlan(plan, {
-            evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs }),
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
             workspaceIO: WORKSPACE_IO,
           });
           return {
@@ -2286,6 +2652,593 @@ export async function handleTool(name, rawArgs) {
             stderr: "",
             code: result.action === "check" && !result.check.ok ? 1 : 0,
           };
+        });
+        return resultFromCli(res);
+      }
+      const createFrameRoute = createFramePlanRoute(plan);
+      if (createFrameRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeCreateFramePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createImageRoute = createImagePlanRoute(plan);
+      if (createImageRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          const prepared = await prepareCreateImagePlan(plan, { remainingMs });
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeCreateImagePlan(plan, prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, remainingMs()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createShapeRoute = createShapePlanRoute(plan);
+      if (createShapeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeCreateShapePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createCanvasNodeRoute = createCanvasNodePlanRoute(plan);
+      if (createCanvasNodeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeCreateCanvasNodePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createLineRoute = createLinePlanRoute(plan);
+      if (createLineRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeCreateLinePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createAutoLayoutRoute = createAutoLayoutPlanRoute(plan);
+      if (createAutoLayoutRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeCreateAutoLayoutPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createTextRoute = createTextPlanRoute(plan);
+      if (createTextRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeCreateTextPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const measurementMutationRoute = measurementMutationPlanRoute(plan);
+      if (measurementMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMeasurementMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const measurementReadRoute = measurementReadPlanRoute(plan);
+      if (measurementReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMeasurementReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const libraryImportRoute = libraryImportPlanRoute(plan);
+      if (libraryImportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeLibraryImportPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const libraryReadRoute = libraryReadPlanRoute(plan);
+      if (libraryReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeLibraryReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const shaderMutationRoute = shaderMutationPlanRoute(plan);
+      if (shaderMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeShaderMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const shaderReadRoute = shaderReadPlanRoute(plan);
+      if (shaderReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeShaderReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gradientApplyRoute = gradientApplyPlanRoute(plan);
+      if (gradientApplyRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGradientApplyPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gradientExtractRoute = gradientExtractPlanRoute(plan);
+      if (gradientExtractRoute === "command-application") {
+        const prepared = prepareGradientExtractPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          if (gradientExtractRequiresFigma(prepared)) {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          }
+          return executeGradientExtractPlan(plan, prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gradientMeshRoute = gradientMeshPlanRoute(plan);
+      if (gradientMeshRoute === "command-application") {
+        const prepared = prepareGradientMeshPlan(plan);
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGradientMeshPlan(plan, prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionApplyRoute = motionApplyPlanRoute(plan);
+      if (motionApplyRoute === "command-application") {
+        const prepared = prepareMotionApplyPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executePreparedMotionApply(prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionAddRoute = motionAddPlanRoute(plan);
+      if (motionAddRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionAddPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionPresetRoute = motionPresetPlanRoute(plan);
+      if (motionPresetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionPresetPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionStaggerRoute = motionStaggerPlanRoute(plan);
+      if (motionStaggerRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionStaggerPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionClearRoute = motionClearPlanRoute(plan);
+      if (motionClearRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionClearPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionStyleRoute = motionStylePlanRoute(plan);
+      if (motionStyleRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionStylePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionTimelineRoute = motionTimelinePlanRoute(plan);
+      if (motionTimelineRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionTimelinePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionReadRoute = motionReadPlanRoute(plan);
+      if (motionReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const drawCommandRoute = drawCommandPlanRoute(plan);
+      if (drawCommandRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeDrawCommandPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slotConfigurationRoute = slotConfigurationPlanRoute(plan);
+      if (slotConfigurationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlotConfigurationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slotResetRoute = slotResetPlanRoute(plan);
+      if (slotResetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlotResetPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slotReadRoute = slotReadPlanRoute(plan);
+      if (slotReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlotReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridInspectRoute = gridInspectPlanRoute(plan);
+      if (gridInspectRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGridInspectPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridSetRoute = gridSetPlanRoute(plan);
+      if (gridSetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGridSetPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridAutoFlowRoute = gridAutoFlowPlanRoute(plan);
+      if (gridAutoFlowRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGridAutoFlowPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridPlaceRoute = gridPlacePlanRoute(plan);
+      if (gridPlaceRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGridPlacePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const gridTrackReorderRoute = gridTrackReorderPlanRoute(plan);
+      if (gridTrackReorderRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeGridTrackReorderPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const pinRoute = pinPlanRoute(plan);
+      if (pinRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executePinPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
         });
         return resultFromCli(res);
       }
@@ -2344,6 +3297,137 @@ export async function handleTool(name, rawArgs) {
             }),
           });
         });
+        return resultFromCli(res);
+      }
+      const nodeRenameRoute = nodeRenamePlanRoute(plan);
+      if (nodeRenameRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeRenamePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeResizeRoute = nodeResizePlanRoute(plan);
+      if (nodeResizeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeResizePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeReparentRoute = nodeReparentPlanRoute(plan);
+      if (nodeReparentRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeReparentPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeGroupRoute = nodeGroupPlanRoute(plan);
+      if (nodeGroupRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeGroupPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeUngroupRoute = nodeUngroupPlanRoute(plan);
+      if (nodeUngroupRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeUngroupPlan(plan, { evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()) }) });
+        });
+        return resultFromCli(res);
+      }
+      const nodeBooleanRoute = nodeBooleanPlanRoute(plan);
+      if (nodeBooleanRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeBooleanPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+            fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+          }) });
+        });
+        return resultFromCli(res);
+      }
+      const nodeBindRoute = nodeBindPlanRoute(plan);
+      if (nodeBindRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeBindPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+            fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+          }) });
+        });
+        return resultFromCli(res);
+      }
+      const nodeSetRoute = nodeSetPlanRoute(plan);
+      if (nodeSetRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label, compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeNodeSetPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+            fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+          }) });
+        });
+        return resultFromCli(res);
+      }
+      const nodeSetFillRoute = nodeSetFillPlanRoute(plan);
+      if (nodeSetFillRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false },
+          async ({ fileKey, expectedEditor, deadline }) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+            return executeNodeSetFillPlan(plan, { evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }) });
+          });
+        return resultFromCli(res);
+      }
+      const nodeSetImageRoute = nodeSetImagePlanRoute(plan);
+      if (nodeSetImageRoute === "command-application") {
+        const prepared = prepareNodeSetImagePlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false },
+          async ({ fileKey, expectedEditor, deadline }) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+            return executePreparedNodeSetImage(prepared, { evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }) });
+          });
+        return resultFromCli(res);
+      }
+      const nodeFlattenRoute = nodeFlattenPlanRoute(plan);
+      if (nodeFlattenRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, { label: input.label, compatibilityFallback: false }, async ({ fileKey, expectedEditor, deadline }) => { await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor }); return executeNodeFlattenPlan(plan, { evaluate: (code) => evaluateFigma(code, { fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()) }) }); });
         return resultFromCli(res);
       }
       const nodeDeleteRoute = nodeDeletePlanRoute(plan);
@@ -2473,6 +3557,23 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const prototypeMutationRoute = prototypeMutationPlanRoute(plan);
+      if (prototypeMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executePrototypeMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       const tokenPresetRoute = tokenPresetPlanRoute(plan);
       const tokenExportRoute = tokenExportPlanRoute(plan);
       if (tokenExportRoute === "command-application") {
@@ -2565,6 +3666,32 @@ export async function handleTool(name, rawArgs) {
               expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
             }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const tokenSyncRoute = tokenSyncPlanRoute(plan);
+      if (tokenSyncRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          return withTokenSyncPlanLock(plan, {
+            workspaceIO: WORKSPACE_IO,
+            remainingMs,
+          }, async (prepared) => {
+            await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+            return executeTokenSyncPlan(plan, prepared, {
+              workspaceIO: WORKSPACE_IO,
+              fileKey,
+              remainingMs,
+              evaluate: (code, context = {}) => evaluateFigma(code, {
+                fileKey,
+                expectedEditor,
+                timeoutMs: context.timeoutMs,
+              }),
+            });
           });
         });
         return resultFromCli(res);
@@ -2980,6 +4107,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeVariableResolutionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const fontAxisMetadataRoute = fontAxisMetadataPlanRoute(plan);
+      if (fontAxisMetadataRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeFontAxisMetadataPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
@@ -3454,6 +4598,652 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const layoutGuideMutationRoute = layoutGuideMutationPlanRoute(plan);
+      if (layoutGuideMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeLayoutGuideMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const analysisCensusRoute = analysisCensusPlanRoute(plan);
+      if (analysisCensusRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnalysisCensusPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const analysisLintRoute = analysisLintPlanRoute(plan);
+      if (analysisLintRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnalysisLintPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const a11yVisionRoute = a11yVisionPlanRoute(plan);
+      if (a11yVisionRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeA11yVisionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const a11yReadRoute = a11yReadPlanRoute(plan);
+      if (a11yReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeA11yReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesInspectRoute = slidesInspectPlanRoute(plan);
+      if (slidesInspectRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesInspectPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesCreateRoute = slidesCreatePlanRoute(plan);
+      if (slidesCreateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesCreatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesDuplicateRoute = slidesDuplicatePlanRoute(plan);
+      if (slidesDuplicateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesDuplicatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesMoveRoute = slidesMovePlanRoute(plan);
+      if (slidesMoveRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesMovePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesPropertyRoute = slidesPropertyPlanRoute(plan);
+      if (slidesPropertyRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesPropertyPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesDeleteRoute = slidesDeletePlanRoute(plan);
+      if (slidesDeleteRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesDeletePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamBoardRoute = jamBoardPlanRoute(plan);
+      if (jamBoardRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamBoardPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamArrangeRoute = jamArrangePlanRoute(plan);
+      if (jamArrangeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamArrangePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamStickyRoute = jamStickyPlanRoute(plan);
+      if (jamStickyRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamStickyPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamStickiesRoute = jamStickiesPlanRoute(plan);
+      if (jamStickiesRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamStickiesPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamShapeRoute = jamShapePlanRoute(plan);
+      if (jamShapeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamShapePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamConnectorRoute = jamConnectorPlanRoute(plan);
+      if (jamConnectorRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamConnectorPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamTableRoute = jamTablePlanRoute(plan);
+      if (jamTableRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamTablePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamSectionRoute = jamSectionPlanRoute(plan);
+      if (jamSectionRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamSectionPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const jamCodeRoute = jamCodePlanRoute(plan);
+      if (jamCodeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeJamCodePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const devResourceReadRoute = devResourceReadPlanRoute(plan);
+      if (devResourceReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeDevResourceReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const devResourceMutationRoute = devResourceMutationPlanRoute(plan);
+      if (devResourceMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeDevResourceMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sectionInventoryRoute = sectionInventoryPlanRoute(plan);
+      if (sectionInventoryRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSectionInventoryPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sectionFitRoute = sectionFitPlanRoute(plan);
+      if (sectionFitRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSectionFitPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sectionArrangeRoute = sectionArrangePlanRoute(plan);
+      if (sectionArrangeRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSectionArrangePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sectionAddRoute = sectionAddPlanRoute(plan);
+      if (sectionAddRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSectionAddPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sectionCreateRoute = sectionCreatePlanRoute(plan);
+      if (sectionCreateRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSectionCreatePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationCategoryInventoryRoute = annotationCategoryInventoryPlanRoute(plan);
+      if (annotationCategoryInventoryRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationCategoryInventoryPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationReadRoute = annotationReadPlanRoute(plan);
+      if (annotationReadRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationReadPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationClearRoute = annotationClearPlanRoute(plan);
+      if (annotationClearRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationClearPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationRemoveRoute = annotationRemovePlanRoute(plan);
+      if (annotationRemoveRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationRemovePlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationEditRoute = annotationEditPlanRoute(plan);
+      if (annotationEditRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationEditPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationCategoryMutationRoute = annotationCategoryMutationPlanRoute(plan);
+      if (annotationCategoryMutationRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationCategoryMutationPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const annotationAddRoute = annotationAddPlanRoute(plan);
+      if (annotationAddRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeAnnotationAddPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       const pageStructureRoute = pageStructurePlanRoute(plan);
       if (pageStructureRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
@@ -3544,13 +5334,182 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const componentSpecRoute = componentSpecPlanRoute(plan);
+      if (componentSpecRoute === "command-application") {
+        const prepared = prepareComponentSpecPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          if (plan.target.kind !== "none") {
+            await ensurePluginReadiness({
+              deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+            });
+          }
+          return executeComponentSpecPlan(plan, prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const storybookMapRoute = storybookMapPlanRoute(plan);
+      if (storybookMapRoute === "command-application") {
+        const prepared = await prepareStorybookMapPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeStorybookMapPlan(plan, prepared, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        if (readRestToken()) {
+          const note = await enrichFigmaMap(normalized, plan.target.fileKey);
+          if (note) res.stdout = (res.stdout || "") + "\n" + note;
+        }
+        return resultFromCli(res);
+      }
+      const verifyBuildRoute = verifyBuildPlanRoute(plan);
+      if (verifyBuildRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          if (plan.target.kind !== "none") {
+            await ensurePluginReadiness({
+              deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+            });
+          }
+          return executeVerifyBuildPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentCombinationsRoute = componentCombinationsPlanRoute(plan);
+      if (componentCombinationsRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeComponentCombinationsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sizeVariantsRoute = sizeVariantsPlanRoute(plan);
+      if (sizeVariantsRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSizeVariantsPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const videoExportRoute = videoExportPlanRoute(plan);
+      if (videoExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeVideoExportPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const nodeJsonExportRoute = nodeJsonExportPlanRoute(plan);
+      if (nodeJsonExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeNodeJsonExportPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const imageExportRoute = imageExportPlanRoute(plan);
+      if (imageExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeImageExportPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       const screenshotRoute = screenshotPlanRoute(plan);
       if (screenshotRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
           return executeScreenshotPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
@@ -4170,7 +6129,7 @@ async function main() {
     } catch (err) {
       result = errorResult(formatPublicError(err), {
         audit: err?.audit || getAuditStatus(),
-        structuredContent: err?.semanticRenderOutcome,
+        structuredContent: err?.semanticRenderOutcome || projectPublicFailure(err),
       });
     }
     if (traceEnabled) {

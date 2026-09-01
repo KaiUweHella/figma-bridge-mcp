@@ -130,6 +130,9 @@ test('Page divider text and cleanup failures are bounded', async () => {
 
 test('Page Structure accepts only authentic non-retrying write Plans', async () => {
   const create = planFigmaCommand(['canvas', 'page-create', 'One'], { adapter: 'mcp' });
+  const createWithoutSwitch = planFigmaCommand([
+    'canvas', 'page-create', '--no-switch', 'Two',
+  ], { adapter: 'mcp' });
   const divider = planFigmaCommand(['canvas', 'page-divider', '--json'], { adapter: 'mcp' });
   for (const plan of [create, divider]) {
     assert.equal(plan.allowed, true);
@@ -137,6 +140,9 @@ test('Page Structure accepts only authentic non-retrying write Plans', async () 
     assert.equal(plan.execution.retry, 'never');
     assert.equal(pageStructurePlanRoute(plan), 'command-application');
   }
+  assert.equal(create.effects.editor, 'write');
+  assert.equal(createWithoutSwitch.effects.editor, 'none');
+  assert.equal(divider.effects.editor, 'none');
   assert.deepEqual((await executePageStructurePlan(create, {
     evaluate: async () => ({ status: 'created', id: '0:3', name: 'One', switched: true }),
   })).result, { id: '0:3', name: 'One', switched: true });
