@@ -171,6 +171,8 @@
     "engine/src/application/jam-arrange-request.js",
     "engine/src/application/jam-board-command.js",
     "engine/src/application/jam-board-request.js",
+    "engine/src/application/jam-code-command.js",
+    "engine/src/application/jam-code-request.js",
     "engine/src/application/jam-connector-command.js",
     "engine/src/application/jam-connector-request.js",
     "engine/src/application/jam-section-command.js",

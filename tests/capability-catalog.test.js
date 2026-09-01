@@ -467,6 +467,33 @@ test('Jam Section owns one canonical cross-Adapter non-retrying creation Plan', 
   ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
 });
 
+test('Jam Code owns one canonical cross-Adapter non-retrying creation Plan', () => {
+  const cli = planFigmaCommand([
+    'jam', 'code', 'print(1)', '--lang=python', '--at=10,-20',
+  ], { adapter: 'cli' });
+  const mcp = planFigmaCommand([
+    'jam', 'code', '--at', '10,-20', '--lang', 'PYTHON', '--', 'print(1)',
+  ], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.equal(cli.id, 'jam.code');
+  assert.deepEqual(cli.argv, [
+    'jam', 'code', '--lang=PYTHON', '--at=10,-20', '--', 'print(1)',
+  ]);
+  assert.deepEqual(mcp.argv, cli.argv);
+  assert.deepEqual(mcp.effects, cli.effects);
+  assert.deepEqual(mcp.execution, cli.execution);
+  assert.equal(cli.effects.figma, 'write');
+  assert.equal(cli.effects.editor, 'read');
+  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.execution.retry, 'never');
+  for (const argv of [
+    ['jam', 'code'],
+    ['jam', 'code', 'one', 'two'],
+    ['jam', 'code', 'one', '--lang'],
+    ['jam', 'code', 'one', '--future'],
+  ]) assert.equal(planFigmaCommand(argv).allowed, false, argv.join(' '));
+});
+
 test('nested component property effects follow the canonical action id', () => {
   for (const adapter of ['cli', 'mcp']) {
     const read = planFigmaCommand(['component', 'prop', 'list', '1:2'], { adapter });

@@ -3,19 +3,15 @@
 // FigJam support was dropped from the fork because the upstream commands drove
 // the deleted CDP transport, not because FigJam needs one: the plugin API
 // covers stickies, shapes, connectors, tables and sections natively. So this
-// group is plain eval snippets — engine → daemon → plugin — with no second code
-// path and no new trust boundary.
-//
-// The snippets themselves live in lib/jam-snippets.js so they can be parsed by
-// a test: a syntax error inside a generated eval string is invisible to
-// `node --check`, which only ever sees a template literal.
+// group now delegates every action through one shared Command Application —
+// engine → daemon → plugin — with no second code path or new trust boundary.
+// The legacy snippet module remains only as the source of public color and
+// shape vocabulary while compatibility tests keep its historical sources
+// parseable.
 import chalk from 'chalk';
 import {
   program,
-  checkConnection,
   daemonExec,
-  fastEval,
-  handleEvalError,
 } from '../lib/cli-core.js';
 import * as snippets from '../lib/jam-snippets.js';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
@@ -52,32 +48,14 @@ import {
   executeJamSectionPlan,
   jamSectionArgvFromRequest,
 } from '../application/jam-section-command.js';
+import {
+  executeJamCodePlan,
+  jamCodeArgvFromRequest,
+} from '../application/jam-code-command.js';
 
 const jam = program
   .command('jam')
   .description('FigJam boards: stickies, shapes, connectors, tables, sections');
-
-/** Run a snippet, translate the two error shapes, hand the result to `onOk`. */
-async function run(code, onOk) {
-  await checkConnection();
-  let res;
-  try {
-    res = await fastEval(code);
-  } catch (e) {
-    handleEvalError(e);
-    return;
-  }
-  if (res && res.error === 'WRONG_EDITOR') {
-    console.error(chalk.red(`✗ This is a ${res.editor} file, not a FigJam board.`));
-    console.error(chalk.yellow('  Open a FigJam file in Figma Desktop and relaunch the Figma Bridge plugin there.'));
-    process.exit(1);
-  }
-  if (res && res.error) {
-    console.error(chalk.red(`✗ ${res.error}`));
-    process.exit(1);
-  }
-  onOk(res);
-}
 
 jam
   .command('sticky <text>')
@@ -254,11 +232,27 @@ jam
   .description('Add a code block')
   .option('--lang <language>', 'Syntax highlighting language', 'TYPESCRIPT')
   .option('--at <x,y>', 'Place at absolute coordinates')
+  .allowExcessArguments(false)
   .action(async (source, options) => {
-    await run(
-      snippets.codeBlock(source, { lang: options.lang, at: options.at }),
-      (r) => console.log(chalk.green('✓'), `Code block ${r.id}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamCodeArgvFromRequest({
+        source, lang: options.lang, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamCodePlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam code failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam
