@@ -147,6 +147,12 @@ import {
   parseGradientExtractRequest,
 } from '../engine/src/application/gradient-extract-request.js';
 import {
+  acceptsGradientMeshArgv,
+  gradientMeshArgvFromRequest,
+  gradientMeshFigmaUrlFileKeyFromArgv,
+  parseGradientMeshRequest,
+} from '../engine/src/application/gradient-mesh-request.js';
+import {
   acceptsDrawArgv,
   drawArgvFromRequest,
   drawFigmaUrlFileKeyFromArgv,
@@ -982,7 +988,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'gradient.apply', 'gradient.extract',
+  'gradient.apply', 'gradient.extract', 'gradient.mesh',
   'motion.add', 'motion.apply', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
@@ -1573,6 +1579,10 @@ function commandCapability(args) {
   }
   if (action.actionId === 'gradient.extract'
     && !action.help && !acceptsGradientExtractArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'gradient.mesh'
+    && !action.help && !acceptsGradientMeshArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId.startsWith('draw.') && !action.help && !acceptsDrawArgv(args)) {
@@ -3415,6 +3425,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         args.splice(0, args.length,
           ...gradientExtractArgvFromRequest({ ...request, image }));
         markRead(image, 'gradient-image');
+        break;
+      }
+      if (args[1] === 'mesh' && acceptsGradientMeshArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = gradientMeshFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...gradientMeshArgvFromRequest(parseGradientMeshRequest(args)));
       }
       break;
     }

@@ -2586,7 +2586,7 @@ test('catalog classifies editor selection, viewport, focus, and current-page eff
     { argv: ['combos', '--dry-run'], effect: 'read' },
     { argv: ['combos', '1:2', '--dry-run'], effect: 'none' },
     { argv: ['var', 'visualize', 'Collection'], effect: 'write' },
-    { argv: ['gradient', 'mesh', '#ffffff'], effect: 'write' },
+    { argv: ['gradient', 'mesh', '#ffffff,#000000'], effect: 'write' },
     { argv: ['slides', 'inspect'], effect: 'read' },
     { argv: ['slides', 'create', 'Intro'], effect: 'write' },
     { argv: ['jam', 'sticky', 'Note'], effect: 'write' },

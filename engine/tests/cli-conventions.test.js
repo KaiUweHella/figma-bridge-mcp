@@ -523,6 +523,18 @@ test('gradient extract delegates workspace preparation and conditional mutation 
     'Commander must not retain Gradient Extract I/O, mutation, verification, or residue handling');
 });
 
+test('gradient mesh delegates one staged and freshly verified Application', () => {
+  const adapter = sources.get('gradient.js');
+  const start = adapter.indexOf(".command('mesh <colors>')");
+  const action = adapter.slice(start);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runGradientMesh\(/);
+  assert.match(adapter, /prepareGradientMeshPlan/);
+  assert.match(adapter, /executeGradientMeshPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|buildMeshFromColors\(|createFrame\(|createEllipse\(|\.remove\(\)/,
+    'Commander must not retain Gradient Mesh preparation, mutation, verification, or rollback');
+});
+
 test('the remaining direct Gradient Action inventory is explicit', () => {
   const adapter = sources.get('gradient.js');
   const commands = ['apply', 'extract', 'mesh'];
@@ -531,8 +543,8 @@ test('the remaining direct Gradient Action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /checkConnection\(\)|fastEval\(/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['mesh']);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
     'STAB-06 Gradient Legacy Action count may decrease, but must never increase silently');
 });
 
