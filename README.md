@@ -1747,8 +1747,8 @@ Figma's first-party animation styles (`styles`, `style`), frame duration
 (`timeline`), readback (`inspect`) and removal (`clear`).
 
 Like every other command it runs over the plugin bridge — there is no separate
-transport for it. `styles` and `inspect` are reads; everything else, `timeline`
-included (it reads _or_ sets depending on its arguments), counts as a write
+transport for it. `styles`, `inspect`, and `timeline` without `--duration` are
+reads. `timeline --duration …` and every other Motion action count as writes
 under `FIGMA_WRITE_CONFIRM=1`.
 
 Motion is rolling out behind a Figma Beta flag. Without access, the commands
