@@ -231,6 +231,8 @@
     "engine/src/application/motion-clear-request.js",
     "engine/src/application/motion-read-command.js",
     "engine/src/application/motion-read-request.js",
+    "engine/src/application/motion-style-command.js",
+    "engine/src/application/motion-style-request.js",
     "engine/src/application/motion-timeline-command.js",
     "engine/src/application/motion-timeline-request.js",
     "engine/src/application/slot-configuration-command.js",

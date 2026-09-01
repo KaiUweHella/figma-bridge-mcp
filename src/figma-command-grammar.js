@@ -113,6 +113,9 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   ]),
   'motion.apply': optionSchema(),
   'motion.clear': optionSchema([valueOption('-f', '--field'), flagOption('--styles')]),
+  'motion.style': optionSchema([
+    valueOption('-d', '--dur'), valueOption('--at'), valueOption('-t', '--timing'),
+  ]),
   'motion.timeline': optionSchema([valueOption('-d', '--duration')]),
   'kit.init': optionSchema([
     valueOption('--storybook'), valueOption('--out'), valueOption('--node'),

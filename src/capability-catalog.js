@@ -153,6 +153,12 @@ import {
   parseMotionReadRequest,
 } from '../engine/src/application/motion-read-request.js';
 import {
+  acceptsMotionStyleArgv,
+  motionStyleArgvFromRequest,
+  motionStyleFigmaUrlFileKeyFromArgv,
+  parseMotionStyleRequest,
+} from '../engine/src/application/motion-style-request.js';
+import {
   acceptsMotionTimelineArgv,
   motionTimelineArgvFromRequest,
   motionTimelineFigmaUrlFileKeyFromArgv,
@@ -941,7 +947,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'motion.styles', 'motion.inspect', 'motion.clear',
+  'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
   'slot.reset',
@@ -1534,6 +1540,10 @@ function commandCapability(args) {
   }
   if (action.actionId === 'motion.clear'
     && !action.help && !acceptsMotionClearArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.style'
+    && !action.help && !acceptsMotionStyleArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'motion.timeline'
@@ -3389,6 +3399,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
+      if (args[1] === 'style' && acceptsMotionStyleArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionStyleFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionStyleArgvFromRequest(parseMotionStyleRequest(args)));
+        break;
+      }
       if (args[1] === 'clear' && acceptsMotionClearArgv(args)) {
         if (projectUrlTarget) figmaUrlFileKey = motionClearFigmaUrlFileKeyFromArgv(args);
         args.splice(0, args.length,

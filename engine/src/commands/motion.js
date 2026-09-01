@@ -21,6 +21,10 @@ import {
   motionReadPlanningArgvFromRequest,
 } from '../application/motion-read-command.js';
 import {
+  executeMotionStylePlan,
+  motionStylePlanningArgvFromRequest,
+} from '../application/motion-style-command.js';
+import {
   executeMotionTimelinePlan,
   motionTimelinePlanningArgvFromRequest,
 } from '../application/motion-timeline-command.js';
@@ -230,6 +234,27 @@ async function runMotionClear(request) {
   }
 }
 
+async function runMotionStyle(request) {
+  try {
+    const plan = planFigmaCommand(motionStylePlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionStylePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
 // ============ motion add ============
 motion
   .command('add <id>')
@@ -376,42 +401,14 @@ motion
   .option('-d, --dur <s>', 'duration seconds', '0.5')
   .option('--at <s>', 'timeline offset seconds', '0')
   .option('-t, --timing <timing>', 'in | out (style-dependent)')
-  .action(async (id, name, options) => {
-    await checkConnection();
-    const spinner = progress(`Applying style "${name}"...`).start();
-    try {
-      const props = {};
-      if (options.timing) props.timing = options.timing;
-      const arg = JSON.stringify({ name, dur: parseFloat(options.dur), at: parseFloat(options.at), props });
-      const body = `
-const arg = ${arg};
-const r = await resolveTarget(${JSON.stringify(id)});
-if (r.error) return r;
-const node = r.node;
-const styles = figma.motion.figmaAnimationStyles();
-const q = arg.name.toLowerCase();
-const def = styles.find(s => s.name.toLowerCase() === q || s.name.toLowerCase().endsWith('.' + q) || s.name.toLowerCase().includes(q));
-if (!def) return { error: 'STYLE_NOT_FOUND', available: styles.map(s => s.name) };
-const applied = node.applyAnimationStyle(def.styleId, { duration: arg.dur, timelineOffset: arg.at, props: arg.props });
-const end = arg.at + arg.dur;
-const tl = (node.timelines || [])[0];
-if (tl && tl.duration < end) node.setTimelineDuration(tl.id, end);
-return { nodeId: node.id, nodeName: node.name, descended: r.descended || false, fromName: r.fromName, styleName: def.name, appliedStyleId: applied };
-`;
-      const res = await fastEval(evalBody(body));
-      if (printTargetError(res, id)) { spinner.fail('Could not apply style'); return; }
-      if (res.error === 'STYLE_NOT_FOUND') {
-        spinner.fail(`No style matching "${name}"`);
-        console.log(chalk.gray('  Available: ' + res.available.map((n) => n.replace(/^motion\.preset_name\./, '')).join(', ')));
-        return;
-      }
-      const via = res.descended ? chalk.gray(` (via "${res.fromName}")`) : '';
-      spinnerSucceed(spinner, `Applied style "${res.styleName.replace(/^motion\.preset_name\./, '')}" to ${res.nodeName}${via}`);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (id, name, options) => runMotionStyle({
+    nodeId: id,
+    name,
+    duration: options.dur,
+    offset: options.at,
+    timing: options.timing || null,
+  }));
 
 // ============ motion timeline <id> ============
 motion

@@ -821,6 +821,34 @@ test('figma_run rejects malformed Motion Clear before readiness or dispatch', as
   }
 });
 
+test('figma_run routes Motion Style through the verified Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionStyleRoute = motionStylePlanRoute(plan)');
+  const end = source.indexOf('const motionTimelineRoute = motionTimelinePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeMotionStylePlan\(plan/);
+  assert.match(slice, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Style must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Motion Style before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'style', '1:2'],
+    ['motion', 'style', '1:2', 'opacity', '--timing', 'private-value'],
+    ['motion', 'style', '1:2', 'opacity', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
+});
+
 test('figma_run routes Motion Timeline reads and writes through the verified Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const motionTimelineRoute = motionTimelinePlanRoute(plan)');

@@ -162,6 +162,10 @@ import {
   motionReadPlanRoute,
 } from "../engine/src/application/motion-read-command.js";
 import {
+  executeMotionStylePlan,
+  motionStylePlanRoute,
+} from "../engine/src/application/motion-style-command.js";
+import {
   executeMotionTimelinePlan,
   motionTimelinePlanRoute,
 } from "../engine/src/application/motion-timeline-command.js";
@@ -2680,6 +2684,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeMotionClearPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionStyleRoute = motionStylePlanRoute(plan);
+      if (motionStyleRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionStylePlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
