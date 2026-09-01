@@ -710,3 +710,9 @@ typed mutation-report property names remain readable through an explicit
 allowlist; new Applications use `mutationReport`. Invalid or forged reports
 are omitted rather than converted into policy evidence. Audit History keeps
 schemas 2–5 readable and folds schema-6 Dispatch and mutation facts forward.
+
+`combos` now closes the remaining Component Combinations seam. One bounded
+request and non-retrying Application serve Commander and `figma_run`; dry-run
+is analysis-only, while writes own every label and conversion identity, require
+the complete Cartesian grid, freshly verify it, and preserve rollback or
+bounded residue. Neither Adapter re-enters the legacy two-eval Action.

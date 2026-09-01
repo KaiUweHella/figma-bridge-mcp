@@ -2591,6 +2591,29 @@ test('figma_run rejects malformed Size Variants before confirmation or readiness
   }
 });
 
+test('figma_run routes Component Combinations through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentCombinationsRoute = componentCombinationsPlanRoute(plan)');
+  const end = source.indexOf('const sizeVariantsRoute = sizeVariantsPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeComponentCombinationsPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/);
+});
+
+test('figma_run rejects malformed Component Combinations before confirmation or readiness', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['combos', 'bad'], ['combos', '1:1', '2:2'], ['combos', '--gap', '1.5'],
+    ['combos', '--dry-run', '--dry-run'], ['combos', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /unknown|unsupported|invalid/i);
+  }
+});
+
 test('figma_run routes Component Swap through the one-shot verified Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const componentSwapRoute = componentSwapPlanRoute(plan)');

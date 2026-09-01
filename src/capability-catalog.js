@@ -882,6 +882,12 @@ import {
   sizeVariantsFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/size-variants-request.js';
 import {
+  acceptsComponentCombinationsArgv,
+  componentCombinationsArgvFromRequest,
+  componentCombinationsFigmaUrlFileKeyFromArgv,
+  parseComponentCombinationsRequest,
+} from '../engine/src/application/component-combinations-request.js';
+import {
   planVerificationArtifacts,
   verificationArtifactDirectory,
 } from '../engine/src/application/verification-artifact.js';
@@ -1008,6 +1014,7 @@ const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
 ]);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
+  'combos',
   'sizes',
   'import',
   'create.frame',
@@ -1185,6 +1192,9 @@ export function legacyCommandRiskGateReason(args) {
 
 function mutatesDesign(entry, args, options, actionId) {
   if (!args.length) return false;
+  if (actionId === 'combos') {
+    return !parseComponentCombinationsRequest(args).dryRun;
+  }
   if (actionId === 'motion.timeline') {
     return parseMotionTimelineRequest(args).duration !== null;
   }
@@ -1239,6 +1249,10 @@ function specializedPolicy(name, entry, args, actionId) {
   let timeoutClass = entry.timeout || 'default';
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
+  if (name === 'combos') {
+    pathPolicy = 'component-combinations-input';
+    if (parseComponentCombinationsRequest(args).dryRun) retry = 'safe-read';
+  }
   if (name === 'sizes') pathPolicy = 'size-variants-input';
   let confirmation = null;
   if (name === 'import') {
@@ -2158,6 +2172,9 @@ function commandCapability(args) {
   if (name === 'sizes' && !action.help && !acceptsSizeVariantsArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'combos' && !action.help && !acceptsComponentCombinationsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2586,6 +2603,14 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
   };
   switch (capability.pathPolicy) {
+    case 'component-combinations-input': {
+      const request = parseComponentCombinationsRequest(args);
+      if (projectUrlTarget) {
+        figmaUrlFileKey = componentCombinationsFigmaUrlFileKeyFromArgv(args);
+      }
+      args.splice(0, args.length, ...componentCombinationsArgvFromRequest(request));
+      break;
+    }
     case 'size-variants-input': {
       const request = parseSizeVariantsRequest(args);
       if (projectUrlTarget) figmaUrlFileKey = sizeVariantsFigmaUrlFileKeyFromArgv(args);

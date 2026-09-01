@@ -80,6 +80,10 @@ import {
   sizeVariantsPlanRoute,
 } from "../engine/src/application/size-variants-command.js";
 import {
+  componentCombinationsPlanRoute,
+  executeComponentCombinationsPlan,
+} from "../engine/src/application/component-combinations-command.js";
+import {
   executeVerifyBuildPlan,
   verifyBuildPlanRoute,
 } from "../engine/src/application/verify-build-command.js";
@@ -5355,6 +5359,25 @@ export async function handleTool(name, rawArgs) {
           }
           return executeVerifyBuildPlan(plan, {
             workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const componentCombinationsRoute = componentCombinationsPlanRoute(plan);
+      if (componentCombinationsRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeComponentCombinationsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

@@ -151,6 +151,23 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-COMPONENT-COMBINATIONS",
+    [
+      [
+        "engine/tests/component-combinations-command.test.js",
+        "dry run returns bounded facts without creating nodes",
+      ],
+      [
+        "engine/tests/component-combinations-command.test.js",
+        "write creates every combination and freshly verifies the labeled grid",
+      ],
+      [
+        "engine/tests/component-combinations-command.test.js",
+        "a failed combination removes labels and every intermediate node",
+      ],
+    ],
+  ],
+  [
     "SEC-TARGET",
     [
       [

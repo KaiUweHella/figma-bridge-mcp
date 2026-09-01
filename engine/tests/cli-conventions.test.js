@@ -3301,6 +3301,27 @@ test('the remaining direct Size Variants inventory is explicit', () => {
     'STAB-06 Size Variants Legacy Action count may decrease, but must never increase silently');
 });
 
+test('combos delegates one bounded rollback-owned non-retrying Application', () => {
+  const adapter = sources.get('variants.js');
+  const start = adapter.indexOf(".command('combos [nodeId]')");
+  const end = adapter.indexOf('// NOTE: there is deliberately NO `shadcn`', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /componentCombinationsPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /executeComponentCombinationsPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|\.createInstance\(\)|detachInstance\(/);
+});
+
+test('the remaining direct Component Combinations inventory is explicit', () => {
+  const adapter = sources.get('variants.js');
+  const start = adapter.indexOf(".command('combos [nodeId]')");
+  const direct = /checkConnection\(|fastEval\(/.test(adapter.slice(start)) ? ['combos'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Component Combinations Legacy Action count may decrease, but must never increase silently');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {
