@@ -1,7 +1,8 @@
 // Commands: motion — author Figma Motion animations (Config 2026 Beta Plugin API).
 // Additive: registers the `motion` namespace only. Pure logic lives in
-// ../lib/motion-core.js; this file turns normalized specs into Plugin API calls
-// via fastEval. Every command guards on the metronome_plugin_api feature flag.
+// ../lib/motion-core.js; legacy mutations turn normalized specs into Plugin API
+// calls via fastEval, while reads delegate to their Command Application. Every
+// operation guards on the metronome_plugin_api feature flag.
 //
 // Two hard-won gotchas baked in (Figma Desktop 126.6.12):
 //   1. object-assignment `node.manualKeyframeTracks = {...}` is a SILENT NO-OP;
@@ -9,7 +10,15 @@
 //   2. the daemon's top-level-return auto-wrap is flaky on if-statement returns,
 //      so every eval body is wrapped in an explicit async IIFE (evalBody()).
 import chalk from 'chalk';
-import { progress, program, checkConnection, fastEval, spinnerSucceed } from '../lib/cli-core.js';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executeMotionReadPlan,
+  motionReadPlanningArgvFromRequest,
+} from '../application/motion-read-command.js';
+import {
+  progress, program, checkConnection, daemonExec, fastEval, handleEvalError, spinnerSucceed,
+} from '../lib/cli-core.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import {
   mapField,
@@ -151,6 +160,26 @@ function specFromPreset(id, name, opts) {
   return normalizeSpec({ tracks });
 }
 
+async function runMotionRead(request) {
+  try {
+    const plan = planFigmaCommand(motionReadPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionReadPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
 // ============ motion add ============
 motion
   .command('add <id>')
@@ -287,24 +316,8 @@ motion
 motion
   .command('styles')
   .description("List Figma's first-party animation styles")
-  .action(async () => {
-    await checkConnection();
-    const spinner = progress('Reading animation styles...').start();
-    try {
-      const res = await fastEval(evalBody(
-        `return figma.motion.figmaAnimationStyles().map(s => ({ styleId: s.styleId, name: s.name, description: s.description }));`
-      ));
-      if (printGuardError(res)) { spinner.fail('Motion not available'); return; }
-      spinnerSucceed(spinner, `${res.length} animation styles`);
-      for (const s of res) {
-        const short = String(s.name).replace(/^motion\.preset_name\./, '');
-        console.log(chalk.gray(`  ${short.padEnd(12)} ${chalk.dim(s.name)}`));
-      }
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async () => runMotionRead({ action: 'styles' }));
 
 // ============ motion style <id> <name> ============
 motion
@@ -383,34 +396,8 @@ return { nodeId: node.id, timelines: node.timelines };
 motion
   .command('inspect <id>')
   .description('Read back keyframe tracks, styles, and timeline for a node')
-  .action(async (id) => {
-    await checkConnection();
-    const spinner = progress('Inspecting motion...').start();
-    try {
-      const body = `
-const r = await resolveTarget(${JSON.stringify(id)});
-if (r.error) return r;
-const node = r.node;
-return {
-  nodeId: node.id, nodeName: node.name, descended: r.descended || false, fromName: r.fromName,
-  timelines: node.timelines,
-  manualKeyframeTracks: node.manualKeyframeTracks,
-  animationStyles: node.animationStyles,
-};
-`;
-      const res = await fastEval(evalBody(body));
-      if (printTargetError(res, id)) { spinner.fail('Nothing to inspect'); return; }
-      spinnerSucceed(spinner, `Motion on ${res.nodeName}${res.descended ? chalk.gray(` (via "${res.fromName}")`) : ''}`);
-      console.log(JSON.stringify({
-        timelines: res.timelines,
-        manualKeyframeTracks: res.manualKeyframeTracks,
-        animationStyles: res.animationStyles,
-      }, null, 2));
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (id) => runMotionRead({ action: 'inspect', nodeId: id }));
 
 // ============ motion clear <id> ============
 motion

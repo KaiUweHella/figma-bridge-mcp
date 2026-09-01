@@ -361,6 +361,39 @@ test('the remaining direct FigJam action inventory is explicit', () => {
     'FigJam must not retain a second Legacy eval execution helper');
 });
 
+test('Motion reads delegate one Plan-bound bounded Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  for (const [marker, next] of [
+    [".command('styles')", ".command('style <id> <name>')"],
+    [".command('inspect <id>')", ".command('clear <id>')"],
+  ]) {
+    const start = adapter.indexOf(marker);
+    const end = adapter.indexOf(next, start);
+    const action = adapter.slice(start, end);
+    assert.match(action, /\.allowExcessArguments\(false\)/);
+    assert.match(action, /runMotionRead\(/);
+    assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|manualKeyframeTracks/,
+      'Commander must not retain Motion availability, traversal, bounded projection, or formatting');
+  }
+  assert.match(adapter, /motionReadPlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionReadPlan\(plan/);
+});
+
+test('the remaining direct Motion Action inventory is explicit', () => {
+  const adapter = sources.get('motion.js');
+  const commands = ['add', 'apply', 'preset', 'stagger', 'styles', 'style', 'timeline', 'inspect', 'clear'];
+  const starts = commands.map((name) => adapter.indexOf(`.command('${name}`));
+  const direct = commands.filter((name, index) => {
+    const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
+    return /await checkConnection\(\)/.test(adapter.slice(starts[index], end));
+  });
+  assert.deepEqual(direct, ['add', 'apply', 'preset', 'stagger', 'style', 'timeline', 'clear']);
+  assert.equal(direct.length, 7,
+    'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
+});
+
 test('surfaced Commander catch failures always retain a nonzero process outcome', () => {
   const offenders = [];
   for (const [file, source] of sources) {

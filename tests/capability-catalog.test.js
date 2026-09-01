@@ -2489,6 +2489,22 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['export', 'dtcg', '12:34']), ['export', 'dtcg', '12:34']);
 });
 
+test('Motion reads close URL identity into one safe cross-Adapter Plan', () => {
+  const url = 'https://www.figma.com/design/FILEA/Motion-Lab?node-id=1-2';
+  const cli = planFigmaCommand(['motion', 'inspect', url], { adapter: 'cli' });
+  const mcp = planFigmaCommand(['motion', 'inspect', '--', url], { adapter: 'mcp' });
+  assert.equal(cli.allowed, true);
+  assert.deepEqual(cli.argv, ['motion', 'inspect', '--', '1:2']);
+  assert.deepEqual(cli.argv, mcp.argv);
+  assert.deepEqual(cli.effects, mcp.effects);
+  assert.deepEqual(cli.execution, mcp.execution);
+  assert.equal(cli.target.fileKey, 'FILEA');
+  assert.equal(cli.effects.figma, 'read');
+  assert.equal(cli.execution.retry, 'safe-read');
+  assert.equal(planFigmaCommand(['motion', 'styles'], { adapter: 'cli' }).allowed, true);
+  assert.equal(planFigmaCommand(['motion', 'inspect', '1:2', 'extra']).allowed, false);
+});
+
 test('catalog reports workspace, network and shared-state effects independently from Figma effects', () => {
   assert.deepEqual(planFigmaCommand(['spec', 'Button', '--file', 'DESIGN.md'], { workspaceDir: '/work' }).effects, {
     figma: 'none', editor: 'none', workspace: 'read', network: 'none', shared: 'none',

@@ -141,6 +141,12 @@ import {
   parseDrawRequest,
 } from '../engine/src/application/draw-request.js';
 import {
+  acceptsMotionReadArgv,
+  motionReadArgvFromRequest,
+  motionReadFigmaUrlFileKeyFromArgv,
+  parseMotionReadRequest,
+} from '../engine/src/application/motion-read-request.js';
+import {
   acceptsSlotConfigurationArgv,
   parseSlotConfigurationRequest,
   slotConfigurationArgvFromRequest,
@@ -877,6 +883,7 @@ if (missingTargetProjections.length || orphanedTargetProjections.length) {
 const HELP_TOKENS = new Set(['--help', '-h']);
 const SAFE_READ_ACTIONS = new Set([
   'component.prop.list', 'draw.inspect', 'library.collections', 'library.variables', 'measure.list',
+  'motion.styles', 'motion.inspect',
   'shader.list', 'dev.list', 'section.list', 'annotate.categories', 'annotate.list',
   'slot.inspect', 'slot.validate',
   'layout.grid.inspect',
@@ -922,6 +929,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
+  'motion.styles', 'motion.inspect',
   'slot.create', 'slot.edit',
   'slot.reset',
   'slot.inspect', 'slot.validate',
@@ -1499,6 +1507,10 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId.startsWith('draw.') && !action.help && !acceptsDrawArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (['motion.styles', 'motion.inspect'].includes(action.actionId)
+    && !action.help && !acceptsMotionReadArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (['slot.create', 'slot.edit'].includes(action.actionId)
@@ -3350,6 +3362,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
+      if (['styles', 'inspect'].includes(args[1]) && acceptsMotionReadArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionReadFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionReadArgvFromRequest(parseMotionReadRequest(args)));
+        break;
+      }
       const [motionInputIndex] = positionalIndexes(args, 2);
       if (args[1] === 'apply' && typeof args[motionInputIndex] === 'string'
         && !args[motionInputIndex].trimStart().startsWith('{')) {
