@@ -147,6 +147,17 @@ optional exact output before readiness; the Plugin and host independently bound
 the `JSON_REST_V1` result, and Workspace publication follows full structural
 validation of the requested node facts.
 
+The public `sizes` write follows the same ownership rule for three generated
+Components. Its closed request owns optional Component, Instance or Frame
+targeting, base size and signed gap independently of option order. Commander and
+`figma_run` share one non-retrying Application with fallback disabled. It
+preflights the complete bounded source before cloning, owns exactly the three
+requested clones, converts FRAME clones directly without a temporary source
+Component, and freshly verifies page order, names, dimensions and placement.
+Failure removes attributable clones, restores selection and reports the bounded
+rollback or residue outcome instead of reducing an uncertain write to a generic
+timeout.
+
 Local structural history follows the same boundary. `history snapshot`,
 `history list` and `history diff` use one closed request Interface and History
 Command Application from Commander, `figma_run` and `figma_history`. The Plan

@@ -75,7 +75,6 @@ const CREATE_WITH_PARENT = [
 /** @type {Record<string, readonly object[]>} */
 const fields = {
   combos: [position(1)],
-  sizes: [position(1)],
 
   'node.tree': [position(2)],
   'node.bindings': [position(2)],

@@ -864,6 +864,12 @@ import {
   parseNodeJsonExportRequest,
 } from '../engine/src/application/node-json-export-request.js';
 import {
+  acceptsSizeVariantsArgv,
+  parseSizeVariantsRequest,
+  sizeVariantsArgvFromRequest,
+  sizeVariantsFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/size-variants-request.js';
+import {
   planVerificationArtifacts,
   verificationArtifactDirectory,
 } from '../engine/src/application/verification-artifact.js';
@@ -990,6 +996,7 @@ const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
 ]);
 const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
+  'sizes',
   'import',
   'create.frame',
   'create.image',
@@ -1217,6 +1224,7 @@ function specializedPolicy(name, entry, args, actionId) {
   let timeoutClass = entry.timeout || 'default';
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
+  if (name === 'sizes') pathPolicy = 'size-variants-input';
   if (name === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'design-source-import-input';
@@ -2114,6 +2122,9 @@ function commandCapability(args) {
     && !action.help && !acceptsNodeJsonExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'sizes' && !action.help && !acceptsSizeVariantsArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if ((name === 'render' || name === 'render-batch') && !acceptsSemanticRenderArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2453,6 +2464,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
   };
   switch (capability.pathPolicy) {
+    case 'size-variants-input': {
+      const request = parseSizeVariantsRequest(args);
+      if (projectUrlTarget) figmaUrlFileKey = sizeVariantsFigmaUrlFileKeyFromArgv(args);
+      args.splice(0, args.length, ...sizeVariantsArgvFromRequest(request));
+      break;
+    }
     case 'assets-dir':
       outputPath = outputFlag(args, baseDir, 'assets', capability.options);
       // Canonical semantic argv gives equivalent default spellings and option

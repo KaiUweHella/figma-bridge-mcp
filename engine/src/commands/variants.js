@@ -1,13 +1,20 @@
 // Commands: variants (extracted from index.js)
 import chalk from 'chalk';
 import { join } from 'path';
+import { planFigmaCommand } from '../../../src/capability-catalog.js';
+import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
   progress,
   program,
   checkConnection,
+  daemonExec,
   fastEval,
   spinnerSucceed
 } from '../lib/cli-core.js';
+import {
+  executeSizeVariantsPlan,
+  sizeVariantsPlanningArgvFromRequest,
+} from '../application/size-variants-command.js';
 
 // ============ SIZES ============
 
@@ -16,175 +23,32 @@ program
   .description('Generate Small/Medium/Large size variants from a component')
   .option('-b, --base <size>', 'Which size is the source: small, medium, large', 'medium')
   .option('-g, --gap <n>', 'Gap between variants', '40')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
-    await checkConnection();
-    const spinner = progress('Analyzing component...').start();
-
     try {
-      const nodeIdStr = nodeId || '';
-      const baseSize = options.base.toLowerCase();
-      const gap = parseInt(options.gap) || 40;
-
-      // Size multipliers relative to medium
-      const sizeConfig = {
-        small:  { scale: 0.85, fontSize: 0.85, padding: 0.75, radius: 0.85 },
-        medium: { scale: 1.0,  fontSize: 1.0,  padding: 1.0,  radius: 1.0 },
-        large:  { scale: 1.2,  fontSize: 1.15, padding: 1.25, radius: 1.1 }
-      };
-
-      // Adjust multipliers based on which size is the source
-      let multipliers = {};
-      const baseConfig = sizeConfig[baseSize];
-      for (const [size, cfg] of Object.entries(sizeConfig)) {
-        multipliers[size] = {
-          scale: cfg.scale / baseConfig.scale,
-          fontSize: cfg.fontSize / baseConfig.fontSize,
-          padding: cfg.padding / baseConfig.padding,
-          radius: cfg.radius / baseConfig.radius
-        };
-      }
-
-      const code = `(async () => {
-        let node;
-        if (${JSON.stringify(nodeIdStr)}) {
-          node = await figma.getNodeByIdAsync(${JSON.stringify(nodeIdStr)});
-        } else {
-          node = figma.currentPage.selection[0];
-        }
-
-        if (!node) {
-          return { error: 'No component selected. Select a component or frame.' };
-        }
-
-        // Get the component to clone
-        let sourceComponent = null;
-        if (node.type === 'COMPONENT') {
-          sourceComponent = node;
-        } else if (node.type === 'INSTANCE') {
-          sourceComponent = await node.getMainComponentAsync();
-        } else if (node.type === 'FRAME') {
-          // Convert frame to component first
-          sourceComponent = figma.createComponentFromNode(node.clone());
-          sourceComponent.name = node.name;
-        }
-
-        if (!sourceComponent) {
-          return { error: 'Could not get source component.' };
-        }
-
-        // Load common Inter font styles
-        const styles = ['Regular', 'Medium', 'Semi Bold', 'Bold'];
-        for (const style of styles) {
-          try { await figma.loadFontAsync({ family: 'Inter', style }); } catch (e) {}
-        }
-
-        const multipliers = ${JSON.stringify(multipliers)};
-        const sizes = ['small', 'medium', 'large'];
-        const baseSize = ${JSON.stringify(baseSize)};
-        const gap = ${gap};
-
-        // Find position for new components
-        let startX = 0;
-        figma.currentPage.children.forEach(n => { startX = Math.max(startX, n.x + n.width); });
-        startX += 200;
-        const startY = sourceComponent.y;
-
-        const baseName = sourceComponent.name.replace(/\\/(Small|Medium|Large)/gi, '').replace(/\\s*(Small|Medium|Large)\\s*/gi, '').trim() || 'Component';
-        const createdComponents = [];
-        const createdNodes = [];
-
-        function scaleNode(node, mult) {
-          // Scale frame/rectangle dimensions
-          if (node.resize && typeof node.width === 'number') {
-            const newW = Math.round(node.width * mult.scale);
-            const newH = Math.round(node.height * mult.scale);
-            node.resize(newW, newH);
-          }
-
-          // Scale corner radius
-          if (typeof node.cornerRadius === 'number' && node.cornerRadius > 0) {
-            node.cornerRadius = Math.round(node.cornerRadius * mult.radius);
-          }
-
-          // Scale padding
-          if (node.paddingLeft !== undefined) {
-            node.paddingLeft = Math.round(node.paddingLeft * mult.padding);
-            node.paddingRight = Math.round(node.paddingRight * mult.padding);
-            node.paddingTop = Math.round(node.paddingTop * mult.padding);
-            node.paddingBottom = Math.round(node.paddingBottom * mult.padding);
-          }
-
-          // Scale gap
-          if (node.itemSpacing !== undefined && node.itemSpacing > 0) {
-            node.itemSpacing = Math.round(node.itemSpacing * mult.padding);
-          }
-
-          // Scale text
-          if (node.type === 'TEXT') {
-            const newSize = Math.round(node.fontSize * mult.fontSize);
-            node.fontSize = newSize;
-          }
-
-          // Recurse into children
-          if (node.children) {
-            for (const child of node.children) {
-              scaleNode(child, mult);
-            }
-          }
-        }
-
-        let x = startX;
-        for (const size of sizes) {
-          const mult = multipliers[size];
-
-          // Clone the source component
-          const clone = sourceComponent.clone();
-
-          // Scale all elements
-          scaleNode(clone, mult);
-
-          // Convert to component with size name
-          const sizeLabel = size.charAt(0).toUpperCase() + size.slice(1);
-
-          let comp;
-          if (clone.type === 'COMPONENT') {
-            comp = clone;
-            comp.name = baseName + '/' + sizeLabel;
-          } else {
-            comp = figma.createComponentFromNode(clone);
-            comp.name = baseName + '/' + sizeLabel;
-          }
-
-          comp.x = x;
-          comp.y = startY;
-          x += comp.width + gap;
-
-          createdComponents.push({ id: comp.id, name: comp.name, w: comp.width, h: comp.height });
-          createdNodes.push(comp);
-        }
-
-        figma.currentPage.selection = createdNodes;
-        figma.viewport.scrollAndZoomIntoView(figma.currentPage.selection);
-
-        return { count: createdComponents.length, components: createdComponents };
-      })()`;
-
-      const result = await fastEval(code);
-
-      if (result.error) {
-        spinner.fail(result.error);
-        process.exit(1);
-      }
-
-      spinnerSucceed(spinner, `Created ${result.count} size variants`);
-
-      result.components.forEach(c => {
-        console.log(chalk.gray(`  ${c.name} (${c.w}×${c.h})`));
+      const plan = planFigmaCommand(sizeVariantsPlanningArgvFromRequest({
+        nodeId: nodeId || null,
+        baseSize: options.base,
+        gap: options.gap,
+      }), {
+        adapter: 'cli',
+        fileKey: program.opts().figmaFile || null,
       });
-
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSizeVariantsPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code,
+              ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
     } catch (error) {
-      spinner.fail('Failed: ' + error.message);
-      process.exit(1);
+      console.error(chalk.red('✗ Size Variants failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
     }
   });
 

@@ -134,6 +134,23 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-SIZE-VARIANTS",
+    [
+      [
+        "engine/tests/size-variants-command.test.js",
+        "component source creates and freshly verifies exactly three scaled Components",
+      ],
+      [
+        "engine/tests/size-variants-command.test.js",
+        "failed postcondition removes every owned clone and reports rolled-back",
+      ],
+      [
+        "engine/tests/size-variants-command.test.js",
+        "failed cleanup reports bounded partial residue without retry",
+      ],
+    ],
+  ],
+  [
     "SEC-TARGET",
     [
       [

@@ -74,6 +74,10 @@ import {
   nodeJsonExportPlanRoute,
 } from "../engine/src/application/node-json-export-command.js";
 import {
+  executeSizeVariantsPlan,
+  sizeVariantsPlanRoute,
+} from "../engine/src/application/size-variants-command.js";
+import {
   executeVerifyBuildPlan,
   verifyBuildPlanRoute,
 } from "../engine/src/application/verify-build-command.js";
@@ -5193,6 +5197,25 @@ export async function handleTool(name, rawArgs) {
           }
           return executeVerifyBuildPlan(plan, {
             workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const sizeVariantsRoute = sizeVariantsPlanRoute(plan);
+      if (sizeVariantsRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSizeVariantsPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

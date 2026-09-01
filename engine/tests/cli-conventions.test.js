@@ -3270,6 +3270,36 @@ test('the remaining direct Font Axis Metadata inventory is explicit', () => {
     'STAB-06 Font Axis Metadata Legacy Action count may decrease, but must never increase silently');
 });
 
+test('sizes delegates one rollback-owned non-retrying Application', () => {
+  const adapter = sources.get('variants.js');
+  assert.ok(adapter, 'variants.js exists');
+  const start = adapter.indexOf(".command('sizes [nodeId]')");
+  const end = adapter.indexOf('// (The `variants from` group was removed', start);
+  const action = adapter.slice(start, end);
+
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /sizeVariantsPlanningArgvFromRequest/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(action, /executeSizeVariantsPlan\(plan/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|fastEval\(|createComponentFromNode\(|\.clone\(\)/,
+    'Commander must not retain Size Variants readiness, mutation, cleanup, or result formatting');
+});
+
+test('the remaining direct Size Variants inventory is explicit', () => {
+  const adapter = sources.get('variants.js');
+  const start = adapter.indexOf(".command('sizes [nodeId]')");
+  const end = adapter.indexOf('// (The `variants from` group was removed', start);
+  const direct = /checkConnection\(|fastEval\(/.test(adapter.slice(start, end))
+    ? ['sizes'] : [];
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
+    'STAB-06 Size Variants Legacy Action count may decrease, but must never increase silently');
+});
+
 test('library code lives in lib/, not in command files', () => {
   // commands/map.js used to import componentInventoryCode from commands/misc.js.
   for (const [file, src] of sources) {
