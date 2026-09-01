@@ -4,8 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 test('source preparation creates two self-contained manifest.json import bundles', () => {
   const destination = mkdtempSync(join(tmpdir(), 'figma-bridge-plugin-imports-'));
@@ -167,7 +168,7 @@ test('released plugin copy failure never falls back to the local-development ide
     );
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
-    assert.match(manifestPath, /plugin\/manifest\.json$/);
+    assert.equal(manifestPath, join(ROOT, 'plugin', 'manifest.json'));
     assert.equal(manifest.name, 'Figma Bridge');
     assert.equal(manifest.id, 'figma-bridge-mcp');
     assert.notEqual(manifest.id, 'figma-bridge-mcp-local-development');
