@@ -66,6 +66,10 @@ import {
   screenshotPlanningArgvFromRequest,
 } from "../engine/src/application/screenshot-command.js";
 import {
+  executeImageExportPlan,
+  imageExportPlanRoute,
+} from "../engine/src/application/image-export-command.js";
+import {
   executeVerifyBuildPlan,
   verifyBuildPlanRoute,
 } from "../engine/src/application/verify-build-command.js";
@@ -5194,13 +5198,35 @@ export async function handleTool(name, rawArgs) {
         });
         return resultFromCli(res);
       }
+      const imageExportRoute = imageExportPlanRoute(plan);
+      if (imageExportRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeImageExportPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
       const screenshotRoute = screenshotPlanRoute(plan);
       if (screenshotRoute === "command-application") {
         const res = await runInProcessCommandPlan(plan, {
           label: input.label,
           compatibilityFallback: false,
         }, async ({ fileKey, expectedEditor, deadline }) => {
-          await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
           return executeScreenshotPlan(plan, {
             workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {

@@ -190,6 +190,7 @@
     "engine/src/application/layout-grid-facts-request.js",
     "engine/src/application/layout-guide-mutation-command.js",
     "engine/src/application/layout-guide-mutation-request.js",
+    "engine/src/application/image-export-command.js",
     "engine/src/application/legacy-raster-export-request.js",
     "engine/src/application/section-inventory-command.js",
     "engine/src/application/section-inventory-request.js",

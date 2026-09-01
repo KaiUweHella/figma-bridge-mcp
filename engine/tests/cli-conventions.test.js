@@ -3064,17 +3064,22 @@ test('verify-build delegates workspace verification and optional Figma capture t
     'Commander must not retain verification, image diff, workspace scan, or Figma export logic');
 });
 
-test('legacy PNG export names delegate to the Plan-bound Screenshot Application', () => {
+test('legacy image export names delegate every format to one Plan-bound Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');
   const start = adapter.indexOf(".command('screenshot')");
   const end = adapter.indexOf(".command('video <nodeId>')", start);
   const action = adapter.slice(start, end);
-  assert.match(action, /runPngExportCompatibilityCommand/);
-  assert.match(action, /format === 'PNG'/);
+  assert.match(action, /runImageExportCompatibilityCommand/);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
   assert.match(adapter, /executeScreenshotPlan\(plan,/);
+  assert.match(adapter, /executeImageExportPlan\(plan,/);
   assert.match(adapter, /compatibilityFallback: false/);
-  assert.doesNotMatch(action, /format: 'PNG'.*exportAsync/s);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(action,
+    /checkConnection\(|exportAsync|daemonExec\('eval'|Buffer\.from|workspaceIO\(\)\.write/,
+    'Commander must not retain image export readiness, capture, decoding, or persistence policy');
 });
 
 test('simple render delegates one non-retrying Semantic Render Application', () => {

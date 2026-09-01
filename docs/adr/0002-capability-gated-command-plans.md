@@ -132,6 +132,14 @@ actual raster, logical and scaled geometry and points to a fresh Component
 Inventory identity, exact Variant retry or parent Component Set capture. A
 genuine one-pixel node remains valid.
 
+The documented `export node` and `export screenshot` compatibility names keep
+PNG on that verification path. JPG, SVG and PDF instead use one separate Image
+Export Command Application from Commander and `figma_run`. Their Command Plan
+owns the exact workspace output, target and deadline before readiness; the
+Application validates canonical bounded transport plus the requested container
+before Workspace I/O without projecting vector or document bytes as PNG
+verification evidence.
+
 Local structural history follows the same boundary. `history snapshot`,
 `history list` and `history diff` use one closed request Interface and History
 Command Application from Commander, `figma_run` and `figma_history`. The Plan

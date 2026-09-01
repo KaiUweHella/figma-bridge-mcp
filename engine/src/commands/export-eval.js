@@ -29,8 +29,13 @@ import {
 } from '../application/code-spec-command.js';
 import {
   executeScreenshotPlan,
+  screenshotPlanRoute,
   screenshotPlanningArgvFromRequest,
 } from '../application/screenshot-command.js';
+import {
+  executeImageExportPlan,
+  imageExportPlanRoute,
+} from '../application/image-export-command.js';
 import {
   legacyRasterExportPlanningArgvFromRequest,
 } from '../application/legacy-raster-export-request.js';
@@ -61,7 +66,7 @@ function normalizedId(input) {
   return r.id;
 }
 
-async function runPngExportCompatibilityCommand(request) {
+async function runImageExportCompatibilityCommand(request) {
   const io = workspaceIO();
   const plan = planFigmaCommand(legacyRasterExportPlanningArgvFromRequest(request), {
     adapter: 'cli',
@@ -70,15 +75,24 @@ async function runPngExportCompatibilityCommand(request) {
     fileKey: program.opts().figmaFile || null,
   });
   return runInProcessCommandPlan(plan, { compatibilityFallback: false },
-    async ({ fileKey, deadline }) => {
-      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
-      return executeScreenshotPlan(plan, {
+    async ({ fileKey, expectedEditor, deadline }) => {
+      await ensurePluginReadiness({
+        deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+      });
+      const adapters = {
         workspaceIO: io,
         evaluate: (code) => daemonExec('eval', {
           code,
           ...(fileKey ? { fileKey } : {}),
         }, Math.max(1, deadline - Date.now())),
-      });
+      };
+      if (screenshotPlanRoute(plan) === 'command-application') {
+        return executeScreenshotPlan(plan, adapters);
+      }
+      if (imageExportPlanRoute(plan) === 'command-application') {
+        return executeImageExportPlan(plan, adapters);
+      }
+      throw new Error(`Unsupported image export format ${request.format}.`);
     });
 }
 
@@ -92,100 +106,53 @@ exp
   .option('-o, --output <file>', 'Output file', 'screenshot.png')
   .option('-s, --scale <number>', 'Export scale (1-4)', '2')
   .option('-f, --format <format>', 'Format: png, jpg, svg, pdf', 'png')
+  .allowExcessArguments(false)
   .action(async (options) => {
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
-    if (format === 'PNG') {
-      try {
-        const result = await runPngExportCompatibilityCommand({
-          action: 'screenshot', outputPath: options.output, scale, format,
-        });
-        if (result.stderr) console.error(result.stderr);
-        console.log(result.stdout);
-      } catch (error) {
-        console.error(chalk.red('✗'), error.message);
-        process.exitCode = 1;
-      }
-      return;
+    try {
+      const result = await runImageExportCompatibilityCommand({
+        action: 'screenshot',
+        outputPath: options.output === 'screenshot.png' && format !== 'PNG'
+          ? undefined
+          : options.output,
+        scale,
+        format,
+      });
+      if (result.stderr) console.error(result.stderr);
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗'), error.message);
+      process.exitCode = 1;
     }
-    await checkConnection();
-    const code = `(async () => {
-const sel = figma.currentPage.selection;
-const node = sel.length > 0 ? sel[0] : figma.currentPage;
-if (!node) return { error: 'No page or selection' };
-if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-const bytes = await node.exportAsync({ format: ${JSON.stringify(format)}, constraint: { type: 'SCALE', value: ${scale} } });
-return {
-  name: node.name,
-  id: node.id,
-  width: Math.round(node.width * ${scale}),
-  height: Math.round(node.height * ${scale}),
-  base64: figma.base64Encode(bytes)
-};
-})()`;
-    const result = await daemonExec('eval', { code }, 60000);
-    if (result.error) {
-      console.error(chalk.red('✗'), result.error);
-      process.exit(1);
-    }
-    // base64 transport: ~1.4x the PNG size instead of the 4-5x JSON number
-    // array that used to blow the curl buffer on any real frame.
-    const buffer = Buffer.from(result.base64, 'base64');
-    const outputFile = options.output === 'screenshot.png' && format !== 'PNG'
-      ? `screenshot.${format.toLowerCase()}`
-      : options.output;
-    workspaceIO().write(outputFile, buffer, { role: 'export-image-output', createParents: true });
-    console.log(chalk.green('✓'), `Screenshot: ${result.name} (${result.width}x${result.height}) → ${outputFile}`);
   });
 
 exp
   .command('node <nodeId>')
-  .description('Export a node by ID as PNG')
+  .description('Export a node by ID as PNG, JPG, SVG, or PDF')
   .option('-o, --output <file>', 'Output file', 'node-export.png')
   .option('-s, --scale <number>', 'Export scale', '2')
   .option('-f, --format <format>', 'Format: png, svg, pdf, jpg', 'png')
+  .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
-    if (format === 'PNG') {
-      try {
-        const result = await runPngExportCompatibilityCommand({
-          action: 'node', nodeId, outputPath: options.output, scale, format,
-        });
-        if (result.stderr) console.error(result.stderr);
-        console.log(result.stdout);
-      } catch (error) {
-        console.error(chalk.red('✗'), error.message);
-        process.exitCode = 1;
-      }
-      return;
+    try {
+      const result = await runImageExportCompatibilityCommand({
+        action: 'node',
+        nodeId,
+        outputPath: options.output === 'node-export.png' && format !== 'PNG'
+          ? undefined
+          : options.output,
+        scale,
+        format,
+      });
+      if (result.stderr) console.error(result.stderr);
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗'), error.message);
+      process.exitCode = 1;
     }
-    await checkConnection();
-    nodeId = normalizedId(nodeId);
-    const code = `(async () => {
-const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-if (!node) return { error: 'Node not found: ' + ${JSON.stringify(nodeId)} + ' in the currently open file "' + figma.root.name + '" — Safe Mode only reaches the file open in Figma Desktop.' };
-if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-const bytes = await node.exportAsync({ format: ${JSON.stringify(format)}, constraint: { type: 'SCALE', value: ${scale} } });
-return {
-  name: node.name,
-  id: node.id,
-  width: node.width,
-  height: node.height,
-  base64: figma.base64Encode(bytes)
-};
-})()`;
-    const result = await daemonExec('eval', { code }, 60000);
-    if (result.error) {
-      console.error(chalk.red('✗'), result.error);
-      process.exit(1);
-    }
-    const buffer = Buffer.from(result.base64, 'base64');
-    const outputFile = options.output === 'node-export.png' && format !== 'PNG'
-      ? `node-export.${format.toLowerCase()}`
-      : options.output;
-    workspaceIO().write(outputFile, buffer, { role: 'export-image-output', createParents: true });
-    console.log(chalk.green('✓'), `Exported ${result.name} (${result.width}x${result.height}) to ${outputFile}`);
   });
 
 exp

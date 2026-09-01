@@ -4448,7 +4448,7 @@ test('figma_run rejects malformed verify-build before workspace or Plugin access
   }
 });
 
-test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Screenshot Application', async () => {
+test('figma_screenshot and every image export format use their Plan-bound Applications', async () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const dedicatedStart = source.indexOf('case "figma_screenshot"');
   const dedicated = source.slice(dedicatedStart, source.indexOf('case "figma_spec"', dedicatedStart));
@@ -4465,7 +4465,17 @@ test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Sc
   assert.match(generic, /executeScreenshotPlan\(plan/);
   assert.doesNotMatch(generic, /runCliPlan\(/);
 
+  const imageStart = source.indexOf('const imageExportRoute = imageExportPlanRoute(plan)');
+  const image = source.slice(imageStart, genericStart);
+  assert.match(image, /runInProcessCommandPlan\(plan/);
+  assert.match(image, /compatibilityFallback:\s*false/);
+  assert.match(image, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(image, /executeImageExportPlan\(plan/);
+  assert.match(image, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(image, /runCliPlan\(/);
+
   const { screenshotPlanRoute } = await import('../engine/src/application/screenshot-command.js');
+  const { imageExportPlanRoute } = await import('../engine/src/application/image-export-command.js');
   const { planFigmaCommand } = await import('../src/capability-catalog.js');
   for (const args of [
     ['export', 'node', '1:2'],
@@ -4476,6 +4486,11 @@ test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Sc
   assert.equal(screenshotPlanRoute(planFigmaCommand([
     'export', 'node', '1:2', '--format', 'svg',
   ])), 'not-screenshot');
+  for (const format of ['jpg', 'svg', 'pdf']) {
+    assert.equal(imageExportPlanRoute(planFigmaCommand([
+      'export', 'node', '1:2', '--format', format,
+    ])), 'command-application');
+  }
 });
 
 test('malformed Screenshot requests stop before readiness or persistence', async () => {

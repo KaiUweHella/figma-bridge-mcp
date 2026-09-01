@@ -96,6 +96,27 @@ const EVIDENCE = Object.freeze([
     ],
   ],
   [
+    "SEC-IMAGE-EXPORT",
+    [
+      [
+        "engine/tests/image-export-command.test.js",
+        "JPG, SVG and PDF use one Plan-bound Image Export Application for CLI and MCP",
+      ],
+      [
+        "engine/tests/image-export-command.test.js",
+        "format bytes and Plugin evidence are validated before Workspace publication",
+      ],
+      [
+        "engine/tests/image-export-command.test.js",
+        "SVG and PDF require complete bounded containers before publication",
+      ],
+      [
+        "engine/tests/image-export-command.test.js",
+        "Image Export leaves bounded envelope room inside the Plugin transport",
+      ],
+    ],
+  ],
+  [
     "SEC-TARGET",
     [
       [
