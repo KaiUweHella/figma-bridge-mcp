@@ -23,6 +23,11 @@ function canonical(value) {
   return Array.isArray(value) ? value.map(canonical) : record(value)
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
 }
+function freezeGraph(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) freezeGraph(child);
+  return Object.freeze(value);
+}
 function same(left, right) { return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right)); }
 
 function validJsonValue(value, seen = new Set()) {
@@ -83,12 +88,18 @@ function normalizePrepared(value) {
   if (new Set(nodes.map((node) => node.requestedId)).size !== nodes.length) {
     throw new TypeError('Prepared Motion target identities are duplicated.');
   }
-  const prepared = { action: value.action, duration: value.duration, nodes };
+  const prepared = freezeGraph({ action: value.action, duration: value.duration, nodes });
   const serialized = JSON.stringify(prepared);
   if (serialized.length > MAX_MOTION_TRACK_SNAPSHOT_CODE_UNITS) {
     throw new TypeError('Prepared Motion track mutation is excessive.');
   }
   return Object.freeze({ prepared, trackCount });
+}
+
+/** Normalize and fully validate a prepared track transaction without producing
+ * Plugin code. File-backed Applications use this before authenticating input. */
+export function prepareMotionTrackMutation(value) {
+  return normalizePrepared(value).prepared;
 }
 
 export function motionTrackMutationCode(value) {

@@ -2481,7 +2481,9 @@ test('catalog prepares every known project-relative path policy', () => {
   assert.deepEqual(argv(['spec', 'Button', '--file=design/DESIGN.md']), [
     'spec', '--file', inWorkspace('design', 'DESIGN.md'), '--tolerance', '2', '--', 'Button',
   ]);
-  assert.deepEqual(argv(['motion', 'apply', 'motion.json']), ['motion', 'apply', inWorkspace('motion.json')]);
+  assert.deepEqual(argv(['motion', 'apply', 'motion.json']), [
+    'motion', 'apply', '--', inWorkspace('motion.json'),
+  ]);
   assert.deepEqual(argv(['history', 'diff', 'latest', 'live', '--changelog', 'changes.md']), [
     'history', 'diff', 'latest', 'live', '--changelog', inWorkspace('changes.md'),
   ]);

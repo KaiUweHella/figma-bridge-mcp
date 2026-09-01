@@ -1,17 +1,15 @@
 // Commands: motion — author Figma Motion animations (Config 2026 Beta Plugin API).
 // Additive: registers the `motion` namespace only. Pure logic lives in
-// ../lib/motion-core.js; legacy mutations turn normalized specs into Plugin API
-// calls via fastEval, while reads delegate to their Command Application. Every
-// operation guards on the metronome_plugin_api feature flag.
-//
-// Two hard-won gotchas baked in (Figma Desktop 126.6.12):
-//   1. object-assignment `node.manualKeyframeTracks = {...}` is a SILENT NO-OP;
-//      only applyManualKeyframeTrack / removeManualKeyframeTrack persist.
-//   2. the daemon's top-level-return auto-wrap is flaky on if-statement returns,
-//      so every eval body is wrapped in an explicit async IIFE (evalBody()).
+// ../lib/motion-core.js; every read and mutation delegates to a closed Command
+// Application with bounded native facts and explicit verification semantics.
 import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
+import {
+  executePreparedMotionApply,
+  motionApplyPlanningArgvFromRequest,
+  prepareMotionApplyPlan,
+} from '../application/motion-apply-command.js';
 import {
   executeMotionAddPlan,
   motionAddPlanningArgvFromRequest,
@@ -41,139 +39,14 @@ import {
   motionTimelinePlanningArgvFromRequest,
 } from '../application/motion-timeline-command.js';
 import {
-  progress, program, checkConnection, daemonExec, fastEval, handleEvalError, spinnerSucceed,
+  program, daemonExec, handleEvalError,
 } from '../lib/cli-core.js';
-import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
-import {
-  normalizeSpec,
-  PRESETS,
-} from '../lib/motion-core.js';
+import { workspaceIO } from '../lib/workspace-io.js';
+import { PRESETS } from '../lib/motion-core.js';
 
 const motion = program
   .command('motion')
   .description('Figma Motion: keyframes, presets, styles, timelines (Config 2026 Beta)');
-
-// --- shared plugin-side helpers, embedded into every eval ------------------
-
-// Beta guard + node resolution with top-level-frame descent.
-const PLUGIN_PRELUDE = `
-function motionGuard() {
-  if (typeof figma.motion !== 'object' || !figma.motion) return { error: 'MOTION_DISABLED' };
-  return null;
-}
-async function resolveTarget(id) {
-  const n = await figma.getNodeByIdAsync(id);
-  if (!n) return { error: 'NOT_FOUND', id };
-  const topLevel = n.parent && n.parent.type === 'PAGE';
-  const containerish = ['FRAME','COMPONENT','COMPONENT_SET','GROUP','SECTION','INSTANCE'].includes(n.type);
-  if (topLevel && containerish) {
-    const kids = n.children || [];
-    if (kids.length === 1) return { node: kids[0], descended: true, fromId: id, fromName: n.name };
-    if (kids.length === 0) return { error: 'TOPLEVEL_EMPTY', id, name: n.name };
-    return { error: 'TOPLEVEL_MULTI', id, name: n.name, children: kids.map(k => ({ id: k.id, name: k.name })) };
-  }
-  return { node: n, descended: false };
-}
-`;
-
-// Wrap prelude + a guarded body in an async IIFE so the daemon never has to
-// guess whether to wrap top-level returns.
-function evalBody(body) {
-  return `(async () => {
-${PLUGIN_PRELUDE}
-const guard = motionGuard();
-if (guard) return guard;
-${body}
-})()`;
-}
-
-function printGuardError(res) {
-  if (res && res.error === 'MOTION_DISABLED') {
-    console.log(chalk.red('\n✗ Motion API not enabled for your Figma account.'));
-    console.log(chalk.gray('  Figma Motion (Config 2026) is rolling out behind a Beta flag.'));
-    console.log(chalk.gray('  Update Figma Desktop and check figma.com for Motion access, then retry.\n'));
-    return true;
-  }
-  return false;
-}
-
-function printTargetError(res, id) {
-  if (!res || !res.error) return false;
-  if (printGuardError(res)) return true;
-  if (res.error === 'NOT_FOUND') {
-    console.log(chalk.red(`\n✗ Node "${id}" not found.\n`));
-    return true;
-  }
-  if (res.error === 'TOPLEVEL_EMPTY') {
-    console.log(chalk.red(`\n✗ "${res.name}" is a top-level frame with no children.`));
-    console.log(chalk.gray("  Motion can only animate a frame's children, not the frame itself.\n"));
-    return true;
-  }
-  if (res.error === 'TOPLEVEL_MULTI') {
-    console.log(chalk.red(`\n✗ "${res.name}" is a top-level frame — motion can't target it directly.`));
-    console.log(chalk.gray('  Pick one of its children by id:'));
-    for (const c of res.children) console.log(chalk.gray(`    ${c.id}  ${c.name}`));
-    console.log('');
-    return true;
-  }
-  return false;
-}
-
-// Apply a normalized spec ({ duration, byNode }). byNode maps requested id ->
-// { FIELD:{keyframes}, fills:{i:{keyframes}} }. Returns per-node results.
-async function runApply(normalized) {
-  const payload = JSON.stringify({ duration: normalized.duration, byNode: normalized.byNode });
-  const body = `
-const spec = ${payload};
-const results = [];
-for (const [reqId, tracks] of Object.entries(spec.byNode)) {
-  const r = await resolveTarget(reqId);
-  if (r.error) { results.push({ reqId, error: r.error, children: r.children, name: r.name }); continue; }
-  const node = r.node;
-  const applied = [];
-  for (const [field, data] of Object.entries(tracks)) {
-    if (field === 'fills' || field === 'strokes') {
-      const paints = field === 'fills' ? node.fills : node.strokes;
-      for (const [idx, track] of Object.entries(data)) {
-        const p = Array.isArray(paints) ? paints[Number(idx)] : null;
-        if (!p || p.type !== 'SOLID') { applied.push(field + '[' + idx + ']:SKIPPED_NO_SOLID'); continue; }
-        node.applyManualKeyframeTrack({ type: 'INDEXED_ITEM', collection: field, index: Number(idx) }, track);
-        applied.push(field + '[' + idx + ']');
-      }
-    } else {
-      node.applyManualKeyframeTrack({ type: 'PROPERTY', name: field }, data);
-      applied.push(field);
-    }
-  }
-  const tl = (node.timelines || [])[0];
-  if (tl && tl.duration < spec.duration) node.setTimelineDuration(tl.id, spec.duration);
-  results.push({
-    reqId, nodeId: node.id, nodeName: node.name,
-    descended: r.descended || false, fromName: r.fromName, applied,
-  });
-}
-return { duration: spec.duration, results };
-`;
-  return await fastEval(evalBody(body));
-}
-
-function reportApply(res, spinner) {
-  if (printGuardError(res)) { spinner.fail('Motion not available'); return false; }
-  const ok = res.results.filter((r) => !r.error);
-  const bad = res.results.filter((r) => r.error);
-  if (ok.length === 0) {
-    spinner.fail('No tracks applied');
-    for (const b of bad) printTargetError(b, b.reqId);
-    return false;
-  }
-  spinnerSucceed(spinner, `Animated ${ok.length} node${ok.length > 1 ? 's' : ''} · timeline ${res.duration}s`);
-  for (const r of ok) {
-    const via = r.descended ? chalk.gray(` (via "${r.fromName}")`) : '';
-    console.log(chalk.gray(`  ${r.nodeId}  ${r.nodeName}${via} → ${r.applied.join(', ')}`));
-  }
-  for (const b of bad) printTargetError(b, b.reqId);
-  return true;
-}
 
 async function runMotionRead(request) {
   try {
@@ -246,6 +119,28 @@ async function runMotionStagger(request) {
       async ({ fileKey, expectedEditor, deadline }) => {
         await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
         return executeMotionStaggerPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
+async function runMotionApply(request) {
+  try {
+    const plan = planFigmaCommand(motionApplyPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const prepared = prepareMotionApplyPlan(plan, { workspaceIO: workspaceIO() });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executePreparedMotionApply(prepared, {
           evaluate: (code) => daemonExec('eval', {
             code, ...(fileKey ? { fileKey } : {}),
           }, Math.max(1, deadline - Date.now())),
@@ -348,23 +243,8 @@ motion
 motion
   .command('apply <spec>')
   .description('Apply a full animation spec (JSON file path or inline JSON)')
-  .action(async (spec) => {
-    await checkConnection();
-    const spinner = progress('Applying animation spec...').start();
-    try {
-      const trimmed = spec.trim();
-      const text = trimmed.startsWith('{')
-        ? trimmed
-        : workspaceIO().readText(spec, { role: 'motion-file' });
-      const obj = parseBoundedJson(text, { role: 'motion-file', limits: workspaceIO().limits });
-      const normalized = normalizeSpec(obj);
-      const res = await runApply(normalized);
-      reportApply(res, spinner);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (spec) => runMotionApply({ source: spec }));
 
 // ============ motion preset <id> <name> ============
 motion

@@ -147,6 +147,11 @@ import {
   parseMotionAddRequest,
 } from '../engine/src/application/motion-add-request.js';
 import {
+  acceptsMotionApplyArgv,
+  motionApplyArgvFromRequest,
+  parseMotionApplyRequest,
+} from '../engine/src/application/motion-apply-request.js';
+import {
   acceptsMotionClearArgv,
   motionClearArgvFromRequest,
   motionClearFigmaUrlFileKeyFromArgv,
@@ -965,7 +970,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'motion.add', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
+  'motion.add', 'motion.apply', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
   'slot.reset',
@@ -1558,6 +1563,10 @@ function commandCapability(args) {
   }
   if (action.actionId === 'motion.add'
     && !action.help && !acceptsMotionAddArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.apply'
+    && !action.help && !acceptsMotionApplyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'motion.preset'
@@ -3429,6 +3438,14 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
+      if (args[1] === 'apply' && acceptsMotionApplyArgv(args)) {
+        const request = parseMotionApplyRequest(args);
+        const source = request.sourceKind === 'file' ? absolute(baseDir, request.source) : request.source;
+        args.splice(0, args.length,
+          ...motionApplyArgvFromRequest({ ...request, source }));
+        if (request.sourceKind === 'file') markRead(source, 'motion-file');
+        break;
+      }
       if (args[1] === 'add' && acceptsMotionAddArgv(args)) {
         if (projectUrlTarget) figmaUrlFileKey = motionAddFigmaUrlFileKeyFromArgv(args);
         args.splice(0, args.length,
@@ -3470,12 +3487,6 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         args.splice(0, args.length,
           ...motionReadArgvFromRequest(parseMotionReadRequest(args)));
         break;
-      }
-      const [motionInputIndex] = positionalIndexes(args, 2);
-      if (args[1] === 'apply' && typeof args[motionInputIndex] === 'string'
-        && !args[motionInputIndex].trimStart().startsWith('{')) {
-        args[motionInputIndex] = absolute(baseDir, args[motionInputIndex]);
-        markRead(args[motionInputIndex], 'motion-file');
       }
       break;
     }

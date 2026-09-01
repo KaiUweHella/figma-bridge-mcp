@@ -440,6 +440,21 @@ test('motion add delegates one Plan-bound rollback-owned Application', () => {
     'Commander must not retain Motion Add parsing, mutation, verification, or rollback');
 });
 
+test('motion apply delegates one workspace-prepared Plan-bound transaction', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('apply <spec>')");
+  const end = adapter.indexOf(".command('preset <id> <name>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionApply\(/);
+  assert.match(adapter, /motionApplyPlanningArgvFromRequest/);
+  assert.match(adapter, /prepareMotionApplyPlan\(plan, \{ workspaceIO: workspaceIO\(\) \}\)/);
+  assert.match(adapter, /executePreparedMotionApply\(prepared/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|readText\(|parseBoundedJson\(|normalizeSpec\(|applyManualKeyframeTrack/,
+    'Commander must not retain Motion Apply file parsing, normalization, mutation, verification, or rollback');
+});
+
 test('motion preset delegates one shared Plan-bound track transaction', () => {
   const adapter = sources.get('motion.js');
   assert.ok(adapter, 'motion.js exists');
@@ -476,8 +491,8 @@ test('the remaining direct Motion Action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await checkConnection\(\)/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['apply']);
-  assert.equal(direct.length, 1,
+  assert.deepEqual(direct, []);
+  assert.equal(direct.length, 0,
     'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
 });
 
