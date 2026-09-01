@@ -2746,6 +2746,8 @@ test('mixed Figma MCPs stay explicitly scoped to Figma Bridge', async () => {
 
   const status = TOOLS.find((candidate) => candidate.name === 'figma_status');
   assert.match(status.description, /this Figma Bridge only/i);
+  const connect = TOOLS.find((candidate) => candidate.name === 'figma_connect');
+  assert.match(connect.description, /first recovery.*idle.*app restart.*once before diagnosis/i);
 
   const success = await handleTool('figma_reference', { name: 'variable-scopes' });
   assert.equal(success._mcp, MCP_SERVER_ID);

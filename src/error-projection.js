@@ -111,6 +111,8 @@ export function projectMcpErrorContext(value) {
   let suggestion;
   if (layer === 'whitelist') {
     suggestion = acceptedFormSuggestion(text);
+  } else if (kind === 'plugin-unavailable' && state === 'not-dispatched') {
+    suggestion = 'Run figma_connect once to wake or restore the configured Bridge, then retry the same not-dispatched request. Diagnose further only if figma_connect fails.';
   } else if (layer === 'transport' && state === 'not-dispatched') {
     suggestion = 'Run figma_status to confirm the intended file, then retry the same request.';
   } else if (layer === 'transport') {

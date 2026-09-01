@@ -93,7 +93,7 @@ test('MCP errors expose one closed layer, dispatch state and payload-free sugges
     layer: 'transport',
     kind: 'plugin-unavailable',
     dispatchState: 'not-dispatched',
-    suggestion: 'Run figma_status to confirm the intended file, then retry the same request.',
+    suggestion: 'Run figma_connect once to wake or restore the configured Bridge, then retry the same not-dispatched request. Diagnose further only if figma_connect fails.',
   });
 
   assert.deepEqual(projectMcpErrorContext(
@@ -103,7 +103,7 @@ test('MCP errors expose one closed layer, dispatch state and payload-free sugges
     layer: 'transport',
     kind: 'plugin-unavailable',
     dispatchState: 'not-dispatched',
-    suggestion: 'Run figma_status to confirm the intended file, then retry the same request.',
+    suggestion: 'Run figma_connect once to wake or restore the configured Bridge, then retry the same not-dispatched request. Diagnose further only if figma_connect fails.',
   });
 
   assert.equal(projectMcpErrorContext('[engine-timeout] operation deadline exceeded').layer,

@@ -494,7 +494,7 @@ export const TOOLS = [
   {
     name: "figma_connect",
     description:
-      "Connect Safe Mode; recover the plugin, create its key, or show setup.",
+      "First recovery after idle or app restart: call once before diagnosis; pair or recover.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
