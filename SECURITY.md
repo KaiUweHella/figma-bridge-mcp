@@ -66,10 +66,12 @@ connection epoch used by every Dispatch Receipt.
 
 **The plugin cannot reach external network domains.** `plugin/manifest.json`
 restricts `networkAccess.allowedDomains` to the exact HTTP/WebSocket localhost
-ports 3456–3460. Figma applies this policy to plugin requests, including remote
-image URLs passed to `createImageAsync`; those URLs are therefore deliberately
-blocked rather than becoming an exfiltration route. The manifest regression
-tests fail if a non-loopback entry is added. See Figma's
+ports 3456–3460. Approved remote image sources are fetched and verified by the
+host under the bounded image-origin policy; the plugin receives embedded bytes
+and uses `createImage`, never the source URL or `createImageAsync`. Figma still
+blocks Plugin-side remote URLs rather than letting them become an exfiltration
+route. The manifest regression tests fail if a non-loopback entry is added. See
+Figma's
 [manifest network policy](https://developers.figma.com/docs/plugins/manifest/).
 
 **Live document mutation reaches only files you opened yourself.** The bridge

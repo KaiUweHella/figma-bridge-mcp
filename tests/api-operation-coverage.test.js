@@ -85,11 +85,13 @@ test('every real engine command is either Safe-Mode reachable or explicitly engi
 });
 
 test('every create subcommand is Safe-Mode reachable or an explicit legacy boundary', () => {
-  const legacyBoundaries = new Set(['image', 'component', 'group']);
+  const legacyBoundaries = new Set(['component', 'group']);
   for (const aliases of commandRows('create')) {
     const allowed = aliases.some((name) => planFigmaCommand(
       name === 'frame' ? ['create', name, 'Coverage Frame']
-        : name === 'text' ? ['create', name, 'Coverage Text'] : ['create', name],
+        : name === 'text' ? ['create', name, 'Coverage Text']
+          : name === 'image' ? ['create', name, 'https://assets.example/photo.png']
+            : ['create', name],
     ).allowed);
     assert.ok(allowed || aliases.some((name) => legacyBoundaries.has(name)), `Unclassified create subcommand: ${aliases.join('|')}`);
   }

@@ -41,7 +41,7 @@ const PLUGIN_API_CREATION_OPERATIONS = Object.freeze({
   createGridStyle: supported(['style', 'create', 'GRID', 'Grid']),
   createNodeFromSvg: alternative(['render', '<svg />'], 'SVG is created through the validated renderer rather than a raw SVG command.'),
   createImage: alternative(['node', 'set-image', '1:2', 'image.png'], 'Local image bytes become an editable image fill on an explicit target node.'),
-  createImageAsync: alternative(['render', '<Image src="https://example.com/image.png" />'], 'Remote images are fetched only through the validated renderer; the legacy standalone URL creator stays blocked.'),
+  createImageAsync: alternative(['create', 'image', 'https://assets.example/photo.png'], 'The host resolves an approved remote source to verified bytes; the Plugin receives no URL and creates the image synchronously.'),
   createVideoAsync: boundary('Figma media creation has no stable cross-editor typed workflow yet; video export is read-only.'),
   createLinkPreviewAsync: boundary('Network-backed link previews are intentionally outside the Safe Mode write surface.'),
   createGif: boundary('Raw MediaNode/GIF creation is editor-specific and has no explicit local-asset workflow yet.'),

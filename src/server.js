@@ -110,6 +110,11 @@ import {
   executeCreateFramePlan,
 } from "../engine/src/application/create-frame-command.js";
 import {
+  createImagePlanRoute,
+  executeCreateImagePlan,
+  prepareCreateImagePlan,
+} from "../engine/src/application/create-image-command.js";
+import {
   createShapePlanRoute,
   executeCreateShapePlan,
 } from "../engine/src/application/create-shape-command.js";
@@ -2520,6 +2525,27 @@ export async function handleTool(name, rawArgs) {
               fileKey,
               expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const createImageRoute = createImagePlanRoute(plan);
+      if (createImageRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          const prepared = await prepareCreateImagePlan(plan, { remainingMs });
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeCreateImagePlan(plan, prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, remainingMs()),
             }),
           });
         });

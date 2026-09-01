@@ -72,6 +72,11 @@ import {
   parseCreateFrameRequest,
 } from '../engine/src/application/create-frame-request.js';
 import {
+  acceptsCreateImageArgv,
+  createImageArgvFromRequest,
+  parseCreateImageRequest,
+} from '../engine/src/application/create-image-request.js';
+import {
   acceptsCreateShapeArgv,
   createShapeArgvFromRequest,
   createShapeFigmaUrlFileKeyFromArgv,
@@ -980,6 +985,7 @@ const COMMAND_PLANS = new WeakSet();
 const CLI_COMMAND_APPLICATIONS = new Set([
   'import',
   'create.frame',
+  'create.image',
   'create.rect', 'create.ellipse', 'create.polygon', 'create.star',
   'create.vector', 'create.slice',
   'create.line',
@@ -1243,6 +1249,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'node' && sub === 'to-component') pathPolicy = 'node-to-component-input';
   if (name === 'node' && sub === 'duplicate') pathPolicy = 'node-duplicate-input';
   if (name === 'create' && sub === 'frame') pathPolicy = 'create-frame-input';
+  if (actionId === 'create.image') pathPolicy = 'create-image-input';
   if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(actionId)) {
     pathPolicy = 'create-shape-input';
   }
@@ -1540,6 +1547,9 @@ function commandCapability(args) {
   }
   if (name === 'create' && args[1] === 'frame'
     && !action.help && !acceptsCreateFrameArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'create.image' && !action.help && !acceptsCreateImageArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (['create.rect', 'create.ellipse', 'create.polygon', 'create.star'].includes(action.actionId)
@@ -2761,6 +2771,11 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...createFrameArgvFromRequest(parseCreateFrameRequest(args)));
       break;
     }
+    case 'create-image-input': {
+      args.splice(0, args.length,
+        ...createImageArgvFromRequest(parseCreateImageRequest(args)));
+      break;
+    }
     case 'create-shape-input': {
       const closedFileKey = createShapeFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -3627,6 +3642,7 @@ function flagValue(args, flags, options) {
 
 /** External outbound access only; authenticated localhost transport is separate. */
 function networkEffect(args, capability) {
+  if (capability.actionId === 'create.image') return 'read';
   if (acceptsStorybookMapArgv(args)) {
     if (storybookMapSourceIsRemote(parseStorybookMapRequest(args).source)) return 'read';
   }

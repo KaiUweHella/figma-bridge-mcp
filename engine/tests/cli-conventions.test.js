@@ -1009,6 +1009,28 @@ test('create frame delegates one Plan-bound rollback-verified Command Applicatio
     'Commander must not retain Create Frame preflight, mutation, rollback, or formatting');
 });
 
+test('create image materializes on the host before one rollback-aware Plugin write', () => {
+  const adapter = sources.get('create.js');
+  const start = adapter.indexOf(".command('image <url>')");
+  const end = adapter.indexOf('// config.js continues', start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /createImageArgvFromRequest\(/);
+  assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(action, /prepareCreateImagePlan\(plan/);
+  assert.ok(action.indexOf('prepareCreateImagePlan(plan') < action.indexOf('ensurePluginReadiness({'),
+    'remote bytes must be materialized before Plugin readiness');
+  assert.match(action, /executeCreateImagePlan\(plan, prepared/);
+  assert.match(action, /daemonExec\('eval'/);
+  assert.match(action, /process\.exitCode = 1/);
+  assert.doesNotMatch(action, /checkConnection\(|evalPrint\(|createImageAsync|figma\.createRectangle\(/,
+    'Commander must not retain remote loading, mutation, verification, or rollback');
+  const application = readFileSync(join(APPLICATION_DIR, 'create-image-command.js'), 'utf8');
+  assert.match(application, /materializeRemoteRenderImage/);
+  assert.match(application, /figma\.createImage\(bytes\)/);
+  assert.doesNotMatch(application, /createImageAsync/);
+});
+
 test('the remaining public direct Create write inventory is explicit and cannot grow silently', () => {
   const adapter = sources.get('create.js');
   assert.ok(adapter, 'create.js exists');

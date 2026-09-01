@@ -2682,6 +2682,30 @@ test('Create Frame owns one canonical cross-Adapter write Plan', () => {
   assert.equal(planFigmaCommand(['create', 'frame', 'Card', '--future'], { adapter: 'mcp' }).allowed, false);
 });
 
+test('Create Image owns one canonical host-networked cross-Adapter write Plan', () => {
+  const variants = [
+    ['create', 'image', 'https://assets.example/photo.png'],
+    ['create', 'image', 'https://assets.example/photo.png', '-w', '100', '-h', '80'],
+    ['create', 'image', '--height=80', '--width=100', 'https://assets.example/photo.png'],
+  ];
+  for (const argv of variants) {
+    const mcp = planFigmaCommand(argv, { adapter: 'mcp', fileKey: 'FILE_A' });
+    const cli = planFigmaCommand(mcp.argv, { adapter: 'cli', fileKey: 'FILE_A' });
+    assert.equal(mcp.allowed, true);
+    assert.equal(cli.allowed, true);
+    assert.equal(mcp.id, 'create.image');
+    assert.equal(mcp.effects.network, 'read');
+    assert.equal(mcp.effects.workspace, 'none');
+    assert.deepEqual(mcp.effects, cli.effects);
+    assert.deepEqual(mcp.target, cli.target);
+    assert.equal(mcp.execution.retry, 'never');
+  }
+  assert.equal(planFigmaCommand(['create', 'image'], { adapter: 'mcp' }).allowed, false);
+  assert.equal(planFigmaCommand([
+    'create', 'image', 'https://assets.example/photo.png', '--future',
+  ], { adapter: 'mcp' }).allowed, false);
+});
+
 test('solid Shape creation owns canonical cross-Adapter write Plans', () => {
   const cases = [
     [['create', 'rectangle', 'Card', '--fill', '#abc'], 'create.rect', ['create', 'rect', 'Card', '--fill=#AABBCC']],

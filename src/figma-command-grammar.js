@@ -11,6 +11,7 @@ const ACTION_VALUE_HELP_TOKENS = Object.freeze({
   // Treating it as help would erase a real write from Capability policy.
   'component.create': new Set(['-h']),
   'create.frame': new Set(['-h']),
+  'create.image': new Set(['-h']),
   'create.rect': new Set(['-h']),
   'create.ellipse': new Set(['-h']),
   'create.polygon': new Set(['-h']),
@@ -279,9 +280,9 @@ const COMMAND_GRAMMAR = Object.freeze({
     ...actionGroup('frame rect ellipse polygon star vector slice text line autolayout', {
       aliases: { rect: ['rectangle'], ellipse: ['circle'], autolayout: ['al'] },
     }).children,
+    image: action(),
     // These inherited commands bypass the bounded Safe-Mode primitives. Keep
     // them in the grammar contract so Commander drift cannot expose them.
-    image: blockedAction(),
     component: blockedAction(),
     group: blockedAction(),
   }),

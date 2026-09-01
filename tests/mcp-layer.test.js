@@ -391,6 +391,20 @@ test('figma_run routes Create Frame through the rollback-verified Command Applic
   assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Frame must not re-enter Commander');
 });
 
+test('figma_run materializes Create Image before readiness and never re-enters Commander', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const createImageRoute = createImagePlanRoute(plan)');
+  const end = source.indexOf('const createShapeRoute = createShapePlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback: false/);
+  assert.match(slice, /prepareCreateImagePlan\(plan/);
+  assert.ok(slice.indexOf('prepareCreateImagePlan(plan') < slice.indexOf('ensurePluginReadiness({'),
+    'network preparation must complete before Plugin readiness');
+  assert.match(slice, /executeCreateImagePlan\(plan, prepared/);
+  assert.doesNotMatch(slice, /runCliPlan\(/, 'Create Image must not re-enter Commander');
+});
+
 test('figma_run routes solid Shape creation through the rollback-verified Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const createShapeRoute = createShapePlanRoute(plan)');

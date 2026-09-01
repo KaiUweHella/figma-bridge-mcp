@@ -3,13 +3,11 @@ import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
-  progress,
   checkConnection,
   daemonExec,
   evalPrint,
   getVarName,
-  program,
-  spinnerSucceed
+  program
 } from '../lib/cli-core.js';
 import {
   createFramePlanningArgvFromRequest,
@@ -35,6 +33,11 @@ import {
   createTextPlanningArgvFromRequest,
   executeCreateTextPlan,
 } from '../application/create-text-command.js';
+import {
+  createImageArgvFromRequest,
+  executeCreateImagePlan,
+  prepareCreateImagePlan,
+} from '../application/create-image-command.js';
 
 // ============ CREATE ============
 
@@ -216,59 +219,35 @@ create
   .option('-y <n>', 'Y position', '0')
   .option('-n, --name <name>', 'Node name', 'Image')
   .option('--spacing <n>', 'Gap from other elements', '100')
+  .allowExcessArguments(false)
   .action(async (url, options) => {
-    await checkConnection();
-    const spinner = progress('Loading image...').start();
-
-    const code = `
-(async () => {
-  try {
-    // Smart positioning
-    let smartX = 0;
-    if (${options.x === undefined}) {
-      figma.currentPage.children.forEach(n => {
-        smartX = Math.max(smartX, n.x + (n.width || 0));
-      });
-      smartX += ${options.spacing || 100};
-    } else {
-      smartX = ${options.x || 0};
-    }
-
-    // Create image from URL
-    const image = await figma.createImageAsync("${url}");
-    const { width, height } = await image.getSizeAsync();
-
-    // Calculate dimensions
-    let w = ${options.width || 'null'};
-    let h = ${options.height || 'null'};
-    if (w && !h) h = Math.round(height * (w / width));
-    if (h && !w) w = Math.round(width * (h / height));
-    if (!w && !h) { w = width; h = height; }
-
-    // Create rectangle with image fill
-    const rect = figma.createRectangle();
-    rect.name = "${options.name}";
-    rect.resize(w, h);
-    rect.x = smartX;
-    rect.y = ${options.y};
-    rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
-
-    figma.currentPage.selection = [rect];
-    figma.viewport.scrollAndZoomIntoView([rect]);
-
-    return 'Image created: ' + w + 'x' + h + ' at (' + smartX + ', ${options.y})';
-  } catch (e) {
-    return 'Error: ' + e.message;
-  }
-})()
-`;
-
     try {
-      const result = await evalPrint(code, { silent: true });
-      spinnerSucceed(spinner, 'Image created from URL');
-      if (result) console.log(chalk.gray(result.trim()));
-    } catch (e) {
-      spinner.fail('Failed to create image: ' + e.message);
+      const plan = planFigmaCommand(createImageArgvFromRequest({
+        url,
+        width: options.width,
+        height: options.height,
+        x: options.x,
+        y: options.y,
+        name: options.name,
+        spacing: options.spacing,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          const remainingMs = () => Math.max(0, deadline - Date.now());
+          const prepared = await prepareCreateImagePlan(plan, { remainingMs });
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeCreateImagePlan(plan, prepared, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, remainingMs())),
+          });
+        });
+      console.log(result.stdout);
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+    } catch (error) {
+      console.error(chalk.red('✗ Create Image failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });
