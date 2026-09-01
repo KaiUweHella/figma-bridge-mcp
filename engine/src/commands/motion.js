@@ -13,6 +13,10 @@ import chalk from 'chalk';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
 import { ensurePluginReadiness, runInProcessCommandPlan } from '../../../src/engine.js';
 import {
+  executeMotionAddPlan,
+  motionAddPlanningArgvFromRequest,
+} from '../application/motion-add-command.js';
+import {
   executeMotionClearPlan,
   motionClearPlanningArgvFromRequest,
 } from '../application/motion-clear-command.js';
@@ -33,8 +37,6 @@ import {
 } from '../lib/cli-core.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import {
-  mapField,
-  parseKeys,
   normalizeSpec,
   presetTracks,
   expandStagger,
@@ -192,6 +194,27 @@ async function runMotionRead(request) {
   }
 }
 
+async function runMotionAdd(request) {
+  try {
+    const plan = planFigmaCommand(motionAddPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionAddPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
 async function runMotionTimeline(request) {
   try {
     const plan = planFigmaCommand(motionTimelinePlanningArgvFromRequest(request), {
@@ -266,43 +289,17 @@ motion
   .option('-d, --dur <s>', 'duration seconds (with --from/--to)', '0.5')
   .option('--at <s>', 'start offset seconds (with --from/--to)', '0')
   .option('-e, --ease <ease>', 'easing: ease-out, gentle, quick, spring, linear, hold', 'ease-out')
-  .action(async (id, options) => {
-    await checkConnection();
-    if (!options.field) return console.log(chalk.red('✗ --field is required (e.g. --field opacity)'));
-    const spinner = progress('Applying keyframes...').start();
-    try {
-      const f = mapField(options.field);
-      let normalized;
-
-      if (options.keys) {
-        const kfs = parseKeys(options.keys, f.valueType);
-        const node = {};
-        if (f.valueType === 'COLOR') node[f.name] = { [f.index]: { keyframes: kfs } };
-        else node[f.name] = { keyframes: kfs };
-        const maxT = Math.max(...kfs.map((k) => k.timelinePosition));
-        normalized = { duration: maxT, maxT, byNode: { [id]: node } };
-      } else if (options.from != null && options.to != null) {
-        const dur = parseFloat(options.dur);
-        const at = parseFloat(options.at);
-        const from = f.valueType === 'COLOR' ? options.from : parseFloat(options.from);
-        const to = f.valueType === 'COLOR' ? options.to : parseFloat(options.to);
-        const keys = [
-          { t: at, v: from },
-          { t: at + dur, v: to, ease: options.ease },
-        ];
-        normalized = normalizeSpec({ tracks: [{ node: id, field: options.field, keys }] });
-      } else {
-        spinner.fail('Need --keys or both --from and --to');
-        return;
-      }
-
-      const res = await runApply(normalized);
-      reportApply(res, spinner);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (id, options) => runMotionAdd({
+    nodeId: id,
+    field: options.field,
+    keys: options.keys ?? null,
+    from: options.from ?? null,
+    to: options.to ?? null,
+    duration: options.keys == null ? options.dur : null,
+    offset: options.keys == null ? options.at : null,
+    easing: options.keys == null ? options.ease : null,
+  }));
 
 // ============ motion apply <spec> ============
 motion

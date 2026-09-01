@@ -141,6 +141,12 @@ import {
   parseDrawRequest,
 } from '../engine/src/application/draw-request.js';
 import {
+  acceptsMotionAddArgv,
+  motionAddArgvFromRequest,
+  motionAddFigmaUrlFileKeyFromArgv,
+  parseMotionAddRequest,
+} from '../engine/src/application/motion-add-request.js';
+import {
   acceptsMotionClearArgv,
   motionClearArgvFromRequest,
   motionClearFigmaUrlFileKeyFromArgv,
@@ -947,7 +953,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
+  'motion.add', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
   'slot.reset',
@@ -1536,6 +1542,10 @@ function commandCapability(args) {
   }
   if (['motion.styles', 'motion.inspect'].includes(action.actionId)
     && !action.help && !acceptsMotionReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.add'
+    && !action.help && !acceptsMotionAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'motion.clear'
@@ -3399,6 +3409,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
+      if (args[1] === 'add' && acceptsMotionAddArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionAddFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionAddArgvFromRequest(parseMotionAddRequest(args)));
+        break;
+      }
       if (args[1] === 'style' && acceptsMotionStyleArgv(args)) {
         if (projectUrlTarget) figmaUrlFileKey = motionStyleFigmaUrlFileKeyFromArgv(args);
         args.splice(0, args.length,

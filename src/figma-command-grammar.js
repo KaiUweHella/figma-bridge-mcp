@@ -31,6 +31,15 @@ function valueOption(...aliases) {
   });
 }
 
+function signedValueOption(...aliases) {
+  return Object.freeze({
+    name: aliases.find((alias) => alias.startsWith('--')) || aliases[0],
+    aliases: Object.freeze(aliases),
+    value: true,
+    allowLeadingDash: true,
+  });
+}
+
 function flagOption(...aliases) {
   return Object.freeze({
     name: aliases.find((alias) => alias.startsWith('--')) || aliases[0],
@@ -111,6 +120,11 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
     valueOption('-c', '--collection'), flagOption('--print-context'),
     valueOption('--save'), valueOption('--type'),
   ]),
+  'motion.add': optionSchema([
+    valueOption('-f', '--field'), valueOption('-k', '--keys'),
+    signedValueOption('--from'), signedValueOption('--to'), valueOption('-d', '--dur'),
+    valueOption('--at'), valueOption('-e', '--ease'),
+  ]),
   'motion.apply': optionSchema(),
   'motion.clear': optionSchema([valueOption('-f', '--field'), flagOption('--styles')]),
   'motion.style': optionSchema([
@@ -173,7 +187,7 @@ function acceptsPolicyOptions(actionId, args) {
       } else {
         const value = args[index + 1];
         if (typeof value !== 'string' || value === '--'
-          || (value !== '-' && value.startsWith('-'))) return false;
+          || (!option.allowLeadingDash && value !== '-' && value.startsWith('-'))) return false;
         index++;
       }
     } else if (parsed.inline) {
