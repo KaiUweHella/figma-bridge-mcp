@@ -14,7 +14,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/KaiUweHella/figma-bridge-mcp.git",
-        "ref": "v0.7.1"
+        "ref": "v0.7.2"
       },
       "description": "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills"
     }

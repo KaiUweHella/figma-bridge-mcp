@@ -5,6 +5,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.7.2] — 2026-09-01
+
 ### Changed
 
 - Figma-importable adapters now always use the exact filename
@@ -12,6 +14,12 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   FigJam and Slides adapter; Dev Mode installs below
   `dev-mode/manifest.json`; and source development generates a fully isolated,
   gitignored `plugin/local/manifest.json` bundle pinned to port 3460.
+
+### Fixed
+
+- Local-development Plugin profile tests now resolve repository URLs and
+  compare manifest paths portably, so the Node 24 Windows release gate no
+  longer mistakes an invalid working directory for a missing Node executable.
 
 ## [0.7.1] — 2026-09-01
 
