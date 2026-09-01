@@ -182,10 +182,12 @@ npm install
 Use the `local-development` profile when a released Bridge is running at the
 same time (for example from Claude Code). It pins the source checkout to
 `localhost:3460` and isolates its daemon, tokens, pairing and audit data below
-`~/.figma-bridge-mcp/profiles/local-development/`. Import the checkout-owned
-`plugin/manifest.json` directly and open **Figma Bridge Local
-Development**. The main Plugin passes that manifest identity's exact port to
-the shared UI, while Figma's manifest policy also permits only `:3460`.
+`~/.figma-bridge-mcp/profiles/local-development/`. `figma_connect` generates
+the gitignored, checkout-owned `plugin/local/manifest.json` bundle; import that
+exact file and open **Figma Bridge Local Development**. You can also refresh
+both checkout import bundles explicitly with `npm run prepare:plugin-imports`.
+The main Plugin passes that manifest identity's exact port to the shared UI,
+while Figma's manifest policy also permits only `:3460`.
 Omitting `FIGMA_BRIDGE_PROFILE` retains the normal released profile and its
 3456–3460 fallback behavior.
 
@@ -229,12 +231,12 @@ the previously imported build in its application cache. `figma_status` detects
 that mismatch. Re-import the same `manifest.json` path once when it reports an
 older plugin build; the saved access key is retained.
 
-### Figma Dev Mode requires its own manifest
+### Figma Dev Mode requires its own manifest.json bundle
 
 The normal `manifest.json` does not work in Dev Mode. Figma does not support
 combining the existing FigJam editor target with `dev` in one manifest:
 
-- Import `~/.figma-bridge-mcp/plugin/manifest.dev.json` for **Figma Bridge Dev
+- Import `~/.figma-bridge-mcp/plugin/dev-mode/manifest.json` for **Figma Bridge Dev
   Mode**. It keeps the authenticated MCP bridge connected for selection,
   inspection, specs and exports. Dev Mode is read-only, so rendering and canvas
   edits still require switching the file to Design mode and opening the normal
@@ -1809,7 +1811,9 @@ rather than a generic API failure.
   `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install. A
   source checkout can additionally select `FIGMA_BRIDGE_PROFILE=local-development`
   for a distinct namespace and a daemon/plugin pinned to `:3460` while the
-  released profile remains active.
+  released profile remains active. Its importable bundle is generated below
+  the gitignored `plugin/local/` directory; tracked `plugin/manifest.json`
+  always remains the normal released identity.
 - **Private Audit Trail** — commands attempt a closed, versioned start/outcome
   lifecycle in `~/.figma-bridge-mcp/audit.log`. Capability, effects, redacted
   data summaries, outcome, and duration remain useful to `figma_history`; raw

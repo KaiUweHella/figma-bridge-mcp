@@ -188,9 +188,11 @@ child.stdout.on("data", (chunk) => {
           smokeEnv.DAEMON_PORT_FILE,
           smokeEnv.DAEMON_TOKEN_FILE,
           join(smokeEnv.PLUGIN_INSTALL_DIR, "manifest.json"),
-          join(smokeEnv.PLUGIN_INSTALL_DIR, "manifest.dev.json"),
           join(smokeEnv.PLUGIN_INSTALL_DIR, "code.js"),
           join(smokeEnv.PLUGIN_INSTALL_DIR, "ui.html"),
+          join(smokeEnv.PLUGIN_INSTALL_DIR, "dev-mode", "manifest.json"),
+          join(smokeEnv.PLUGIN_INSTALL_DIR, "dev-mode", "code.js"),
+          join(smokeEnv.PLUGIN_INSTALL_DIR, "dev-mode", "ui.html"),
         ]) {
           if (!existsSync(required))
             throw new Error(`figma_connect did not create ${required}`);
@@ -212,6 +214,22 @@ child.stdout.on("data", (chunk) => {
         ) {
           throw new Error(
             "Packaged figma_connect installed the wrong editor support"
+          );
+        }
+        const installedDevModeManifest = JSON.parse(
+          readFileSync(
+            join(smokeEnv.PLUGIN_INSTALL_DIR, "dev-mode", "manifest.json"),
+            "utf8"
+          )
+        );
+        if (
+          installedDevModeManifest.name !== "Figma Bridge Dev Mode" ||
+          installedDevModeManifest.id !== "figma-bridge-mcp-dev" ||
+          JSON.stringify(installedDevModeManifest.editorType) !==
+            JSON.stringify(["dev"])
+        ) {
+          throw new Error(
+            "Packaged figma_connect installed an invalid Dev Mode manifest.json bundle"
           );
         }
         for (const daemonPort of [3456, 3457, 3458, 3459, 3460]) {

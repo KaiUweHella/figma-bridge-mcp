@@ -5,6 +5,14 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Changed
+
+- Figma-importable adapters now always use the exact filename
+  `manifest.json`: the tracked `plugin/manifest.json` is the released Design,
+  FigJam and Slides adapter; Dev Mode installs below
+  `dev-mode/manifest.json`; and source development generates a fully isolated,
+  gitignored `plugin/local/manifest.json` bundle pinned to port 3460.
+
 ## [0.7.1] — 2026-09-01
 
 ### Added

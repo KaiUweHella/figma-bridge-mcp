@@ -125,6 +125,11 @@
       "version": "3.3.37",
       "fingerprint": "sha256:cabec135a2e3e605a3ec4129766040970b5c37c9f3d6314fc93f8987fa3d7a5c",
       "previousFingerprint": "sha256:379662dcae369a339ccf50ec1c512302b1c33007bccd0993c17b8cdf3753c8bf"
+    },
+    {
+      "version": "3.3.38",
+      "fingerprint": "sha256:89590daf04fef4c3581ca37b0be82ffcbeedb9432c4b050d91a1754627d53cd1",
+      "previousFingerprint": "sha256:cabec135a2e3e605a3ec4129766040970b5c37c9f3d6314fc93f8987fa3d7a5c"
     }
   ]
 }

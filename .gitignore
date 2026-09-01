@@ -15,3 +15,8 @@ docs-local/
 release-artifact/
 package-smoke/
 *.tgz
+# Generated Figma-importable bundles. The canonical release manifest remains
+# tracked at plugin/manifest.json; local and Dev Mode adapters need their own
+# directory because Figma only imports files named exactly manifest.json.
+plugin/local/
+plugin/dev-mode/

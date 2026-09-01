@@ -21,8 +21,10 @@ import { randomUUID } from 'node:crypto';
 import { createPreparedDispatchReceipt } from '../engine/src/lib/dispatch-receipt.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.release.json'), 'utf8'));
-const localManifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
+const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
+const localManifest = JSON.parse(
+  readFileSync(join(ROOT, 'plugin', 'manifests', 'local-development.json'), 'utf8'),
+);
 const UI = readFileSync(join(ROOT, 'plugin', 'ui.html'), 'utf8');
 const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 
@@ -85,7 +87,7 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.id, 'figma-bridge-mcp');
 });
 
-test('the repository-local manifest pins the source adapter to :3460', () => {
+test('the local-development manifest template pins the generated source adapter to :3460', () => {
   assert.equal(localManifest.name, 'Figma Bridge Local Development');
   assert.equal(localManifest.id, 'figma-bridge-mcp-local-development');
   assert.equal(localManifest.main, 'code.js');
@@ -124,8 +126,11 @@ test('ordinary Plugin errors retain their original message', () => {
 });
 
 test('Dev Mode exposes a connectable read-only Inspect adapter', () => {
-  const devManifestPath = join(ROOT, 'plugin', 'manifest.dev.json');
-  assert.ok(existsSync(devManifestPath), 'plugin/manifest.dev.json must ship for the connected Dev Mode workflow');
+  const devManifestPath = join(ROOT, 'plugin', 'manifests', 'dev-mode.json');
+  assert.ok(
+    existsSync(devManifestPath),
+    'the Dev Mode manifest template must ship for the importable generated bundle',
+  );
   const devManifest = JSON.parse(readFileSync(devManifestPath, 'utf8'));
   assert.deepEqual(devManifest.editorType, ['dev']);
   assert.deepEqual(devManifest.capabilities, ['inspect']);

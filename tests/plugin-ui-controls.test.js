@@ -130,7 +130,7 @@ test('README puts optional REST setup near onboarding and gives Dev Mode its own
   assert.ok(restHeading > 0 && restHeading < architectureHeading,
     'optional REST setup should be visible before the architecture reference');
   assert.equal(README.match(/^## REST add-on \(optional\)$/gm)?.length, 1);
-  assert.match(README, /^### Figma Dev Mode requires its own manifest$/m);
+  assert.match(README, /^### Figma Dev Mode requires its own manifest\.json bundle$/m);
   assert.match(README, /normal[^\n]*`manifest\.json`[^\n]*does not work in Dev Mode/i);
-  assert.match(README, /manifest\.dev\.json/);
+  assert.match(README, /plugin\/dev-mode\/manifest\.json/);
 });

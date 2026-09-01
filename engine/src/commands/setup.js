@@ -1,6 +1,6 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import { mkdirSync, copyFileSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
@@ -19,8 +19,27 @@ import { workspaceIO } from '../lib/workspace-io.js';
 // server spawns the engine from an arbitrary directory).
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
-const LOCAL_PLUGIN_MANIFEST = join(PLUGIN_SRC_DIR, 'manifest.json');
-const RELEASE_PLUGIN_MANIFEST = join(PLUGIN_SRC_DIR, 'manifest.release.json');
+const RELEASE_PLUGIN_MANIFEST = join(PLUGIN_SRC_DIR, 'manifest.json');
+const LOCAL_PLUGIN_MANIFEST_TEMPLATE = join(
+  PLUGIN_SRC_DIR,
+  'manifests',
+  'local-development.json',
+);
+const DEV_MODE_PLUGIN_MANIFEST_TEMPLATE = join(
+  PLUGIN_SRC_DIR,
+  'manifests',
+  'dev-mode.json',
+);
+const LOCAL_PLUGIN_DIR = join(PLUGIN_SRC_DIR, 'local');
+
+function copyImportablePluginBundle(dest, manifestSource) {
+  mkdirSync(dest, { recursive: true });
+  copyFileSync(manifestSource, join(dest, 'manifest.json'));
+  for (const file of ['code.js', 'ui.html']) {
+    copyFileSync(join(PLUGIN_SRC_DIR, file), join(dest, file));
+  }
+  return join(dest, 'manifest.json');
+}
 
 // The path the user imports in Figma. Under an npx install the package lives
 // in an EPHEMERAL cache that npx may garbage-collect — importing the manifest
@@ -33,28 +52,36 @@ export function installPluginFiles() {
   // profiles still need the stable copied path below because their package
   // cache may disappear.
   if (isLocalDevelopmentProfile()) {
-    return LOCAL_PLUGIN_MANIFEST;
+    try {
+      return copyImportablePluginBundle(
+        process.env.PLUGIN_LOCAL_INSTALL_DIR || LOCAL_PLUGIN_DIR,
+        LOCAL_PLUGIN_MANIFEST_TEMPLATE,
+      );
+    } catch (error) {
+      throw new Error(
+        `Unable to prepare the gitignored local Figma Plugin bundle: ${error.message}`,
+      );
+    }
   }
   // Test/packaging hook: keep integration tests out of the user's real state
   // directory while exercising the exact connect command end to end.
   const dest = process.env.PLUGIN_INSTALL_DIR || join(STATE_DIR, 'plugin');
   try {
-    mkdirSync(dest, { recursive: true });
-    for (const f of ['manifest.dev.json', 'code.js', 'ui.html']) {
-      copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
-    }
-    copyFileSync(RELEASE_PLUGIN_MANIFEST, join(dest, 'manifest.json'));
+    copyImportablePluginBundle(dest, RELEASE_PLUGIN_MANIFEST);
+    copyImportablePluginBundle(
+      join(dest, 'dev-mode'),
+      DEV_MODE_PLUGIN_MANIFEST_TEMPLATE,
+    );
     // 0.5.0 briefly shipped a separate offline Codegen adapter. It is not
-    // needed by the MCP workflow; remove stable-cache leftovers on upgrade.
-    for (const retired of ['manifest.codegen.json', 'codegen.js']) {
+    // needed by the MCP workflow. Later releases also replace the invalid
+    // manifest.dev.json import path with dev-mode/manifest.json.
+    for (const retired of ['manifest.codegen.json', 'manifest.dev.json', 'codegen.js']) {
       try { rmSync(join(dest, retired), { force: true }); } catch {}
     }
     return join(dest, 'manifest.json');
   } catch {
-    // A read-only package cache is still a valid temporary import location.
-    // Never cross the profile boundary here: manifest.json is the contributor
-    // identity pinned to :3460, while released installs must keep the stable
-    // Figma Bridge identity and the normal daemon port range.
+    // The canonical source manifest is itself the released identity, so a
+    // read-only package cache remains a valid temporary import location.
     return RELEASE_PLUGIN_MANIFEST;
   }
 }
@@ -344,9 +371,20 @@ program
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
 
     if (!localDevelopment) {
+      const devModeManifestPath = join(
+        dirname(pluginManifestPath),
+        'dev-mode',
+        'manifest.json',
+      );
       console.log(chalk.white.bold('  OPTIONAL DEV MODE (SEPARATE READ-ONLY ADAPTER):\n'));
-      console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
-        + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.dev.json')) + '\n');
+      if (existsSync(devModeManifestPath)) {
+        console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
+          + chalk.yellow(devModeManifestPath) + '\n');
+      } else {
+        console.log(chalk.cyan('  → ') + chalk.gray(
+          'Dev Mode bundle unavailable because persistent Plugin files could not be prepared; fix the state directory and rerun figma_connect.\n',
+        ));
+      }
     }
 
     console.log(chalk.white.bold('  IF THE PLUGIN IS NOT ALREADY OPEN IN THIS FIGMA FILE:\n'));

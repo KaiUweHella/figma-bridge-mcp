@@ -227,17 +227,38 @@ test("test script uses Node discovery instead of shell-expanded globs", () => {
 
 test("plugin dir ships every adapter connect installs", () => {
   const setupSource = readFileSync(join(ROOT, "engine", "src", "commands", "setup.js"), "utf8");
-  for (const f of ["manifest.json", "manifest.dev.json", "code.js", "ui.html"]) {
+  for (const f of [
+    "manifest.json",
+    "manifests/dev-mode.json",
+    "manifests/local-development.json",
+    "code.js",
+    "ui.html",
+  ]) {
     assert.ok(existsSync(join(ROOT, "plugin", f)), `plugin/${f} exists`);
+  }
+  for (const f of ["manifest.json", "dev-mode.json", "local-development.json", "code.js", "ui.html"]) {
     assert.ok(setupSource.includes(`'${f}'`), `figma_connect installs plugin/${f}`);
   }
-  for (const removed of ["manifest.codegen.json", "codegen.js"]) {
+  for (const removed of ["manifest.release.json", "manifest.dev.json", "manifest.codegen.json", "codegen.js"]) {
     assert.equal(existsSync(join(ROOT, "plugin", removed)), false, `plugin/${removed} stays removed`);
-    assert.ok(setupSource.includes(`'${removed}'`), `figma_connect retires cached plugin/${removed}`);
   }
+  for (const retired of ["manifest.dev.json", "manifest.codegen.json", "codegen.js"]) {
+    assert.ok(setupSource.includes(`'${retired}'`), `figma_connect retires cached plugin/${retired}`);
+  }
+  assert.equal(
+    pkg.scripts["prepare:plugin-imports"],
+    "node scripts/prepare-plugin-imports.js",
+  );
   assert.ok(
-    existsSync(join(ROOT, "plugin", "manifest.release.json")),
-    "plugin/manifest.release.json exists for stable released installs",
+    existsSync(join(ROOT, "scripts", "prepare-plugin-imports.js")),
+    "source checkouts can generate exact manifest.json import bundles",
+  );
+  assert.deepEqual(
+    readFileSync(join(ROOT, "plugin", ".npmignore"), "utf8")
+      .trim()
+      .split(/\r?\n/),
+    ["local/", "dev-mode/"],
+    "generated checkout bundles must stay out of published packages",
   );
 });
 

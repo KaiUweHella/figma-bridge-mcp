@@ -16,3 +16,11 @@ implementation, the local lifecycle status is `completed`. See
 ### Domain docs
 
 This is a single-context repository: read the root `CONTEXT.md` and relevant decisions under `docs/adr/` before changing a domain area. See `docs/agents/domain.md`.
+
+### Release boundary
+
+Agents may prepare and commit release changes locally. Never create or move a
+release tag, push commits or tags, dispatch a publish workflow, or publish a
+package unless the user explicitly authorizes that exact remote action in the
+current request. The maintainer performs those release steps manually by
+default.

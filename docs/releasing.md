@@ -7,6 +7,11 @@ checkout after verification.
 
 ## Before every release
 
+Agents stop after a local release commit by default. Creating a tag, pushing a
+commit or tag, dispatching this repository's publish workflow, and publishing
+to npm are separate maintainer actions; each requires explicit authorization
+for that exact remote action.
+
 1. Finish code and live Figma checks before committing release metadata.
 2. Synchronize the release version everywhere with
    `npm run sync:release-version -- <version>`. This updates the root package,
