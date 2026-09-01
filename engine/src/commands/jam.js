@@ -48,6 +48,10 @@ import {
   executeJamTablePlan,
   jamTableArgvFromRequest,
 } from '../application/jam-table-command.js';
+import {
+  executeJamSectionPlan,
+  jamSectionArgvFromRequest,
+} from '../application/jam-section-command.js';
 
 const jam = program
   .command('jam')
@@ -222,16 +226,27 @@ jam
   .description('Add a section (a titled region of the board)')
   .option('--at <x,y>', 'Place at absolute coordinates')
   .option('--size <w,h>', 'Size in px', '800,600')
+  .allowExcessArguments(false)
   .action(async (name, options) => {
-    const [w, h] = String(options.size).split(',').map((n) => parseFloat(n));
-    await run(
-      snippets.section(name, {
-        at: options.at,
-        width: Number.isFinite(w) ? w : 800,
-        height: Number.isFinite(h) ? h : 600,
-      }),
-      (r) => console.log(chalk.green('✓'), `Section ${r.id}`),
-    );
+    try {
+      const plan = planFigmaCommand(jamSectionArgvFromRequest({
+        name, size: options.size, at: options.at,
+      }), { adapter: 'cli', fileKey: program.opts().figmaFile || null });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeJamSectionPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Jam section failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
   });
 
 jam

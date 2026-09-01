@@ -173,6 +173,8 @@
     "engine/src/application/jam-board-request.js",
     "engine/src/application/jam-connector-command.js",
     "engine/src/application/jam-connector-request.js",
+    "engine/src/application/jam-section-command.js",
+    "engine/src/application/jam-section-request.js",
     "engine/src/application/jam-shape-command.js",
     "engine/src/application/jam-shape-request.js",
     "engine/src/application/jam-stickies-command.js",

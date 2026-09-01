@@ -378,6 +378,11 @@ import {
   parseJamTableRequest,
 } from '../engine/src/application/jam-table-request.js';
 import {
+  acceptsJamSectionArgv,
+  jamSectionArgvFromRequest,
+  parseJamSectionRequest,
+} from '../engine/src/application/jam-section-request.js';
+import {
   acceptsComponentSetReferenceArgv,
   componentSetReferenceArgvFromRequest,
   componentSetReferenceFigmaUrlFileKeyFromArgv,
@@ -886,7 +891,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'section.list',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'section.create',
-  'jam.board', 'jam.arrange', 'jam.connector',
+  'jam.board', 'jam.arrange', 'jam.connector', 'jam.section',
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
   'sizes', 'var.visualize', 'gradient.mesh',
@@ -984,7 +989,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
   'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
-  'jam.table',
+  'jam.table', 'jam.section',
   'dev.list',
   'dev.link', 'dev.unlink', 'dev.edit',
   'section.list',
@@ -1396,6 +1401,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'jam' && sub === 'shape') pathPolicy = 'jam-shape-input';
   if (name === 'jam' && sub === 'connector') pathPolicy = 'jam-connector-input';
   if (name === 'jam' && sub === 'table') pathPolicy = 'jam-table-input';
+  if (name === 'jam' && sub === 'section') pathPolicy = 'jam-section-input';
   return { execution, timeoutClass, pathPolicy, retry };
 }
 
@@ -1655,6 +1661,10 @@ function commandCapability(args) {
   }
   if (name === 'jam' && args[1] === 'table'
     && !action.help && !acceptsJamTableArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'jam' && args[1] === 'section'
+    && !action.help && !acceptsJamSectionArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
@@ -3071,6 +3081,10 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'jam-table-input': {
       args.splice(0, args.length, ...jamTableArgvFromRequest(parseJamTableRequest(args)));
+      break;
+    }
+    case 'jam-section-input': {
+      args.splice(0, args.length, ...jamSectionArgvFromRequest(parseJamSectionRequest(args)));
       break;
     }
     case 'node-discovery-input': {
