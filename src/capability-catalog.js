@@ -841,6 +841,12 @@ import {
   screenshotFigmaUrlFileKeyFromArgv,
 } from '../engine/src/application/screenshot-request.js';
 import {
+  acceptsVerifyBuildArgv,
+  parseVerifyBuildRequest,
+  verifyBuildArgvFromRequest,
+  verifyBuildFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/verify-build-request.js';
+import {
   acceptsLegacyRasterExportArgv,
   legacyRasterExportArgvFromRequest,
   legacyRasterExportFigmaUrlFileKeyFromArgv,
@@ -1014,6 +1020,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'prototype.inspect',
   'prototype.add', 'prototype.set', 'prototype.clear',
   'render', 'render-batch', 'var.resolve', 'var.show', 'verify',
+  'verify-build',
   'var.list', 'var.find',
   'var.create',
   'var.create-batch',
@@ -1180,7 +1187,9 @@ function targetPolicy(name, entry, args, options) {
     && hasOption(options, '--print-context')) return 'none';
   if (entry.target !== 'conditional') return entry.target || 'figma';
   if (name === 'spec') return hasOption(options, '--check') ? 'figma' : 'none';
-  if (name === 'verify-build') return hasOption(options, '--node') ? 'figma' : 'none';
+  if (name === 'verify-build') {
+    return parseVerifyBuildRequest(args).needsFigma ? 'figma' : 'none';
+  }
   if (name === 'gradient') {
     return args[1] === 'extract' && parseGradientExtractRequest(args).selector === null ? 'none' : 'figma';
   }
@@ -2077,6 +2086,9 @@ function commandCapability(args) {
   if (name === 'verify' && !action.help && !acceptsScreenshotArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'verify-build' && !action.help && !acceptsVerifyBuildArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'export' && ['node', 'screenshot'].includes(args[1])
     && !action.help && !acceptsLegacyRasterExportArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -2336,49 +2348,43 @@ function optionalOutputFlag(args, baseDir, options) {
   return value;
 }
 
-function normalizeVerifyBuild(args, baseDir, notePath) {
-  const pathFlags = new Set([
-    '--assets', '--compare', '--design', '--diff-out', '--fidelity-ledger', '--browser-capture',
-  ]);
-  const skipValue = new Set(['--node', '--max-diff']);
-  let positionalDone = false;
-  let literal = false;
-  for (let index = 1; index < args.length; index++) {
-    const arg = args[index];
-    if (!literal && arg === '--') { literal = true; continue; }
-    if (literal) {
-      if (!positionalDone) {
-        args[index] = absolute(baseDir, arg);
-        notePath(args[index], 'read', 'verify-build-project', 'directory');
-        positionalDone = true;
-      }
-      continue;
-    }
-    const combined = arg.match(/^(--[a-z-]+)=(.*)$/);
-    if (combined) {
-      if (pathFlags.has(combined[1])) {
-        const value = absolute(baseDir, combined[2]);
-        args[index] = `${combined[1]}=${value}`;
-        notePath(value, combined[1] === '--diff-out' ? 'write' : 'read', `verify-build-${combined[1].slice(2)}`, combined[1] === '--assets' ? 'any' : 'file');
-      }
-      continue;
-    }
-    if (pathFlags.has(arg)) {
-      if (typeof args[index + 1] === 'string') {
-        args[index + 1] = absolute(baseDir, args[index + 1]);
-        notePath(args[index + 1], arg === '--diff-out' ? 'write' : 'read', `verify-build-${arg.slice(2)}`, arg === '--assets' ? 'any' : 'file');
-      }
-      index++;
-      continue;
-    }
-    if (skipValue.has(arg)) { index++; continue; }
-    if (arg.startsWith('-')) continue;
-    if (!positionalDone) {
-      args[index] = absolute(baseDir, arg);
-      notePath(args[index], 'read', 'verify-build-project', 'directory');
-      positionalDone = true;
-    }
+function normalizeVerifyBuild(args, baseDir, { markRead, markWrite }) {
+  const request = parseVerifyBuildRequest(args);
+  const projectDir = absolute(baseDir, request.projectDir);
+  const assetsPath = request.assetsPath ? absolute(baseDir, request.assetsPath) : null;
+  const comparePath = request.comparePath ? absolute(baseDir, request.comparePath) : null;
+  const designPath = request.designPath ? absolute(baseDir, request.designPath) : null;
+  const fidelityLedgerPath = request.fidelityLedgerPath
+    ? absolute(baseDir, request.fidelityLedgerPath) : null;
+  const browserCapturePath = request.browserCapturePath
+    ? absolute(baseDir, request.browserCapturePath) : null;
+  const diffOutPath = request.diffOutPath
+    ? absolute(baseDir, request.diffOutPath)
+    : comparePath
+      ? path.join(path.dirname(comparePath), `${path.basename(comparePath, path.extname(comparePath))}-diff.png`)
+      : null;
+  args.splice(0, args.length, ...verifyBuildArgvFromRequest({
+    ...request,
+    projectDir,
+    assetsPath,
+    comparePath,
+    designPath,
+    diffOutPath,
+    fidelityLedgerPath,
+    browserCapturePath,
+  }));
+  markRead(projectDir, 'verify-build-project', 'directory');
+  if (assetsPath) markRead(assetsPath, 'verify-build-assets', 'any');
+  if (comparePath) {
+    markRead(comparePath, 'verify-build-compare');
+    if (designPath) markRead(designPath, 'verify-build-design');
+    markWrite(diffOutPath, 'verify-build-diff-out');
   }
+  if (fidelityLedgerPath) {
+    markRead(fidelityLedgerPath, 'verify-build-fidelity-ledger');
+    markRead(browserCapturePath, 'verify-build-browser-capture');
+  }
+  return { diffOutPath: comparePath ? diffOutPath : null };
 }
 
 function insertBeforeTerminator(args, ...values) {
@@ -2560,8 +2566,14 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'verify-build':
-      normalizeVerifyBuild(args, baseDir, notePath);
-      markRead();
+      if (projectUrlTarget) figmaUrlFileKey = verifyBuildFigmaUrlFileKeyFromArgv(args);
+      {
+        const normalized = normalizeVerifyBuild(args, baseDir, { markRead, markWrite });
+        if (normalized.diffOutPath) {
+          outputPath = normalized.diffOutPath;
+          outputRole = 'verify-build-diff-out';
+        }
+      }
       break;
     case 'verify-image': {
       if (projectUrlTarget) figmaUrlFileKey = screenshotFigmaUrlFileKeyFromArgv(args);

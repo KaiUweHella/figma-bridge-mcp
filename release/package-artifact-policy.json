@@ -349,6 +349,8 @@
     "engine/src/application/style-publish-status-request.js",
     "engine/src/application/verification-artifact.js",
     "engine/src/application/verification-settle.js",
+    "engine/src/application/verify-build-command.js",
+    "engine/src/application/verify-build-request.js",
     "engine/src/code-import/css.js",
     "engine/src/code-import/index.js",
     "engine/src/code-import/storybook.js",

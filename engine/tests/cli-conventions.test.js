@@ -3028,6 +3028,20 @@ test('verify delegates capture and persistence to one Plan-bound Screenshot Appl
     'Commander must not retain Screenshot readiness or persistence policy');
 });
 
+test('verify-build delegates workspace verification and optional Figma capture to one Application', () => {
+  const adapter = sources.get('verify-build.js');
+  assert.ok(adapter, 'verify-build.js exists');
+  assert.match(adapter, /\.allowExcessArguments\(false\)/);
+  assert.match(adapter, /planFigmaCommand\(verifyBuildPlanningArgvFromRequest\(/);
+  assert.match(adapter, /runInProcessCommandPlan\([\s\S]*compatibilityFallback: false/);
+  assert.match(adapter, /if \(plan\.target\.kind !== 'none'\)/);
+  assert.match(adapter, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(adapter, /executeVerifyBuildPlan\(plan/);
+  assert.doesNotMatch(adapter,
+    /checkConnection\(|verifyBuild\(|diffImages\(|loadImage\(|readdirSync\(|daemonExec\('eval',[\s\S]*exportAsync/,
+    'Commander must not retain verification, image diff, workspace scan, or Figma export logic');
+});
+
 test('legacy PNG export names delegate to the Plan-bound Screenshot Application', () => {
   const adapter = sources.get('export-eval.js');
   assert.ok(adapter, 'export-eval.js exists');

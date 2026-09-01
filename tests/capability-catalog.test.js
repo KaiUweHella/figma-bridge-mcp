@@ -1707,7 +1707,7 @@ test('literal payload cannot impersonate mutation, target, network, or output po
   assert.equal(planFigmaCommand(['verify-build', '--', '--node'], {
     workspaceDir,
   }).target.kind, 'none');
-  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2'], {
+  assert.equal(planFigmaCommand(['verify-build', '.', '--compare', 'shot.png', '--node', '1:2'], {
     workspaceDir,
   }).target.kind, 'plugin-file');
 
@@ -2208,7 +2208,7 @@ test('only semantic node fields may derive a Figma URL target', () => {
     ['annotate', 'add', 'Note', '--node', targetUrl],
     ['create', 'frame', 'Card', '--parent', targetUrl],
     ['prototype', 'add', targetUrl, '--navigate-to', targetUrl],
-    ['verify-build', '.', '--node', targetUrl],
+    ['verify-build', '.', '--compare', 'shot.png', '--node', targetUrl],
   ]) {
     const mcp = planFigmaCommand(argv, { adapter: 'mcp' });
     const cli = planFigmaCommand(argv, { adapter: 'cli' });
@@ -2256,7 +2256,8 @@ test('catalog specializes targeting, retry, timeout and background execution', (
   assert.equal(planFigmaCommand(['spec', 'Button']).target.kind, 'none');
   assert.equal(planFigmaCommand(['spec', 'Button', '--check', '1:2']).target.kind, 'plugin-file');
   assert.equal(planFigmaCommand(['verify-build', '.']).target.kind, 'none');
-  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2']).target.kind, 'plugin-file');
+  assert.equal(planFigmaCommand(['verify-build', '.', '--node', '1:2']).target.kind, 'none');
+  assert.equal(planFigmaCommand(['verify-build', '.', '--compare', 'shot.png']).target.kind, 'plugin-file');
   assert.equal(planFigmaCommand(['export', 'code-spec', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['inspect', '1:2']).execution.retry, 'safe-read');
   assert.equal(planFigmaCommand(['verify', '1:2']).execution.retry, 'safe-read');
@@ -2461,8 +2462,9 @@ test('catalog prepares every known project-relative path policy', () => {
     argv(['verify-build', '.', '--compare', 'shot.png', '--fidelity-ledger', 'facts.json',
       '--browser-capture=captures/screen.json']),
     ['verify-build', base, '--compare', inWorkspace('shot.png'),
+      '--diff-out', inWorkspace('shot-diff.png'),
       '--fidelity-ledger', inWorkspace('facts.json'),
-      `--browser-capture=${inWorkspace('captures', 'screen.json')}`],
+      '--browser-capture', inWorkspace('captures', 'screen.json')],
   );
   assert.deepEqual(
     argv(['verify', '1:2', '--save', 'shot.png']),

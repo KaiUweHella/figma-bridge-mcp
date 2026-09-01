@@ -66,6 +66,10 @@ import {
   screenshotPlanningArgvFromRequest,
 } from "../engine/src/application/screenshot-command.js";
 import {
+  executeVerifyBuildPlan,
+  verifyBuildPlanRoute,
+} from "../engine/src/application/verify-build-command.js";
+import {
   executeHistoryPlan,
   historyPlanRoute,
   historyPlanningArgvFromRequest,
@@ -5140,6 +5144,28 @@ export async function handleTool(name, rawArgs) {
           const note = await enrichFigmaMap(normalized, plan.target.fileKey);
           if (note) res.stdout = (res.stdout || "") + "\n" + note;
         }
+        return resultFromCli(res);
+      }
+      const verifyBuildRoute = verifyBuildPlanRoute(plan);
+      if (verifyBuildRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          if (plan.target.kind !== "none") {
+            await ensurePluginReadiness({
+              deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+            });
+          }
+          return executeVerifyBuildPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
         return resultFromCli(res);
       }
       const screenshotRoute = screenshotPlanRoute(plan);

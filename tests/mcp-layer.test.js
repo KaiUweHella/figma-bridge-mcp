@@ -4404,6 +4404,36 @@ test('figma_run rejects malformed Storybook Map argv before workspace, network, 
   }
 });
 
+test('figma_run routes verify-build through the conditional in-process Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const verifyBuildRoute = verifyBuildPlanRoute(plan)');
+  const end = source.indexOf('const screenshotRoute = screenshotPlanRoute(plan)', start);
+  const route = source.slice(start, end);
+  assert.match(route, /runInProcessCommandPlan\(plan/);
+  assert.match(route, /compatibilityFallback: false/);
+  assert.match(route, /if \(plan\.target\.kind !== "none"\)/);
+  assert.match(route, /ensurePluginReadiness\(\{[\s\S]*deadline,[\s\S]*fileKey,[\s\S]*expectedEditor/);
+  assert.match(route, /executeVerifyBuildPlan\(plan/);
+  assert.match(route, /Math\.max\(1, deadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(route, /runCliPlan\(/, 'verify-build must not re-enter Commander');
+});
+
+test('figma_run rejects malformed verify-build before workspace or Plugin access', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['verify-build'],
+    ['verify-build', '.', 'extra'],
+    ['verify-build', '.', '--max-diff', '101'],
+    ['verify-build', '.', '--fidelity-ledger', 'private-value'],
+    ['verify-build', '.', '--future', 'private-value'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /PREVIEW|RUNNING|private-value/);
+  }
+});
+
 test('figma_screenshot, figma_run and PNG export aliases share the Plan-bound Screenshot Application', async () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const dedicatedStart = source.indexOf('case "figma_screenshot"');
@@ -4666,21 +4696,22 @@ test('normalizeOutputArgs: verify-build paths resolve against the client workspa
       '--diff-out', 'diff.png', '--fidelity-ledger', 'facts.json',
       '--browser-capture=capture.json', '--node', '12:34', '--max-diff', '5'], base),
     ['verify-build', base, '--compare', inWorkspace('shot.png'),
-      `--design=${inWorkspace('fig.png')}`, '--diff-out', inWorkspace('diff.png'),
+      '--design', inWorkspace('fig.png'), '--node', '12:34',
+      '--diff-out', inWorkspace('diff.png'), '--max-diff', '5',
       '--fidelity-ledger', inWorkspace('facts.json'),
-      `--browser-capture=${inWorkspace('capture.json')}`,
-      '--node', '12:34', '--max-diff', '5'],
+      '--browser-capture', inWorkspace('capture.json')],
   );
   // --node/--max-diff values are NOT paths and must never be absolutized —
   // and the value after them must not be mistaken for the positional.
   const args = normalizeOutputArgs(['verify-build', '--node', '1:2', 'proj'], base);
-  assert.deepEqual(args, ['verify-build', '--node', '1:2', inWorkspace('proj')]);
+  assert.deepEqual(args, ['verify-build', inWorkspace('proj'), '--node', '1:2']);
   // absolute inputs pass through untouched
   const absoluteProject = resolve('abs', 'dir');
   const absoluteBuild = resolve('abs', 'b.png');
   assert.deepEqual(
     normalizeOutputArgs(['verify-build', absoluteProject, '--compare', absoluteBuild], base),
-    ['verify-build', absoluteProject, '--compare', absoluteBuild],
+    ['verify-build', absoluteProject, '--compare', absoluteBuild,
+      '--diff-out', resolve('abs', 'b-diff.png')],
   );
 });
 
