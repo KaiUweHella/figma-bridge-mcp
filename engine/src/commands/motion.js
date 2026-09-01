@@ -21,6 +21,10 @@ import {
   motionClearPlanningArgvFromRequest,
 } from '../application/motion-clear-command.js';
 import {
+  executeMotionPresetPlan,
+  motionPresetPlanningArgvFromRequest,
+} from '../application/motion-preset-command.js';
+import {
   executeMotionReadPlan,
   motionReadPlanningArgvFromRequest,
 } from '../application/motion-read-command.js';
@@ -38,7 +42,6 @@ import {
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import {
   normalizeSpec,
-  presetTracks,
   expandStagger,
   PRESETS,
 } from '../lib/motion-core.js';
@@ -169,11 +172,6 @@ function reportApply(res, spinner) {
   return true;
 }
 
-function specFromPreset(id, name, opts) {
-  const tracks = presetTracks(name, opts).map((t) => ({ node: id, field: t.field, keys: t.keys }));
-  return normalizeSpec({ tracks });
-}
-
 async function runMotionRead(request) {
   try {
     const plan = planFigmaCommand(motionReadPlanningArgvFromRequest(request), {
@@ -203,6 +201,27 @@ async function runMotionAdd(request) {
       async ({ fileKey, expectedEditor, deadline }) => {
         await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
         return executeMotionAddPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
+async function runMotionPreset(request) {
+  try {
+    const plan = planFigmaCommand(motionPresetPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionPresetPlan(plan, {
           evaluate: (code) => daemonExec('eval', {
             code, ...(fileKey ? { fileKey } : {}),
           }, Math.max(1, deadline - Date.now())),
@@ -330,22 +349,14 @@ motion
   .option('-d, --dur <s>', 'duration seconds', '0.5')
   .option('--at <s>', 'start offset seconds', '0')
   .option('-e, --ease <ease>', 'easing', 'ease-out')
-  .action(async (id, name, options) => {
-    await checkConnection();
-    const spinner = progress(`Applying "${name}"...`).start();
-    try {
-      const normalized = specFromPreset(id, name, {
-        dur: parseFloat(options.dur),
-        at: parseFloat(options.at),
-        ease: options.ease,
-      });
-      const res = await runApply(normalized);
-      reportApply(res, spinner);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (id, name, options) => runMotionPreset({
+    nodeId: id,
+    preset: name,
+    duration: options.dur,
+    offset: options.at,
+    easing: options.ease,
+  }));
 
 // ============ motion stagger <ids> ============
 motion
