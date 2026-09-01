@@ -10,7 +10,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { join, dirname } from "node:path";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { runCli, runCliPlan, runInProcessCommand, runInProcessCommandPlan, evaluateFigma, evaluateFigmaWithMetadata, streamFigmaAsset, typedReadFigma, renderFigmaPlan, renderFigmaPlans, captureFigmaDesign, ensurePluginReadiness, ensureSafeConnect, health, probePluginResponsiveness, recoverPluginConnection, getSelection } from "./engine.js";
@@ -394,6 +394,7 @@ import {
   REST_TOKEN_FILE,
   STATE_DIR,
   STATE_ROOT,
+  CONNECT_TIMEOUT_MS,
   WRITE_CONFIRM,
   WORKSPACE_IO,
 } from "./config.js";
@@ -494,7 +495,7 @@ export const TOOLS = [
   {
     name: "figma_connect",
     description:
-      "First recovery after idle or app restart: call once before diagnosis; pair or recover.",
+      "Paired idle daemon wakes at MCP startup. If still disconnected after restart, call once before diagnosis.",
     annotations: toolAnnotations({
       readOnlyHint: false,
     }),
@@ -2023,9 +2024,9 @@ export async function handleTool(name, rawArgs) {
         "\n────────────────────────────────────────\n" +
         `  Plugin access key${created ? " (newly generated)" : ""}:\n\n` +
         `    ${key}\n\n` +
-        "  Paste this into the Figma Bridge plugin's access-key field in Figma\n" +
-        "  the first time you launch it. It is stored in the plugin and\n" +
-        "  reused across sessions.\n" +
+        "  Paste the same key once in each Figma editor you use: Design,\n" +
+        "  FigJam and Slides store plugin data separately. A paired editor's\n" +
+        "  Setup panel can copy the key safely for the next editor.\n" +
         "────────────────────────────────────────\n";
       return textResult(`[${MCP_SERVER_ID}]\n` + (res.stdout || res.stderr || "") + recoveryNote + keyBlock);
     }
@@ -4093,6 +4094,36 @@ export async function handleTool(name, rawArgs) {
   }
 }
 
+const STARTUP_WAKE_TIMEOUT_MS = Math.min(CONNECT_TIMEOUT_MS, 3000);
+
+/**
+ * Wake a Bridge that this profile has already paired and started before.
+ * Idle shutdown deliberately leaves the PID marker; an explicit daemon stop
+ * removes it, so startup respects both first-run and intentional-stop states.
+ * Failures remain non-fatal: normal tool readiness reports the actionable
+ * connection error later without making the MCP itself unavailable.
+ */
+export async function wakeConfiguredBridgeOnStartup({
+  readPairing = readKey,
+  hasPriorSetup = () => existsSync(DAEMON_PID_FILE),
+  wake = (options) => ensureSafeConnect(options),
+  timeoutMs = STARTUP_WAKE_TIMEOUT_MS,
+} = {}) {
+  try {
+    if (!readPairing()) return { attempted: false, reason: "unpaired" };
+    if (!hasPriorSetup()) return { attempted: false, reason: "not-started" };
+  } catch {
+    return { attempted: false, reason: "state-unavailable" };
+  }
+
+  try {
+    await wake({ timeoutMs });
+    return { attempted: true, ok: true };
+  } catch {
+    return { attempted: true, ok: false };
+  }
+}
+
 async function main() {
   // This exact directory is Bridge-owned private Shared State. On Windows the
   // platform Adapter repairs and verifies its DACL; on POSIX it retains the
@@ -4106,6 +4137,7 @@ async function main() {
   ])) {
     hardenPrivateTree(STATE_ROOT, { kind: "bridge-state", create: true });
   }
+  await wakeConfiguredBridgeOnStartup();
   const server = new Server(
     // Single source of truth: package.json (SERVER_VERSION also carries the
     // git SHA for figma_status; the MCP handshake wants the bare semver).

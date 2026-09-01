@@ -343,6 +343,49 @@ test('server entry-point detection resolves the symlink npm uses for installed b
   }
 });
 
+test('MCP startup wakes only a previously paired and started Bridge', async () => {
+  const { wakeConfiguredBridgeOnStartup } = await import('../src/server.js');
+  let priorChecks = 0;
+  let wakeCalls = 0;
+
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => null,
+    hasPriorSetup: () => { priorChecks++; return true; },
+    wake: async () => { wakeCalls++; },
+  }), { attempted: false, reason: 'unpaired' });
+  assert.equal(priorChecks, 0, 'an unpaired profile must not inspect or start a daemon');
+
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => 'paired',
+    hasPriorSetup: () => false,
+    wake: async () => { wakeCalls++; },
+  }), { attempted: false, reason: 'not-started' });
+
+  const options = [];
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => 'paired',
+    hasPriorSetup: () => true,
+    timeoutMs: 1234,
+    wake: async (value) => { wakeCalls++; options.push(value); },
+  }), { attempted: true, ok: true });
+  assert.deepEqual(options, [{ timeoutMs: 1234 }]);
+
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => 'paired',
+    hasPriorSetup: () => true,
+    wake: async () => { wakeCalls++; throw new Error('occupied port'); },
+  }), { attempted: true, ok: false }, 'startup failure must not take down the MCP transport');
+  assert.equal(wakeCalls, 2, 'both eligible configured-profile cases attempted one bounded wake');
+});
+
+test('MCP entry point completes the bounded Bridge wake before publishing STDIO', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const main = source.slice(source.indexOf('async function main()'), source.indexOf('// Start only when run as the entry point'));
+  assert.ok(main.indexOf('await wakeConfiguredBridgeOnStartup()') > 0);
+  assert.ok(main.indexOf('await wakeConfiguredBridgeOnStartup()') < main.indexOf('new Server('));
+  assert.ok(main.indexOf('new Server(') < main.indexOf('await server.connect(transport)'));
+});
+
 test('the live STDIO server advertises the complete tool surface to MCP clients', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
@@ -354,6 +397,7 @@ test('the live STDIO server advertises the complete tool surface to MCP clients'
     env: {
       AUDIT_LOG_PATH: process.env.AUDIT_LOG_PATH,
       PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE,
+      DAEMON_PID_FILE: join(testState, 'stdio-daemon.pid'),
     },
     stderr: 'pipe',
   });
@@ -2747,7 +2791,7 @@ test('mixed Figma MCPs stay explicitly scoped to Figma Bridge', async () => {
   const status = TOOLS.find((candidate) => candidate.name === 'figma_status');
   assert.match(status.description, /this Figma Bridge only/i);
   const connect = TOOLS.find((candidate) => candidate.name === 'figma_connect');
-  assert.match(connect.description, /first recovery.*idle.*app restart.*once before diagnosis/i);
+  assert.match(connect.description, /idle daemon wakes at MCP startup.*after restart.*once before diagnosis/i);
 
   const success = await handleTool('figma_reference', { name: 'variable-scopes' });
   assert.equal(success._mcp, MCP_SERVER_ID);

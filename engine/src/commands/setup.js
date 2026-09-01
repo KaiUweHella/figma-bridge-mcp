@@ -348,8 +348,10 @@ program
     if (!localDevelopment) {
       console.log(chalk.cyan('  → ') + chalk.white('Dev Mode: ') + chalk.yellow(`Plugins → Development → ${devModePluginName}`));
     }
-    console.log(chalk.cyan('  → ') + chalk.gray('A new AI session does not require reopening a healthy plugin.'));
-    console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
+    console.log(chalk.cyan('  → ') + chalk.gray('A configured MCP wakes an idle daemon automatically; a new AI session does not require reopening a healthy plugin.'));
+    console.log(chalk.cyan('  → ') + chalk.white('Paste the same ') + chalk.yellow('access key')
+      + chalk.white(' once in each editor you use (Design, FigJam and Slides).'));
+    console.log(chalk.cyan('  → ') + chalk.gray('Figma stores plugin data separately per editor; use Setup → Copy access key in an already paired editor.\n'));
 
     // MCP clients cannot show the access key appended by the wrapper until
     // this process exits. Waiting here creates a deadlock-shaped delay: the

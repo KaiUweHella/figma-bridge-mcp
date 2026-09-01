@@ -229,6 +229,7 @@
     input:focus-visible { border-color: var(--accent); }
     .secret-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
     .secret-input button { min-width: 48px; }
+    .key-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); }
   </style>
 </head>
@@ -277,12 +278,16 @@
   <div id="setupPanel" class="panel">
       <div class="field" id="keyPanel">
         <label for="keyInput">Access key</label>
-        <p class="hint">Shown by <code>figma_connect</code>. Stored in this plugin, reused every session.</p>
+        <p class="hint">Figma stores this separately in Design, FigJam and Slides. Save the same key once per editor; copy it from an already paired editor.</p>
         <div class="secret-input">
           <input id="keyInput" type="password" spellcheck="false" autocomplete="off" placeholder="paste key here" />
           <button id="keyVisibilityBtn" class="ghost" type="button" aria-label="Show access key" aria-controls="keyInput" aria-pressed="false">Show</button>
         </div>
-        <button id="saveBtn" class="primary" type="button">Save &amp; connect</button>
+        <div class="key-actions">
+          <button id="saveBtn" class="primary" type="button">Save &amp; connect</button>
+          <button id="copyKeyBtn" type="button" hidden disabled>Copy access key</button>
+        </div>
+        <p id="copyKeyStatus" class="hint" role="status" aria-live="polite"></p>
       </div>
       <div class="field">
         <label for="restInput">Figma REST token <span class="tag">optional</span></label>
@@ -311,7 +316,7 @@
     const HANDSHAKE_PREFIX = 'figma-bridge-mcp/handshake/v4';
     // Signed as part of the transcript, so a version claim cannot be swapped
     // in flight. Bump whenever shipped Plugin UI/protocol semantics change.
-    const PLUGIN_VERSION = '3.3.36';
+    const PLUGIN_VERSION = '3.3.37';
     const PLUGIN_CAPABILITIES = Object.freeze([
       'asset-stream-v1',
       'dispatch-receipt-v1',
@@ -482,6 +487,8 @@
     const keyInput = document.getElementById('keyInput');
     const keyVisibilityBtn = document.getElementById('keyVisibilityBtn');
     const saveBtn = document.getElementById('saveBtn');
+    const copyKeyBtn = document.getElementById('copyKeyBtn');
+    const copyKeyStatus = document.getElementById('copyKeyStatus');
     const setupBtn = document.getElementById('setupBtn');
     const setupPanel = document.getElementById('setupPanel');
     const reconnectBtn = document.getElementById('reconnectBtn');
@@ -509,7 +516,7 @@
 
     function showWaitingForBridge() {
       setStatus('Waiting for MCP…', 'connecting');
-      hintEl.textContent = 'Start figma_connect in your AI app. Quiet discovery keeps checking automatically; Reconnect now forces one immediate scan.';
+      hintEl.textContent = 'A configured AI app wakes the Bridge automatically. If this remains after opening it, run figma_connect once; Reconnect now rescans immediately.';
     }
 
     function showDisconnectedWindow() {
@@ -589,6 +596,47 @@
       keyVisibilityBtn.setAttribute('aria-label', visible ? 'Hide access key' : 'Show access key');
     }
     keyVisibilityBtn.onclick = () => setKeyVisible(keyInput.type === 'password');
+
+    function syncAccessKeyControls() {
+      const hasStoredKey = Boolean(KEY);
+      copyKeyBtn.hidden = !hasStoredKey;
+      copyKeyBtn.disabled = !hasStoredKey;
+      if (hasStoredKey && setupOpen) keyInput.value = KEY;
+      if (!hasStoredKey) copyKeyStatus.textContent = '';
+      syncSize();
+    }
+
+    async function writeClipboardText(value) {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+      // Figma's null-origin iframe does not expose Clipboard API in every
+      // editor build. The fallback still runs only after this explicit click.
+      const transfer = document.createElement('textarea');
+      transfer.value = value;
+      transfer.setAttribute('readonly', '');
+      transfer.style.position = 'fixed';
+      transfer.style.opacity = '0';
+      document.body.appendChild(transfer);
+      transfer.select();
+      const copied = document.execCommand('copy');
+      transfer.remove();
+      if (!copied) throw new Error('Clipboard unavailable');
+    }
+
+    copyKeyBtn.onclick = async () => {
+      // Copy only the persisted/in-use key, never an unsaved field draft. The
+      // secret is not logged, posted to the daemon, or revealed in the UI.
+      if (!KEY) return;
+      try {
+        await writeClipboardText(KEY);
+        copyKeyStatus.textContent = 'Copied. Paste it into Setup in the other Figma editor.';
+      } catch {
+        copyKeyStatus.textContent = 'Copy failed. Use Show and copy the key manually.';
+      }
+      syncSize();
+    };
 
     // ============ Activity log (feature A) ============
     // Every eval already flows through this iframe — record it instead of
@@ -790,6 +838,7 @@
       const val = keyInput.value.trim();
       if (!val) { setStatus('Enter a key first', 'error'); return; }
       KEY = val;
+      syncAccessKeyControls();
       parent.postMessage({ pluginMessage: { type: 'save-key', value: val } }, '*');
       setKeyVisible(false);
       showKeyPanel(false);
@@ -1375,6 +1424,7 @@
           if (valid) PORTS.splice(0, PORTS.length, ...configured);
         }
         KEY = (msg.value || '').trim() || null;
+        syncAccessKeyControls();
         if (KEY) {
           showKeyPanel(false);
           connectParallel();
@@ -1438,6 +1488,7 @@
     syncSize();
     renderRestStatus();
     setConnMeta();
+    syncAccessKeyControls();
     requestKey();
   </script>
 </body>

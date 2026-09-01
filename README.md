@@ -191,7 +191,7 @@ Omitting `FIGMA_BRIDGE_PROFILE` retains the normal released profile and its
 
 </details>
 
-### 2. Pair Figma Desktop once
+### 2. Pair each Figma editor once
 
 1. Ask your AI assistant to **connect to Figma**, or call `figma_connect`
    directly. It starts the local bridge and returns an access key plus a plugin
@@ -199,14 +199,20 @@ Omitting `FIGMA_BRIDGE_PROFILE` retains the normal released profile and its
 2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
    and choose **`~/.figma-bridge-mcp/plugin/manifest.json`** (the path
    returned by `figma_connect`).
-3. Open `Plugins → Development → Figma Bridge`, paste the access key, and
-   click **Save & connect**.
-4. When the plugin shows **Connected (authenticated)**, the assistant can work
-   with that Figma file. The pairing is remembered. A later `figma_connect`
-   reuses the healthy daemon and socket instead of restarting them, so a new AI
-   session does not interrupt the open Figma file. If the only socket is open
-   but its plugin iframe no longer answers a read-only probe, `figma_connect`
-   reloads just that iframe and it reconnects with the stored key.
+3. Open `Plugins → Development → Figma Bridge` in Figma Design, paste the
+   access key, and click **Save & connect**.
+4. Figma stores plugin data separately for Design, FigJam and Slides. To use
+   another editor, open the plugin there and save the same key once. In an
+   already paired editor, **Setup → Copy access key** copies the in-use key
+   without displaying or logging it.
+5. When the plugin shows **Connected (authenticated)**, the assistant can work
+   with that Figma file. The pairing is remembered. Starting the configured MCP
+   automatically wakes a daemon that exited after its idle timeout and reuses a
+   healthy daemon/socket, so a new AI session does not interrupt the open Figma
+   file. If the automatic wake fails, call `figma_connect` once before deeper
+   diagnosis. If the only socket is open but its plugin iframe no longer
+   answers a read-only probe, `figma_connect` reloads just that iframe and it
+   reconnects with the stored key.
 
 If a timed-out compatibility command leaves only the execution lane uncertain
 while health reads still answer, call `figma_connect` with
@@ -2005,7 +2011,8 @@ transport and the plugin are unrelated. Where this project differs is that the
 socket also proves who is on the other end of it.
 
 **Plugin identity.** The development manifests use the product-aligned ids
-`figma-bridge-mcp` and `figma-bridge-mcp-dev`. Figma keys `clientStorage` —
-where the paired access key lives — on the plugin id. Installations from before
-0.5.0 therefore need to re-import the manifest and paste their existing Bridge
-access key once.
+`figma-bridge-mcp` and `figma-bridge-mcp-dev`. Figma scopes `clientStorage` —
+where the paired access key lives — to the plugin id and, in the desktop
+editors, separately across Design, FigJam and Slides. Installations from before
+0.5.0 therefore need to re-import the manifest; each editor in use needs the
+same Bridge access key saved once.

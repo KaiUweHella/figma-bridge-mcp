@@ -44,7 +44,7 @@ test('the stored access key is masked by default and has an accessible reveal co
   );
 
   const start = UI.indexOf('function setKeyVisible(');
-  const end = UI.indexOf('// ============ Activity log', start);
+  const end = UI.indexOf('function syncAccessKeyControls()', start);
   assert.ok(start > 0 && end > start, 'key visibility controller must stay in the setup block');
   const source = UI.slice(start, end);
   const keyInput = { type: 'password' };
