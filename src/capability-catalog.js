@@ -147,6 +147,12 @@ import {
   parseMotionReadRequest,
 } from '../engine/src/application/motion-read-request.js';
 import {
+  acceptsMotionTimelineArgv,
+  motionTimelineArgvFromRequest,
+  motionTimelineFigmaUrlFileKeyFromArgv,
+  parseMotionTimelineRequest,
+} from '../engine/src/application/motion-timeline-request.js';
+import {
   acceptsSlotConfigurationArgv,
   parseSlotConfigurationRequest,
   slotConfigurationArgvFromRequest,
@@ -930,6 +936,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
   'motion.styles', 'motion.inspect',
+  'motion.timeline',
   'slot.create', 'slot.edit',
   'slot.reset',
   'slot.inspect', 'slot.validate',
@@ -1082,6 +1089,9 @@ export function legacyCommandRiskGateReason(args) {
 
 function mutatesDesign(entry, args, options, actionId) {
   if (!args.length) return false;
+  if (actionId === 'motion.timeline') {
+    return parseMotionTimelineRequest(args).duration !== null;
+  }
   if (SAFE_READ_ACTIONS.has(actionId)) return false;
   const sub = args[1];
   if (actionId === 'import') {
@@ -1136,6 +1146,9 @@ function specializedPolicy(name, entry, args, actionId) {
     pathPolicy = 'design-source-import-input';
   }
   if (SAFE_READ_ACTIONS.has(actionId)) retry = 'safe-read';
+  if (actionId === 'motion.timeline') {
+    retry = parseMotionTimelineRequest(args).duration === null ? 'safe-read' : 'never';
+  }
   if (name === 'export') {
     if (sub === 'assets') {
       execution = 'background';
@@ -1511,6 +1524,10 @@ function commandCapability(args) {
   }
   if (['motion.styles', 'motion.inspect'].includes(action.actionId)
     && !action.help && !acceptsMotionReadArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.timeline'
+    && !action.help && !acceptsMotionTimelineArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (['slot.create', 'slot.edit'].includes(action.actionId)
@@ -3362,6 +3379,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       break;
     }
     case 'motion-inputs': {
+      if (args[1] === 'timeline' && acceptsMotionTimelineArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionTimelineFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionTimelineArgvFromRequest(parseMotionTimelineRequest(args)));
+        break;
+      }
       if (['styles', 'inspect'].includes(args[1]) && acceptsMotionReadArgv(args)) {
         if (projectUrlTarget) figmaUrlFileKey = motionReadFigmaUrlFileKeyFromArgv(args);
         args.splice(0, args.length,

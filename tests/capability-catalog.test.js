@@ -77,7 +77,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
   for (const args of [
     ['render', '<Frame/>'], ['combos', '1:2'], ['node', 'delete', '1:2'],
     ['component', 'add-variant', 'Button', 'State=Loading'], ['tokens', 'spacing'],
-    ['tokens', 'sync', 'tokens.json', '--apply'], ['motion', 'timeline', '1:2'],
+    ['tokens', 'sync', 'tokens.json', '--apply'], ['motion', 'timeline', '1:2', '--duration', '1.2'],
     ['font', 'remember-axes', '1:2', 'wght=357'], ['font', 'forget-axes', '1:2'],
     ['font', 'bind', '1:2', 'fontWeight', 'type/weight'], ['font', 'unbind', '1:2', 'fontWeight'],
     ['history', 'save', 'Release 1'],
@@ -98,7 +98,7 @@ test('catalog owns the full read/write matrix including special flag semantics',
 
   for (const args of [
     ['export', 'code-spec', '1:2'], ['node', 'tree', '1:2'], ['tokens'],
-    ['tokens', 'sync', 'tokens.json'], ['motion', 'inspect', '1:2'],
+    ['tokens', 'sync', 'tokens.json'], ['motion', 'inspect', '1:2'], ['motion', 'timeline', '1:2'],
     ['map', 'storybook', 'http://localhost:6006'], ['render', '--help'],
     ['render', '--print-browser-capture', '.screen'],
     ['render', '<Frame name="Audit" />', '--structural-gate'],

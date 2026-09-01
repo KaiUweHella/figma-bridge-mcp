@@ -112,6 +112,7 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
     valueOption('--save'), valueOption('--type'),
   ]),
   'motion.apply': optionSchema(),
+  'motion.timeline': optionSchema([valueOption('-d', '--duration')]),
   'kit.init': optionSchema([
     valueOption('--storybook'), valueOption('--out'), valueOption('--node'),
   ]),

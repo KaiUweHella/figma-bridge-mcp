@@ -17,6 +17,10 @@ import {
   motionReadPlanningArgvFromRequest,
 } from '../application/motion-read-command.js';
 import {
+  executeMotionTimelinePlan,
+  motionTimelinePlanningArgvFromRequest,
+} from '../application/motion-timeline-command.js';
+import {
   progress, program, checkConnection, daemonExec, fastEval, handleEvalError, spinnerSucceed,
 } from '../lib/cli-core.js';
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
@@ -175,6 +179,27 @@ async function runMotionRead(request) {
         });
       });
     console.log(result.stdout);
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
+async function runMotionTimeline(request) {
+  try {
+    const plan = planFigmaCommand(motionTimelinePlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionTimelinePlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
   } catch (error) {
     handleEvalError(error); process.exitCode = 1;
   }
@@ -368,29 +393,8 @@ motion
   .command('timeline <id>')
   .description('Read or set the timeline duration of the frame containing a node')
   .option('-d, --duration <s>', 'set duration seconds')
-  .action(async (id, options) => {
-    await checkConnection();
-    const spinner = progress('Reading timeline...').start();
-    try {
-      const setDur = options.duration != null ? parseFloat(options.duration) : null;
-      const body = `
-const r = await resolveTarget(${JSON.stringify(id)});
-if (r.error) return r;
-const node = r.node;
-const tl = (node.timelines || [])[0] || null;
-${setDur != null ? `if (tl) node.setTimelineDuration(tl.id, ${setDur});` : ''}
-return { nodeId: node.id, timelines: node.timelines };
-`;
-      const res = await fastEval(evalBody(body));
-      if (printTargetError(res, id)) { spinner.fail('No timeline'); return; }
-      const tl = (res.timelines || [])[0];
-      if (setDur != null) spinnerSucceed(spinner, `Timeline set to ${tl ? tl.duration : setDur}s`);
-      else spinnerSucceed(spinner, `Timeline: ${tl ? tl.duration + 's' : 'none'}`);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (id, options) => runMotionTimeline({ nodeId: id, duration: options.duration }));
 
 // ============ motion inspect <id> ============
 motion

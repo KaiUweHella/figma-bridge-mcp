@@ -229,6 +229,8 @@
     "engine/src/application/draw-request.js",
     "engine/src/application/motion-read-command.js",
     "engine/src/application/motion-read-request.js",
+    "engine/src/application/motion-timeline-command.js",
+    "engine/src/application/motion-timeline-request.js",
     "engine/src/application/slot-configuration-command.js",
     "engine/src/application/slot-configuration-request.js",
     "engine/src/application/slot-read-command.js",

@@ -381,6 +381,21 @@ test('Motion reads delegate one Plan-bound bounded Application', () => {
   assert.match(adapter, /executeMotionReadPlan\(plan/);
 });
 
+test('motion timeline delegates one conditional Plan-bound verified Application', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('timeline <id>')");
+  const end = adapter.indexOf(".command('inspect <id>')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionTimeline\(/);
+  assert.match(adapter, /motionTimelinePlanningArgvFromRequest/);
+  assert.match(adapter, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
+  assert.match(adapter, /executeMotionTimelinePlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|figma\.motion|setTimelineDuration/,
+    'Commander must not retain Motion Timeline resolution, mutation, verification, or rollback');
+});
+
 test('the remaining direct Motion Action inventory is explicit', () => {
   const adapter = sources.get('motion.js');
   const commands = ['add', 'apply', 'preset', 'stagger', 'styles', 'style', 'timeline', 'inspect', 'clear'];
@@ -389,8 +404,8 @@ test('the remaining direct Motion Action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await checkConnection\(\)/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['add', 'apply', 'preset', 'stagger', 'style', 'timeline', 'clear']);
-  assert.equal(direct.length, 7,
+  assert.deepEqual(direct, ['add', 'apply', 'preset', 'stagger', 'style', 'clear']);
+  assert.equal(direct.length, 6,
     'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
 });
 
