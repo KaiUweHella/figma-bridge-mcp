@@ -129,6 +129,11 @@ const POLICY_OPTION_SCHEMAS = Object.freeze({
   'motion.preset': optionSchema([
     valueOption('-d', '--dur'), valueOption('--at'), valueOption('-e', '--ease'),
   ]),
+  'motion.stagger': optionSchema([
+    valueOption('-p', '--preset'), valueOption('-f', '--field'),
+    signedValueOption('--from'), signedValueOption('--to'), valueOption('-s', '--step'),
+    valueOption('-d', '--dur'), valueOption('-e', '--ease'),
+  ]),
   'motion.clear': optionSchema([valueOption('-f', '--field'), flagOption('--styles')]),
   'motion.style': optionSchema([
     valueOption('-d', '--dur'), valueOption('--at'), valueOption('-t', '--timing'),

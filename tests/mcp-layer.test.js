@@ -824,13 +824,40 @@ test('figma_run routes Motion Add through the rollback-owned Application', () =>
 test('figma_run routes Motion Preset through the shared track transaction', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const motionPresetRoute = motionPresetPlanRoute(plan)');
-  const end = source.indexOf('const motionClearRoute = motionClearPlanRoute(plan)', start);
+  const end = source.indexOf('const motionStaggerRoute = motionStaggerPlanRoute(plan)', start);
   const slice = source.slice(start, end);
   assert.match(slice, /runInProcessCommandPlan\(plan/);
   assert.match(slice, /compatibilityFallback:\s*false/);
   assert.match(slice, /executeMotionPresetPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Motion Preset must not re-enter Commander');
+});
+
+test('figma_run routes Motion Stagger through one atomic multi-target transaction', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const motionStaggerRoute = motionStaggerPlanRoute(plan)');
+  const end = source.indexOf('const motionClearRoute = motionClearPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /executeMotionStaggerPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Motion Stagger must not re-enter Commander');
+});
+
+test('figma_run rejects malformed Motion Stagger before readiness or dispatch', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const args of [
+    ['motion', 'stagger', '1:2'],
+    ['motion', 'stagger', '1:2', '--preset', 'private-value'],
+    ['motion', 'stagger', '1:2', '--preset', 'fade-in', '--field', 'opacity'],
+    ['motion', 'stagger', '1:2', '--preset', 'fade-in', '--future'],
+  ]) {
+    const result = await handleTool('figma_run', { args });
+    assert.equal(result.isError, true, args.join(' '));
+    assert.match(result.content[0].text, /Unknown or unsupported Figma Command/);
+    assert.doesNotMatch(result.content[0].text, /private-value/);
+  }
 });
 
 test('figma_run rejects malformed Motion Preset before readiness or dispatch', async () => {

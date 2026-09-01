@@ -171,6 +171,12 @@ import {
   parseMotionStyleRequest,
 } from '../engine/src/application/motion-style-request.js';
 import {
+  acceptsMotionStaggerArgv,
+  motionStaggerArgvFromRequest,
+  motionStaggerFigmaUrlFileKeyFromArgv,
+  parseMotionStaggerRequest,
+} from '../engine/src/application/motion-stagger-request.js';
+import {
   acceptsMotionTimelineArgv,
   motionTimelineArgvFromRequest,
   motionTimelineFigmaUrlFileKeyFromArgv,
@@ -959,7 +965,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'shader.list',
   'draw.inspect', 'draw.text-path', 'draw.transform-group',
   'draw.brush', 'draw.stroke-profile', 'draw.pattern',
-  'motion.add', 'motion.preset', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
+  'motion.add', 'motion.preset', 'motion.stagger', 'motion.styles', 'motion.inspect', 'motion.clear', 'motion.style',
   'motion.timeline',
   'slot.create', 'slot.edit',
   'slot.reset',
@@ -1556,6 +1562,10 @@ function commandCapability(args) {
   }
   if (action.actionId === 'motion.preset'
     && !action.help && !acceptsMotionPresetArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (action.actionId === 'motion.stagger'
+    && !action.help && !acceptsMotionStaggerArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (action.actionId === 'motion.clear'
@@ -3429,6 +3439,12 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         if (projectUrlTarget) figmaUrlFileKey = motionPresetFigmaUrlFileKeyFromArgv(args);
         args.splice(0, args.length,
           ...motionPresetArgvFromRequest(parseMotionPresetRequest(args)));
+        break;
+      }
+      if (args[1] === 'stagger' && acceptsMotionStaggerArgv(args)) {
+        if (projectUrlTarget) figmaUrlFileKey = motionStaggerFigmaUrlFileKeyFromArgv(args);
+        args.splice(0, args.length,
+          ...motionStaggerArgvFromRequest(parseMotionStaggerRequest(args)));
         break;
       }
       if (args[1] === 'style' && acceptsMotionStyleArgv(args)) {

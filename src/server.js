@@ -174,6 +174,10 @@ import {
   motionStylePlanRoute,
 } from "../engine/src/application/motion-style-command.js";
 import {
+  executeMotionStaggerPlan,
+  motionStaggerPlanRoute,
+} from "../engine/src/application/motion-stagger-command.js";
+import {
   executeMotionTimelinePlan,
   motionTimelinePlanRoute,
 } from "../engine/src/application/motion-timeline-command.js";
@@ -2709,6 +2713,23 @@ export async function handleTool(name, rawArgs) {
         }, async ({ fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeMotionPresetPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const motionStaggerRoute = motionStaggerPlanRoute(plan);
+      if (motionStaggerRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeMotionStaggerPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

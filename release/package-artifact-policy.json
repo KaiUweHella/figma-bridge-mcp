@@ -233,6 +233,8 @@
     "engine/src/application/motion-add-request.js",
     "engine/src/application/motion-preset-command.js",
     "engine/src/application/motion-preset-request.js",
+    "engine/src/application/motion-stagger-command.js",
+    "engine/src/application/motion-stagger-request.js",
     "engine/src/application/motion-track-mutation.js",
     "engine/src/application/motion-track-preparation.js",
     "engine/src/application/motion-read-command.js",

@@ -454,6 +454,20 @@ test('motion preset delegates one shared Plan-bound track transaction', () => {
     'Commander must not retain Motion Preset expansion, mutation, verification, or rollback');
 });
 
+test('motion stagger delegates one atomic multi-target track transaction', () => {
+  const adapter = sources.get('motion.js');
+  assert.ok(adapter, 'motion.js exists');
+  const start = adapter.indexOf(".command('stagger <ids>')");
+  const end = adapter.indexOf(".command('styles')", start);
+  const action = adapter.slice(start, end);
+  assert.match(action, /\.allowExcessArguments\(false\)/);
+  assert.match(action, /runMotionStagger\(/);
+  assert.match(adapter, /motionStaggerPlanningArgvFromRequest/);
+  assert.match(adapter, /executeMotionStaggerPlan\(plan/);
+  assert.doesNotMatch(action, /checkConnection\(|fastEval\(|expandStagger\(|normalizeSpec\(|applyManualKeyframeTrack/,
+    'Commander must not retain Motion Stagger expansion, mutation, verification, or rollback');
+});
+
 test('the remaining direct Motion Action inventory is explicit', () => {
   const adapter = sources.get('motion.js');
   const commands = ['add', 'apply', 'preset', 'stagger', 'styles', 'style', 'timeline', 'inspect', 'clear'];
@@ -462,8 +476,8 @@ test('the remaining direct Motion Action inventory is explicit', () => {
     const end = starts[index + 1] === undefined ? adapter.length : starts[index + 1];
     return /await checkConnection\(\)/.test(adapter.slice(starts[index], end));
   });
-  assert.deepEqual(direct, ['apply', 'stagger']);
-  assert.equal(direct.length, 2,
+  assert.deepEqual(direct, ['apply']);
+  assert.equal(direct.length, 1,
     'STAB-06 Motion Legacy Action count may decrease, but must never increase silently');
 });
 

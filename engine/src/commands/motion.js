@@ -33,6 +33,10 @@ import {
   motionStylePlanningArgvFromRequest,
 } from '../application/motion-style-command.js';
 import {
+  executeMotionStaggerPlan,
+  motionStaggerPlanningArgvFromRequest,
+} from '../application/motion-stagger-command.js';
+import {
   executeMotionTimelinePlan,
   motionTimelinePlanningArgvFromRequest,
 } from '../application/motion-timeline-command.js';
@@ -42,7 +46,6 @@ import {
 import { parseBoundedJson, workspaceIO } from '../lib/workspace-io.js';
 import {
   normalizeSpec,
-  expandStagger,
   PRESETS,
 } from '../lib/motion-core.js';
 
@@ -234,6 +237,27 @@ async function runMotionPreset(request) {
   }
 }
 
+async function runMotionStagger(request) {
+  try {
+    const plan = planFigmaCommand(motionStaggerPlanningArgvFromRequest(request), {
+      adapter: 'cli', fileKey: program.opts().figmaFile || null,
+    });
+    const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+      async ({ fileKey, expectedEditor, deadline }) => {
+        await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+        return executeMotionStaggerPlan(plan, {
+          evaluate: (code) => daemonExec('eval', {
+            code, ...(fileKey ? { fileKey } : {}),
+          }, Math.max(1, deadline - Date.now())),
+        });
+      });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.error(chalk.yellow(result.stderr));
+  } catch (error) {
+    handleEvalError(error); process.exitCode = 1;
+  }
+}
+
 async function runMotionTimeline(request) {
   try {
     const plan = planFigmaCommand(motionTimelinePlanningArgvFromRequest(request), {
@@ -369,31 +393,18 @@ motion
   .option('-s, --step <s>', 'per-node offset seconds', '0.1')
   .option('-d, --dur <s>', 'duration seconds', '0.5')
   .option('-e, --ease <ease>', 'easing', 'ease-out')
-  .action(async (ids, options) => {
-    await checkConnection();
-    const list = ids.split(',').map((s) => s.trim()).filter(Boolean);
-    if (list.length === 0) return console.log(chalk.red('✗ no node ids given'));
-    if (!options.preset && !options.field) return console.log(chalk.red('✗ need --preset or --field'));
-    const spinner = progress(`Staggering ${list.length} nodes...`).start();
-    try {
-      const opts = options.preset
-        ? { preset: options.preset, dur: parseFloat(options.dur), ease: options.ease }
-        : {
-            field: options.field,
-            from: parseFloat(options.from),
-            to: parseFloat(options.to),
-            dur: parseFloat(options.dur),
-            ease: options.ease,
-          };
-      const specObj = expandStagger(list, opts, parseFloat(options.step));
-      const normalized = normalizeSpec(specObj);
-      const res = await runApply(normalized);
-      reportApply(res, spinner);
-    } catch (e) {
-      spinner.fail(e.message);
-      process.exitCode = 1;
-    }
-  });
+  .allowExcessArguments(false)
+  .action(async (ids, options) => runMotionStagger({
+    nodeIds: ids.split(',').map((value) => value.trim()).filter(Boolean),
+    mode: options.preset ? 'preset' : 'field',
+    preset: options.preset ?? null,
+    field: options.field ?? null,
+    from: options.from ?? null,
+    to: options.to ?? null,
+    step: options.step,
+    duration: options.dur,
+    easing: options.ease,
+  }));
 
 // ============ motion styles ============
 motion
