@@ -51,6 +51,20 @@ function fixture({
   };
   nodes.set(set.id, set);
   page.children.push(set);
+  const cloneDescendant = (source, parent) => {
+    const copy = {
+      ...source,
+      id: `2:${next++}`,
+      parent,
+    };
+    // Model the live Figma behavior that motivated this regression: native
+    // clone preserves structure but drops per-layer Component Property refs.
+    delete copy.componentPropertyReferences;
+    if (Array.isArray(source.children)) {
+      copy.children = source.children.map((child) => cloneDescendant(child, copy));
+    }
+    return copy;
+  };
   const makeComponent = (name, id = `2:${next++}`) => {
     const component = {
       id,
@@ -62,11 +76,14 @@ function fixture({
       y: 0,
       width: 100,
       height: 40,
+      children: [],
       clone() {
         const clone = makeComponent(this.name);
         clone.x = this.x;
         clone.y = this.y;
         clone.width = this.width;
+        clone.height = this.height;
+        clone.children = this.children.map((child) => cloneDescendant(child, clone));
         set.children = set.children.filter((child) => child !== clone);
         clone.parent = null;
         return clone;
@@ -176,6 +193,49 @@ test("new-axis creation backfills every existing Variant and reports the warning
   assert.equal(live.pressed.name, "State=Pressed, Tone=Default");
   assert.equal(result.result.variant.name, "State=Pressed, Tone=Brand");
   assert.equal(JSON.parse(result.stdout).status, "created");
+});
+
+test("cloned Variants restore scalar, swap, Slot and nested exposure wiring lost by native clone", async () => {
+  const live = fixture();
+  const body = { id: "2:20", type: "FRAME", name: "Body", children: [], parent: live.normal };
+  const label = {
+    id: "2:21", type: "TEXT", name: "Label", parent: body,
+    componentPropertyReferences: { characters: "Label#2:0" },
+  };
+  body.children.push(label);
+  const icon = {
+    id: "2:22", type: "INSTANCE", name: "Icon", children: [], parent: live.normal,
+    isExposedInstance: true,
+    componentPropertyReferences: {
+      visible: "Show icon#2:1",
+      mainComponent: "Icon#2:2",
+    },
+  };
+  const slot = {
+    id: "2:23", type: "SLOT", name: "Content", children: [], parent: live.normal,
+    componentPropertyReferences: { slotContentId: "Content#2:3" },
+  };
+  live.normal.children = [body, icon, slot];
+
+  const result = await executeComponentAddVariant({
+    reference: { kind: "node", value: live.set.id },
+    pairs: { State: "Hover" },
+    fromName: "State=Default",
+    json: true,
+  }, { evaluate: evaluate(live.figma) });
+
+  const clone = live.nodes.get(result.result.variant.id);
+  assert.deepEqual(clone.children[0].children[0].componentPropertyReferences, {
+    characters: "Label#2:0",
+  });
+  assert.deepEqual(clone.children[1].componentPropertyReferences, {
+    visible: "Show icon#2:1",
+    mainComponent: "Icon#2:2",
+  });
+  assert.equal(clone.children[1].isExposedInstance, true);
+  assert.deepEqual(clone.children[2].componentPropertyReferences, {
+    slotContentId: "Content#2:3",
+  });
 });
 
 test("duplicate and ambiguous references fail before any mutation", async () => {

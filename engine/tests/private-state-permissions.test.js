@@ -189,6 +189,17 @@ test("private-state policy rejects broad roots and unowned artifact names", (t) 
   );
 });
 
+test("private-state ownership contains the local-development namespace", () => {
+  const root = path.resolve("/private-state/.figma-bridge-mcp");
+  assert.equal(
+    privateStateOwns(root, [
+      path.join(root, "profiles", "local-development", "plugin-key"),
+      path.join(root, "profiles", "local-development", "daemon.pid"),
+    ]),
+    true
+  );
+});
+
 test(
   "POSIX privacy repair is recursive, idempotent and directly verifiable",
   {

@@ -42,8 +42,15 @@ export const ENGINE_WORKSPACE_ROOTS = WORKSPACE_IO.roots.join(path.delimiter);
 // separate from any upstream figma-ds-cli install so the two never share a
 // daemon, token, or port-owner. Single source of truth lives in the engine
 // lib (which also migrates ~/.figma-safe-mcp from pre-rename installs once).
-import { STATE_DIR } from "../engine/src/lib/state-dir.js";
-export { STATE_DIR };
+import {
+  STATE_DIR,
+  STATE_ROOT,
+  isLocalDevelopmentProfile,
+} from "../engine/src/lib/state-dir.js";
+export { STATE_DIR, STATE_ROOT };
+export const PLUGIN_DISPLAY_NAME = isLocalDevelopmentProfile()
+  ? "Figma Bridge Local Development"
+  : "Figma Bridge";
 
 // Audit Trail path.
 export const AUDIT_LOG_PATH =

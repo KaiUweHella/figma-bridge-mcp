@@ -7,6 +7,11 @@ checkout after verification.
 
 ## Before every release
 
+Agents stop after a local release commit by default. Creating a tag, pushing a
+commit or tag, dispatching this repository's publish workflow, and publishing
+to npm are separate maintainer actions; each requires explicit authorization
+for that exact remote action.
+
 1. Finish code and live Figma checks before committing release metadata.
 2. Synchronize the release version everywhere with
    `npm run sync:release-version -- <version>`. This updates the root package,
@@ -44,7 +49,10 @@ checkout after verification.
    The smoke uses a scratch home, generated credentials, and a temporary
    loopback port. It exercises MCP initialization, tool discovery, pairing,
    authenticated daemon startup, status, Plugin installation, and cleanup
-   without a maintainer secret. The installed lock is reduced to a sanitized
+   without a maintainer secret. It explicitly clears
+   `FIGMA_BRIDGE_PROFILE`, rejects the checkout-only `Local Development`
+   identity, and requires the released `Figma Bridge` manifest with its normal
+   `3456–3460` port range. The installed lock is reduced to a sanitized
    `dependencies.json` containing exact production versions, canonical npm
    registry origins, and SHA-512 integrity; an install lifecycle script fails
    the gate. The CI pack job installs with `--engine-strict` on Node 18, the
@@ -66,7 +74,9 @@ universal OpenAI or Claude plugin directories:
 
 - `.agents/plugins/marketplace.json` installs the Codex plugin from the exact
   `v<version>` Git tag.
-- `.claude-plugin/marketplace.json` installs the same exact GitHub tag.
+- `.claude-plugin/marketplace.json` installs the same exact GitHub tag through
+  an explicit public HTTPS Git URL; do not make public installs depend on SSH
+  keys or `known_hosts` state.
 - Cursor consumes the portable Agent Plugin from that tagged repository.
 - `.mcp.json` and `mcp.json` start `figma-bridge-mcp@<version>` exactly. Only
   the standalone MCP fallback documented in `README.md` follows `@latest`.

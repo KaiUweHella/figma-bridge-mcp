@@ -27,13 +27,16 @@ finished component.
    assets, states, responsive behavior, Storybook stories, and tests.
 2. Inspect the target Figma file's pages, variables, styles, components,
    variant naming, and `figma-bridge.json` links. Call `figma_reference` with
-   `name: "workflow:code-to-figma"` once.
+   `name: "components"` once; add `name: "workflow:code-to-figma"` when a
+   screen or code-render workflow is also in scope.
 3. Produce a concise gap map: what exists only in code, only in Figma, and on
    both sides with a conflict. Resolve real conflicts before mutation.
-4. Define the component contract: variant axes and values, TEXT and BOOLEAN
-   properties, INSTANCE_SWAP slots, interaction states, token bindings, assets,
-   and the Design Entity id. Cap a Cartesian variant matrix at 30; split the
-   component when the contract would explode beyond that.
+4. Define the component contract across all five native property types: TEXT,
+   BOOLEAN, INSTANCE_SWAP, VARIANT and SLOT. Record scalar definition-to-layer
+   bindings, nested Instance exposure, Slot limits and preferred values,
+   interaction states, token bindings, assets, and the Design Entity id. Cap a
+   Cartesian variant matrix at 30; split the component when the contract would
+   explode beyond that.
 
 ## Build foundations first
 
@@ -73,21 +76,44 @@ update-batch` call; keep `var update` for one target.
    Give every overridable text layer an explicit name.
 3. Create each variant from the closest valid base, edit only its differences,
    then combine and arrange the variants into one component set. Use
-   `component add-variant` when extending an existing set.
-4. Expose TEXT, BOOLEAN, and INSTANCE_SWAP component properties deliberately.
-   Use INSTANCE_SWAP for icons and swappable nested components; never create an
-   icon-name variant axis.
-5. Map representable state transitions and interactions to native prototype
+   `component add-variant` when extending an existing set; it preserves scalar
+   and Slot references plus nested exposure that Figma's raw clone may drop.
+4. Expose properties deliberately and use their native ownership model:
+   - Add TEXT, BOOLEAN and INSTANCE_SWAP definitions, then bind each definition
+     to a compatible descendant with `component prop bind`. Definition-only
+     scalar properties are incomplete. TEXT binds `characters`, BOOLEAN binds
+     `visible`, and INSTANCE_SWAP binds `mainComponent`.
+   - Use INSTANCE_SWAP for icons and replaceable nested components; curate its
+     picker with preferred values and never create an icon-name variant axis.
+   - Treat VARIANT as a native Component Set axis produced by named variants,
+     not as a scalar definition or sublayer binding.
+   - Create SLOT as a native flexible region with the dedicated Slot commands.
+     Set child limits, empty/default behavior, stretch behavior and preferred
+     values deliberately; Slot contents remain structural instance overrides.
+     A newly created native Slot starts as a 100×100 freeform container. Use
+     the returned Slot node id to set its intended Auto Layout direction,
+     Fill/Hug sizing, gap and padding before inserting content. Bind the gap or
+     padding to existing Variables when available.
+5. For Components inside Components, preserve the nested Instance. Use
+   `component nested expose` only on a primary nested Instance when consumers
+   of the wrapper should access that Instance's own properties. Do not detach,
+   flatten, or claim exposure for an inherited Instance below another Instance.
+6. Map representable state transitions and interactions to native prototype
    reactions, then verify them with `prototype inspect`. Do not invent a
    reaction when the source behavior depends on app state, routing or async
    work.
-6. Import exact SVG or raster source from the codebase. Do not redraw icons from
+7. Import exact SVG or raster source from the codebase. Do not redraw icons from
    primitives and do not detach imported design-system instances.
-7. Validate the component before starting the next one: inspect the component
-   main/set contract and property list, read the node tree, take a screenshot,
-   and verify variant count, names, bindings, text overrides, clipping, states,
-   and touch targets.
-8. Link the result with `link set` to its source/export and Storybook story.
+8. Validate the component before starting the next one: inspect the component
+   main/set contract and run `component prop list`. Require `wired` for every
+   scalar property, `native-axis` for every Variant and `native-slot` for every
+   Slot; verify nested exposure and run `slot validate`. Instantiate the
+   component, exercise each control independently, and treat that Instance as
+   authoritative for `minChildren` because an empty Slot on the main Component
+   can report no violation. Read the node tree, take a screenshot, and verify
+   clipping, states and touch targets. `slot validate` checks Slot rules, not
+   visual layout; overlapping children in a freeform Slot can still validate.
+9. Link the result with `link set` to its source/export and Storybook story.
    Run Storybook mapping only after the component and story names are final.
 
 ## Keep the workflow safe and resumable

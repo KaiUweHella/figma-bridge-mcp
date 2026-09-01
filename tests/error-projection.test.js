@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   formatPublicError,
   isPublicFailureProjection,
+  projectMcpErrorContext,
   projectPublicError,
   projectPublicFailure,
   publicError,
@@ -121,4 +122,63 @@ test('mutation counts may describe different units without losing multi-field re
   });
   assert.deepEqual(projectPublicFailure(publicError(raw))?.mutation,
     projectPublicFailure(raw)?.mutation, 'wrapping must not erase the validated projection');
+});
+
+test('MCP errors expose one closed layer, dispatch state and payload-free suggestion', () => {
+  assert.deepEqual(projectMcpErrorContext(
+    'Unknown or unsupported Figma Command — Unsupported option --future for var list. '
+      + 'Accepted form: ["var","list","--limit","<1-1000>","--json"]. private-payload',
+  ), {
+    schemaVersion: 1,
+    layer: 'whitelist',
+    kind: 'command-rejected',
+    dispatchState: 'not-dispatched',
+    suggestion: 'Use ["var","list","--limit","<1-1000>","--json"].',
+  });
+
+  assert.deepEqual(projectMcpErrorContext(
+    '[targeting] [dispatch:not-dispatched] No connected window matches the target.',
+  ), {
+    schemaVersion: 1,
+    layer: 'transport',
+    kind: 'targeting',
+    dispatchState: 'not-dispatched',
+    suggestion: 'Run figma_status to confirm the intended file, then retry the same request.',
+  });
+
+  const execution = projectMcpErrorContext(
+    '[execution] [dispatch:failed] private mutation payload',
+  );
+  assert.equal(execution.layer, 'execution');
+  assert.equal(execution.kind, 'execution');
+  assert.equal(execution.dispatchState, 'failed');
+  assert.match(execution.suggestion, /Inspect the target state before retrying/);
+  assert.doesNotMatch(JSON.stringify(execution), /private mutation payload/);
+
+  const unavailable = Object.assign(new Error('Plugin not connected'), {
+    kind: 'plugin-unavailable',
+    outcome: 'not-dispatched',
+  });
+  const formattedUnavailable = formatPublicError(unavailable);
+  assert.match(formattedUnavailable, /\[plugin-unavailable\] \[dispatch:not-dispatched\]/);
+  assert.deepEqual(projectMcpErrorContext(formattedUnavailable), {
+    schemaVersion: 1,
+    layer: 'transport',
+    kind: 'plugin-unavailable',
+    dispatchState: 'not-dispatched',
+    suggestion: 'Run figma_connect once to wake or restore the configured Bridge, then retry the same not-dispatched request. Diagnose further only if figma_connect fails.',
+  });
+
+  assert.deepEqual(projectMcpErrorContext(
+    'Plugin not connected — launch the local Bridge plugin in Figma first.',
+  ), {
+    schemaVersion: 1,
+    layer: 'transport',
+    kind: 'plugin-unavailable',
+    dispatchState: 'not-dispatched',
+    suggestion: 'Run figma_connect once to wake or restore the configured Bridge, then retry the same not-dispatched request. Diagnose further only if figma_connect fails.',
+  });
+
+  assert.equal(projectMcpErrorContext('[engine-timeout] operation deadline exceeded').layer,
+    'execution');
 });

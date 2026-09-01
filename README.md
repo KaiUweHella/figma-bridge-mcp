@@ -85,9 +85,28 @@ If `/mcp` reports a failed or zero-tool server, run
 configuration, use the scope-specific removal command it prints, start a new
 session, and check `/mcp` again.
 
+If `/mcp` reports `CONNECTION_CLOSED` and the debug output says
+`No version is set for command node`, the process exited before the MCP
+handshake. In the same shell environment that launches the MCP client, verify:
+
+```bash
+command -v node
+command -v npx
+node --version
+npx --version
+```
+
+Both version commands must succeed and Node must be 18 or newer. If the command
+paths resolve to `asdf` shims without an active Node version, configure one in
+`asdf`; if `nvm` should own Node instead, place its active Node directory ahead
+of stale `asdf` shims in `PATH`. Restart the MCP client after correcting the
+runtime environment.
+
 The Claude marketplace uses the same pinned GitHub release and shared skill
 tree. The matching npm package must be published before users install that
-release because the plugin launches its local stdio server through `npx`.
+release because the plugin launches its local stdio server through `npx`. Its
+public plugin source is an explicit HTTPS Git URL, so installing or updating it
+does not require SSH keys or a GitHub `known_hosts` entry.
 
 For Cursor Teams or Enterprise, import this GitHub repository into a team
 marketplace and install **Figma Bridge** from Customize. Individual users and
@@ -153,15 +172,28 @@ npm install
   "mcpServers": {
     "figma-bridge": {
       "command": "node",
-      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"]
+      "args": ["/absolute/path/to/figma-bridge-mcp/src/server.js"],
+      "env": { "FIGMA_BRIDGE_PROFILE": "local-development" }
     }
   }
 }
 ```
 
+Use the `local-development` profile when a released Bridge is running at the
+same time (for example from Claude Code). It pins the source checkout to
+`localhost:3460` and isolates its daemon, tokens, pairing and audit data below
+`~/.figma-bridge-mcp/profiles/local-development/`. `figma_connect` generates
+the gitignored, checkout-owned `plugin/local/manifest.json` bundle; import that
+exact file and open **Figma Bridge Local Development**. You can also refresh
+both checkout import bundles explicitly with `npm run prepare:plugin-imports`.
+The main Plugin passes that manifest identity's exact port to the shared UI,
+while Figma's manifest policy also permits only `:3460`.
+Omitting `FIGMA_BRIDGE_PROFILE` retains the normal released profile and its
+3456–3460 fallback behavior.
+
 </details>
 
-### 2. Pair Figma Desktop once
+### 2. Pair each Figma editor once
 
 1. Ask your AI assistant to **connect to Figma**, or call `figma_connect`
    directly. It starts the local bridge and returns an access key plus a plugin
@@ -169,14 +201,26 @@ npm install
 2. In **Figma Desktop**: `Plugins → Development → Import plugin from manifest…`
    and choose **`~/.figma-bridge-mcp/plugin/manifest.json`** (the path
    returned by `figma_connect`).
-3. Open `Plugins → Development → Figma Bridge`, paste the access key, and
-   click **Save & connect**.
-4. When the plugin shows **Connected (authenticated)**, the assistant can work
-   with that Figma file. The pairing is remembered. A later `figma_connect`
-   reuses the healthy daemon and socket instead of restarting them, so a new AI
-   session does not interrupt the open Figma file. If the only socket is open
-   but its plugin iframe no longer answers a read-only probe, `figma_connect`
-   reloads just that iframe and it reconnects with the stored key.
+3. Open `Plugins → Development → Figma Bridge` in Figma Design, paste the
+   access key, and click **Save & connect**.
+4. Figma stores plugin data separately for Design, FigJam and Slides. To use
+   another editor, open the plugin there and save the same key once. In an
+   already paired editor, **Setup → Copy access key** copies the in-use key
+   without displaying or logging it.
+5. When the plugin shows **Connected (authenticated)**, the assistant can work
+   with that Figma file. The pairing is remembered. Starting the configured MCP
+   automatically wakes a daemon that exited after its idle timeout and reuses a
+   healthy daemon/socket, so a new AI session does not interrupt the open Figma
+   file. If the automatic wake fails, call `figma_connect` once before deeper
+   diagnosis. If the only socket is open but its plugin iframe no longer
+   answers a read-only probe, `figma_connect` reloads just that iframe and it
+   reconnects with the stored key.
+
+If a timed-out compatibility command leaves only the execution lane uncertain
+while health reads still answer, call `figma_connect` with
+`{forceRecovery:true,fileKey:"<exact-file-key>"}`. This explicitly reloads only
+that authenticated Plugin UI; it refuses an unknown file and never reloads
+while another Figma operation is still active.
 
 The plugin keeps looking for the local bridge if it was opened first. It uses a
 small bounded WebSocket burst for instant startup, then a quiet localhost health
@@ -187,12 +231,12 @@ the previously imported build in its application cache. `figma_status` detects
 that mismatch. Re-import the same `manifest.json` path once when it reports an
 older plugin build; the saved access key is retained.
 
-### Figma Dev Mode requires its own manifest
+### Figma Dev Mode requires its own manifest.json bundle
 
 The normal `manifest.json` does not work in Dev Mode. Figma does not support
 combining the existing FigJam editor target with `dev` in one manifest:
 
-- Import `~/.figma-bridge-mcp/plugin/manifest.dev.json` for **Figma Bridge Dev
+- Import `~/.figma-bridge-mcp/plugin/dev-mode/manifest.json` for **Figma Bridge Dev
   Mode**. It keeps the authenticated MCP bridge connected for selection,
   inspection, specs and exports. Dev Mode is read-only, so rendering and canvas
   edits still require switching the file to Design mode and opening the normal
@@ -393,7 +437,7 @@ MCP client ──stdio──▶ figma-bridge-mcp (src/)
 
 | Tool               | Purpose                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `figma_connect`    | Ensure Safe Mode is available without replacing a healthy daemon/socket; self-heal a single unresponsive plugin iframe; generate/show the access key and print plugin setup steps.                                                                                                                                                                                                                    |
+| `figma_connect`    | Ensure Safe Mode is available without replacing a healthy daemon/socket; self-heal a single unresponsive plugin iframe; explicitly recover one exact split execution lane with `{forceRecovery:true,fileKey}`; generate/show the access key and print plugin setup steps.                                                                                                                             |
 | `figma_status`     | Report local daemon/plugin/file/key state and, by default, run one bounded closed Figma main-thread responsiveness probe per target; `probePlugin:false` checks sockets only and `validateRest:true` explicitly checks the optional REST token.                                                                                                                                                       |
 | `figma_pairing`    | Show the access key; `{rotate:true}` generates a fresh one.                                                                                                                                                                                                                                                                                                                                           |
 | `figma_run`        | Run a Capability Catalog-approved engine command; discover them with `figma_reference {name:"capabilities"}`.                                                                                                                                                                                                                                                                                         |
@@ -526,7 +570,9 @@ The same discriminator protects union lookups in Figma Slides and
 `component add-variant`: `node:`, `name:` and (for Slides) `label:` select one
 identity surface, while bare values preserve the existing query workflow.
 URL-shaped names and labels therefore stay usable without silently retargeting
-the Command.
+the Command. `component add-variant --from` also restores and freshly verifies
+TEXT, BOOLEAN, INSTANCE_SWAP and SLOT sublayer references plus nested Instance
+exposure that Figma's native clone can drop.
 
 Top-level `find` provides bounded Node Discovery on the fully loaded current
 page across CLI and MCP. Case-insensitive partial-name matching, the optional
@@ -1345,6 +1391,11 @@ rollback or residue without oversizing the Plugin response.
 
 `var delete-all` is also disabled. Use exact `var delete <names...>` or
 ambiguity-aware `col delete <collection>` so destructive scope is explicit.
+Collection deletion always returns a non-mutating confirmation preview before
+dispatch, even when global write confirmation is disabled. Prefer
+`col delete <collection> --only-if-empty` when cleanup must never remove member
+Variables: the Plugin verifies empty membership immediately before the native
+irreversible removal and refuses a populated Collection without mutation.
 
 A colour takes a hex or `var:<name>`. The difference is not cosmetic: a hex is
 frozen, a `var:` reference stays **bound**, so a later `tokens rebind` can still
@@ -1596,6 +1647,10 @@ prior effective definition when Figma permits it. Reset is also non-retrying
 and reports native confirmation plus fresh before/after facts; it does not
 claim an independently known default subtree or rollback. JSX `<Slot>` uses
 `ComponentNode.createSlot()` and validates configured limits after rendering.
+An empty Slot on a main Component can have no reported
+violation even when `minChildren` is nonzero; instantiate the Component and run
+`slot validate` on that exercised Instance to observe `BELOW_MIN`. Component
+Property Facts normalize Figma's missing SLOT `defaultValue` to `null`.
 Draw commands cover text paths, repeat transform
 groups, stretch/scatter/dynamic strokes, variable-width profiles, and async
 pattern fill/stroke setters. Run the corresponding `inspect`/`validate` read
@@ -1810,7 +1865,12 @@ rather than a generic API failure.
   `networkAccess.allowedDomains` to WebSocket and discovery HTTP traffic on
   `localhost:3456–3460` only.
 - **Isolated state** — token, pid, key, and Audit Trail live under
-  `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install.
+  `~/.figma-bridge-mcp/`, separate from any upstream figma-ds-cli install. A
+  source checkout can additionally select `FIGMA_BRIDGE_PROFILE=local-development`
+  for a distinct namespace and a daemon/plugin pinned to `:3460` while the
+  released profile remains active. Its importable bundle is generated below
+  the gitignored `plugin/local/` directory; tracked `plugin/manifest.json`
+  always remains the normal released identity.
 - **Private Audit Trail** — commands attempt a closed, versioned start/outcome
   lifecycle in `~/.figma-bridge-mcp/audit.log`. Capability, effects, redacted
   data summaries, outcome, duration, terminal Dispatch state and bounded
@@ -2015,7 +2075,8 @@ transport and the plugin are unrelated. Where this project differs is that the
 socket also proves who is on the other end of it.
 
 **Plugin identity.** The development manifests use the product-aligned ids
-`figma-bridge-mcp` and `figma-bridge-mcp-dev`. Figma keys `clientStorage` —
-where the paired access key lives — on the plugin id. Installations from before
-0.5.0 therefore need to re-import the manifest and paste their existing Bridge
-access key once.
+`figma-bridge-mcp` and `figma-bridge-mcp-dev`. Figma scopes `clientStorage` —
+where the paired access key lives — to the plugin id and, in the desktop
+editors, separately across Design, FigJam and Slides. Installations from before
+0.5.0 therefore need to re-import the manifest; each editor in use needs the
+same Bridge access key saved once.

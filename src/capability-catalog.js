@@ -476,6 +476,12 @@ import {
   parseComponentPropertyAddRequest,
 } from '../engine/src/application/component-property-add-request.js';
 import {
+  acceptsComponentPropertyBindArgv,
+  componentPropertyBindArgvFromRequest,
+  componentPropertyBindFigmaUrlFileKeyFromArgv,
+  parseComponentPropertyBindRequest,
+} from '../engine/src/application/component-property-bind-request.js';
+import {
   acceptsComponentPropertyDeleteArgv,
   componentPropertyDeleteArgvFromRequest,
   componentPropertyDeleteFigmaUrlFileKeyFromArgv,
@@ -487,6 +493,12 @@ import {
   componentPropertyListFigmaUrlFileKeyFromArgv,
   parseComponentPropertyListRequest,
 } from '../engine/src/application/component-property-list-request.js';
+import {
+  acceptsComponentNestedExposeArgv,
+  componentNestedExposeArgvFromRequest,
+  componentNestedExposeFigmaUrlFileKeyFromArgv,
+  parseComponentNestedExposeRequest,
+} from '../engine/src/application/component-nested-expose-request.js';
 import {
   acceptsComponentInstantiateArgv,
   componentInstantiateArgvFromRequest,
@@ -1069,7 +1081,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'component.swap', 'component.detach', 'component.overrides',
   'component.list',
   'component.instantiate',
-  'component.prop.add', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
+  'component.prop.add', 'component.prop.bind', 'component.prop.delete', 'component.prop.list', 'component.prop.set',
+  'component.nested.expose',
   'style.list',
   'style.create',
   'style.update',
@@ -1118,6 +1131,7 @@ const UNKNOWN = Object.freeze({
   timeoutClass: 'default',
   execution: 'foreground',
   pathPolicy: 'none',
+  confirmation: null,
   summary: 'Unknown command',
   options: Object.freeze({ terminatorIndex: null, entries: Object.freeze([]) }),
 });
@@ -1132,6 +1146,7 @@ const TOP_LEVEL_HELP = Object.freeze({
   timeoutClass: 'default',
   execution: 'foreground',
   pathPolicy: 'none',
+  confirmation: null,
   summary: 'List available Figma Commands',
   options: Object.freeze({ terminatorIndex: null, entries: Object.freeze([]) }),
 });
@@ -1225,6 +1240,7 @@ function specializedPolicy(name, entry, args, actionId) {
   let pathPolicy = entry.path || 'none';
   let retry = entry.retry || 'never';
   if (name === 'sizes') pathPolicy = 'size-variants-input';
+  let confirmation = null;
   if (name === 'import') {
     timeoutClass = 'long';
     pathPolicy = 'design-source-import-input';
@@ -1362,7 +1378,10 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'col' && ['mode-add', 'mode-rename', 'mode-remove'].includes(sub)) {
     pathPolicy = 'collection-mode-input';
   }
-  if (name === 'col' && sub === 'delete') pathPolicy = 'collection-delete-input';
+  if (name === 'col' && sub === 'delete') {
+    pathPolicy = 'collection-delete-input';
+    confirmation = 'required';
+  }
   if (name === 'col' && sub === 'extend') pathPolicy = 'collection-extend-input';
   if (name === 'font' && sub === 'inspect') {
     retry = 'safe-read';
@@ -1408,11 +1427,17 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'component' && sub === 'prop' && args[2] === 'add') {
     pathPolicy = 'component-property-add-input';
   }
+  if (name === 'component' && sub === 'prop' && args[2] === 'bind') {
+    pathPolicy = 'component-property-bind-input';
+  }
   if (name === 'component' && sub === 'prop' && args[2] === 'delete') {
     pathPolicy = 'component-property-delete-input';
   }
   if (name === 'component' && sub === 'prop' && args[2] === 'list') {
     pathPolicy = 'component-property-list-input';
+  }
+  if (name === 'component' && sub === 'nested' && args[2] === 'expose') {
+    pathPolicy = 'component-nested-expose-input';
   }
   if (name === 'style' && sub === 'show') {
     retry = 'safe-read';
@@ -1514,7 +1539,7 @@ function specializedPolicy(name, entry, args, actionId) {
   if (name === 'jam' && sub === 'table') pathPolicy = 'jam-table-input';
   if (name === 'jam' && sub === 'section') pathPolicy = 'jam-section-input';
   if (name === 'jam' && sub === 'code') pathPolicy = 'jam-code-input';
-  return { execution, timeoutClass, pathPolicy, retry };
+  return { execution, timeoutClass, pathPolicy, retry, confirmation };
 }
 
 /** Resolve the private policy for one concrete argv. */
@@ -1766,12 +1791,20 @@ function commandCapability(args) {
     && !action.help && !acceptsComponentPropertyAddArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'component' && args[1] === 'prop' && args[2] === 'bind'
+    && !action.help && !acceptsComponentPropertyBindArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'delete'
     && !action.help && !acceptsComponentPropertyDeleteArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'component' && args[1] === 'prop' && args[2] === 'list'
     && !action.help && !acceptsComponentPropertyListArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'component' && args[1] === 'nested' && args[2] === 'expose'
+    && !action.help && !acceptsComponentNestedExposeArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides' && args[1] === 'create'
@@ -2144,6 +2177,7 @@ function commandCapability(args) {
     timeoutClass: specialized.timeoutClass,
     execution: specialized.execution,
     pathPolicy: specialized.pathPolicy,
+    confirmation: specialized.confirmation || null,
     summary: entry.summary,
     options: action.options,
   });
@@ -2219,14 +2253,67 @@ function optionNameFromArgv(args) {
 }
 
 function acceptedForm(actionId) {
+  if (actionId === 'find') {
+    return '["find","<query>","--type","<FIGMA_NODE_TYPE>","--limit","<1-200>"]';
+  }
   if (actionId === 'var.list') {
     return '["var","list","--limit","<1-1000>","--json"]';
   }
   if (actionId === 'var.find') {
     return '["var","find","<pattern>","--limit","<1-1000>","--json"]';
   }
+  if (actionId === 'style.consumers') {
+    return '["style","consumers","<style>","--type","PAINT|TEXT|EFFECT|GRID","--limit","<1-500>"]';
+  }
+  if (actionId === 'style.apply') {
+    return '["style","apply","<style>","<nodeIds>","--field","fill|stroke|text|effect|grid"]';
+  }
   const [root, action] = actionId.split('.');
   return action ? `["${root}","${action}","--help"]` : `["${root}","--help"]`;
+}
+
+function payloadFreeTypedRequestDetail(raw, prefix) {
+  const detail = String(raw).replace(prefix, '').replace(/\.$/, '');
+  if (/^unknown option /.test(detail)) return { kind: 'unknown-option', detail: null };
+  if (/^unexpected argument /.test(detail)) {
+    return { kind: 'malformed', detail: 'too many positional arguments' };
+  }
+  const safePatterns = [
+    /^(?:query|style|nodeIds|style and nodeIds) (?:is|are) required$/,
+    /^only one query is accepted$/,
+    /^(?:type|limit) (?:may be provided only once|must be .+)$/,
+    /^--?(?:field|type|limit|cursor) (?:is required|may be provided only once|requires .+|must be .+)$/,
+    /^cursor (?:is malformed or too long|does not match this Style Consumer scope)$/,
+    /^each nodeId must be a Figma node id or URL containing node-id$/,
+    /^nodeIds (?:exceed \d+ code units|must not contain duplicates|reference multiple Figma files)$/,
+    /^at most \d+ nodes are supported$/,
+    /^(?:query|style) (?:must not exceed|exceeds) \d+ code units$/,
+    /^style contains unsafe control characters$/,
+  ];
+  return safePatterns.some((pattern) => pattern.test(detail))
+    ? { kind: 'malformed', detail }
+    : { kind: 'malformed', detail: 'arguments do not match the typed command contract' };
+}
+
+function explainTypedRequestRejection({
+  normalized, actionId, label, parse, errorPrefix, responseIsStructured = false,
+}) {
+  try {
+    parse(normalized);
+  } catch (error) {
+    const failure = payloadFreeTypedRequestDetail(error?.message || String(error), errorPrefix);
+    const option = optionNameFromArgv(normalized);
+    if (failure.kind === 'unknown-option') {
+      const structured = option === '--json' && responseIsStructured
+        ? '; figma_run already returns structured JSON'
+        : '';
+      return `Unsupported option${option ? ` ${option}` : ''} for ${label}${structured}. `
+        + `Accepted form: ${acceptedForm(actionId)}.`;
+    }
+    return `Malformed request for ${label}: ${failure.detail}. `
+      + `Accepted form: ${acceptedForm(actionId)}.`;
+  }
+  return `Malformed request for ${label}. Accepted form: ${acceptedForm(actionId)}.`;
 }
 
 /**
@@ -2257,6 +2344,41 @@ export function explainFigmaCommandRejection(rawArgs) {
   }
 
   const actionId = action.actionId.replace(/\.help$/, '');
+  if (actionId === 'find') {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: 'find',
+        parse: parseNodeDiscoveryRequest,
+        errorPrefix: /^Invalid find command: /,
+        responseIsStructured: true,
+      }),
+    );
+  }
+  if (actionId === 'style.consumers') {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: 'style consumers',
+        parse: parseStyleConsumerRequest,
+        errorPrefix: /^Invalid style consumers command: /,
+        responseIsStructured: true,
+      }),
+    );
+  }
+  if (actionId === 'style.apply') {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: 'style apply',
+        parse: parseStyleApplyRequest,
+        errorPrefix: /^Invalid style apply command: /,
+      }),
+    );
+  }
   if (actionId === 'var.list' || actionId === 'var.find') {
     const label = actionId.replace('.', ' ');
     const option = optionNameFromArgv(normalized);
@@ -2985,6 +3107,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         parseComponentPropertyAddRequest(args)));
       break;
     }
+    case 'component-property-bind-input': {
+      const closedFileKey = componentPropertyBindFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentPropertyBindArgvFromRequest(
+        parseComponentPropertyBindRequest(args)));
+      break;
+    }
     case 'component-property-delete-input': {
       const closedFileKey = componentPropertyDeleteFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -2997,6 +3126,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
       args.splice(0, args.length, ...componentPropertyListArgvFromRequest(
         parseComponentPropertyListRequest(args)));
+      break;
+    }
+    case 'component-nested-expose-input': {
+      const closedFileKey = componentNestedExposeFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...componentNestedExposeArgvFromRequest(
+        parseComponentNestedExposeRequest(args)));
       break;
     }
     case 'style-facts-input': {
@@ -3832,7 +3968,9 @@ export function planFigmaCommand(rawArgs, {
     argv,
     target,
     effects,
-    confirmation: capability.mutatesDesign ? 'configured' : 'none',
+    confirmation: capability.mutatesDesign
+      ? capability.confirmation || 'configured'
+      : 'none',
     mutationPolicy: capability.actionId === 'var.set-value-batch'
       ? Object.freeze({ rollback: VARIABLE_SET_VALUE_BATCH_ROLLBACK_POLICY })
       : null,
@@ -3840,7 +3978,9 @@ export function planFigmaCommand(rawArgs, {
       mode: capability.execution === 'background' ? 'tracked-job' : 'foreground',
       timeout: capability.timeoutClass,
       retry,
-      pluginDispatch: ['style.consumers', 'node.bindings', 'tokens.overlap'].includes(capability.actionId)
+      pluginDispatch: [
+        'style.consumers', 'node.bindings', 'tokens.overlap', 'component.prop.list',
+      ].includes(capability.actionId)
         ? 'typed-read'
         : effects.figma === 'none' ? 'none' : 'serialized',
       idempotence: jobKey ? 'deduped' : retry === 'safe-read' ? 'read-only' : 'unknown',

@@ -29,6 +29,10 @@ import {
   executeComponentPropertyAddPlan,
 } from '../application/component-property-add-command.js';
 import {
+  componentPropertyBindPlanningArgvFromRequest,
+  executeComponentPropertyBindPlan,
+} from '../application/component-property-bind-command.js';
+import {
   componentPropertyDeletePlanningArgvFromRequest,
   executeComponentPropertyDeletePlan,
 } from '../application/component-property-delete-command.js';
@@ -40,6 +44,10 @@ import {
   componentPropertySetPlanningArgvFromRequest,
   executeComponentPropertySetPlan,
 } from '../application/component-property-set-command.js';
+import {
+  componentNestedExposePlanningArgvFromRequest,
+  executeComponentNestedExposePlan,
+} from '../application/component-nested-expose-command.js';
 import {
   componentInstantiatePlanningArgvFromRequest,
   executeComponentInstantiatePlan,
@@ -618,6 +626,42 @@ async function runComponentPropertyAddCommand(request) {
     });
 }
 
+async function runComponentPropertyBindCommand(request) {
+  const argv = componentPropertyBindPlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentPropertyBindPlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
+async function runComponentNestedExposeCommand(request) {
+  const argv = componentNestedExposePlanningArgvFromRequest(request);
+  const plan = planFigmaCommand(argv, {
+    adapter: 'cli',
+    fileKey: program.opts().figmaFile || null,
+  });
+  return runInProcessCommandPlan(plan, { compatibilityFallback: false },
+    async ({ fileKey, deadline }) => {
+      await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
+      return executeComponentNestedExposePlan(plan, {
+        evaluate: (code) => daemonExec('eval', {
+          code,
+          ...(fileKey ? { fileKey } : {}),
+        }, Math.max(1, deadline - Date.now())),
+      });
+    });
+}
+
 async function runComponentPropertyDeleteCommand(request) {
   const argv = componentPropertyDeletePlanningArgvFromRequest(request);
   const plan = planFigmaCommand(argv, {
@@ -873,18 +917,20 @@ componentCmd
 
 const propCmd = componentCmd
   .command('prop')
-  .description('Manage component properties (BOOLEAN, TEXT, INSTANCE_SWAP, VARIANT)');
+  .description('Manage component properties (BOOLEAN, TEXT, INSTANCE_SWAP, VARIANT; SLOT via slot commands)');
 
 propCmd
   .command('add <componentId> <name> <type> <defaultValue>')
   .description('Add a property. Type: boolean | text | instance-swap | variant')
   .option('-o, --options <opts>', 'Comma-separated VARIANT options (e.g. "Small,Medium,Large")')
+  .option('--preferred <ids>', 'Comma-separated Component/Component Set node ids for an INSTANCE_SWAP picker')
   .option('--json', 'Output as JSON')
   .action(async (componentId, name, type, defaultValue, options) => {
     try {
       const result = await runComponentPropertyAddCommand({
         componentId, name, type, defaultValue,
         options: options.options ?? null,
+        preferred: options.preferred ?? null,
         json: options.json === true,
       });
       if (result.stderr) console.error(chalk.yellow(result.stderr));
@@ -909,6 +955,28 @@ propCmd
       console.log(result.stdout);
     } catch (error) {
       console.error(chalk.red('✗ Component Property List failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+propCmd
+  .command('bind <componentId> <propertyName> <nodeId>')
+  .description('Bind a BOOLEAN, TEXT, or INSTANCE_SWAP definition to the compatible field of a component sublayer')
+  .option('--remove', 'Remove this property binding from the inferred field')
+  .option('--replace', 'Replace a different existing binding on the inferred field')
+  .option('--json', 'Output as JSON')
+  .action(async (componentId, propertyName, nodeId, options) => {
+    try {
+      const result = await runComponentPropertyBindCommand({
+        componentId, propertyName, nodeId,
+        remove: options.remove === true,
+        replace: options.replace === true,
+        json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Property Bind failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });
@@ -943,6 +1011,27 @@ propCmd
       console.log(result.stdout);
     } catch (error) {
       console.error(chalk.red('✗ Component Property Delete failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+const nestedComponentCmd = componentCmd
+  .command('nested')
+  .description('Manage nested component instances and exposed properties');
+
+nestedComponentCmd
+  .command('expose <instanceId> <value>')
+  .description('Expose or hide a primary nested instance properties at the containing component level')
+  .option('--json', 'Output as JSON')
+  .action(async (instanceId, value, options) => {
+    try {
+      const result = await runComponentNestedExposeCommand({
+        instanceId, exposed: value, json: options.json === true,
+      });
+      if (result.stderr) console.error(chalk.yellow(result.stderr));
+      console.log(result.stdout);
+    } catch (error) {
+      console.error(chalk.red('✗ Component Nested Expose failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

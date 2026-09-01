@@ -44,7 +44,7 @@ test('the stored access key is masked by default and has an accessible reveal co
   );
 
   const start = UI.indexOf('function setKeyVisible(');
-  const end = UI.indexOf('// ============ Activity log', start);
+  const end = UI.indexOf('function syncAccessKeyControls()', start);
   assert.ok(start > 0 && end > start, 'key visibility controller must stay in the setup block');
   const source = UI.slice(start, end);
   const keyInput = { type: 'password' };
@@ -130,7 +130,7 @@ test('README puts optional REST setup near onboarding and gives Dev Mode its own
   assert.ok(restHeading > 0 && restHeading < architectureHeading,
     'optional REST setup should be visible before the architecture reference');
   assert.equal(README.match(/^## REST add-on \(optional\)$/gm)?.length, 1);
-  assert.match(README, /^### Figma Dev Mode requires its own manifest$/m);
+  assert.match(README, /^### Figma Dev Mode requires its own manifest\.json bundle$/m);
   assert.match(README, /normal[^\n]*`manifest\.json`[^\n]*does not work in Dev Mode/i);
-  assert.match(README, /manifest\.dev\.json/);
+  assert.match(README, /plugin\/dev-mode\/manifest\.json/);
 });

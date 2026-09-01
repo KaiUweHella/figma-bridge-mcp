@@ -2738,6 +2738,7 @@ test('col delete delegates one Plan-bound irreversible non-retrying Application'
   const end = adapter.indexOf("collections.command('extend <collection> <name>')", start);
   const action = adapter.slice(start, end);
   assert.match(action, /collectionDeletePlanningArgvFromRequest/);
+  assert.match(action, /--only-if-empty/);
   assert.match(action, /\.allowExcessArguments\(false\)/);
   assert.match(action, /runInProcessCommandPlan\(plan, \{ compatibilityFallback: false \}/);
   assert.match(action, /executeCollectionDeletePlan\(plan/);
@@ -3337,12 +3338,23 @@ test('component prop add delegates one rollback-owned non-retrying Application',
 test('component prop list delegates one bounded safe-read Application', () => {
   const src = sources.get('misc.js');
   const start = src.indexOf(".command('list [componentId]')");
-  const end = src.indexOf(".command('set <instanceId> <name> <value>')", start);
+  const end = src.indexOf(".command('bind <componentId> <propertyName> <nodeId>')", start);
   const propList = src.slice(start, end);
   assert.match(propList, /runComponentPropertyListCommand/);
   assert.match(propList, /process\.exitCode = 1/);
   assert.doesNotMatch(propList, /componentPropertyDefinitions|daemonExec\(|checkConnection\(/,
     'Commander must not retain Component Property List readiness or capture logic');
+});
+
+test('component prop bind delegates one rollback-owned inferred-field Application', () => {
+  const src = sources.get('misc.js');
+  const start = src.indexOf(".command('bind <componentId> <propertyName> <nodeId>')");
+  const end = src.indexOf(".command('set <instanceId> <name> <value>')", start);
+  const propBind = src.slice(start, end);
+  assert.match(propBind, /runComponentPropertyBindCommand/);
+  assert.match(propBind, /process\.exitCode = 1/);
+  assert.doesNotMatch(propBind, /componentPropertyReferences|daemonExec\(|checkConnection\(/,
+    'Commander must not retain Component Property Bind readiness or mutation logic');
 });
 
 test('component prop delete delegates one exact irreversible non-retrying Application', () => {
@@ -3354,6 +3366,17 @@ test('component prop delete delegates one exact irreversible non-retrying Applic
   assert.match(propDelete, /process\.exitCode = 1/);
   assert.doesNotMatch(propDelete, /deleteComponentProperty\(|daemonExec\(|checkConnection\(/,
     'Commander must not retain Component Property Delete readiness or mutation logic');
+});
+
+test('component nested expose delegates one rollback-owned Application', () => {
+  const src = sources.get('misc.js');
+  const start = src.indexOf(".command('expose <instanceId> <value>')");
+  const end = src.indexOf('async function runComponentCombineCommand', start);
+  const expose = src.slice(start, end);
+  assert.match(expose, /runComponentNestedExposeCommand/);
+  assert.match(expose, /process\.exitCode = 1/);
+  assert.doesNotMatch(expose, /isExposedInstance|daemonExec\(|checkConnection\(/,
+    'Commander must not retain nested Instance exposure logic');
 });
 
 test('unsafe legacy bulk writes stop before connection or generated mutation code', () => {

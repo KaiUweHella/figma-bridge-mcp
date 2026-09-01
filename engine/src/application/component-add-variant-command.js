@@ -23,6 +23,7 @@ export const MAX_COMPONENT_ADD_VARIANT_SETS = 10_000;
 export const MAX_COMPONENT_ADD_VARIANT_NAME_CODE_UNITS = 512;
 export const MAX_COMPONENT_ADD_VARIANT_ID_CODE_UNITS = 96;
 export const MAX_COMPONENT_ADD_VARIANT_SERIALIZED_CODE_UNITS = 262_144;
+export const MAX_COMPONENT_ADD_VARIANT_DESCENDANT_DEPTH = 512;
 const NODE_ID = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
 const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/u;
 
@@ -137,6 +138,85 @@ export function componentAddVariantCode(request) {
     }
     if (!source) throw new Error('Component Add Variant could not choose a clone source.');
 
+    const referenceFields = ['visible', 'characters', 'mainComponent', 'slotContentId'];
+    const own = (record, key) => record && Object.prototype.hasOwnProperty.call(record, key);
+    const normalizedReferences = (value) => {
+      if (value === null || value === undefined) return null;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Clone source contains invalid Component Property references.');
+      }
+      const keys = Object.keys(value);
+      if (keys.some((key) => !referenceFields.includes(key))) {
+        throw new Error('Clone source contains unsupported Component Property reference fields.');
+      }
+      const normalized = {};
+      for (const field of referenceFields) {
+        if (!own(value, field)) continue;
+        const property = value[field];
+        if (typeof property !== 'string' || !property
+          || property.length > ${MAX_COMPONENT_ADD_VARIANT_NAME_CODE_UNITS}) {
+          throw new Error('Clone source contains an invalid Component Property reference.');
+        }
+        normalized[field] = property;
+      }
+      return Object.keys(normalized).length ? normalized : null;
+    };
+    const descendantAt = (root, path) => {
+      let current = root;
+      for (const index of path) {
+        if (!current || !Array.isArray(current.children)
+          || !Number.isSafeInteger(index) || index < 0 || index >= current.children.length) return null;
+        current = current.children[index];
+      }
+      return current;
+    };
+    const sourceWiring = [];
+    const sourceStack = Array.isArray(source.node.children)
+      ? source.node.children.map((node, index) => ({ node, path: [index], depth: 1 })).reverse()
+      : [];
+    let sourceVisits = 0;
+    while (sourceStack.length) {
+      if (++sourceVisits > ${MAX_COMPONENT_ADD_VARIANT_SCAN_NODES}) {
+        throw new Error('Clone source exceeds the bounded Component Property wiring scan.');
+      }
+      const entry = sourceStack.pop();
+      const child = entry.node;
+      if (!child || typeof child !== 'object' || typeof child.type !== 'string'
+        || typeof child.name !== 'string'
+        || child.name.length > ${MAX_COMPONENT_ADD_VARIANT_NAME_CODE_UNITS}) {
+        throw new Error('Clone source contains an incompatible descendant.');
+      }
+      if (entry.depth > ${MAX_COMPONENT_ADD_VARIANT_DESCENDANT_DEPTH}) {
+        throw new Error('Clone source exceeds the bounded descendant depth.');
+      }
+      const references = normalizedReferences(child.componentPropertyReferences);
+      let exposed = null;
+      if (child.type === 'INSTANCE') {
+        if (typeof child.isExposedInstance !== 'boolean') {
+          throw new Error('Clone source Instance returned invalid exposure metadata.');
+        }
+        exposed = child.isExposedInstance;
+      }
+      if (references !== null || exposed !== null) {
+        sourceWiring.push({
+          path: entry.path,
+          type: child.type,
+          name: child.name,
+          references,
+          exposed,
+        });
+      }
+      if (!['INSTANCE', 'SLOT'].includes(child.type) && Array.isArray(child.children)) {
+        for (let index = child.children.length - 1; index >= 0; index--) {
+          sourceStack.push({
+            node: child.children[index],
+            path: [...entry.path, index],
+            depth: entry.depth + 1,
+          });
+        }
+      }
+    }
+
     const finalPairs = {};
     for (const axis of [...Object.keys(source.pairs), ...Object.keys(target)]) {
       const sourceValue = Object.prototype.hasOwnProperty.call(target, axis)
@@ -192,6 +272,16 @@ export function componentAddVariantCode(request) {
       }
       clone.name = newName;
       set.appendChild(clone);
+      for (const entry of sourceWiring) {
+        const targetNode = descendantAt(clone, entry.path);
+        if (!targetNode || targetNode.type !== entry.type || targetNode.name !== entry.name) {
+          throw new Error('Component clone structure changed before Property wiring could be preserved.');
+        }
+        if (entry.references !== null) {
+          targetNode.componentPropertyReferences = { ...entry.references };
+        }
+        if (entry.exposed !== null) targetNode.isExposedInstance = entry.exposed;
+      }
       try {
         if (!set.layoutMode || set.layoutMode === 'NONE') {
           let maxX = 0;
@@ -212,12 +302,22 @@ export function componentAddVariantCode(request) {
       const verifiedSet = await figma.getNodeByIdAsync(set.id);
       const verifiedClone = await figma.getNodeByIdAsync(clone.id);
       const expectedIds = [...variants.map((variant) => variant.id), clone.id];
+      const wiringPreserved = Boolean(verifiedClone) && sourceWiring.every((entry) => {
+        const targetNode = descendantAt(verifiedClone, entry.path);
+        if (!targetNode || targetNode.type !== entry.type || targetNode.name !== entry.name) return false;
+        let references;
+        try { references = normalizedReferences(targetNode.componentPropertyReferences); }
+        catch { return false; }
+        return JSON.stringify(references) === JSON.stringify(entry.references)
+          && (entry.exposed === null || targetNode.isExposedInstance === entry.exposed);
+      });
       if (!verifiedSet || verifiedSet.type !== 'COMPONENT_SET' || verifiedSet.remote !== false
         || !Array.isArray(verifiedSet.children) || verifiedSet.children.length !== expectedIds.length
         || new Set(verifiedSet.children.map((child) => child.id)).size !== expectedIds.length
         || expectedIds.some((id) => !verifiedSet.children.some((child) => child.id === id))
         || !verifiedClone || verifiedClone.type !== 'COMPONENT'
         || verifiedClone.parent?.id !== verifiedSet.id || verifiedClone.name !== newName
+        || !wiringPreserved
         || ((!verifiedSet.layoutMode || verifiedSet.layoutMode === 'NONE')
           && (verifiedSet.width + 0.001 < verifiedClone.x + verifiedClone.width
             || verifiedSet.height + 0.001 < verifiedClone.y + verifiedClone.height))

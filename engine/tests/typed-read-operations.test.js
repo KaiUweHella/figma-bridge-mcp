@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BRIDGE_HEALTH_TYPED_READ,
+  COMPONENT_PROPERTY_LIST_TYPED_READ,
   executeTypedReadOperation,
   NODE_BINDINGS_TYPED_READ,
   STYLE_CONSUMERS_TYPED_READ,
@@ -97,6 +98,52 @@ test('typed Node Binding Facts accepts only one closed optional Node identity', 
   const result = JSON.parse(serialized);
   assert.equal(result.nodes[0].bindings[0].variable.name, 'space/md');
   assert.equal(result.nodes[0].bindings[0].variable.collection.name, 'Tokens');
+});
+
+test('typed Component Property Facts bypass opaque eval and preserve native wiring', async () => {
+  assert.equal(typedReadRequestValidationError(
+    COMPONENT_PROPERTY_LIST_TYPED_READ, { componentId: '12:34' },
+  ), null);
+  assert.match(typedReadRequestValidationError(
+    COMPONENT_PROPERTY_LIST_TYPED_READ, { componentId: '12:34', code: 'write()' },
+  ), /unknown or missing field/);
+  const component = {
+    id: '12:34', name: 'Typed card', type: 'COMPONENT', remote: false,
+    componentPropertyDefinitions: {
+      'Title#12:35': { type: 'TEXT', defaultValue: 'Action impacts' },
+      'Show trend#12:36': { type: 'BOOLEAN', defaultValue: true },
+      'Content#12:39': {
+        type: 'SLOT', description: 'Flexible content',
+        slotSettings: { minChildren: 0, maxChildren: 3 },
+      },
+    },
+    children: [
+      {
+        id: '12:37', name: 'Title', type: 'TEXT',
+        componentPropertyReferences: { characters: 'Title#12:35' },
+      },
+      {
+        id: '12:38', name: 'Trend', type: 'FRAME', children: [],
+        componentPropertyReferences: { visible: 'Show trend#12:36' },
+      },
+      {
+        id: '12:39', name: 'Content', type: 'SLOT', children: [],
+        componentPropertyReferences: null, limitViolations: [],
+      },
+    ],
+  };
+  const serialized = await executeTypedReadOperation({
+    currentPage: { selection: [] },
+    getNodeByIdAsync: async (id) => id === component.id ? component : null,
+  }, COMPONENT_PROPERTY_LIST_TYPED_READ, { componentId: component.id });
+  const result = JSON.parse(serialized);
+  assert.deepEqual(result.properties.map((property) => [property.type, property.bindingStatus]), [
+    ['TEXT', 'wired'], ['BOOLEAN', 'wired'], ['SLOT', 'native-slot'],
+  ]);
+  assert.equal(result.properties[2].defaultValue, null);
+  assert.deepEqual(result.properties[0].bindings, [{
+    nodeId: '12:37', nodeName: 'Title', nodeType: 'TEXT', field: 'characters',
+  }]);
 });
 
 test('typed Token Overlap accepts only bounded Collection queries and returns exact facts', async () => {

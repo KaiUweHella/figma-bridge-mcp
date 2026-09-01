@@ -122,7 +122,11 @@ test('concurrent setup processes publish one complete material without temporary
   const script = `
     const { createApiReferenceStore } = await import(process.env.API_REFERENCE_STORE_MODULE);
     const policy = JSON.parse(process.env.API_REFERENCE_POLICY_JSON);
-    createApiReferenceStore({ root: process.env.API_REFERENCE_STATE_ROOT, policy }).install();
+    const result = createApiReferenceStore({
+      root: process.env.API_REFERENCE_STATE_ROOT,
+      policy,
+    }).install();
+    process.stdout.write(JSON.stringify(result));
   `;
   const run = () => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
@@ -134,12 +138,21 @@ test('concurrent setup processes publish one complete material without temporary
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    let stdout = '';
     let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.once('error', reject);
-    child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(stderr || `child exited ${code}`)));
+    child.once('exit', (code) => {
+      if (code !== 0) return reject(new Error(stderr || `child exited ${code}`));
+      try { return resolve(JSON.parse(stdout)); }
+      catch (error) { return reject(error); }
+    });
   });
-  await Promise.all([run(), run(), run(), run()]);
+  const results = await Promise.all(Array.from({ length: 12 }, run));
+
+  assert.equal(results.filter((result) => result.reused === false).length, 1);
+  assert.equal(results.filter((result) => result.reused === true).length, 11);
 
   const store = createApiReferenceStore({ root: value.stateRoot, policy: value.policy });
   assert.equal(store.load().entries.length, 3);

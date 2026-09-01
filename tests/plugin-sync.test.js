@@ -22,6 +22,9 @@ import { createPreparedDispatchReceipt } from '../engine/src/lib/dispatch-receip
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(ROOT, 'plugin', 'manifest.json'), 'utf8'));
+const localManifest = JSON.parse(
+  readFileSync(join(ROOT, 'plugin', 'manifests', 'local-development.json'), 'utf8'),
+);
 const UI = readFileSync(join(ROOT, 'plugin', 'ui.html'), 'utf8');
 const PLUGIN_CODE = readFileSync(join(ROOT, 'plugin', 'code.js'), 'utf8');
 
@@ -84,6 +87,24 @@ test('the manifest keeps the plugin scoped to the editors we actually support', 
   assert.equal(manifest.id, 'figma-bridge-mcp');
 });
 
+test('the local-development manifest template pins the generated source adapter to :3460', () => {
+  assert.equal(localManifest.name, 'Figma Bridge Local Development');
+  assert.equal(localManifest.id, 'figma-bridge-mcp-local-development');
+  assert.equal(localManifest.main, 'code.js');
+  assert.equal(localManifest.ui, 'ui.html');
+  assert.deepEqual(localManifest.networkAccess.allowedDomains, [
+    'ws://localhost:3460',
+    'http://localhost:3460',
+  ]);
+  assert.deepEqual(
+    localManifest.networkAccess.devAllowedDomains,
+    localManifest.networkAccess.allowedDomains,
+  );
+  assert.match(PLUGIN_CODE, /figma\.pluginId === LOCAL_DEVELOPMENT_PLUGIN_ID/);
+  assert.match(PLUGIN_CODE, /type: 'key', value, ports: BRIDGE_PORTS/);
+  assert.match(UI, /PORTS\.splice\(0, PORTS\.length, \.\.\.configured\)/);
+});
+
 test('Figma document API timeout is not reported as a Bridge disconnect', () => {
   const projected = pluginErrorMessage(new Error(
     'Unable to establish connection to Figma after 10 seconds. Please check your internet connection.',
@@ -105,8 +126,11 @@ test('ordinary Plugin errors retain their original message', () => {
 });
 
 test('Dev Mode exposes a connectable read-only Inspect adapter', () => {
-  const devManifestPath = join(ROOT, 'plugin', 'manifest.dev.json');
-  assert.ok(existsSync(devManifestPath), 'plugin/manifest.dev.json must ship for the connected Dev Mode workflow');
+  const devManifestPath = join(ROOT, 'plugin', 'manifests', 'dev-mode.json');
+  assert.ok(
+    existsSync(devManifestPath),
+    'the Dev Mode manifest template must ship for the importable generated bundle',
+  );
   const devManifest = JSON.parse(readFileSync(devManifestPath, 'utf8'));
   assert.deepEqual(devManifest.editorType, ['dev']);
   assert.deepEqual(devManifest.capabilities, ['inspect']);

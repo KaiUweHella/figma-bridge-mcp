@@ -34,6 +34,7 @@ import {
   DAEMON_PID_FILE,
   DAEMON_TOKEN_FILE,
   PLUGIN_KEY_FILE,
+  PLUGIN_DISPLAY_NAME,
   REST_TOKEN_FILE,
   WORKSPACE_IO,
   ENGINE_WORKSPACE_ROOTS,
@@ -508,7 +509,7 @@ export async function ensurePluginReadiness({
   }
 
   throw new DaemonClientError(
-    "Plugin not connected. Run figma_connect, then launch the Figma Bridge plugin in Figma Desktop.",
+    `Plugin not connected. Run figma_connect, then launch ${PLUGIN_DISPLAY_NAME} in Figma Desktop.`,
     {
       kind: "plugin-unavailable",
       phase: "target-resolution",
@@ -796,7 +797,7 @@ export async function health({ timeoutMs = 3000, probe = false, fileKey = null }
       raw,
       message: plugin
         ? `plugin connected (mode: ${raw.mode})`
-        : `daemon running (${raw.status}, mode: ${raw.mode}) — plugin NOT connected. Launch Plugins → Development → Figma Bridge in Figma.`,
+        : `daemon running (${raw.status}, mode: ${raw.mode}) — plugin NOT connected. Launch Plugins → Development → ${PLUGIN_DISPLAY_NAME} in Figma.`,
     };
   } catch (err) {
     if (err instanceof DaemonClientError && err.kind === "missing-token") {
@@ -805,7 +806,7 @@ export async function health({ timeoutMs = 3000, probe = false, fileKey = null }
         plugin: false,
         raw: null,
         message:
-          "Daemon not started (no token file). Run figma_connect first, then launch the Figma Bridge plugin in Figma.",
+          `Daemon not started (no token file). Run figma_connect first, then launch ${PLUGIN_DISPLAY_NAME} in Figma.`,
       };
     }
     return {

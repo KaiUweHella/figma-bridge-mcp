@@ -13,7 +13,7 @@ import { getDaemonPort, clearPortFile } from './daemon-port.js';
 import { createDaemonClient } from './daemon-client.js';
 import { PLUGIN_BUILD_VERSION } from './plugin-version.js';
 import { retrySafeRead } from './safe-read-retry.js';
-import { STATE_DIR } from './state-dir.js';
+import { STATE_DIR, STATE_ROOT } from './state-dir.js';
 import { hardenPrivateTree, privateStateOwns } from './private-state-permissions.js';
 // Moved out of this file; re-exported below so command modules keep importing
 // everything from one place.
@@ -40,12 +40,12 @@ function getPluginKeyFile() {
 
 function ensureDefaultPrivateState(create = false) {
   if (defaultPrivateStateReady) return;
-  if (!privateStateOwns(STATE_DIR, [
+  if (!privateStateOwns(STATE_ROOT, [
     DAEMON_PID_FILE,
     DAEMON_TOKEN_FILE,
     getPluginKeyFile(),
   ])) return;
-  const report = hardenPrivateTree(STATE_DIR, {
+  const report = hardenPrivateTree(STATE_ROOT, {
     kind: 'bridge-state',
     create,
   });

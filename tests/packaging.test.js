@@ -108,8 +108,8 @@ test("Claude Code plugin reuses the same MCP server and skill", () => {
     {
       name: pkg.name,
       source: {
-        source: "github",
-        repo: "KaiUweHella/figma-bridge-mcp",
+        source: "url",
+        url: "https://github.com/KaiUweHella/figma-bridge-mcp.git",
         ref: `v${pkg.version}`,
       },
       description: "Authenticated local Figma MCP plus focused design-to-code, code-to-Figma, and component-library skills",
@@ -130,6 +130,9 @@ test("README explains Claude's runtime tool discovery and duplicate-server prece
   assert.match(readme, /claude mcp get figma-bridge/);
   assert.match(readme, /do\s+not register both under the same `figma-bridge` server name/);
   assert.match(readme, /Do not add this fallback when the full plugin\s+is already installed/);
+  assert.match(readme, /No version is set for command node/);
+  assert.match(readme, /asdf.*nvm/is);
+  assert.match(readme, /before the MCP\s+handshake/i);
 });
 
 test("portable Agent Plugin makes the bundle installable in Cursor", () => {
@@ -224,23 +227,48 @@ test("test script uses Node discovery instead of shell-expanded globs", () => {
 
 test("plugin dir ships every adapter connect installs", () => {
   const setupSource = readFileSync(join(ROOT, "engine", "src", "commands", "setup.js"), "utf8");
-  for (const f of ["manifest.json", "manifest.dev.json", "code.js", "ui.html"]) {
+  for (const f of [
+    "manifest.json",
+    "manifests/dev-mode.json",
+    "manifests/local-development.json",
+    "code.js",
+    "ui.html",
+  ]) {
     assert.ok(existsSync(join(ROOT, "plugin", f)), `plugin/${f} exists`);
+  }
+  for (const f of ["manifest.json", "dev-mode.json", "local-development.json", "code.js", "ui.html"]) {
     assert.ok(setupSource.includes(`'${f}'`), `figma_connect installs plugin/${f}`);
   }
-  for (const removed of ["manifest.codegen.json", "codegen.js"]) {
+  for (const removed of ["manifest.release.json", "manifest.dev.json", "manifest.codegen.json", "codegen.js"]) {
     assert.equal(existsSync(join(ROOT, "plugin", removed)), false, `plugin/${removed} stays removed`);
-    assert.ok(setupSource.includes(`'${removed}'`), `figma_connect retires cached plugin/${removed}`);
   }
+  for (const retired of ["manifest.dev.json", "manifest.codegen.json", "codegen.js"]) {
+    assert.ok(setupSource.includes(`'${retired}'`), `figma_connect retires cached plugin/${retired}`);
+  }
+  assert.equal(
+    pkg.scripts["prepare:plugin-imports"],
+    "node scripts/prepare-plugin-imports.js",
+  );
+  assert.ok(
+    existsSync(join(ROOT, "scripts", "prepare-plugin-imports.js")),
+    "source checkouts can generate exact manifest.json import bundles",
+  );
+  assert.deepEqual(
+    readFileSync(join(ROOT, "plugin", ".npmignore"), "utf8")
+      .trim()
+      .split(/\r?\n/),
+    ["local/", "dev-mode/"],
+    "generated checkout bundles must stay out of published packages",
+  );
 });
 
 // The migration lives at module load of engine/src/lib/state-dir.js and keys
 // off homedir() — run it in a child process with a scratch home on Unix and Windows.
-function runMigration(home) {
+function runMigration(home, extraEnv = {}) {
   return execFileSync(
     process.execPath,
     ["-e", "import('./engine/src/lib/state-dir.js').then(m => console.log(m.STATE_DIR))"],
-    { cwd: ROOT, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" },
+    { cwd: ROOT, env: { ...process.env, HOME: home, USERPROFILE: home, ...extraEnv }, encoding: "utf8" },
   ).trim();
 }
 
@@ -297,5 +325,20 @@ test("fresh install: no old dir, migration is a no-op", () => {
   runMigration(home);
   assert.equal(existsSync(join(home, ".figma-safe-mcp")), false);
   // STATE_DIR itself is created lazily by the writers, not the migration.
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("local-development profile gets an isolated state directory and skips migration", () => {
+  const home = mkdtempSync(join(tmpdir(), "figma-bridge-profile-home-"));
+  mkdirSync(join(home, ".figma-safe-mcp"), { recursive: true });
+  writeFileSync(join(home, ".figma-safe-mcp", "plugin-key"), "installed-key");
+
+  const state = runMigration(home, { FIGMA_BRIDGE_PROFILE: "local-development" });
+  assert.equal(
+    state,
+    join(realpathSync.native(home), ".figma-bridge-mcp", "profiles", "local-development"),
+  );
+  assert.equal(existsSync(join(home, ".figma-safe-mcp")), true, "development startup must not move installed state");
+  assert.equal(existsSync(join(home, ".figma-bridge-mcp", "plugin-key")), false);
   rmSync(home, { recursive: true, force: true });
 });

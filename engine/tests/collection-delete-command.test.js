@@ -13,14 +13,14 @@ import {
   parseCollectionDeleteRequest,
 } from '../src/application/collection-delete-request.js';
 
-function fixture({ removeFails = false, leaveVariable = false, postInvalid = false } = {}) {
+function fixture({ removeFails = false, leaveVariable = false, postInvalid = false, empty = false } = {}) {
   let removed = false;
   let collectionReads = 0;
   const variable = { id: 'VariableID:1', variableCollectionId: 'VariableCollectionId:1' };
   const collection = {
     id: 'VariableCollectionId:1', key: 'key', name: 'Disposable', remote: false,
     isExtension: false, hiddenFromPublishing: false, defaultModeId: 'ModeId:1',
-    modes: [{ modeId: 'ModeId:1', name: 'Mode 1' }], variableIds: [variable.id],
+    modes: [{ modeId: 'ModeId:1', name: 'Mode 1' }], variableIds: empty ? [] : [variable.id],
     getPublishStatusAsync: async () => 'UNPUBLISHED',
     remove() { if (removeFails) throw new Error('remove failed'); removed = true; },
   };
@@ -30,7 +30,7 @@ function fixture({ removeFails = false, leaveVariable = false, postInvalid = fal
       if (postInvalid && removed && collectionReads === 2) return null;
       return removed ? [] : [collection];
     },
-    getLocalVariablesAsync: async () => removed && !leaveVariable ? [] : [variable],
+    getLocalVariablesAsync: async () => empty || (removed && !leaveVariable) ? [] : [variable],
   } };
   return { collection, figma, variable };
 }
@@ -41,13 +41,37 @@ async function runCode(request, figma) {
 
 test('Collection Delete request is closed and canonical', () => {
   assert.deepEqual(parseCollectionDeleteRequest(['collections', 'delete', '--', '-Disposable']),
-    { collection: '-Disposable' });
+    { collection: '-Disposable', onlyIfEmpty: false });
   assert.deepEqual(collectionDeleteArgvFromRequest({ collection: 'Disposable' }),
     ['col', 'delete', '--', 'Disposable']);
+  assert.deepEqual(parseCollectionDeleteRequest([
+    'col', 'delete', '--only-if-empty', '--', '-Disposable',
+  ]), { collection: '-Disposable', onlyIfEmpty: true });
+  assert.deepEqual(collectionDeleteArgvFromRequest({
+    collection: 'Disposable', onlyIfEmpty: true,
+  }), ['col', 'delete', '--only-if-empty', '--', 'Disposable']);
   for (const args of [
     ['col', 'delete'], ['col', 'delete', 'one', 'two'],
     ['col', 'delete', '--future', 'private-value'],
   ]) assert.equal(acceptsCollectionDeleteArgv(args), false, args.join(' '));
+});
+
+test('Collection Delete only-if-empty refuses members before remove and deletes an empty Collection', async () => {
+  const populated = fixture();
+  await assert.rejects(
+    () => runCode({ collection: 'Disposable', onlyIfEmpty: true }, populated.figma),
+    /only-if-empty.*1 Variable/i,
+  );
+  assert.equal((await populated.figma.variables.getLocalVariableCollectionsAsync()).length, 1);
+  assert.equal((await populated.figma.variables.getLocalVariablesAsync()).length, 1);
+
+  const empty = fixture({ empty: true });
+  const serialized = await runCode({ collection: 'Disposable', onlyIfEmpty: true }, empty.figma);
+  const result = await executeCollectionDelete({
+    collection: 'Disposable', onlyIfEmpty: true,
+  }, { evaluate: async () => serialized });
+  assert.equal(result.result.status, 'deleted');
+  assert.equal(result.result.deleted.variableCount, 0);
 });
 
 test('Collection Delete verifies complete removal and preserves legacy output', async () => {
@@ -95,7 +119,7 @@ test('Collection Delete accepts only authentic non-retrying Plans', async () => 
   const mcp = planFigmaCommand(['col', 'delete', '--', 'Disposable'], { adapter: 'mcp' });
   assert.deepEqual(cli.argv, mcp.argv);
   assert.equal(cli.execution.retry, 'never');
-  assert.equal(cli.confirmation, 'configured');
+  assert.equal(cli.confirmation, 'required');
   assert.equal(collectionDeletePlanRoute(cli), 'command-application');
   const state = fixture();
   const serialized = await runCode({ collection: 'Disposable' }, state.figma);

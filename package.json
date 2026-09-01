@@ -1,6 +1,6 @@
 {
   "name": "figma-bridge-mcp",
-  "version": "0.7.0",
+  "version": "0.7.3",
   "description": "Local MCP server for inspecting and editing Figma Desktop through an authenticated localhost plugin bridge.",
   "type": "module",
   "bin": {
@@ -80,6 +80,7 @@
     "sync:release-version": "node scripts/sync-release-version.js",
     "sync:plugin": "node scripts/sync-plugin-artifact.js",
     "sync:plugin-compatibility": "node scripts/check-plugin-compatibility.js --record",
+    "prepare:plugin-imports": "node scripts/prepare-plugin-imports.js",
     "test": "npm run check:contracts && npm run check:release && npm run check:plugin && npm run check:plugin-compatibility && npm run check:workflow-evals && npm run check:fidelity-corpus && npm run check:fidelity-comparisons && npm run check:runtime-budgets && node --test",
     "prepublishOnly": "npm run check:public-safety && npm test && npm run check:package-artifact",
     "prepare": "husky"

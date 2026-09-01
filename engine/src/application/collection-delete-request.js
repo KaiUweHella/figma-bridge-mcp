@@ -26,14 +26,20 @@ export function parseCollectionDeleteRequest(args) {
   }
   const positionals = [];
   let literal = false;
+  let onlyIfEmpty = false;
   for (let index = 2; index < args.length; index++) {
     const token = args[index];
     if (!literal && token === '--') { literal = true; continue; }
+    if (!literal && token === '--only-if-empty') {
+      if (onlyIfEmpty) throw requestError('duplicate option --only-if-empty');
+      onlyIfEmpty = true;
+      continue;
+    }
     if (!literal && token.startsWith('-')) throw requestError(`unknown option ${token}`);
     positionals.push(token);
   }
   if (positionals.length !== 1) throw requestError('exactly one collection is required');
-  return { collection: queryValue(positionals[0]) };
+  return { collection: queryValue(positionals[0]), onlyIfEmpty };
 }
 
 export function acceptsCollectionDeleteArgv(args) {
@@ -44,12 +50,22 @@ function typedRequest(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     throw new TypeError('Collection Delete request must be an object.');
   }
-  return { collection: queryValue(request.collection) };
+  if (request.onlyIfEmpty !== undefined && typeof request.onlyIfEmpty !== 'boolean') {
+    throw new TypeError('Collection Delete onlyIfEmpty must be a boolean.');
+  }
+  return {
+    collection: queryValue(request.collection),
+    onlyIfEmpty: request.onlyIfEmpty === true,
+  };
 }
 
 export function collectionDeleteArgvFromRequest(request) {
   const input = typedRequest(request);
-  return ['col', 'delete', '--', input.collection];
+  return [
+    'col', 'delete',
+    ...(input.onlyIfEmpty ? ['--only-if-empty'] : []),
+    '--', input.collection,
+  ];
 }
 
 export const collectionDeletePlanningArgvFromRequest = collectionDeleteArgvFromRequest;

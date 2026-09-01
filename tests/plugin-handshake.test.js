@@ -311,7 +311,7 @@ test('Plugin keepalive distinguishes a suspended UI event loop from a dead daemo
   );
 });
 
-test('the shipped plugin UI opens Setup for a missing key and scans after receiving a stored key', () => {
+test('the shipped plugin UI opens Setup for a missing key and scans after receiving a stored key', async () => {
   // Parsing alone does not catch stale renamed constants: the previous build
   // parsed successfully, then threw only when the stored-key message entered
   // connectParallel(), leaving the real panel stuck on "Starting…". Exercise
@@ -327,6 +327,7 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
       elements.set(id, {
         id,
         value: '',
+        type: id === 'keyInput' ? 'password' : undefined,
         textContent: '',
         className: '',
         hidden: false,
@@ -364,9 +365,11 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
     close() { this.closed = true; this.readyState = 3; }
     send(value) { this.sent.push(String(value)); }
   }
+  const copied = [];
   const window = { crypto: null, scrollY: 0, onmessage: null };
   const context = {
     window,
+    navigator: { clipboard: { async writeText(value) { copied.push(value); } } },
     document: {
       getElementById: element,
       body: { children: [] },
@@ -393,9 +396,19 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
   assert.equal(elements.get('setupBtn').getAttribute('aria-expanded'), 'true');
   assert.equal(elements.get('keyPanel').classList.contains('attention'), true);
   assert.equal(elements.get('keyInput').focused, true);
+  assert.equal(elements.get('copyKeyBtn').hidden, true);
+  assert.equal(elements.get('copyKeyBtn').disabled, true);
 
   window.onmessage({ data: { pluginMessage: { type: 'key', value: 'stored-test-key' } } });
   assert.equal(elements.get('status').textContent, 'Scanning…');
+  assert.equal(elements.get('keyInput').value, 'stored-test-key');
+  assert.equal(elements.get('keyInput').type, 'password', 'the stored key stays masked');
+  assert.equal(elements.get('copyKeyBtn').hidden, false);
+  assert.equal(elements.get('copyKeyBtn').disabled, false);
+  elements.get('keyInput').value = 'unsaved-field-draft';
+  await elements.get('copyKeyBtn').onclick();
+  assert.deepEqual(copied, ['stored-test-key'], 'copy uses the persisted/in-use key, never an unsaved draft');
+  assert.match(elements.get('copyKeyStatus').textContent, /Copied/);
   assert.deepEqual(sockets.map((socket) => socket.url), [
     'ws://localhost:3456/plugin',
     'ws://localhost:3457/plugin',
@@ -415,6 +428,13 @@ test('the shipped plugin UI opens Setup for a missing key and scans after receiv
   assert.equal(relayed.sent.length, 0, 'a mismatched challenge port must never receive a plugin proof');
   assert.equal(relayed.closed, true);
   assert.equal(elements.get('status').textContent, 'The daemon could not prove itself');
+});
+
+test('plugin onboarding names editor-local pairing and never renders the copied secret', () => {
+  assert.match(UI, /stores this separately in Design, FigJam and Slides/i);
+  assert.match(UI, /id="copyKeyBtn"[^>]*>Copy access key<\/button>/);
+  assert.match(UI, /Copy only the persisted\/in-use key/);
+  assert.doesNotMatch(UI, /copyKeyStatus\.textContent\s*=\s*KEY/);
 });
 
 test('Capture revision metadata crosses both plugin threads', () => {
@@ -621,7 +641,8 @@ test('a disconnected iframe distinguishes another authenticated Plugin window fr
   }
   assert.equal(elements.get('status').textContent, 'Waiting for MCP…',
     'feedback loop must reproduce the exact visible symptom first');
-  assert.match(elements.get('hint').textContent, /Start figma_connect/);
+  assert.match(elements.get('hint').textContent, /wakes the Bridge automatically/);
+  assert.match(elements.get('hint').textContent, /figma_connect once/);
 
   await runNextTimer();
   refuseNewSockets();

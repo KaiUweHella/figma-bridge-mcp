@@ -1,4 +1,4 @@
-# Own non-PNG image export behind one Command Application
+# ADR 0122: Own non-PNG image export behind one Command Application
 
 ADR 0116 deliberately left JPG, SVG and PDF behind one explicit compatibility
 branch because they are not PNG Verification Artifacts. That branch still

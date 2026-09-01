@@ -1,4 +1,4 @@
-# Own live node JSON export behind one bounded Command Application
+# ADR 0123: Own live node JSON export behind one bounded Command Application
 
 `export node-json` already planned an optional Workspace output and used the
 authenticated Plugin rather than REST, but Commander still owned readiness,

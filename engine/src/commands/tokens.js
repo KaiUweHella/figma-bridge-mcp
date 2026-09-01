@@ -263,10 +263,13 @@ collections.command('publish-status <collection>')
   });
 collections.command('delete <collection>')
   .description('Delete one explicit local collection and its variables')
+  .option('--only-if-empty', 'Delete only when the collection contains no variables')
   .allowExcessArguments(false)
-  .action(async (collection) => {
+  .action(async (collection, options) => {
     try {
-      const plan = planFigmaCommand(collectionDeletePlanningArgvFromRequest({ collection }), {
+      const plan = planFigmaCommand(collectionDeletePlanningArgvFromRequest({
+        collection, onlyIfEmpty: options.onlyIfEmpty === true,
+      }), {
         adapter: 'cli', fileKey: program.opts().figmaFile || null,
       });
       const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },

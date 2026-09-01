@@ -26,12 +26,13 @@ function fixture({
   const component = {
     id: '2:1', type, name: 'Fixture component', remote,
     get componentPropertyDefinitions() { return definitions; },
-    addComponentProperty(name, propertyType, defaultValue) {
+    addComponentProperty(name, propertyType, defaultValue, options) {
       addCalls += 1;
       const propertyName = `${name}#2:${next++}`;
       definitions[propertyName] = {
         type: propertyType,
         defaultValue: mismatchAfterAdd ? 'Unexpected' : defaultValue,
+        ...(options?.preferredValues ? { preferredValues: options.preferredValues } : {}),
       };
       if (throwAfterAdd) throw new Error('injected add failure after mutation');
       return propertyName;
@@ -42,9 +43,9 @@ function fixture({
       delete definitions[name];
     },
   };
-  const swap = { id: '3:1', type: 'COMPONENT', name: 'Swap component' };
-  const variant = { id: '3:2', type: 'COMPONENT', name: 'Mode=Default' };
-  const set = { id: '3:3', type: 'COMPONENT_SET', children: [variant], defaultVariant: variant };
+  const swap = { id: '3:1', type: 'COMPONENT', name: 'Swap component', key: 'SWAP_KEY' };
+  const variant = { id: '3:2', type: 'COMPONENT', name: 'Mode=Default', key: 'VARIANT_KEY' };
+  const set = { id: '3:3', type: 'COMPONENT_SET', children: [variant], defaultVariant: variant, key: 'SET_KEY' };
   const nodes = new Map([[component.id, component], [swap.id, swap], [variant.id, variant], [set.id, set]]);
   return {
     definitions, component, nodes,
@@ -60,18 +61,22 @@ test('Component Property Add request closes types, options, literals and URL tar
   assert.deepEqual(parseComponentPropertyAddRequest([
     'component', 'prop', 'add', '2-1', 'Label', 'text', 'Hello', '--json',
   ]), {
-    componentId: '2:1', name: 'Label', type: 'TEXT', defaultValue: 'Hello', options: null, json: true,
+    componentId: '2:1', name: 'Label', type: 'TEXT', defaultValue: 'Hello', options: null, preferred: null, json: true,
   });
   assert.deepEqual(parseComponentPropertyAddRequest([
     'component', 'prop', 'add', '-oOne,Two', '2:1', 'Label', 'BOOLEAN', 'false',
   ]).options, 'One,Two');
+  assert.deepEqual(parseComponentPropertyAddRequest([
+    'component', 'prop', 'add', '2:1', 'Icon', 'instance-swap', '3:1',
+    '--preferred', '3:1,3:3',
+  ]).preferred, ['3:1', '3:3']);
   assert.deepEqual(componentPropertyAddArgvFromRequest({
-    componentId: '2:1', name: 'Label', type: 'text', defaultValue: '', options: '', json: true,
+    componentId: '2:1', name: 'Label', type: 'text', defaultValue: '', options: '', preferred: null, json: true,
   }), ['component', 'prop', 'add', '2:1', '--json', '--options', '', '--', 'Label', 'TEXT', '']);
 
   const url = 'https://www.figma.com/design/FILEA/Test?node-id=2-1';
   assert.deepEqual(componentPropertyAddPlanningArgvFromRequest({
-    componentId: url, name: 'Label', type: 'text', defaultValue: 'Hello', options: null, json: false,
+    componentId: url, name: 'Label', type: 'text', defaultValue: 'Hello', options: null, preferred: null, json: false,
   }), ['component', 'prop', 'add', url, 'Label', 'TEXT', 'Hello']);
   const payloadUrl = 'https://www.figma.com/design/FILEB/Payload?node-id=9-9';
   const plan = planFigmaCommand([
@@ -88,6 +93,8 @@ test('Component Property Add request closes types, options, literals and URL tar
     ['component', 'prop', 'add', '2:1', 'Mode', 'variant', 'Default'],
     ['component', 'prop', 'add', '2:1', 'Label', 'text', 'Hello', 'extra'],
     ['component', 'prop', 'add', '2:1', 'Label', 'text', 'Hello', '--future'],
+    ['component', 'prop', 'add', '2:1', 'Label', 'text', 'Hello', '--preferred', '3:1'],
+    ['component', 'prop', 'add', '2:1', 'Icon', 'instance-swap', '3:1', '--preferred', '3:1,3:1'],
   ]) assert.throws(() => parseComponentPropertyAddRequest(argv), /Invalid component prop add command/);
 });
 
@@ -96,7 +103,9 @@ test('TEXT, permissive legacy BOOLEAN and INSTANCE_SWAP defaults remain availabl
   const text = await executeComponentPropertyAdd({
     componentId: '2:1', name: 'Label', type: 'text', defaultValue: 'Hello', options: null, json: false,
   }, { evaluate: evaluate(live.figma) });
-  assert.deepEqual(text.result.property, { name: 'Label#2:1', type: 'TEXT', defaultValue: 'Hello' });
+  assert.deepEqual(text.result.property, {
+    name: 'Label#2:1', type: 'TEXT', defaultValue: 'Hello', preferredValues: null,
+  });
 
   const bool = await executeComponentPropertyAdd({
     componentId: '2:1', name: 'Visible', type: 'boolean', defaultValue: 'not-true', options: null, json: false,
@@ -112,7 +121,15 @@ test('TEXT, permissive legacy BOOLEAN and INSTANCE_SWAP defaults remain availabl
     componentId: '2:1', name: 'Set icon', type: 'instance-swap', defaultValue: '3:3', options: null, json: false,
   }, { evaluate: evaluate(live.figma) });
   assert.equal(setSwap.result.property.defaultValue, '3:2');
-  assert.equal(live.addCalls(), 4);
+  const preferredSwap = await executeComponentPropertyAdd({
+    componentId: '2:1', name: 'Preferred icon', type: 'instance-swap', defaultValue: '3:1',
+    options: null, preferred: ['3:1', '3:3'], json: false,
+  }, { evaluate: evaluate(live.figma) });
+  assert.deepEqual(preferredSwap.result.property.preferredValues, [
+    { type: 'COMPONENT', key: 'SWAP_KEY' },
+    { type: 'COMPONENT_SET', key: 'SET_KEY' },
+  ]);
+  assert.equal(live.addCalls(), 5);
 });
 
 test('legacy --options remains accepted and becomes an explicit compatibility warning', async () => {

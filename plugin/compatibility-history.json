@@ -93,8 +93,48 @@
     },
     {
       "version": "3.3.31",
-      "fingerprint": "sha256:33d424bc46833acdb69574e93234fcfa9fd2c5f319167feee1408d85a70f4787",
+      "fingerprint": "sha256:bd1dc8909d0808ae4f709424db74f0215277b174cf7047c2957f7b4f7a813639",
       "previousFingerprint": "sha256:e377cc4781d77deb4e72f2eab9271d6b90dc77050fa3c7457e5b66277ee6977f"
+    },
+    {
+      "version": "3.3.32",
+      "fingerprint": "sha256:0904948ec71e9077affea24ffbf754f51ed1315da26b8e503f38b1374352ae73",
+      "previousFingerprint": "sha256:bd1dc8909d0808ae4f709424db74f0215277b174cf7047c2957f7b4f7a813639"
+    },
+    {
+      "version": "3.3.33",
+      "fingerprint": "sha256:095fd39252332e80526c9d9c7c9e186abc1bca869f40ff20cf5abda44da0f5dd",
+      "previousFingerprint": "sha256:0904948ec71e9077affea24ffbf754f51ed1315da26b8e503f38b1374352ae73"
+    },
+    {
+      "version": "3.3.34",
+      "fingerprint": "sha256:a1c1d7e9340f0b993205cdcc14583ad2dfefc6b56b7030301741e053109520ac",
+      "previousFingerprint": "sha256:095fd39252332e80526c9d9c7c9e186abc1bca869f40ff20cf5abda44da0f5dd"
+    },
+    {
+      "version": "3.3.35",
+      "fingerprint": "sha256:9e24ae237cf4ee1bc149d391c67abb9884127b4b61366cc81a1bc5182ef1744c",
+      "previousFingerprint": "sha256:a1c1d7e9340f0b993205cdcc14583ad2dfefc6b56b7030301741e053109520ac"
+    },
+    {
+      "version": "3.3.36",
+      "fingerprint": "sha256:379662dcae369a339ccf50ec1c512302b1c33007bccd0993c17b8cdf3753c8bf",
+      "previousFingerprint": "sha256:9e24ae237cf4ee1bc149d391c67abb9884127b4b61366cc81a1bc5182ef1744c"
+    },
+    {
+      "version": "3.3.37",
+      "fingerprint": "sha256:cabec135a2e3e605a3ec4129766040970b5c37c9f3d6314fc93f8987fa3d7a5c",
+      "previousFingerprint": "sha256:379662dcae369a339ccf50ec1c512302b1c33007bccd0993c17b8cdf3753c8bf"
+    },
+    {
+      "version": "3.3.38",
+      "fingerprint": "sha256:89590daf04fef4c3581ca37b0be82ffcbeedb9432c4b050d91a1754627d53cd1",
+      "previousFingerprint": "sha256:cabec135a2e3e605a3ec4129766040970b5c37c9f3d6314fc93f8987fa3d7a5c"
+    },
+    {
+      "version": "3.3.39",
+      "fingerprint": "sha256:770e8051d71147e32a9e0000e61ae0eb463f5e054c134b91ccd80814dd7928fc",
+      "previousFingerprint": "sha256:89590daf04fef4c3581ca37b0be82ffcbeedb9432c4b050d91a1754627d53cd1"
     }
   ]
 }

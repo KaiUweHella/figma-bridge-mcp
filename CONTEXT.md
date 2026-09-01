@@ -122,6 +122,54 @@ ordered Variant membership, not permission to add another Variant to an
 existing Set.
 _Avoid_: partial combine, Component Set merge, add Variant, count-only success
 
+**Component Property Facts**:
+The complete, versioned and bounded property contract of one local Component
+or Component Set. It preserves all five native definition types, defaults,
+Variant options, preferred values, Slot descriptions/settings, scalar
+sublayer bindings, nested Instance exposure and native Slot violations through
+one shared typed-read Command Application that remains available while unknown
+writes are quarantined. A scalar definition without a
+compatible binding is explicitly `unbound`; definition existence is never
+presented as proof that an Instance control works. A native SLOT definition may
+omit `defaultValue`; Component Property Facts represent that exact absence as
+`null` instead of rejecting the otherwise valid contract.
+_Avoid_: property-name list, definition-only success, inferred wiring, hidden Slot limits
+
+**Component Property Binding**:
+The bounded, non-retrying mutation that applies one existing TEXT, BOOLEAN or
+INSTANCE_SWAP definition to the only compatible field of one exact descendant:
+`characters`, `visible` or `mainComponent`. The Component, definition, type,
+descendant relationship and prior reference map are preflighted before one
+write. Replacement requires explicit intent; failure restores and verifies the
+complete prior reference map. VARIANT axes and SLOT regions retain their
+separate native workflows.
+_Avoid_: property creation, arbitrary field binding, implicit replacement, Variant binding
+
+**Property-preserving Variant Clone**:
+The bounded `component add-variant --from` extension of one local Component
+Set. It snapshots definition-owned descendant paths before the native clone,
+then restores and freshly verifies scalar and SLOT references plus nested
+Instance exposure on the new Variant. A structural mismatch rolls back the
+clone and any axis backfill rather than returning an inert Variant.
+_Avoid_: clone-only success, definition-only inheritance, unverified descendant mapping
+
+**Nested Component Exposure**:
+The bounded, non-retrying mutation of `isExposedInstance` on one primary
+nested Instance owned by a local Component or Component Set. Inherited
+Instances below another Instance fail preflight. Success requires fresh
+readback; failure restores the prior Boolean and reports exact residue.
+_Avoid_: flattening nested properties, instance detachment, inherited exposure write
+
+**Bridge Runtime Profile**:
+The closed local namespace that owns one Daemon port policy, session token,
+PID, plugin pairing, copied Figma plugin identity and persistent Bridge state.
+The default released profile keeps range fallback across 3456–3460. The
+explicit `local-development` profile is pinned to 3460 and uses a distinct
+Figma plugin id below the same owner-private state root, so a source checkout
+and released MCP client cannot authorize, stop, upgrade or reconnect each
+other's transport.
+_Avoid_: port-only override, shared PID file, first-plugin-wins scan, MCP-client identity
+
 **Style Facts**:
 The exact, versioned and deeply bounded read of one Figma PAINT, TEXT, EFFECT
 or GRID style by id or unambiguous local name. It preserves publishable
@@ -651,9 +699,12 @@ _Avoid_: collection mode eval, implicit mode match, retryable mode write, revers
 The bounded, non-retrying and irreversible removal of one resolved local
 Variable Collection and every member Variable. It validates complete Collection
 Facts and exact local membership before removal, then proves both Collection and
-member ids absent. Failure distinguishes unchanged, partial residue and an
-applied irreversible deletion whose complete postcondition projection failed.
-_Avoid_: collection delete eval, inferred membership, retryable removal, rollback claim
+member ids absent. MCP dispatch always requires an explicit second-step
+confirmation regardless of global write policy. `--only-if-empty` narrows the
+contract further by refusing a populated Collection immediately before the
+native removal. Failure distinguishes unchanged, partial residue and an applied
+irreversible deletion whose complete postcondition projection failed.
+_Avoid_: collection delete eval, inferred membership, implicit confirmation, retryable removal, rollback claim
 
 **Collection Extension**:
 The bounded, non-retrying creation of one Enterprise Extended Variable

@@ -5,6 +5,112 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.7.3] — 2026-09-01
+
+### Fixed
+
+- Concurrent offline API-reference setup now publishes one fully written
+  material with an atomic no-clobber commit. Losing processes reuse the winner
+  instead of replacing its inode while another process may be reading it.
+- Daemon deadline tests now tolerate bounded wall-clock rollback while keeping
+  the actual Plugin socket timeout exact, and route WebSocket assertion errors
+  through cleanup so one timing failure cannot contaminate later tests.
+
+## [0.7.2] — 2026-09-01
+
+### Changed
+
+- Figma-importable adapters now always use the exact filename
+  `manifest.json`: the tracked `plugin/manifest.json` is the released Design,
+  FigJam and Slides adapter; Dev Mode installs below
+  `dev-mode/manifest.json`; and source development generates a fully isolated,
+  gitignored `plugin/local/manifest.json` bundle pinned to port 3460.
+
+### Fixed
+
+- Local-development Plugin profile tests now resolve repository URLs and
+  compare manifest paths portably, so the Node 24 Windows release gate no
+  longer mistakes an invalid working directory for a missing Node executable.
+
+## [0.7.1] — 2026-09-01
+
+### Added
+
+- Every MCP failure now exposes one closed recovery context with `layer`,
+  `kind`, optional `dispatchState`, and a payload-free `suggestion` in the
+  Figma Bridge metadata namespace. The same layer/kind/dispatch facts are
+  visible in error text, so agents can distinguish whitelist, validation,
+  execution, and transport failures without parsing five unrelated dialects.
+- `col delete --only-if-empty` provides an atomic cleanup path that refuses a
+  populated Variable Collection before native removal. Collection deletion now
+  also always requires an explicit MCP confirmation preview regardless of the
+  global write-confirm setting; intentional deletion with contents remains
+  available after confirmation.
+- Component authoring now includes rollback-verified sublayer bindings for
+  TEXT, BOOLEAN and INSTANCE_SWAP properties, explicit exposure of primary
+  nested Instance properties and preferred values for INSTANCE_SWAP controls.
+  Component Property reads cover all five native types, wiring state, Slot
+  settings and limit violations, and nested exposure. A new offline Component
+  authoring guide gives agents executable recipes and treats definition-only
+  scalar properties as incomplete.
+- Source checkouts can use `FIGMA_BRIDGE_PROFILE=local-development` to run a
+  separately identified, checkout-owned `plugin/manifest.json` and fully
+  isolated local state pinned to `localhost:3460`, without competing with a
+  released Bridge used by another MCP client.
+- Plugin Setup now explains that Figma stores pairing separately in Design,
+  FigJam and Slides, and offers an explicit `Copy access key` action that
+  copies only the stored in-use key without displaying or logging it.
+
+### Fixed
+
+- Released installs now keep the stable `Figma Bridge` identity and normal
+  `3456–3460` daemon range even when copying the Plugin into persistent state
+  fails. Package smoke coverage explicitly clears contributor profile state
+  and rejects an accidental `Local Development` manifest in release artifacts.
+- Starting an already paired MCP now wakes a Daemon that exited after its idle
+  timeout. First-run profiles and intentionally stopped Daemons remain off,
+  while bounded recovery guidance keeps agents from diagnosing a normal idle
+  shutdown as an unknown transport failure.
+- `figma_connect {forceRecovery:true,fileKey}` can now recover one exact
+  authenticated Plugin UI after a timed-out compatibility execution leaves its
+  execution lane quarantined while the independent health lane still answers.
+  It bypasses that misleading health probe, refuses unknown files and defers
+  while any Figma operation remains active.
+- Component Property binding now compares the native reference map by field
+  value instead of JavaScript key order. A layer can therefore retain multiple
+  valid references such as `characters` plus `visible`, or `visible` plus
+  `mainComponent`, even when Figma canonicalizes their order during writeback.
+- Component authoring guidance now treats native Slot layout as a required
+  follow-up to `slot create`: normalize the returned 100×100 freeform node to
+  intentional Auto Layout and Fill/Hug sizing before inserting children.
+  Validation guidance also states that `slot validate` checks limits and
+  preference rules, not visual overlap.
+- Top-level `figma_run --help` now comes from the MCP Capability Catalog and
+  no longer advertises engine-only commands such as `connect`, `daemon`,
+  `eval`, or `run`. Rejected `find`, `style consumers`, and `style apply`
+  requests now project their typed parser errors into bounded, payload-free
+  guidance, including the fact that MCP results are already structured JSON.
+- `component add-variant --from` now restores and freshly verifies TEXT,
+  BOOLEAN, INSTANCE_SWAP and SLOT sublayer references plus nested Instance
+  exposure after Figma's native clone drops those fields. Component Property
+  Facts also accept Figma's real SLOT definition shape when `defaultValue` is
+  absent and normalize it to `null` instead of rejecting the entire read.
+- Component Property Facts now use the typed read lane instead of the
+  serialized eval/write lane, so an unknown prior write cannot quarantine the
+  read needed to reconcile it. Semantic Render also bounds its foundation
+  catalog preflight before any canvas mutation, preventing a stalled Variable
+  or Text Style read from wedging later Bridge operations indefinitely.
+- Component instances placed into Auto Layout parents now verify the native
+  parent-owned position instead of rolling back a valid insertion for not
+  retaining explicit `x`/`y`. MCP readiness probes are also bound to the exact
+  planned Figma file and editor, and a bounded connect retry replaces a stale
+  released Daemon that wins an upgrade race.
+- Claude Code plugin installs and updates now fetch the pinned public release
+  through an explicit HTTPS Git URL instead of allowing GitHub shorthand to
+  select SSH and require machine-specific host-key setup. Startup guidance now
+  distinguishes broken `asdf`/`nvm` Node resolution from an MCP handshake
+  failure before the Bridge process begins.
+
 ## [0.7.0] — 2026-08-30
 
 ### Added

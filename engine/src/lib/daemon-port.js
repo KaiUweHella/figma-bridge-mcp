@@ -17,7 +17,7 @@
 
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { STATE_DIR } from './state-dir.js';
+import { STATE_DIR, isLocalDevelopmentProfile } from './state-dir.js';
 
 export const DEFAULT_PORT = 3456;
 export const PORT_RANGE = [3456, 3457, 3458, 3459, 3460];
@@ -35,6 +35,10 @@ export function parsePortRange(env = process.env) {
       .filter((p) => Number.isInteger(p) && p > 0 && p < 65536);
     if (ports.length) return ports;
   }
+  // Contributors commonly run the released package and a source checkout at
+  // the same time. The named profile owns one exact port, so neither daemon nor
+  // plugin can race the installed Bridge for the first available range member.
+  if (isLocalDevelopmentProfile(env)) return [3460];
   return [...PORT_RANGE];
 }
 

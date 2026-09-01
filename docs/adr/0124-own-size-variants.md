@@ -1,4 +1,4 @@
-# ADR 0121: Own Size Variants as a rollback-verified Command Application
+# ADR 0124: Own Size Variants as a rollback-verified Command Application
 
 ## Status
 

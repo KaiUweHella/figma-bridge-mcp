@@ -50,6 +50,66 @@ test('help flags pass the allowlist gate (discoverability), connect stays blocke
   await assert.rejects(() => runCli(['connect', '--safe']), /Command not allowed/);
 });
 
+test('figma_run top-level help is generated from the MCP capability catalog', async () => {
+  const { handleTool } = await import('../src/server.js');
+  for (const flag of ['--help', '-h']) {
+    const result = await handleTool('figma_run', { args: [flag] });
+    assert.notEqual(result.isError, true, flag);
+    const help = result.content[0].text;
+    assert.match(help, /Figma Commands available through figma_run:/);
+    assert.match(help, /^var — Manage local variables/m);
+    assert.match(help, /^component — Manage component properties and variants/m);
+    assert.doesNotMatch(help, /^\s*(?:connect|daemon|eval|run)\b/m);
+  }
+});
+
+test('forced figma_connect recovery bypasses a responsive health probe for one exact file', async () => {
+  const { recoverPluginForConnect, TOOLS } = await import('../src/server.js');
+  const connect = TOOLS.find((tool) => tool.name === 'figma_connect');
+  assert.equal(connect.inputSchema.properties.forceRecovery.type, 'boolean');
+  assert.equal(connect.inputSchema.properties.fileKey.type, 'string');
+
+  let probes = 0;
+  const recoveries = [];
+  const note = await recoverPluginForConnect({
+    forceRecovery: true,
+    fileKey: 'FILE',
+    current: {
+      plugin: true,
+      raw: {
+        inFlightExecs: 0,
+        connections: [{ fileKey: 'FILE', editorType: 'figma' }],
+      },
+    },
+    adapters: {
+      probe: async () => { probes++; return { responsive: true }; },
+      recover: async (...args) => { recoveries.push(args); return { reloaded: 1 }; },
+    },
+  });
+
+  assert.equal(probes, 0, 'explicit recovery must not be vetoed by the read-only health lane');
+  assert.deepEqual(recoveries, [['FILE', 6500]]);
+  assert.match(note, /explicitly reloaded/i);
+
+  const missing = await recoverPluginForConnect({
+    forceRecovery: true,
+    fileKey: 'OTHER',
+    current: {
+      plugin: true,
+      raw: {
+        inFlightExecs: 0,
+        connections: [{ fileKey: 'FILE', editorType: 'figma' }],
+      },
+    },
+    adapters: {
+      probe: async () => { probes++; return { responsive: true }; },
+      recover: async (...args) => { recoveries.push(args); return { reloaded: 1 }; },
+    },
+  });
+  assert.match(missing, /could not find that connected Figma file/i);
+  assert.deepEqual(recoveries, [['FILE', 6500]], 'an unknown file must never be reloaded');
+});
+
 test('runCli rejects non-array / empty / non-string args', async () => {
   const { runCli } = await import('../src/engine.js');
   await assert.rejects(() => runCli([]), /non-empty array/);
@@ -283,6 +343,49 @@ test('server entry-point detection resolves the symlink npm uses for installed b
   }
 });
 
+test('MCP startup wakes only a previously paired and started Bridge', async () => {
+  const { wakeConfiguredBridgeOnStartup } = await import('../src/server.js');
+  let priorChecks = 0;
+  let wakeCalls = 0;
+
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => null,
+    hasPriorSetup: () => { priorChecks++; return true; },
+    wake: async () => { wakeCalls++; },
+  }), { attempted: false, reason: 'unpaired' });
+  assert.equal(priorChecks, 0, 'an unpaired profile must not inspect or start a daemon');
+
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => 'paired',
+    hasPriorSetup: () => false,
+    wake: async () => { wakeCalls++; },
+  }), { attempted: false, reason: 'not-started' });
+
+  const options = [];
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => 'paired',
+    hasPriorSetup: () => true,
+    timeoutMs: 1234,
+    wake: async (value) => { wakeCalls++; options.push(value); },
+  }), { attempted: true, ok: true });
+  assert.deepEqual(options, [{ timeoutMs: 1234 }]);
+
+  assert.deepEqual(await wakeConfiguredBridgeOnStartup({
+    readPairing: () => 'paired',
+    hasPriorSetup: () => true,
+    wake: async () => { wakeCalls++; throw new Error('occupied port'); },
+  }), { attempted: true, ok: false }, 'startup failure must not take down the MCP transport');
+  assert.equal(wakeCalls, 2, 'both eligible configured-profile cases attempted one bounded wake');
+});
+
+test('MCP entry point completes the bounded Bridge wake before publishing STDIO', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const main = source.slice(source.indexOf('async function main()'), source.indexOf('// Start only when run as the entry point'));
+  assert.ok(main.indexOf('await wakeConfiguredBridgeOnStartup()') > 0);
+  assert.ok(main.indexOf('await wakeConfiguredBridgeOnStartup()') < main.indexOf('new Server('));
+  assert.ok(main.indexOf('new Server(') < main.indexOf('await server.connect(transport)'));
+});
+
 test('the live STDIO server advertises the complete tool surface to MCP clients', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
@@ -294,6 +397,7 @@ test('the live STDIO server advertises the complete tool surface to MCP clients'
     env: {
       AUDIT_LOG_PATH: process.env.AUDIT_LOG_PATH,
       PLUGIN_KEY_FILE: process.env.PLUGIN_KEY_FILE,
+      DAEMON_PID_FILE: join(testState, 'stdio-daemon.pid'),
     },
     stderr: 'pipe',
   });
@@ -1947,7 +2051,7 @@ test('figma_run confirms Collection Delete and rejects malformed input before re
   const { handleTool } = await import('../src/server.js');
   const preview = await handleTool('figma_run', { args: ['col', 'delete', 'Disposable'] });
   assert.equal(preview.isError, undefined);
-  assert.match(preview.content[0].text, /Write-confirm mode is on/);
+  assert.match(preview.content[0].text, /Command requires confirmation/);
   for (const args of [
     ['col', 'delete'], ['col', 'delete', 'one', 'two'],
     ['col', 'delete', '--future', 'private-value'],
@@ -2365,6 +2469,19 @@ test('figma_run routes Component Property Add through the rollback-owned Applica
     'Component Property Add must not re-enter Commander');
 });
 
+test('figma_run routes Component Property Bind through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentPropertyBindRoute = componentPropertyBindPlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentPropertyBindPlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Property Bind must not re-enter Commander');
+});
+
 test('figma_run routes Component Property Delete through the irreversible Application', () => {
   const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
   const start = source.indexOf('const componentPropertyDeleteRoute = componentPropertyDeletePlanRoute(plan)');
@@ -2389,6 +2506,19 @@ test('figma_run routes Component Property List through the bounded safe-read App
   assert.match(slice, /executeComponentPropertyListPlan\(plan/);
   assert.doesNotMatch(slice, /runCliPlan\(/,
     'Component Property List must not re-enter Commander');
+});
+
+test('figma_run routes nested Instance exposure through the rollback-owned Application', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const start = source.indexOf('const componentNestedExposeRoute = componentNestedExposePlanRoute(plan)');
+  const end = source.indexOf('const styleCatalogRoute = styleCatalogPlanRoute(plan)', start);
+  const slice = source.slice(start, end);
+  assert.match(slice, /runInProcessCommandPlan\(plan/);
+  assert.match(slice, /compatibilityFallback:\s*false/);
+  assert.match(slice, /await ensurePluginReadiness\(\{ deadline/);
+  assert.match(slice, /executeComponentNestedExposePlan\(plan/);
+  assert.doesNotMatch(slice, /runCliPlan\(/,
+    'Component Nested Expose must not re-enter Commander');
 });
 
 test('figma_run routes Component Instantiate through the rollback-owned Application', () => {
@@ -4124,6 +4254,30 @@ test('figma_run distinguishes command groups, actions, options and malformed val
   }
 });
 
+test('figma_run errors include one machine-readable recovery context', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const rejected = await handleTool('figma_run', { args: ['future-group', 'private-payload'] });
+  assert.deepEqual(rejected._meta['figma-bridge-mcp'].error, {
+    schemaVersion: 1,
+    layer: 'whitelist',
+    kind: 'command-rejected',
+    dispatchState: 'not-dispatched',
+    suggestion: 'Use ["--help"].',
+  });
+  assert.match(rejected.content[0].text,
+    /\[layer:whitelist\] \[kind:command-rejected\] \[dispatch:not-dispatched\]/);
+  assert.doesNotMatch(JSON.stringify(rejected._meta), /private-payload/);
+
+  const malformed = await handleTool('figma_run', { args: [] });
+  assert.deepEqual(malformed._meta['figma-bridge-mcp'].error, {
+    schemaVersion: 1,
+    layer: 'validation',
+    kind: 'request',
+    suggestion: 'Correct the request using the validation message, then retry.',
+  });
+  assert.match(malformed.content[0].text, /\[layer:validation\] \[kind:request\]/);
+});
+
 test('unknownParamError: wrong parameter names get a "did you mean" instead of silent fallback', async () => {
   // Safe to import since server.js only boots when run as the entry point.
   const { unknownParamError } = await import('../src/server.js');
@@ -4193,6 +4347,8 @@ test('mixed Figma MCPs stay explicitly scoped to Figma Bridge', async () => {
 
   const status = TOOLS.find((candidate) => candidate.name === 'figma_status');
   assert.match(status.description, /this Figma Bridge only/i);
+  const connect = TOOLS.find((candidate) => candidate.name === 'figma_connect');
+  assert.match(connect.description, /idle daemon wakes at MCP startup.*after restart.*once before diagnosis/i);
 
   const success = await handleTool('figma_reference', { name: 'variable-scopes' });
   assert.equal(success._mcp, MCP_SERVER_ID);
@@ -4258,6 +4414,22 @@ test('variable scope reference is available without an engine round-trip', async
   assert.match(text, /var","update/);
 });
 
+test('Component authoring reference covers all native properties and executable wiring', async () => {
+  const { handleTool } = await import('../src/server.js');
+  const result = await handleTool('figma_reference', { name: 'components' });
+  const text = result.content?.[0]?.text || '';
+  for (const type of ['TEXT', 'BOOLEAN', 'INSTANCE_SWAP', 'VARIANT', 'SLOT']) {
+    assert.match(text, new RegExp(`\\b${type}\\b`));
+  }
+  assert.match(text, /component","prop","bind/);
+  assert.match(text, /component","nested","expose/);
+  assert.match(text, /slot","create/);
+  assert.match(text, /node","set","<returned-slot-id>"/);
+  assert.match(text, /100×100/);
+  assert.match(text, /slot validate does not verify visual layout/i);
+  assert.match(text, /unbound scalar definition is a defect/);
+});
+
 test('capability index is generated on demand without an engine round-trip', async () => {
   const { handleTool } = await import('../src/server.js');
   const result = await handleTool('figma_reference', { name: 'capabilities' });
@@ -4315,6 +4487,17 @@ test('MCP responsiveness probing uses the closed health read, never eval or the 
   assert.match(probe, /daemonClient\(\)\.health\(\{/);
   assert.match(probe, /probe:\s*true/);
   assert.doesNotMatch(probe, /\.execute\(|\.evaluate\(|\beval\b/);
+});
+
+test('every MCP Command readiness probe waits for its planned file and editor', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8');
+  const calls = [...source.matchAll(/ensurePluginReadiness\(\{([^}]+)\}\)/g)];
+  assert.ok(calls.length >= 70, 'expected the complete in-process MCP readiness inventory');
+  for (const [, options] of calls) {
+    assert.match(options, /\bdeadline\b/);
+    assert.match(options, /\bfileKey\b/);
+    assert.match(options, /\bexpectedEditor\b/);
+  }
 });
 
 test('figma_spec batches bounded reads behind one manual approval', async () => {

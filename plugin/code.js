@@ -9,6 +9,12 @@
  */
 
 const KEY_STORAGE = 'daemonKey';
+const LOCAL_DEVELOPMENT_PLUGIN_ID = 'figma-bridge-mcp-local-development';
+const BRIDGE_PORTS = Object.freeze(
+  figma.pluginId === LOCAL_DEVELOPMENT_PLUGIN_ID
+    ? [3460]
+    : [3456, 3457, 3458, 3459, 3460],
+);
 // Minimal durable identity shared with figma-bridge.json. Repository paths
 // deliberately stay outside the Figma document; the plugin stores only the
 // stable Design Entity handle needed to resolve them server-side.
@@ -559,11 +565,13 @@ const BRIDGE_HEALTH_TYPED_READ = 'bridge-health-v1';
 const STYLE_CONSUMERS_TYPED_READ = 'style-consumers-v1';
 const NODE_BINDINGS_TYPED_READ = 'node-bindings-v1';
 const TOKEN_OVERLAP_TYPED_READ = 'token-overlap-v1';
+const COMPONENT_PROPERTY_LIST_TYPED_READ = 'component-property-list-v1';
 const TYPED_READ_OPERATIONS = Object.freeze([
   BRIDGE_HEALTH_TYPED_READ,
   STYLE_CONSUMERS_TYPED_READ,
   NODE_BINDINGS_TYPED_READ,
   TOKEN_OVERLAP_TYPED_READ,
+  COMPONENT_PROPERTY_LIST_TYPED_READ,
 ]);
 
 function typedReadRecord(value) {
@@ -608,6 +616,17 @@ function typedReadRequestValidationError(operation, request) {
       || request.nodeId.length < 1 || request.nodeId.length > 512
       || !/^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/.test(request.nodeId))) {
       return 'Node Binding Facts typed-read nodeId is invalid';
+    }
+    return null;
+  }
+  if (operation === COMPONENT_PROPERTY_LIST_TYPED_READ) {
+    if (!typedReadExactKeys(request, ['componentId'])) {
+      return 'Component Property Facts typed-read request has an unknown or missing field';
+    }
+    if (request.componentId !== null && (typeof request.componentId !== 'string'
+      || request.componentId.length < 1 || request.componentId.length > 512
+      || !/^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/.test(request.componentId))) {
+      return 'Component Property Facts typed-read componentId is invalid';
     }
     return null;
   }
@@ -927,6 +946,223 @@ async function executeNodeBindingsTypedRead(figmaApi, request) {
   return payload;
 }
 
+async function executeComponentPropertyListTypedRead(figmaApi, request) {
+  const requestError = typedReadRequestValidationError(COMPONENT_PROPERTY_LIST_TYPED_READ, request);
+  if (requestError) throw new Error(requestError);
+  const maxProperties = 50_000;
+  const maxName = 1_024;
+  const maxValue = 200_000;
+  const maxOptions = 10_000;
+  const maxVisits = 50_000;
+  const maxSerializedCodeUnits = 700_000;
+  const lookupTimeoutMs = 7_000;
+  const own = (record, key) => record && Object.prototype.hasOwnProperty.call(record, key);
+  const clean = (value, maximum) => typeof value === 'string'
+    ? value.slice(0, maximum).replace(/[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g, ' ')
+    : '';
+  async function findTarget(id) {
+    let timeoutHandle;
+    try {
+      return await Promise.race([
+        figmaApi.getNodeByIdAsync(id),
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(
+            'Figma component lookup timed out before the bounded read: ' + id,
+          )), lookupTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle != null) clearTimeout(timeoutHandle);
+    }
+  }
+  const node = request.componentId === null
+    ? figmaApi.currentPage?.selection?.[0]
+    : await findTarget(request.componentId);
+  if (!node) throw new Error(request.componentId === null
+    ? 'Select one local Component or Component Set.'
+    : 'Node not found: ' + request.componentId);
+  if (!['COMPONENT', 'COMPONENT_SET'].includes(node.type) || node.remote !== false) {
+    throw new Error('Component Property List requires one local Component or Component Set.');
+  }
+  const definitions = node.componentPropertyDefinitions;
+  if (!typedReadRecord(definitions)) throw new Error('Component returned invalid property definitions.');
+  const entries = Object.entries(definitions);
+  if (entries.length > maxProperties) throw new Error('Component exceeds the bounded property-definition count.');
+  const bindings = new Map(entries.map(([name]) => [name, []]));
+  const slotDefinitionNames = entries
+    .filter(([, definition]) => definition?.type === 'SLOT')
+    .map(([name]) => name);
+  const nestedInstances = [];
+  const slots = [];
+  const stack = Array.isArray(node.children) ? [...node.children].reverse() : [];
+  let visits = 0;
+  while (stack.length) {
+    if (++visits > maxVisits) throw new Error('Component exceeds the bounded sublayer visit count.');
+    const child = stack.pop();
+    if (!typedReadRecord(child)) throw new Error('Component contains an invalid sublayer.');
+    if (!['INSTANCE', 'SLOT'].includes(child.type) && Array.isArray(child.children)) {
+      for (let index = child.children.length - 1; index >= 0; index--) stack.push(child.children[index]);
+    }
+    const references = child.componentPropertyReferences;
+    if (references !== null && references !== undefined) {
+      if (!typedReadRecord(references)) throw new Error('Component contains invalid property references.');
+      for (const field of ['visible', 'characters', 'mainComponent']) {
+        if (!own(references, field)) continue;
+        const property = references[field];
+        if (typeof property !== 'string' || property.length > maxName) {
+          throw new Error('Component contains an invalid property reference.');
+        }
+        if (!bindings.has(property)) {
+          throw new Error('Component sublayer references an unknown property definition.');
+        }
+        bindings.get(property).push({
+          nodeId: child.id,
+          nodeName: clean(String(child.name || ''), maxName),
+          nodeType: clean(String(child.type || ''), 64),
+          field,
+        });
+      }
+    }
+    if (child.type === 'INSTANCE') {
+      if (typeof child.isExposedInstance !== 'boolean') {
+        throw new Error('Nested Instance returned invalid exposure metadata.');
+      }
+      nestedInstances.push({
+        id: child.id,
+        name: clean(String(child.name || ''), maxName),
+        exposed: child.isExposedInstance,
+      });
+    }
+    if (child.type === 'SLOT') {
+      const violations = Array.isArray(child.limitViolations) ? child.limitViolations : [];
+      if (violations.some((value) => !['BELOW_MIN', 'ABOVE_MAX', 'HAS_NON_PREFERRED'].includes(value))) {
+        throw new Error('Slot returned invalid limit violations.');
+      }
+      slots.push({
+        id: child.id,
+        name: clean(String(child.name || ''), maxName),
+        childCount: Array.isArray(child.children) ? child.children.length : 0,
+        limitViolations: violations,
+        property: null,
+      });
+    }
+  }
+  const baseName = (value) => String(value).split('#')[0].trim().toLowerCase();
+  const assignedSlotProperties = new Set();
+  for (const slot of slots) {
+    const matches = slotDefinitionNames.filter((name) => !assignedSlotProperties.has(name)
+      && (name === slot.name || baseName(name) === baseName(slot.name)));
+    if (matches.length === 1) {
+      slot.property = matches[0];
+      assignedSlotProperties.add(matches[0]);
+    }
+  }
+  const unmatchedSlots = slots.filter((slot) => slot.property === null);
+  const unmatchedSlotProperties = slotDefinitionNames.filter((name) => !assignedSlotProperties.has(name));
+  if (unmatchedSlots.length === 1 && unmatchedSlotProperties.length === 1) {
+    unmatchedSlots[0].property = unmatchedSlotProperties[0];
+  }
+
+  const properties = entries.map(([name, definition]) => {
+    const defaultValue = definition?.type === 'SLOT' && definition.defaultValue === undefined
+      ? null : definition?.defaultValue;
+    if (typeof name !== 'string' || !name || name.length > maxName
+      || !typedReadRecord(definition)
+      || typeof definition.type !== 'string' || !definition.type || definition.type.length > 64
+      || !((definition.type === 'SLOT' && defaultValue === null)
+        || typeof defaultValue === 'boolean'
+        || (typeof defaultValue === 'string' && defaultValue.length <= maxValue))) {
+      throw new Error('Component Property List encountered incompatible definition metadata.');
+    }
+    const variantOptions = definition.variantOptions === undefined ? null : definition.variantOptions;
+    if (variantOptions !== null && (!Array.isArray(variantOptions)
+      || variantOptions.length > maxOptions
+      || variantOptions.some((option) => typeof option !== 'string' || option.length > maxName))) {
+      throw new Error('Component Property List encountered invalid Variant options.');
+    }
+    const preferredValues = definition.preferredValues === undefined ? null : definition.preferredValues;
+    if (preferredValues !== null && (!Array.isArray(preferredValues)
+      || preferredValues.length > maxOptions
+      || preferredValues.some((value) => !typedReadRecord(value)
+        || !['COMPONENT', 'COMPONENT_SET'].includes(value.type)
+        || typeof value.key !== 'string' || !value.key || value.key.length > maxName))) {
+      throw new Error('Component Property List encountered invalid preferred values.');
+    }
+    const description = definition.description === undefined ? null : definition.description;
+    if (description !== null && (typeof description !== 'string' || description.length > maxValue)) {
+      throw new Error('Component Property List encountered an invalid description.');
+    }
+    const slotSettings = definition.slotSettings === undefined ? null : definition.slotSettings;
+    if (slotSettings !== null && !typedReadRecord(slotSettings)) {
+      throw new Error('Component Property List encountered invalid Slot settings.');
+    }
+    if (slotSettings !== null) {
+      const allowed = new Set(['stretchChildOnInsert', 'displayEmptyByDefault', 'minChildren', 'maxChildren', 'allowPreferredValuesOnly']);
+      if (Object.keys(slotSettings).some((key) => !allowed.has(key))) {
+        throw new Error('Component Property List encountered unknown Slot settings.');
+      }
+      for (const key of ['stretchChildOnInsert', 'displayEmptyByDefault', 'allowPreferredValuesOnly']) {
+        if (slotSettings[key] !== undefined && typeof slotSettings[key] !== 'boolean') {
+          throw new Error('Component Property List encountered an invalid Slot Boolean setting.');
+        }
+      }
+      for (const key of ['minChildren', 'maxChildren']) {
+        if (slotSettings[key] !== undefined && slotSettings[key] !== null
+          && (!Number.isSafeInteger(slotSettings[key]) || slotSettings[key] < 0)) {
+          throw new Error('Component Property List encountered an invalid Slot child limit.');
+        }
+      }
+    }
+    const nativeBindings = definition.boundVariables === undefined ? null : definition.boundVariables;
+    if (nativeBindings !== null && (!typedReadRecord(nativeBindings)
+      || Object.keys(nativeBindings).some((key) => key !== 'defaultValue')
+      || (nativeBindings.defaultValue !== undefined
+        && (!typedReadRecord(nativeBindings.defaultValue)
+          || nativeBindings.defaultValue.type !== 'VARIABLE_ALIAS'
+          || typeof nativeBindings.defaultValue.id !== 'string'
+          || !nativeBindings.defaultValue.id || nativeBindings.defaultValue.id.length > maxName)))) {
+      throw new Error('Component Property List encountered invalid default Variable binding metadata.');
+    }
+    const defaultValueVariable = nativeBindings?.defaultValue
+      ? { type: nativeBindings.defaultValue.type, id: nativeBindings.defaultValue.id }
+      : null;
+    const propertyBindings = bindings.get(name) || [];
+    const bindingStatus = definition.type === 'VARIANT' ? 'native-axis'
+      : definition.type === 'SLOT' ? (slots.some((slot) => slot.property === name) ? 'native-slot' : 'unbound')
+        : propertyBindings.length ? 'wired' : 'unbound';
+    return {
+      name,
+      type: definition.type,
+      defaultValue,
+      variantOptions,
+      preferredValues,
+      description,
+      slotSettings,
+      defaultValueVariable,
+      bindings: propertyBindings,
+      bindingStatus,
+    };
+  });
+  const payload = {
+    schemaVersion: 2,
+    status: 'listed',
+    source: request.componentId === null ? 'selection' : 'id',
+    component: {
+      id: node.id,
+      name: clean(String(node.name || ''), maxName),
+      type: node.type,
+    },
+    properties,
+    nestedInstances,
+    slots,
+  };
+  const serialized = JSON.stringify(payload);
+  if (serialized.length > maxSerializedCodeUnits) {
+    throw new Error('Component Property List result exceeded the bounded response limit.');
+  }
+  return serialized;
+}
+
 async function executeTokenOverlapTypedRead(figmaApi, request) {
   const requestError = typedReadRequestValidationError(TOKEN_OVERLAP_TYPED_READ, request);
   if (requestError) throw new Error(requestError);
@@ -1060,6 +1296,9 @@ async function executeTypedReadOperation(figmaApi, operation, request) {
   }
   if (operation === TOKEN_OVERLAP_TYPED_READ) {
     return JSON.stringify(await executeTokenOverlapTypedRead(figmaApi, request));
+  }
+  if (operation === COMPONENT_PROPERTY_LIST_TYPED_READ) {
+    return executeComponentPropertyListTypedRead(figmaApi, request);
   }
   throw new Error('Typed-read operation is unsupported.');
 }
@@ -1759,12 +1998,46 @@ function structuredRenderFailureResult(error, executor = 'structured-v1') {
   };
 }
 
-async function createStructuredPreflightApi(figmaApi) {
-  const [collections, variables, textStyles] = await Promise.all([
-    figmaApi.variables?.getLocalVariableCollectionsAsync?.() || [],
-    figmaApi.variables?.getLocalVariablesAsync?.() || [],
-    figmaApi.getLocalTextStylesAsync?.() || [],
-  ]);
+const STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS = 15_000;
+
+/**
+ * @param {{ preflightTimeoutMs?: number }} [runtime]
+ */
+function structuredPreflightTimeout(runtime = {}) {
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)
+    || Object.keys(runtime).some((key) => key !== 'preflightTimeoutMs')) {
+    throw new Error('Structured render runtime options are invalid');
+  }
+  const timeout = runtime.preflightTimeoutMs === undefined
+    ? STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS
+    : Number(runtime.preflightTimeoutMs);
+  if (!Number.isFinite(timeout) || timeout < 1 || timeout > STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS) {
+    throw new Error(`Structured render preflight timeout must be 1-${STRUCTURED_PREFLIGHT_CATALOG_TIMEOUT_MS}ms`);
+  }
+  return Math.floor(timeout);
+}
+
+async function createStructuredPreflightApi(figmaApi, runtime = {}) {
+  const timeoutMs = structuredPreflightTimeout(runtime);
+  let timeoutHandle;
+  let resources;
+  try {
+    resources = await Promise.race([
+      Promise.all([
+        figmaApi.variables?.getLocalVariableCollectionsAsync?.() || [],
+        figmaApi.variables?.getLocalVariablesAsync?.() || [],
+        figmaApi.getLocalTextStylesAsync?.() || [],
+      ]),
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(
+          `Structured render preflight catalog read timed out after ${timeoutMs}ms`,
+        )), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle != null) clearTimeout(timeoutHandle);
+  }
+  const [collections, variables, textStyles] = resources;
   let virtualId = 0;
   const nextId = (kind) => `preflight:${kind}:${++virtualId}`;
   const virtualCollections = [...collections];
@@ -3618,7 +3891,7 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
 async function preflightStructuredPlans(figmaApi, plans, {
   batch = false,
   materializeResources = false,
-} = {}) {
+} = {}, runtime = {}) {
   const unsupported = [];
   for (let index = 0; index < plans.length; index++) {
     const support = inspectStructuredRenderPlan(plans[index]);
@@ -3643,7 +3916,7 @@ async function preflightStructuredPlans(figmaApi, plans, {
   // catches cross-plan variable/style naming conflicts without creating a
   // Figma resource. Fonts and component handles are resolved against the real
   // API because those reads do not mutate the document.
-  const preflightApi = await createStructuredPreflightApi(figmaApi);
+  const preflightApi = await createStructuredPreflightApi(figmaApi, runtime);
   const componentContexts = [];
   for (const plan of plans) {
     componentContexts.push(await prepareStructuredComponents(figmaApi, plan));
@@ -3681,7 +3954,7 @@ async function materializeStructuredResources(figmaApi, plans, componentContexts
   return prepared;
 }
 
-async function executeStructuredRenderPlan(figmaApi, plan, options = {}) {
+async function executeStructuredRenderPlan(figmaApi, plan, options = {}, runtime = {}) {
   const journal = createStructuredMutationJournal(figmaApi);
   if (!options || typeof options !== 'object' || Array.isArray(options)
     || Object.keys(options).some((key) => ![
@@ -3739,7 +4012,7 @@ async function executeStructuredRenderPlan(figmaApi, plan, options = {}) {
   try {
     componentContexts = await preflightStructuredPlans(figmaApi, [positionedPlan], {
       materializeResources: placementOptions.materializeResources === true,
-    });
+    }, runtime);
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured render preflight failed');
   }
@@ -3756,7 +4029,7 @@ async function executeStructuredRenderPlan(figmaApi, plan, options = {}) {
   }
 }
 
-async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
+async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}, runtime = {}) {
   const journal = createStructuredMutationJournal(figmaApi);
   if (!Array.isArray(plans) || !plans.length) {
     throw structuredExecutionError(
@@ -3813,7 +4086,7 @@ async function executeStructuredRenderPlanBatch(figmaApi, plans, options = {}) {
     componentContexts = await preflightStructuredPlans(figmaApi, positionedPlans, {
       batch: true,
       materializeResources: batchOptions.materializeResources === true,
-    });
+    }, runtime);
   } catch (error) {
     throw structuredExecutionError(error, await journal.rollback(), 'Structured batch preflight failed');
   }
@@ -3990,7 +4263,7 @@ figma.ui.onmessage = async (msg) => {
     } catch (e) {
       value = '';
     }
-    figma.ui.postMessage({ type: 'key', value });
+    figma.ui.postMessage({ type: 'key', value, ports: BRIDGE_PORTS });
     return;
   }
 

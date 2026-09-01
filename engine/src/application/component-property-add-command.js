@@ -44,7 +44,9 @@ export function componentPropertyAddCode(request) {
     const componentId = ${jsString(input.componentId)};
     const requestedName = ${jsString(input.name)};
     const propertyType = ${jsString(input.type)};
+    const preferredIds = ${JSON.stringify(input.preferred)};
     let expectedDefault = JSON.parse(${jsString(JSON.stringify(defaultValue))});
+    let expectedPreferred = null;
     const hasIgnoredOptions = ${input.options === null ? 'false' : 'true'};
     const clean = (value, maximum) => typeof value === 'string'
       ? value.slice(0, maximum).replace(/[\\u0000-\\u001f\\u007f-\\u009f\\u2028-\\u202e\\u2066-\\u2069]/g, ' ')
@@ -65,7 +67,8 @@ export function componentPropertyAddCode(request) {
       return definitions;
     };
     const definitionMatches = (definition) => definition && definition.type === propertyType
-      && Object.is(definition.defaultValue, expectedDefault);
+      && Object.is(definition.defaultValue, expectedDefault)
+      && JSON.stringify(definition.preferredValues || null) === JSON.stringify(expectedPreferred);
     const nameMatches = (candidate) => candidate === requestedName
       || candidate.startsWith(requestedName + '#');
 
@@ -96,12 +99,28 @@ export function componentPropertyAddCode(request) {
         }
         expectedDefault = swap.id;
       }
+      if (preferredIds !== null) {
+        expectedPreferred = [];
+        for (const id of preferredIds) {
+          const preferred = await figma.getNodeByIdAsync(id);
+          if (!preferred || !['COMPONENT', 'COMPONENT_SET'].includes(preferred.type)
+            || typeof preferred.key !== 'string' || !preferred.key) {
+            throw new Error('Preferred INSTANCE_SWAP target is not a Component or Component Set with a publish key: ' + id);
+          }
+          expectedPreferred.push({ type: preferred.type, key: preferred.key });
+        }
+      }
 
       let attempted = false;
       let createdName = null;
       try {
         attempted = true;
-        createdName = component.addComponentProperty(requestedName, propertyType, expectedDefault);
+        createdName = component.addComponentProperty(
+          requestedName,
+          propertyType,
+          expectedDefault,
+          expectedPreferred === null ? undefined : { preferredValues: expectedPreferred },
+        );
         if (typeof createdName !== 'string' || !createdName || createdName.length > ${MAX_COMPONENT_PROPERTY_ADD_NAME_CODE_UNITS}) {
           throw new Error('Component Property Add returned an invalid property name.');
         }
@@ -125,6 +144,7 @@ export function componentPropertyAddCode(request) {
             name: createdName,
             type: definitions[createdName].type,
             defaultValue: definitions[createdName].defaultValue,
+            preferredValues: definitions[createdName].preferredValues || null,
           },
           attempted: 1, residue: [],
           warnings: hasIgnoredOptions
@@ -215,13 +235,20 @@ function validSuccess(value, input) {
     'schemaVersion', 'status', 'component', 'property', 'attempted', 'residue', 'warnings',
   ]) || value.schemaVersion !== 1 || value.status !== 'created'
     || !validComponent(value.component, input)
-    || !exactKeys(value.property, ['name', 'type', 'defaultValue'])
+    || !exactKeys(value.property, ['name', 'type', 'defaultValue', 'preferredValues'])
     || !validString(value.property.name, MAX_COMPONENT_PROPERTY_ADD_NAME_CODE_UNITS, false)
     || !(value.property.name === input.name || value.property.name.startsWith(`${input.name}#`))
     || value.property.type !== input.type || !validScalar(value.property.defaultValue)
     || (input.type === 'BOOLEAN' && typeof value.property.defaultValue !== 'boolean')
     || (input.type !== 'BOOLEAN' && typeof value.property.defaultValue !== 'string')
     || (input.type === 'TEXT' && value.property.defaultValue !== input.defaultValue)
+    || (value.property.preferredValues !== null
+      && (!Array.isArray(value.property.preferredValues)
+        || value.property.preferredValues.length !== input.preferred?.length
+        || value.property.preferredValues.some((preferred) => !exactKeys(preferred, ['type', 'key'])
+          || !['COMPONENT', 'COMPONENT_SET'].includes(preferred.type)
+          || !validString(preferred.key, MAX_COMPONENT_PROPERTY_ADD_NAME_CODE_UNITS, false))))
+    || (input.preferred === null ? value.property.preferredValues !== null : value.property.preferredValues === null)
     || value.attempted !== 1 || !Array.isArray(value.residue) || value.residue.length !== 0
     || !Array.isArray(value.warnings) || value.warnings.length !== (input.options === null ? 0 : 1)
     || value.warnings.some((warning) => !validString(warning, 1_024, false))) return false;

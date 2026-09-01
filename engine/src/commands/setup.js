@@ -1,6 +1,6 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import { mkdirSync, copyFileSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
@@ -11,7 +11,7 @@ import {
   executeDesignSourceImportPlan,
   prepareDesignSourceImportPlan,
 } from '../application/design-source-import-command.js';
-import { STATE_DIR } from '../lib/state-dir.js';
+import { STATE_DIR, isLocalDevelopmentProfile } from '../lib/state-dir.js';
 import { workspaceIO } from '../lib/workspace-io.js';
 
 // Repo root = three levels up from engine/src/commands/setup.js. Used to
@@ -19,29 +19,70 @@ import { workspaceIO } from '../lib/workspace-io.js';
 // server spawns the engine from an arbitrary directory).
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin');
+const RELEASE_PLUGIN_MANIFEST = join(PLUGIN_SRC_DIR, 'manifest.json');
+const LOCAL_PLUGIN_MANIFEST_TEMPLATE = join(
+  PLUGIN_SRC_DIR,
+  'manifests',
+  'local-development.json',
+);
+const DEV_MODE_PLUGIN_MANIFEST_TEMPLATE = join(
+  PLUGIN_SRC_DIR,
+  'manifests',
+  'dev-mode.json',
+);
+const LOCAL_PLUGIN_DIR = join(PLUGIN_SRC_DIR, 'local');
+
+function copyImportablePluginBundle(dest, manifestSource) {
+  mkdirSync(dest, { recursive: true });
+  copyFileSync(manifestSource, join(dest, 'manifest.json'));
+  for (const file of ['code.js', 'ui.html']) {
+    copyFileSync(join(PLUGIN_SRC_DIR, file), join(dest, file));
+  }
+  return join(dest, 'manifest.json');
+}
 
 // The path the user imports in Figma. Under an npx install the package lives
 // in an EPHEMERAL cache that npx may garbage-collect — importing the manifest
 // from there breaks the plugin on cache eviction. So connect copies both
 // connected plugin adapters to the stable state dir and prints THAT path; only
 // if the copy fails does it fall back to the in-package path.
-function installPluginFiles() {
+export function installPluginFiles() {
+  // The contributor profile deliberately stays checkout-owned: edits to the
+  // active branch must be the exact Plugin bytes Figma runs. Released/npx
+  // profiles still need the stable copied path below because their package
+  // cache may disappear.
+  if (isLocalDevelopmentProfile()) {
+    try {
+      return copyImportablePluginBundle(
+        process.env.PLUGIN_LOCAL_INSTALL_DIR || LOCAL_PLUGIN_DIR,
+        LOCAL_PLUGIN_MANIFEST_TEMPLATE,
+      );
+    } catch (error) {
+      throw new Error(
+        `Unable to prepare the gitignored local Figma Plugin bundle: ${error.message}`,
+      );
+    }
+  }
   // Test/packaging hook: keep integration tests out of the user's real state
   // directory while exercising the exact connect command end to end.
   const dest = process.env.PLUGIN_INSTALL_DIR || join(STATE_DIR, 'plugin');
   try {
-    mkdirSync(dest, { recursive: true });
-    for (const f of ['manifest.json', 'manifest.dev.json', 'code.js', 'ui.html']) {
-      copyFileSync(join(PLUGIN_SRC_DIR, f), join(dest, f));
-    }
+    copyImportablePluginBundle(dest, RELEASE_PLUGIN_MANIFEST);
+    copyImportablePluginBundle(
+      join(dest, 'dev-mode'),
+      DEV_MODE_PLUGIN_MANIFEST_TEMPLATE,
+    );
     // 0.5.0 briefly shipped a separate offline Codegen adapter. It is not
-    // needed by the MCP workflow; remove stable-cache leftovers on upgrade.
-    for (const retired of ['manifest.codegen.json', 'codegen.js']) {
+    // needed by the MCP workflow. Later releases also replace the invalid
+    // manifest.dev.json import path with dev-mode/manifest.json.
+    for (const retired of ['manifest.codegen.json', 'manifest.dev.json', 'codegen.js']) {
       try { rmSync(join(dest, retired), { force: true }); } catch {}
     }
     return join(dest, 'manifest.json');
   } catch {
-    return join(PLUGIN_SRC_DIR, 'manifest.json');
+    // The canonical source manifest is itself the released identity, so a
+    // read-only package cache remains a valid temporary import location.
+    return RELEASE_PLUGIN_MANIFEST;
   }
 }
 import * as apiDocs from '../api-docs.js';
@@ -214,6 +255,61 @@ program
 
 // ============ CONNECT ============
 
+export async function ensureCurrentDaemonReady({
+  forceRestart = false,
+  maxAttempts = 2,
+  waitPerAttemptMs = 2000,
+  adapters = {},
+} = {}) {
+  const now = adapters.now || (() => Date.now());
+  const wait = adapters.wait || ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
+  const running = adapters.running || ((returnDetails = false, force = false) =>
+    isDaemonRunning(returnDetails, force));
+  const matches = adapters.matches || (() => daemonBuildMatchesCurrent());
+  const start = adapters.start || ((restart, mode, knownState) =>
+    startDaemon(restart, mode, knownState));
+  const attemptsLimit = Number.isSafeInteger(maxAttempts) && maxAttempts >= 1
+    ? Math.min(maxAttempts, 3) : 2;
+  const attemptWait = Number.isFinite(Number(waitPerAttemptMs)) && Number(waitPerAttemptMs) >= 1
+    ? Math.min(Number(waitPerAttemptMs), 2000) : 2000;
+
+  const daemonWasRunning = await running(false, true);
+  const daemonWasReusable = daemonWasRunning && await matches();
+  let knownRunning = daemonWasRunning;
+  let knownReusable = daemonWasReusable;
+
+  for (let attempt = 1; attempt <= attemptsLimit; attempt++) {
+    await start(attempt === 1 && forceRestart === true, 'plugin', {
+      running: knownRunning,
+      buildMatches: knownReusable,
+    });
+    const deadline = now() + attemptWait;
+    while (now() < deadline) {
+      await wait(Math.max(1, Math.min(50, deadline - now())));
+      knownRunning = await running(false, true);
+      if (!knownRunning) continue;
+      if (await matches()) {
+        return {
+          ready: true,
+          attempts: attempt,
+          daemonWasRunning,
+          daemonWasReusable,
+        };
+      }
+      // A different installed Bridge build won the singleton port. Waiting
+      // cannot change that winner; replace it in the next bounded attempt.
+      knownReusable = false;
+      break;
+    }
+  }
+  return {
+    ready: false,
+    attempts: attemptsLimit,
+    daemonWasRunning,
+    daemonWasReusable,
+  };
+}
+
 program
   .command('connect')
   .description('Connect to Figma Desktop (Safe Mode — plugin bridge only)')
@@ -234,27 +330,15 @@ program
       // authenticated Figma plugin socket; Chromium could then keep the panel
       // in its failed-WebSocket retry state for seconds or minutes. Reuse a
       // healthy daemon and reserve destructive restarts for `daemon restart`.
-      const daemonWasRunning = await isDaemonRunning(false, true);
-      const daemonWasReusable = daemonWasRunning && await daemonBuildMatchesCurrent();
-      await startDaemon(options.forceRestart === true, 'plugin', {
-        running: daemonWasRunning,
-        buildMatches: daemonWasReusable,
+      const daemon = await ensureCurrentDaemonReady({
+        forceRestart: options.forceRestart === true,
       });
-      const daemonDeadline = Date.now() + 2000;
-      let daemonReady = false;
-      while (Date.now() < daemonDeadline) {
-        await new Promise(r => setTimeout(r, 50));
-        if (await isDaemonRunning(false, true)) {
-          daemonReady = true;
-          break;
-        }
-      }
-      if (daemonReady) {
+      if (daemon.ready) {
         spinnerSucceed(
           daemonSpinner,
-          daemonWasReusable && options.forceRestart !== true
+          daemon.daemonWasReusable && options.forceRestart !== true
             ? 'Daemon running in Safe Mode — existing plugin connection preserved'
-            : daemonWasRunning && options.forceRestart !== true
+            : daemon.daemonWasRunning && options.forceRestart !== true
               ? 'Daemon upgraded in Safe Mode — plugin reconnecting automatically'
             : 'Daemon running in Safe Mode',
         );
@@ -270,6 +354,11 @@ program
     }
 
     // Show plugin setup instructions
+    const localDevelopment = isLocalDevelopmentProfile();
+    const designPluginName = localDevelopment
+      ? 'Figma Bridge Local Development'
+      : 'Figma Bridge';
+    const devModePluginName = 'Figma Bridge Dev Mode';
     console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
     console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the Figma Bridge plugin                      ') + chalk.hex('#FF6B35')('│'));
     console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
@@ -281,15 +370,32 @@ program
     console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(pluginManifestPath));
     console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
 
-    console.log(chalk.white.bold('  OPTIONAL DEV MODE (SEPARATE READ-ONLY ADAPTER):\n'));
-    console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
-      + chalk.yellow(join(dirname(pluginManifestPath), 'manifest.dev.json')) + '\n');
+    if (!localDevelopment) {
+      const devModeManifestPath = join(
+        dirname(pluginManifestPath),
+        'dev-mode',
+        'manifest.json',
+      );
+      console.log(chalk.white.bold('  OPTIONAL DEV MODE (SEPARATE READ-ONLY ADAPTER):\n'));
+      if (existsSync(devModeManifestPath)) {
+        console.log(chalk.cyan('  → ') + chalk.white('Connected MCP inspection: ')
+          + chalk.yellow(devModeManifestPath) + '\n');
+      } else {
+        console.log(chalk.cyan('  → ') + chalk.gray(
+          'Dev Mode bundle unavailable because persistent Plugin files could not be prepared; fix the state directory and rerun figma_connect.\n',
+        ));
+      }
+    }
 
     console.log(chalk.white.bold('  IF THE PLUGIN IS NOT ALREADY OPEN IN THIS FIGMA FILE:\n'));
-    console.log(chalk.cyan('  → ') + chalk.white('Design mode: ') + chalk.yellow('Plugins → Development → Figma Bridge'));
-    console.log(chalk.cyan('  → ') + chalk.white('Dev Mode: ') + chalk.yellow('Plugins → Development → Figma Bridge Dev Mode'));
-    console.log(chalk.cyan('  → ') + chalk.gray('A new AI session does not require reopening a healthy plugin.'));
-    console.log(chalk.cyan('  → ') + chalk.white('Paste your ') + chalk.yellow('access key') + chalk.white(' into the plugin the first time.\n'));
+    console.log(chalk.cyan('  → ') + chalk.white('Design mode: ') + chalk.yellow(`Plugins → Development → ${designPluginName}`));
+    if (!localDevelopment) {
+      console.log(chalk.cyan('  → ') + chalk.white('Dev Mode: ') + chalk.yellow(`Plugins → Development → ${devModePluginName}`));
+    }
+    console.log(chalk.cyan('  → ') + chalk.gray('A configured MCP wakes an idle daemon automatically; a new AI session does not require reopening a healthy plugin.'));
+    console.log(chalk.cyan('  → ') + chalk.white('Paste the same ') + chalk.yellow('access key')
+      + chalk.white(' once in each editor you use (Design, FigJam and Slides).'));
+    console.log(chalk.cyan('  → ') + chalk.gray('Figma stores plugin data separately per editor; use Setup → Copy access key in an already paired editor.\n'));
 
     // MCP clients cannot show the access key appended by the wrapper until
     // this process exits. Waiting here creates a deadlock-shaped delay: the
@@ -334,7 +440,7 @@ program
       pluginSpinner.stop();
       console.log(chalk.yellow('⚠ Plugin not detected yet — daemon is still listening.'));
       console.log(chalk.gray('\n  The daemon stays running in the background.'));
-      console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → Figma Bridge') + chalk.gray(' in Figma and paste your access key —'));
+      console.log(chalk.gray('  Open ') + chalk.yellow(`Plugins → Development → ${designPluginName}`) + chalk.gray(' in Figma and paste your access key —'));
       console.log(chalk.gray('  the next command will connect automatically.\n'));
     }
   });

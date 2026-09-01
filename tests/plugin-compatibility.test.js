@@ -49,6 +49,7 @@ test('same-version behavior drift and UI/daemon version drift fail closed', () =
 test('compatibility scope includes shipped Plugin and protocol code but excludes server-only code', () => {
   for (const file of [
     'plugin/code.js', 'plugin/ui.html', 'plugin/manifest.json',
+    'plugin/manifests/local-development.json', 'plugin/manifests/dev-mode.json',
     'engine/src/lib/protocol-contract.js', 'engine/src/lib/structured-render-executor.js',
   ]) assert.ok(PLUGIN_COMPATIBILITY_FILES.includes(file), file);
   assert.equal(PLUGIN_COMPATIBILITY_FILES.includes('src/server.js'), false);
