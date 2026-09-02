@@ -104,6 +104,9 @@ export function slideDeckFactsFragment() {
       if (!figma.currentPage || typeof figma.getCanvasGrid !== 'function') {
         throw new Error('invalid slides runtime');
       }
+      // Callers re-read after a mutation, so stale coordinates must not
+      // survive from the previous walk.
+      __deckCoordinates.clear();
       const grid = figma.getCanvasGrid();
       if (!Array.isArray(grid) || grid.length > ${MAX_DECK_ROWS}) {
         throw new Error('invalid slide grid');

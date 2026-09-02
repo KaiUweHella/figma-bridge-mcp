@@ -278,6 +278,8 @@
     "engine/src/application/shader-read-request.js",
     "engine/src/application/size-variants-command.js",
     "engine/src/application/size-variants-request.js",
+    "engine/src/application/slides-batch-command.js",
+    "engine/src/application/slides-batch-request.js",
     "engine/src/application/slides-create-command.js",
     "engine/src/application/slides-create-request.js",
     "engine/src/application/slides-delete-command.js",

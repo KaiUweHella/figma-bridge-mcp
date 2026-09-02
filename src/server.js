@@ -590,6 +590,10 @@ import {
   slidesLintPlanRoute,
 } from "../engine/src/application/slides-lint-command.js";
 import {
+  executeSlidesBatchPlan,
+  slidesBatchPlanRoute,
+} from "../engine/src/application/slides-batch-command.js";
+import {
   executeSlidesManifestPlan,
   slidesManifestPlanRoute,
 } from "../engine/src/application/slides-manifest-command.js";
@@ -4751,6 +4755,25 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeSlidesManifestPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesBatchRoute = slidesBatchPlanRoute(plan);
+      if (slidesBatchRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesBatchPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

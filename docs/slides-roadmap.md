@@ -55,12 +55,26 @@ label change the target file.
 
 ### P2 — safe bulk deck operations
 
-- Batch create/duplicate/move with a complete dry-run plan and exact ids.
-  Note before building this: three plugin execution timeouts were observed in
+- ~~Batch create/duplicate/move with a complete dry-run plan and exact ids.~~
+  **Delivered**: `slides batch '<json>' [--apply]`. The plan is the default and
+  `--apply` the deliberate step, so the Capability Catalog classifies the plan
+  as a read (`effects.figma: 'read'`) and only `--apply` as a write. That
+  default was chosen because three plugin execution timeouts were observed in
   one session, one of which left an empty slide behind while reporting an
-  unknown outcome. A command that bundles several mutations under one dispatch
-  makes that failure mode more expensive, not less, so the dry-run must be the
-  default and `--apply` the deliberate step.
+  unknown outcome: a command bundling several mutations behind one dispatch
+  makes that failure mode more expensive, not less.
+  Up to 64 heterogeneous items (`create`, `duplicate`, `move`). Every
+  reference is resolved and every coordinate validated against **one** grid
+  snapshot before anything is written; a coordinate that would only become
+  valid because of an earlier item in the same batch is refused rather than
+  guessed, because simulating Figma's insertion semantics would let a subtly
+  wrong model authorize a wrong write. Two items targeting the same slide are
+  refused for the same reason. Application is sequential with a fresh readback
+  per item, and the first failure reverses everything already applied: there is
+  no partial success, only `verified`, `rolled-back` or `partial-residue`.
+  A reversal looks before it acts — a move whose call threw without moving
+  anything is restored by observation, not by re-calling the API that just
+  failed.
 - ~~Deck linting for duplicate names, skipped-slide placement, missing
   transitions and empty slides.~~ **Delivered**: `slides lint` with `--kinds`,
   `--limit` and `--fail-on-issues`. Findings follow the `analyze lint` shape,
@@ -87,6 +101,25 @@ label change the target file.
 - Add viewport/focus helpers only when they improve a concrete authoring or
   verification workflow; do not automate presentation playback for its own
   sake.
+
+## Observed Figma behaviour worth knowing (2026-09-02)
+
+Two things that only live runs showed, both now handled rather than assumed:
+
+- **The canvas grid is eventually consistent.** `getCanvasGrid()` does not
+  always list a slide in the same plugin eval that created or moved it. A batch
+  therefore verifies identity and label immediately but reports an unobserved
+  grid position as unobserved (`gridObserved: false`) instead of rolling a
+  correct write back. A position that _is_ observed and disagrees with the
+  request still fails and reverses. Before this was understood, a `create` with
+  an explicit coordinate failed its own readback every time.
+- **A last-slide transition resets to `NONE`.** Creating a slide after the
+  deck's final slide and deleting it again leaves that final slide with no
+  transition. Reproduced three times in one session against the same deck, and
+  found by `slides lint` each time rather than by reading the deck. The Bridge
+  writes no transition in that path, so this looks like Figma's own grid
+  bookkeeping; worth a narrow reproduction against a scratch deck before
+  reporting it upstream.
 
 ## Verified against the installed typings (1.133.0, 2026-09-02)
 

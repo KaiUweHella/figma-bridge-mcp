@@ -25,6 +25,23 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   resolving one needs a read and an ambiguous reference must never let a render
   pick its own target. Plugin build 3.3.41 — relaunch the development plugin
   before rendering into a slide.
+- Bounded Figma Slides batch operations (roadmap P2):
+  `slides batch '<json>' [--apply]` plans up to 64 heterogeneous `create`,
+  `duplicate` and `move` items and performs them only when asked. The plan is
+  the default, so the Capability Catalog classifies it as a read and only
+  `--apply` as a write. Every reference is resolved and every coordinate
+  validated against one grid snapshot before anything is written; a coordinate
+  that would only become valid because of an earlier item in the same batch is
+  refused rather than simulated, and two items targeting the same slide are
+  refused. Application is sequential with a fresh readback per item, and the
+  first failure reverses everything already applied — `verified`,
+  `rolled-back` or `partial-residue`, never partial success. A reversal looks
+  before it acts, so a move whose call threw without moving anything is
+  restored by observation rather than by re-calling the API that just failed.
+  Because Figma's canvas grid does not always list a slide in the same eval
+  that created or moved it, an unobserved position is reported as
+  `gridObserved: false` instead of failing a correct write; an observed
+  position that disagrees with the request still fails and reverses.
 - Two deck-wide Figma Slides reads (roadmap P2): `slides manifest` exports a
   compact per-slide projection in grid order, shaped for review and version
   control, with a header count that must reconcile with its body; and

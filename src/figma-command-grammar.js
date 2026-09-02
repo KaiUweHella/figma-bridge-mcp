@@ -340,7 +340,7 @@ const COMMAND_GRAMMAR = Object.freeze({
   'verify-build': action(),
   history: actionGroup('save snapshot list diff'),
   jam: actionGroup('sticky stickies shape connector table section code board arrange'),
-  slides: actionGroup('inspect create duplicate move transition skip delete lint manifest'),
+  slides: actionGroup('inspect create duplicate move transition skip delete lint manifest batch'),
   kit: actionGroup('init'),
 });
 

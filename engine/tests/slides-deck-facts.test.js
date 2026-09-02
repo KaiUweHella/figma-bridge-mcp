@@ -32,6 +32,9 @@ function deck(rows, { focusedSlide = null, editorType = 'slides' } = {}) {
     editorType,
     currentPage: { focusedSlide },
     getCanvasGrid() { return rows; },
+    // Handles the re-read test uses to rearrange the grid mid-run.
+    __a: rows?.[0]?.[0],
+    __b: rows?.[0]?.[1],
   };
 }
 
@@ -86,6 +89,23 @@ describe('shared Slides deck facts fragment', () => {
     const figma = deck([[slide('1:1', '1'), slide('1:2', 'sticky', { type: 'STICKY' })]]);
     const count = run(figma, 'return __deckRead().slides.length;');
     assert.equal(count, 1, 'a Buzz/other canvas node is not a slide');
+  });
+
+  it('clears stale coordinates when the deck is read again', () => {
+    const a = slide('1:1', '1');
+    const b = slide('1:2', '2');
+    const rows = [[a, b]];
+    const figma = deck(rows);
+    // A second read after the grid changed must not report the old position.
+    const moved = run(figma, `
+      __deckRead();
+      const before = __deckFacts(figma.getCanvasGrid()[0][1]).col;
+      figma.getCanvasGrid = () => [[figma.__b], [figma.__a]];
+      __deckRead();
+      const after = __deckFacts(figma.__b).col;
+      return { before, after, row: __deckFacts(figma.__b).row };
+    `);
+    assert.deepEqual(moved, { before: 1, after: 0, row: 0 });
   });
 
   it('refuses every runtime shape it cannot trust', () => {

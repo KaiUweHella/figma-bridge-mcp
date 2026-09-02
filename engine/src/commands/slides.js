@@ -39,6 +39,8 @@ import {
   slidesDeletePlanningArgvFromRequest,
 } from '../application/slides-delete-command.js';
 import { executeSlidesLintPlan } from '../application/slides-lint-command.js';
+import { executeSlidesBatchPlan } from '../application/slides-batch-command.js';
+import { slidesBatchPlanningArgvFromRequest } from '../application/slides-batch-request.js';
 import { slidesLintPlanningArgvFromRequest } from '../application/slides-lint-request.js';
 import {
   executeSlidesManifestPlan,
@@ -330,6 +332,36 @@ slides
       if (result.stderr) console.error(result.stderr);
     } catch (error) {
       console.error(chalk.red('✗ Slides manifest failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Batch is a plan by default. --apply is the deliberate second step, and the
+// Capability Catalog gates it accordingly: without it the command is a read.
+slides
+  .command('batch <json>')
+  .description('Plan create/duplicate/move operations over the deck; --apply performs them')
+  .option('--apply', 'Perform the planned operations instead of only reporting them')
+  .allowExcessArguments(false)
+  .action(async (json, options) => {
+    try {
+      const argv = ['slides', 'batch', json, ...(options.apply ? ['--apply'] : [])];
+      const plan = planFigmaCommand(slidesBatchPlanningArgvFromRequest({ argv }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesBatchPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides batch failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

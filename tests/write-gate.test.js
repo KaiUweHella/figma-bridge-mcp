@@ -45,6 +45,8 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['slides', 'lint'],
     ['slides', 'lint', '--fail-on-issues'],
     ['slides', 'manifest'],
+    // A batch is a plan until --apply; the plan writes nothing.
+    ['slides', 'batch', "[{\"op\": \"create\", \"label\": \"X\"}]"],
     ['grid', 'list', '1:2'],
     ['col', 'list'],
     ['var', 'list'],
@@ -132,6 +134,7 @@ test('write subcommands of gated groups require confirm', () => {
     ['slides', 'transition', 'label:Cover', 'DISSOLVE'],
     ['slides', 'skip', 'label:Cover'],
     ['slides', 'delete', 'label:Cover'],
+    ['slides', 'batch', "[{\"op\": \"create\", \"label\": \"X\"}]", '--apply'],
   ]) {
     assert.equal(isWrite(args), true, args.join(' '));
   }
