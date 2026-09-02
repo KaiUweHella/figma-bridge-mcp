@@ -23,6 +23,142 @@ export const TRANSITION_CURVES = [
 export const TRANSITION_TIMINGS = ['ON_CLICK', 'AFTER_DELAY'];
 export const SLIDE_LABEL_KEY = 'bridge-slide-label';
 
+export const MAX_DECK_ROWS = 4_096;
+export const MAX_DECK_ROW_ENTRIES = 4_096;
+export const MAX_DECK_SLIDES = 50_000;
+export const MAX_DECK_NAME_CODE_UNITS = 4_096;
+export const MAX_DECK_TRANSITION_SECONDS = 86_400;
+export const DECK_FACT_KEYS = Object.freeze([
+  'id', 'name', 'label', 'row', 'col', 'skipped', 'transition', 'childCount',
+]);
+
+/**
+ * Eval source for reading a whole Slides deck as bounded per-slide facts.
+ *
+ * The existing single-slide commands each inline their own copy of this walk;
+ * every reader added from here on splices this one fragment instead, so a new
+ * deck-wide command cannot drift from the fact shape the others report. The
+ * helpers are prefixed `__deck` so a command's own locals never collide.
+ *
+ * Defines: `__deckRead()` returning
+ * `{ rows, slides, coordinates, focusedId }` with `rows` as slide nodes, and
+ * `__deckFacts(slide)` returning one bounded fact record. Both throw on
+ * anything the runtime reports that does not match the closed shape — a
+ * caller is expected to turn that into an `invalid-runtime` status.
+ */
+export function slideDeckFactsFragment() {
+  return `
+    const __deckStyles = new Set(${JSON.stringify(TRANSITION_STYLES)});
+    const __deckCurves = new Set(${JSON.stringify(TRANSITION_CURVES)});
+    const __deckTimings = new Set(${JSON.stringify(TRANSITION_TIMINGS)});
+    const __deckIdPattern = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+    const __deckExact = (value, keys) => value && typeof value === 'object'
+      && !Array.isArray(value)
+      && Object.keys(value).length === keys.length
+      && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+    const __deckId = (value) => typeof value === 'string' && value.length > 0
+      && value.length <= 4096 && __deckIdPattern.test(value);
+    const __deckText = (value) => typeof value === 'string'
+      && value.length <= ${MAX_DECK_NAME_CODE_UNITS};
+    const __deckRounded = (value) => Math.round(value * 10000) / 10000;
+
+    const __deckLabel = (slide) => {
+      let label = '';
+      try { label = slide.getPluginData(${JSON.stringify(SLIDE_LABEL_KEY)}) || ''; } catch {}
+      if (!__deckText(label)) throw new Error('invalid slide label');
+      return label;
+    };
+
+    const __deckTransition = (slide) => {
+      if (typeof slide.getSlideTransition !== 'function') {
+        throw new Error('invalid slide transition reader');
+      }
+      const value = slide.getSlideTransition();
+      if (!__deckExact(value, ['style', 'duration', 'curve', 'timing'])
+        || !__deckStyles.has(value.style) || !__deckCurves.has(value.curve)
+        || typeof value.duration !== 'number' || !Number.isFinite(value.duration)
+        || value.duration < 0 || value.duration > ${MAX_DECK_TRANSITION_SECONDS}
+        || !value.timing || !__deckTimings.has(value.timing.type)) {
+        throw new Error('invalid slide transition');
+      }
+      const keys = value.timing.type === 'AFTER_DELAY' ? ['type', 'delay'] : ['type'];
+      if (!__deckExact(value.timing, keys)
+        || (value.timing.type === 'AFTER_DELAY'
+          && (typeof value.timing.delay !== 'number' || !Number.isFinite(value.timing.delay)
+            || value.timing.delay < 0 || value.timing.delay > ${MAX_DECK_TRANSITION_SECONDS}))) {
+        throw new Error('invalid slide transition timing');
+      }
+      return {
+        style: value.style,
+        duration: __deckRounded(value.duration),
+        curve: value.curve,
+        timing: value.timing.type === 'AFTER_DELAY'
+          ? { type: value.timing.type, delay: __deckRounded(value.timing.delay) }
+          : { type: value.timing.type },
+      };
+    };
+
+    const __deckCoordinates = new Map();
+
+    const __deckRead = () => {
+      if (!figma.currentPage || typeof figma.getCanvasGrid !== 'function') {
+        throw new Error('invalid slides runtime');
+      }
+      const grid = figma.getCanvasGrid();
+      if (!Array.isArray(grid) || grid.length > ${MAX_DECK_ROWS}) {
+        throw new Error('invalid slide grid');
+      }
+      const rows = [];
+      const slides = [];
+      const seen = new Set();
+      for (let row = 0; row < grid.length; row++) {
+        const source = grid[row];
+        if (!Array.isArray(source) || source.length > ${MAX_DECK_ROW_ENTRIES}) {
+          throw new Error('invalid slide row');
+        }
+        const slideRow = [];
+        for (let col = 0; col < source.length; col++) {
+          const node = source[col];
+          if (!node || node.type !== 'SLIDE') continue;
+          if (!__deckId(node.id) || !__deckText(node.name) || seen.has(node.id)
+            || slides.length >= ${MAX_DECK_SLIDES}) {
+            throw new Error('invalid slide identity');
+          }
+          seen.add(node.id);
+          __deckCoordinates.set(node.id, { row, col });
+          slides.push(node);
+          slideRow.push(node);
+        }
+        rows.push(slideRow);
+      }
+      const focused = figma.currentPage.focusedSlide;
+      const focusedId = focused == null ? null : focused.id;
+      if (focusedId !== null && !__deckId(focusedId)) throw new Error('invalid focused slide');
+      return { rows, slides, coordinates: __deckCoordinates, focusedId };
+    };
+
+    const __deckFacts = (slide) => {
+      if (!slide || slide.type !== 'SLIDE' || !__deckId(slide.id) || !__deckText(slide.name)) {
+        throw new Error('invalid slide identity');
+      }
+      if (!Array.isArray(slide.children) || typeof slide.isSkippedSlide !== 'boolean') {
+        throw new Error('invalid slide facts');
+      }
+      const coordinate = __deckCoordinates.get(slide.id) || { row: null, col: null };
+      return {
+        id: slide.id,
+        name: slide.name,
+        label: __deckLabel(slide) || null,
+        row: coordinate.row,
+        col: coordinate.col,
+        skipped: slide.isSkippedSlide,
+        transition: __deckTransition(slide),
+        childCount: slide.children.length,
+      };
+    };
+  `;
+}
+
 const GUARD = `
   if (figma.editorType !== 'slides') {
     return { error: 'WRONG_EDITOR', editor: figma.editorType };

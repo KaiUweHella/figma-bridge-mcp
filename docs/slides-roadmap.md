@@ -56,9 +56,22 @@ label change the target file.
 ### P2 — safe bulk deck operations
 
 - Batch create/duplicate/move with a complete dry-run plan and exact ids.
-- Deck linting for duplicate names, skipped-slide placement, missing
-  transitions and empty slides.
-- Export a compact deck manifest suitable for review and version control.
+  Note before building this: three plugin execution timeouts were observed in
+  one session, one of which left an empty slide behind while reporting an
+  unknown outcome. A command that bundles several mutations under one dispatch
+  makes that failure mode more expensive, not less, so the dry-run must be the
+  default and `--apply` the deliberate step.
+- ~~Deck linting for duplicate names, skipped-slide placement, missing
+  transitions and empty slides.~~ **Delivered**: `slides lint` with `--kinds`,
+  `--limit` and `--fail-on-issues`. Findings follow the `analyze lint` shape,
+  and the header counts must reconcile with the issue list. The deck's first
+  slide is exempt from `missing-transition`, because it has nothing to
+  transition from. Its first live run found real residue — an empty slide left
+  by a timed-out `slides create` — and a transition that had silently reset.
+- ~~Export a compact deck manifest suitable for review and version control.~~
+  **Delivered**: `slides manifest`. It returns the projection as the command
+  result rather than writing a file, so the Application keeps
+  `effects.workspace: 'none'`; persisting it stays the caller's decision.
 - Add a dedicated acceptance fixture that can be created, read back and removed
   without touching unrelated slides. The 2026-08-10 live run established the
   pattern; turn it into a repeatable maintainer checklist or opt-in smoke tool.

@@ -40,8 +40,11 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['dev', 'list'],
     ['annotate', 'list', '1:2'],
     ['section', 'list'],
-    ['slides', 'inspect'],         // the deck's only read verb
+    ['slides', 'inspect'],         // deck reads
     ['slides', 'inspect', 'label:Cover'],
+    ['slides', 'lint'],
+    ['slides', 'lint', '--fail-on-issues'],
+    ['slides', 'manifest'],
     ['grid', 'list', '1:2'],
     ['col', 'list'],
     ['var', 'list'],

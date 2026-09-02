@@ -25,6 +25,21 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   resolving one needs a read and an ambiguous reference must never let a render
   pick its own target. Plugin build 3.3.41 — relaunch the development plugin
   before rendering into a slide.
+- Two deck-wide Figma Slides reads (roadmap P2): `slides manifest` exports a
+  compact per-slide projection in grid order, shaped for review and version
+  control, with a header count that must reconcile with its body; and
+  `slides lint` reports four structural findings — `duplicate-name`,
+  `skipped-placement`, `missing-transition`, `empty-slide` — with `--kinds`,
+  `--limit` and `--fail-on-issues`. Both are reads by construction
+  (`effects.figma: read`, `effects.workspace: none`), retryable safe reads, and
+  reachable from the CLI and `figma_run`. The deck's first slide is exempt from
+  `missing-transition`: it has nothing to transition from, so flagging it would
+  make every deck report a false positive.
+  Both splice one shared deck-facts eval fragment
+  (`slideDeckFactsFragment`) validated host-side by `slides-facts.js`, so a new
+  deck-wide reader cannot drift from the fact shape the others report. The
+  three pre-existing inline copies in `slides inspect`/`duplicate`/`move` are
+  untouched and remain a separate cleanup.
 - `docs/slides-roadmap.md` records a fresh audit of `@figma/plugin-typings`
   1.133.0 for the remaining Slides items: interactive slide elements are
   readable but have no create factory, `createGif` and

@@ -586,6 +586,14 @@ import {
   slidesInspectPlanRoute,
 } from "../engine/src/application/slides-inspect-command.js";
 import {
+  executeSlidesLintPlan,
+  slidesLintPlanRoute,
+} from "../engine/src/application/slides-lint-command.js";
+import {
+  executeSlidesManifestPlan,
+  slidesManifestPlanRoute,
+} from "../engine/src/application/slides-manifest-command.js";
+import {
   executeSlidesCreatePlan,
   slidesCreatePlanRoute,
 } from "../engine/src/application/slides-create-command.js";
@@ -4705,6 +4713,44 @@ export async function handleTool(name, rawArgs) {
             deadline, maxWaitMs: 8000, fileKey, expectedEditor,
           });
           return executeSlidesInspectPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesLintRoute = slidesLintPlanRoute(plan);
+      if (slidesLintRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesLintPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey,
+              expectedEditor,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesManifestRoute = slidesManifestPlanRoute(plan);
+      if (slidesManifestRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesManifestPlan(plan, {
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,

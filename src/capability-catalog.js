@@ -976,7 +976,7 @@ const COMMANDS = Object.freeze({
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
-  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect']),
+  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect', 'lint', 'manifest']),
   kit: { summary: 'Prepare a design system for agent use', mutation: 'read', timeout: 'long', path: 'kit-files' },
 });
 
@@ -1000,6 +1000,7 @@ const SAFE_READ_ACTIONS = new Set([
   'layout.grid.inspect',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'analyze.lint',
+  'slides.lint', 'slides.manifest',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'jam.board',
   'export.node-json',
@@ -1010,7 +1011,7 @@ const SAFE_READ_ACTIONS = new Set([
 const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'canvas.info', 'canvas.next', 'canvas.pages',
   'slot.validate',
-  'slides.inspect',
+  'slides.inspect', 'slides.lint', 'slides.manifest',
   'export.screenshot',
   'section.list',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
@@ -1121,6 +1122,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
+  'slides.lint', 'slides.manifest',
   'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
   'jam.table', 'jam.section', 'jam.code',
   'dev.list',
