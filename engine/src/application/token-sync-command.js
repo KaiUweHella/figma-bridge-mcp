@@ -289,7 +289,7 @@ function pluginPrelude() {
       return { id: variable.id, name: variable.name, type: variable.resolvedType,
         hasValue: selected.hasValue, value: selected.value,
         alias: Boolean(selected.hasValue && selected.value && typeof selected.value === 'object'
-          && selected.value.type === 'VARIABLE_ALIAS'),
+          && (selected.value.type === 'VARIABLE_ALIAS' || selected.value.type === 'VARIABLE_EXPRESSION')),
         scopes: Array.isArray(variable.scopes) ? Array.from(variable.scopes) : [],
         codeSyntax: variable.codeSyntax && typeof variable.codeSyntax === 'object'
           ? Object.fromEntries(Object.entries(variable.codeSyntax).sort(([a], [b]) => a.localeCompare(b))) : {} };
@@ -378,7 +378,8 @@ function validRow(value) {
     || Object.entries(value.codeSyntax).some(([platform, syntax]) => !CODE_SYNTAX_PLATFORMS.has(platform)
       || !safeText(syntax, MAX_CODE_SYNTAX, { empty: true }))) return false;
   return !value.alias || value.value && typeof value.value === 'object'
-    && value.value.type === 'VARIABLE_ALIAS' && safeText(value.value.id, MAX_ID);
+    && ((value.value.type === 'VARIABLE_ALIAS' && safeText(value.value.id, MAX_ID))
+      || value.value.type === 'VARIABLE_EXPRESSION');
 }
 
 function validRead(value) {
@@ -894,11 +895,15 @@ function planAndWarnings(prepared, read) {
   });
   if (prepared.request.ours) syncPlan = resolveConflicts(syncPlan, 'ours');
   if (prepared.request.theirs) syncPlan = resolveConflicts(syncPlan, 'theirs');
-  const aliases = read.variables.filter((row) => row.alias).map((row) => row.name);
-  for (const name of aliases.filter((item) => codeTokens.has(item))) {
+  const aliasRows = read.variables.filter((row) => row.alias);
+  const aliases = aliasRows.map((row) => row.name);
+  for (const row of aliasRows.filter((item) => codeTokens.has(item.name))) {
+    const name = row.name;
     const token = codeTokens.get(name);
+    const figmaShape = row.value && row.value.type === 'VARIABLE_EXPRESSION'
+      ? '{VARIABLE_EXPRESSION}' : '{VARIABLE_ALIAS}';
     syncPlan.conflict.push({ name, reason: 'alias-in-figma', code: token.value,
-      figma: '{VARIABLE_ALIAS}', lock: prepared.lock?.tokens?.[name]?.value ?? null,
+      figma: figmaShape, lock: prepared.lock?.tokens?.[name]?.value ?? null,
       type: token.type });
     syncPlan.create = syncPlan.create.filter((item) => item.name !== name);
   }

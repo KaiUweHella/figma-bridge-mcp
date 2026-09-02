@@ -991,6 +991,12 @@ export function semanticRenderResultRows(result) {
       text: `${report.literal} unmatched typography candidate(s) stayed literal; no parallel Text Style was created.`,
     });
   }
+  if (resources.motionReport) {
+    const report = resources.motionReport;
+    if (report.tracks) rows.push({ tone: 'success', text: `Motion: ${report.tracks} native keyframe track(s) on ${report.nodes} layer(s) from captured CSS animations; timeline ${report.timelineDuration ?? report.duration}s.` });
+    if (report.skipped.length) rows.push({ tone: 'warning', text: `Motion skipped on ${report.skipped.length} layer(s) that cannot take keyframe tracks: ${report.skipped.join(', ')}` });
+    if (report.failures.length) rows.push({ tone: 'warning', text: `Motion rejected by Figma on ${report.failures.length} track(s): ${report.failures.join('; ')}` });
+  }
   if (resources.fallbackAnnotationReport?.requested) {
     const report = resources.fallbackAnnotationReport;
     rows.push({ tone: report.unsupported ? 'warning' : 'muted', text: `fallback annotations: ${report.applied} added, ${report.deduplicated} already present, ${report.unsupported} unsupported` });

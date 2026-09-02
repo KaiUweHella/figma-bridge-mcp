@@ -11,6 +11,10 @@ node_modules/
 engine/docs/
 # local working docs (plans, reports, scratch)
 docs-local/
+# Round-trip acceptance fixtures reproduce a private Figma file: they carry a
+# bare file key, component keys and real screen copy. They belong under
+# docs-local/evals/, never in the repository or the npm artifact.
+evals/roundtrip/
 # generated only by explicit package/release verification
 release-artifact/
 package-smoke/

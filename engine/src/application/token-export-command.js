@@ -72,13 +72,16 @@ function validScopedVariable(variable) {
   if (!exactKeys(variable,
     ['id', 'name', 'type', 'value', 'ref', 'refId', 'valuesByMode', 'modes',
       'defaultModeId', 'collection'],
-    ['description', 'scopes', 'codeSyntax'])
+    ['description', 'scopes', 'codeSyntax', 'opacity'])
     || !identity(variable.id) || !identity(variable.name)
     || !VARIABLE_TYPES.has(variable.type)
     || !identity(variable.defaultModeId)
     || !(variable.collection === null || identity(variable.collection, { empty: true }))
     || !(variable.ref === null || identity(variable.ref))
     || !(variable.refId === null || identity(variable.refId))
+    || !(variable.opacity === undefined || (variable.type === 'COLOR' && variable.ref !== null
+      && typeof variable.opacity === 'number' && Number.isFinite(variable.opacity)
+      && variable.opacity >= 0 && variable.opacity <= 100))
     || !scalarValue(variable.value, variable.type)
     || !Array.isArray(variable.modes) || variable.modes.length > 1_000
     || !variable.valuesByMode || typeof variable.valuesByMode !== 'object'
@@ -89,9 +92,12 @@ function validScopedVariable(variable) {
       || !identity(mode.name, { empty: true }) || modeIds.has(mode.modeId)) return false;
     modeIds.add(mode.modeId);
     const stored = variable.valuesByMode[mode.modeId];
-    if (!exactKeys(stored, ['value', 'ref', 'refId'])
+    if (!exactKeys(stored, ['value', 'ref', 'refId'], ['opacity'])
       || !(stored.ref === null || identity(stored.ref))
       || !(stored.refId === null || identity(stored.refId))
+      || !(stored.opacity === undefined || (variable.type === 'COLOR' && stored.ref !== null
+        && typeof stored.opacity === 'number' && Number.isFinite(stored.opacity)
+        && stored.opacity >= 0 && stored.opacity <= 100))
       || !scalarValue(stored.value, variable.type)) return false;
   }
   if (!modeIds.has(variable.defaultModeId)

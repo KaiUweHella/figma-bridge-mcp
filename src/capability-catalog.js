@@ -1287,6 +1287,8 @@ function specializedPolicy(name, entry, args, actionId) {
       pathPolicy = 'export-image';
     } else if (sub === 'code-spec') {
       retry = 'safe-read';
+      // Complete captures of large screens run several bounded plugin evals.
+      timeoutClass = 'long';
       pathPolicy = 'code-spec-input';
     } else if (sub === 'css' || sub === 'dtcg') {
       retry = 'safe-read';
@@ -3672,7 +3674,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'code-spec-input': {
       if (projectUrlTarget) figmaUrlFileKey = codeSpecFigmaUrlFileKeyFromArgv(args);
-      args.splice(0, args.length, ...codeSpecArgvFromRequest(parseCodeSpecRequest(args)));
+      const request = parseCodeSpecRequest(args);
+      const output = request.outputPath ? absolute(baseDir, request.outputPath) : null;
+      args.splice(0, args.length, ...codeSpecArgvFromRequest({ ...request, outputPath: output }));
+      if (output) {
+        outputRole = 'code-spec-output';
+        markWrite(output, 'code-spec-output');
+      }
       break;
     }
     case 'gradient-input': {

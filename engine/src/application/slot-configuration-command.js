@@ -55,7 +55,7 @@ export function slotConfigurationCode(request) {
       return definitions;
     };
     const preferred = (value) => {
-      if (value === undefined) return [];
+      if (value === undefined || value === null) return [];
       if (!Array.isArray(value) || value.length > ${MAX_SLOT_PREFERRED_VALUES}) throw new Error('Slot preferred values are invalid.');
       return value.map((entry) => {
         if (!entry || typeof entry !== 'object' || !['COMPONENT','COMPONENT_SET'].includes(entry.type)
@@ -64,10 +64,16 @@ export function slotConfigurationCode(request) {
       });
     };
     const settings = (value) => {
-      if (value === undefined) return {};
+      const result = {
+        stretchChildOnInsert: false,
+        displayEmptyByDefault: false,
+        minChildren: null,
+        maxChildren: null,
+        allowPreferredValuesOnly: false,
+      };
+      if (value === undefined || value === null) return result;
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Slot settings are invalid.');
       const keys = Object.keys(value); if (keys.some((key) => !${js(SETTING_FIELDS)}.includes(key))) throw new Error('Slot settings contain an unsupported field.');
-      const result = {};
       for (const key of ${js(SETTING_FIELDS)}) {
         if (!own(value, key)) continue; const setting = value[key];
         if (['stretchChildOnInsert','displayEmptyByDefault','allowPreferredValuesOnly'].includes(key)) {
@@ -82,10 +88,12 @@ export function slotConfigurationCode(request) {
     };
     const definitionFacts = (definition) => {
       if (!definition || typeof definition !== 'object' || definition.type !== 'SLOT'
-        || typeof definition.defaultValue !== 'string' || definition.defaultValue.length > ${MAX_SLOT_NAME_CODE_UNITS}) throw new Error('Slot definition is invalid.');
-      const description = definition.description === undefined ? '' : definition.description;
+        || definition.defaultValue !== undefined
+          && (typeof definition.defaultValue !== 'string' || definition.defaultValue.length > ${MAX_SLOT_NAME_CODE_UNITS})) throw new Error('Slot definition is invalid.');
+      const description = definition.description === undefined || definition.description === null
+        ? '' : definition.description;
       if (typeof description !== 'string' || description.length > ${MAX_SLOT_DESCRIPTION_CODE_UNITS}) throw new Error('Slot description is invalid.');
-      return { type: 'SLOT', defaultValue: clean(definition.defaultValue, ${MAX_SLOT_NAME_CODE_UNITS}), preferredValues: preferred(definition.preferredValues), description: clean(description, ${MAX_SLOT_DESCRIPTION_CODE_UNITS}), slotSettings: settings(definition.slotSettings) };
+      return { type: 'SLOT', defaultValue: definition.defaultValue === undefined ? null : clean(definition.defaultValue, ${MAX_SLOT_NAME_CODE_UNITS}), preferredValues: preferred(definition.preferredValues), description: clean(description, ${MAX_SLOT_DESCRIPTION_CODE_UNITS}), slotSettings: settings(definition.slotSettings) };
     };
     const componentFacts = (component) => ({ id: clean(component.id, 512), name: clean(String(component.name || ''), ${MAX_SLOT_NAME_CODE_UNITS}), type: component.type });
     const slotFacts = (slot) => {
@@ -242,7 +250,8 @@ function validPreferred(value) {
 }
 function validDefinition(value) {
   return exact(value, ['type', 'defaultValue', 'preferredValues', 'description', 'slotSettings'])
-    && value.type === 'SLOT' && text(value.defaultValue, MAX_SLOT_NAME_CODE_UNITS)
+    && value.type === 'SLOT'
+    && (value.defaultValue === null || text(value.defaultValue, MAX_SLOT_NAME_CODE_UNITS))
     && validPreferred(value.preferredValues)
     && text(value.description, MAX_SLOT_DESCRIPTION_CODE_UNITS)
     && validSettings(value.slotSettings);

@@ -230,6 +230,56 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
       const name = slug(explicit || element.getAttribute('aria-label') || parentHint || classes.replace(/\\b(icon|metric-icon|icon-button)\\b/g, '')) || 'unknown';
       return { name, source: 'glyph', glyph };
     };
+    /* CSS animations: read every element's computed animation facts and the
+       @keyframes rules they reference BEFORE neutralizing playback, then pause
+       all animations so geometry and paint below are resting values. */
+    const ANIMATION_PROPS = ['animationName', 'animationDuration', 'animationTimingFunction', 'animationDelay', 'animationIterationCount', 'animationDirection', 'animationFillMode', 'animationPlayState'];
+    const keyframeRules = {};
+    const collectKeyframes = (rules) => {
+      for (const rule of Array.from(rules || [])) {
+        const isKeyframes = rule.type === 7 || String(rule.constructor?.name || '') === 'CSSKeyframesRule';
+        if (isKeyframes && rule.name && !keyframeRules[rule.name]) {
+          const frames = Array.from(rule.cssRules || []).map((frame) => {
+            const style = {};
+            for (const raw of Array.from(frame.style || [])) {
+              const name = raw === 'animation-timing-function' ? 'animationTimingFunction' : PROP_NAMES[raw];
+              if (name) style[name] = frame.style.getPropertyValue(raw).trim();
+            }
+            return { selectorText: frame.keyText, style };
+          }).filter((frame) => Object.keys(frame.style).length);
+          if (frames.length && frames.length <= 64) keyframeRules[rule.name] = frames;
+        } else if (rule.cssRules) collectKeyframes(rule.cssRules);
+      }
+    };
+    for (const sheet of Array.from(document.styleSheets)) {
+      try { collectKeyframes(sheet.cssRules); } catch (error) { /* cross-origin stylesheet */ }
+    }
+    const readAnimations = (element) => {
+      const style = getComputedStyle(element);
+      const names = String(style.animationName || 'none').split(',').map((name) => name.trim());
+      if (!names.some((name) => name && name !== 'none')) return null;
+      const lists = Object.fromEntries(ANIMATION_PROPS.map((prop) => [prop, String(style[prop] || '').split(',').map((part) => part.trim())]));
+      const pick = (list, index) => list[index % list.length] ?? '';
+      return names.map((name, index) => ({
+        name,
+        duration: pick(lists.animationDuration, index),
+        timingFunction: pick(lists.animationTimingFunction, index),
+        delay: pick(lists.animationDelay, index),
+        iterationCount: pick(lists.animationIterationCount, index),
+        direction: pick(lists.animationDirection, index),
+        fillMode: pick(lists.animationFillMode, index),
+        playState: pick(lists.animationPlayState, index),
+      })).filter((animation) => animation.name && animation.name !== 'none');
+    };
+    const animationFacts = new Map();
+    for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
+      const facts = readAnimations(element);
+      if (facts) animationFacts.set(element, facts);
+    }
+    const neutralizer = document.createElement('style');
+    neutralizer.setAttribute('data-figma-bridge-capture', 'motion-neutralizer');
+    neutralizer.textContent = '*, *::before, *::after { animation: none !important; transition: none !important; }';
+    if (animationFacts.size) { document.head.appendChild(neutralizer); void document.body.offsetHeight; }
     const visit = (element, depth = 0) => {
       const style = getComputedStyle(element);
       const box = element.getBoundingClientRect();
@@ -257,10 +307,13 @@ export function browserDomCaptureScript(selector = 'body', { serialized = false,
         after: isSvg ? null : pseudo(element, '::after'),
         svg: isSvg ? svgMarkup(element) : null,
         asset: tagName === 'img' ? { kind: 'image', src: element.currentSrc || element.src } : null,
+        animation: animationFacts.get(element) || null,
         children: isSvg || depth >= MAX_DEPTH ? [] : Array.from(element.children).map((child) => visit(child, depth + 1)),
       };
     };
-    const capture = { version: 2, capturedAt: new Date().toISOString(), documentOrigin: location.origin, viewport: { width: innerWidth, height: innerHeight }, root: visit(root) };
+    let capturedRoot;
+    try { capturedRoot = visit(root); } finally { if (neutralizer.parentNode) neutralizer.remove(); }
+    const capture = { version: 2, capturedAt: new Date().toISOString(), documentOrigin: location.origin, viewport: { width: innerWidth, height: innerHeight }, root: capturedRoot, ...(Object.keys(keyframeRules).length ? { keyframes: keyframeRules } : {}) };
     return ${serialized ? 'JSON.stringify(capture)' : 'capture'};
   })()`;
 }

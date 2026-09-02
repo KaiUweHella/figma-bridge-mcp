@@ -15,15 +15,24 @@ import {
   slidesDeletePlanningArgvFromRequest,
 } from '../src/application/slides-delete-request.js';
 
-function runtime({ behavior = 'exact', failFreshRead = false, ambiguous = false } = {}) {
+function runtime({
+  behavior = 'exact', failFreshRead = false, ambiguous = false, staleNameReads = 0,
+} = {}) {
   let removes = 0;
   let removed = false;
   const registry = new Map();
   const labels = new Map();
   const grid = [[]];
-  const makeSlide = (id, name, label) => {
+  const makeSlide = (id, nameValue, label) => {
     const slide = {
-      id, name, type: 'SLIDE',
+      id, type: 'SLIDE',
+      get name() {
+        if (removed && staleNameReads > 0) {
+          staleNameReads -= 1;
+          throw new Error(`in get_name: The node with id "${id}" does not exist`);
+        }
+        return nameValue;
+      },
       getPluginData(key) { return key === 'bridge-slide-label' ? labels.get(id) || '' : ''; },
       remove() {
         removes += 1;
@@ -111,6 +120,15 @@ test('a thrown acknowledgement succeeds only after exact fresh absence', async (
   assert.equal(result.result.outcome, 'verified-after-error');
   assert.equal(result.result.warnings.length, 1);
   assert.equal(live.removes(), 1);
+});
+
+test('Slides Delete waits for renumbered native Slide names to settle after removal', async () => {
+  const live = runtime({ staleNameReads: 2 });
+  const result = await executeSlidesDelete({ reference: 'label:Body' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.outcome, 'verified');
+  assert.deepEqual(result.result.actual.rows, [['1:1', '1:3']]);
 });
 
 test('ambiguous, missing and wrong-editor targets refuse before removal', async () => {

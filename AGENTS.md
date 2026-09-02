@@ -6,6 +6,16 @@
 
 Implementation tickets are maintained as private local Markdown under `docs-local/issues/`; that directory is ignored by Git. See `docs/agents/issue-tracker.md`.
 
+### Live acceptance fixtures
+
+A fixture that reproduces one of the maintainer's real Figma files carries a
+bare file key, component keys and real screen copy. Such fixtures and their
+test files live under the Git-ignored `docs-local/evals/`, never in a tracked
+path — `evals/roundtrip/` is ignored for that reason. `check:public-safety`
+passing is not evidence that this content may be committed: diff the staged
+content for file keys and personal names before any commit, and never
+`git add -A` without reading the added-file list first.
+
 ### Triage labels
 
 Use the canonical local triage vocabulary `needs-triage`, `needs-info`,

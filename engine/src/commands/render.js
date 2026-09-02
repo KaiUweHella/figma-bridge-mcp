@@ -203,6 +203,26 @@ function printFallbackAnnotationReport(report) {
   else console.log(chalk.gray(message));
 }
 
+/** Captured CSS animations that the projector turned into Motion tracks. */
+function printCapturedMotion(motion) {
+  if (!motion || !motion.nodes) return;
+  console.log(chalk.gray(`↳ DOM motion: ${motion.nodes} animated layer(s) from captured CSS animations; frame timeline ${motion.timeline}s`));
+  for (const limitation of motion.limitations) console.log(chalk.yellow(`  ⚠ ${limitation}`));
+}
+
+/** What Figma actually accepted, read back from the executor. */
+function printMotionReport(report) {
+  if (!report) return;
+  if (report.tracks) {
+    console.log(chalk.green(
+      `↳ Motion: ${report.tracks} native keyframe track(s) on ${report.nodes} layer(s); `
+      + `timeline ${report.timelineDuration ?? report.duration}s`,
+    ));
+  }
+  if (report.skipped?.length) console.log(chalk.yellow(`⚠ Motion skipped on ${report.skipped.length} layer(s) that cannot take keyframe tracks: ${report.skipped.join(', ')}`));
+  if (report.failures?.length) console.log(chalk.yellow(`⚠ Motion rejected by Figma on ${report.failures.length} track(s): ${report.failures.join('; ')}`));
+}
+
 function printStructuralReport(report) {
   if (!report) return;
   const summary = report.summary || {};
@@ -677,6 +697,7 @@ program
           const a = assetResolution.diagnostics;
           console.log(chalk.gray(`↳ DOM assets: ${a.references} references, ${a.uniqueAssets} project files (${a.svgAssets} SVG, ${a.rasterAssets} raster), ${a.totalBytes} bytes; Plugin network unchanged`));
         }
+        printCapturedMotion(d.motion);
         if (d.semantic) {
           const layouts = d.semantic.layouts;
           console.log(chalk.gray(`↳ semantic layout: ${layouts.grid} Grid, ${layouts.flex} Flex, ${layouts.flow} flow, ${d.semantic.absoluteNodes} true absolute`));
@@ -833,6 +854,7 @@ program
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
       if (result.executor === 'structured-v1') console.log(chalk.gray('  executor: Semantic Render Plan v1'));
       printStructuralReport(result.structuralReport);
+      printMotionReport(result.motionReport);
       printUnresolvedVars(result.unresolved);
       printVariableReport(result.variableReport);
       printFallbackAnnotationReport(result.fallbackAnnotationReport);

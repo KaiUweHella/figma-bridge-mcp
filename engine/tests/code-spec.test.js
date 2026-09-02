@@ -997,3 +997,81 @@ test('ACCEPTANCE: decorative vectors, gradient overlays and clip survive walker 
   assert.match(json, /linear-gradient/, 'yaml/json model carries the gradient');
   assert.match(json, /"clip":true/, 'yaml/json model carries clip');
 });
+
+test('node walker reports a wall-clock budget cut as a frontier instead of outliving its eval', async () => {
+  const leaf = (id, name) => ({ id, name, type: 'RECTANGLE', visible: true, width: 10, height: 10, children: [] });
+  const section = (id, name, kids) => ({ id, name, type: 'FRAME', visible: true, width: 100, height: 100, children: kids });
+  const root = section('b:0', 'Screen', [
+    section('b:1', 'First', [leaf('b:2', 'Leaf one')]),
+    section('b:3', 'Second', [leaf('b:4', 'Leaf two'), leaf('b:5', 'Leaf three')]),
+  ]);
+  const wire = (node, parent) => { node.parent = parent; for (const child of node.children) wire(child, node); };
+  wire(root, null);
+  const slowCss = () => new Promise((resolve) => setTimeout(() => resolve({ width: '10px' }), 8));
+  const figma = {
+    mixed: Symbol('mixed'),
+    root: { name: 'Untitled' },
+    getNodeByIdAsync: async (id) => {
+      const find = (node) => node.id === id ? node : node.children.map(find).find(Boolean);
+      return find(root) || null;
+    },
+  };
+  const walkAll = (node) => { node.getCSSAsync = slowCss; node.children.forEach(walkAll); };
+  walkAll(root);
+
+  const unlimited = JSON.parse(await new Function('figma', `return ${nodeWalkerCode('b:0', { withIds: true })}`)(figma));
+  assert.equal(unlimited.frames[0].kids.length, 2);
+  assert.equal(unlimited.frames[0].kids[1].kids.length, 2, 'without a budget the whole tree is walked');
+
+  const bounded = JSON.parse(await new Function('figma', `return ${nodeWalkerCode('b:0', { withIds: true, budgetMs: 1 })}`)(figma));
+  const screen = bounded.frames[0];
+  assert.equal(screen.t, 'FRAME');
+  assert.equal(screen.budgetCut, true, 'the root itself is captured, then the budget stops descent');
+  assert.deepEqual(screen.frontier.map((child) => child.id), ['b:1', 'b:3']);
+  assert.equal(screen.more, 2);
+  assert.equal(screen.kids, undefined);
+  assert.equal(bounded.visibleNodeCount, 6, 'visible counts still describe the whole subtree');
+});
+
+test('Design Capture keeps native Motion tracks and Code Spec projects them to CSS', async () => {
+  const easing = { type: 'EASE_IN_AND_OUT', easingFunctionCubicBezier: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } };
+  const orb = {
+    id: 'm:2', name: 'orb.orb-one', type: 'ELLIPSE', visible: true, width: 165, height: 165, x: 232, y: 16,
+    fills: [{ type: 'SOLID', color: { r: 0.79, g: 1, b: 0.35 }, visible: true }], strokes: [], effects: [], children: [],
+    timelines: [{ id: 'm:1', duration: 10 }],
+    manualKeyframeTracks: {
+      TRANSLATION_X: { id: 'KeyframeTrackId:1', keyframeOperation: 'SET', baseValue: { type: 'FLOAT', value: 0 }, keyframes: [
+        { id: 'k1', timelinePosition: 0, value: { type: 'FLOAT', value: 0 }, easing },
+        { id: 'k2', timelinePosition: 5, value: { type: 'FLOAT', value: 13 }, easing },
+        { id: 'k3', timelinePosition: 10, value: { type: 'FLOAT', value: 0 }, easing },
+      ] },
+      OPACITY: { keyframes: [
+        { id: 'k4', timelinePosition: 0, value: { type: 'FLOAT', value: 1 }, easing },
+        { id: 'k5', timelinePosition: 10, value: { type: 'FLOAT', value: 0.5 }, easing },
+      ] },
+    },
+  };
+  const root = { id: 'm:1', name: 'Hero', type: 'FRAME', visible: true, width: 400, height: 300, children: [orb], timelines: [{ id: 'm:1', duration: 10 }], manualKeyframeTracks: {} };
+  orb.parent = root;
+  const figma = { mixed: Symbol('mixed'), root: { name: 'Motion Lab' }, getNodeByIdAsync: async (id) => (id === root.id ? root : id === orb.id ? orb : null) };
+  const capture = JSON.parse(await new Function('figma', `return ${nodeWalkerCode(root.id, { withIds: true })}`)(figma));
+  const captured = capture.frames[0].kids[0];
+  assert.deepEqual(Object.keys(captured.motion.tracks), ['TRANSLATION_X', 'OPACITY']);
+  assert.deepEqual(captured.motion.timelines, [{ id: 'm:1', duration: 10 }]);
+  assert.equal(capture.frames[0].motion, undefined, 'a node without tracks carries no motion fact');
+
+  const tree = formatCodeSpec(capture, { phase: 'all', dedup: false });
+  assert.match(tree, /motion:TRANSLATION_X\/OPACITY over 10s → CSS in the Motion section/);
+  assert.match(tree, /## Motion \(implement as CSS/);
+  assert.match(tree, /- orb\.orb-one \[m:2\] · animation: motion-m-2 10s linear 1 normal both;/);
+  assert.match(tree, /50% \{ transform: translate\(13px, 0px\); animation-timing-function: ease-in-out; \}/);
+  assert.match(tree, /100% \{ transform: none; opacity: 0\.5; \}/);
+  assert.match(tree, /prefers-reduced-motion/);
+
+  const model = specModel(capture, { phase: 'all' });
+  const node = model.frames[0].kids[0];
+  assert.equal(node.motion.timeline.duration, 10);
+  assert.equal(node.motion.tracks[0].field, 'TRANSLATION_X');
+  assert.equal(node.motion.tracks[0].keys[1].id, undefined);
+  assert.match(node.motion.css.keyframes, /^@keyframes motion-m-2 \{/);
+});

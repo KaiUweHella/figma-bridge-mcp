@@ -7,6 +7,7 @@ import {
 import { motionEasingIsNativeReadback } from './motion-easing.js';
 import { VARIABLE_SCOPES_BY_TYPE } from '../lib/variable-scope-policy.js';
 import { parseBoundedJson } from '../lib/workspace-io.js';
+import { isOpacityPercent } from './variable-values.js';
 
 export const MAX_VARIABLE_SNAPSHOT_COLLECTIONS = 1_000;
 export const MAX_VARIABLE_SNAPSHOT_MODES = 1_000;
@@ -200,7 +201,7 @@ export function normalizeVariableSnapshotV2(input) {
             throw sourceError(`Variable ${variable.handle} has a malformed Alias`);
           }
           if (alias.status === 'local') {
-            if (!closed(alias, ['status', 'collection', 'variable'])) {
+            if (!closed(alias, ['status', 'collection', 'variable'], ['opacity'])) {
               throw sourceError(`Variable ${variable.handle} local Alias is not closed`);
             }
             const target = variableFacts.get(alias.variable);
@@ -213,18 +214,28 @@ export function normalizeVariableSnapshotV2(input) {
                 status: 'local',
                 collection: identity(alias.collection, 'Alias Collection handle', { handle: true }),
                 variable: identity(alias.variable, 'Alias Variable handle', { handle: true }),
+                ...(alias.opacity === undefined ? {} : {
+                  opacity: alias.opacity,
+                }),
               },
             };
           } else {
-            if (!closed(alias, ['status', 'sourceId'])) {
+            if (!closed(alias, ['status', 'sourceId'], ['opacity'])) {
               throw sourceError(`Variable ${variable.handle} unresolved Alias is not closed`);
             }
             values[safeModeHandle] = {
               $alias: {
                 status: 'unresolved',
                 sourceId: identity(alias.sourceId, 'unresolved Alias sourceId'),
+                ...(alias.opacity === undefined ? {} : {
+                  opacity: alias.opacity,
+                }),
               },
             };
+          }
+          if (alias.opacity !== undefined
+            && (variable.type !== 'COLOR' || !isOpacityPercent(alias.opacity))) {
+            throw sourceError(`Variable ${variable.handle} Alias opacity is incompatible with its type or bounds`);
           }
         } else {
           try { values[safeModeHandle] = normalizeVariableValue(raw, variable.type); }

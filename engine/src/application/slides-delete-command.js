@@ -190,6 +190,16 @@ export function slidesDeleteCode(request) {
         || actual.selectionIds.includes(targetId)) residue.push('selection');
       return residue;
     };
+    const settle = (delay = 0) => new Promise((resolveTask) => setTimeout(resolveTask, delay));
+    const settledSnapshot = async () => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try { return snapshot(); }
+        catch (error) { lastError = error; }
+        await settle(50);
+      }
+      throw lastError || new Error('Slides Delete native grid did not settle.');
+    };
 
     let beforeRefs; let target; let slide;
     try {
@@ -204,15 +214,15 @@ export function slidesDeleteCode(request) {
     try { target.remove(); }
     catch (error) { failure = failureText(error, 'Slides Delete failed.'); }
     try {
-      await new Promise((resolveTask) => setTimeout(resolveTask, 0));
-      const actualRefs = snapshot();
-      const lookup = await figma.getNodeByIdAsync(target.id);
+      await settle();
+      const actualRefs = await settledSnapshot();
+      const lookup = await figma.getNodeByIdAsync(slide.id);
       const actual = {
         ...actualRefs.value,
-        targetPresent: actualRefs.nodes.has(target.id),
+        targetPresent: actualRefs.nodes.has(slide.id),
         lookupPresent: lookup !== null,
       };
-      if (desired(beforeRefs.value, actual, target.id)) {
+      if (desired(beforeRefs.value, actual, slide.id)) {
         return bounded({
           schemaVersion, status: 'deleted', outcome: failure ? 'verified-after-error' : 'verified',
           attempted: 1, residue: [], request, before, actual,
@@ -225,7 +235,7 @@ export function slidesDeleteCode(request) {
       return bounded({
         schemaVersion, status: 'failed', outcome: noEffect ? 'unchanged' : 'partial-residue',
         attempted: 1, request, before, actual,
-        residue: noEffect ? ['target'] : residueFor(beforeRefs.value, actual, target.id),
+        residue: noEffect ? ['target'] : residueFor(beforeRefs.value, actual, slide.id),
         failure: clean(failure || 'Slides Delete postcondition was not satisfied.',
           ${MAX_FAILURE_CODE_UNITS}),
       });

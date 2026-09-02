@@ -99,6 +99,14 @@ test('Variable Facts accepts every official VariableValue family and escapes ter
     ['TIMING', 0.25],
     ['COLOR', { r: 0.1, g: 0.2, b: 0.3 }],
     ['COLOR', { r: 0.1, g: 0.2, b: 0.3, a: 0.4 }],
+    ['COLOR', {
+      type: 'VARIABLE_EXPRESSION',
+      expressionFunction: 'COMPOSE_COLOR',
+      expressionArguments: [
+        { type: 'VARIABLE_ALIAS', id: 'VariableID:2:1' },
+        42,
+      ],
+    }],
     ['FLOAT', { type: 'VARIABLE_ALIAS', id: 'VariableID:2:1' }],
     ['EASING', { type: 'CUSTOM_CUBIC_BEZIER', easingFunctionCubicBezier: {
       x1: 0.1, y1: -0.2, x2: 0.8, y2: 1.2,
@@ -169,6 +177,18 @@ test('Variable Facts rejects excessive collections and malformed Plugin results'
       collection: { id: 'VariableCollectionId:1:1', name: 'Tokens' },
       hiddenFromPublishing: false, scopes: [], codeSyntax: {},
       valuesByMode: { mode: { r: 2, g: 0, b: 0 } },
+      modes: [{ modeId: 'mode', name: 'Mode' }], publishStatus: 'CURRENT',
+    }),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'VariableID:1:2', key: null, name: 'bad', description: '',
+      resolvedType: 'COLOR', remote: false, variableCollectionId: 'VariableCollectionId:1:1',
+      collection: { id: 'VariableCollectionId:1:1', name: 'Tokens' },
+      hiddenFromPublishing: false, scopes: [], codeSyntax: {},
+      valuesByMode: { mode: {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'VariableID:2:1' }, 101],
+      } },
       modes: [{ modeId: 'mode', name: 'Mode' }], publishStatus: 'CURRENT',
     }),
   ]) {

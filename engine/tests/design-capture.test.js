@@ -139,3 +139,87 @@ test('parallel requests join one in-flight Capture', async () => {
   assert.equal(second.cache, 'joined');
   assert.equal(adapter.state.walks, 1);
 });
+
+test('a complete Capture stitches wall-clock budget cuts under one observed revision', async () => {
+  const module = createDesignCaptureModule({ maxEntries: 0, maxBytes: 0 });
+  const walks = [];
+  const metadata = { connectionId: 'CONN_A', fileKey: 'FILE_A', documentRevisionBefore: 4, documentRevisionAfter: 4 };
+  const adapter = {
+    async evaluateWithMetadata(code) {
+      const match = code.match(/getNodeByIdAsync\("([^"]+)"\)/);
+      const nodeId = match ? match[1] : null;
+      const budget = Number(code.match(/const BUDGET_MS = (\d+);/)?.[1]);
+      const maxDepth = Number(code.match(/const MAX_DEPTH = (\d+);/)?.[1]);
+      walks.push({ nodeId, budget, maxDepth });
+      const value = nodeId === '1:2'
+        ? { id: '1:2', name: 'Screen', visibleNodeCount: 6, sets: [{ id: 'set:a', name: 'Button', props: {} }],
+          frames: [{ t: 'FRAME', n: 'Screen', id: '1:2', kids: [
+            { t: 'FRAME', n: 'Sidebar', id: '1:3', kids: [] },
+            { t: 'FRAME', n: 'Workspace', id: '1:4', more: 2, budgetCut: true,
+              frontier: [{ id: '1:5', name: 'Hero' }, { id: '1:6', name: 'Metrics' }] },
+          ] }] }
+        : nodeId === '1:5'
+          ? { id: '1:5', name: 'Hero', sets: [{ id: 'set:a', name: 'Button', props: {} }, { id: 'set:b', name: 'Badge', props: {} }],
+            frames: [{ t: 'FRAME', n: 'Hero', id: '1:5', more: 1, budgetCut: true, frontier: [{ id: '1:7', name: 'Orbit' }] }] }
+          : nodeId === '1:6'
+            ? { id: '1:6', name: 'Metrics', sets: [], frames: [{ t: 'FRAME', n: 'Metrics', id: '1:6', kids: [] }] }
+            : { id: '1:7', name: 'Orbit', sets: [], frames: [{ t: 'ELLIPSE', n: 'Orbit', id: '1:7' }] };
+      return { value: JSON.stringify(value), metadata };
+    },
+  };
+  const capture = await module.capture({ nodeId: '1:2', fileKey: 'FILE_A', depth: 12, chunkBudgetMs: 500 }, adapter);
+  assert.deepEqual(walks, [
+    { nodeId: '1:2', budget: 500, maxDepth: 12 },
+    { nodeId: '1:5', budget: 500, maxDepth: 10 },
+    { nodeId: '1:6', budget: 500, maxDepth: 10 },
+    { nodeId: '1:7', budget: 500, maxDepth: 9 },
+  ], 'every frontier child is walked at the depth that remains below it');
+  const workspace = capture.result.frames[0].kids[1];
+  assert.equal(workspace.more, undefined);
+  assert.equal(workspace.frontier, undefined);
+  assert.equal(workspace.budgetCut, undefined);
+  assert.deepEqual(workspace.kids.map((kid) => kid.id), ['1:5', '1:6']);
+  assert.deepEqual(workspace.kids[0].kids.map((kid) => kid.id), ['1:7']);
+  assert.deepEqual(capture.result.sets.map((set) => set.id), ['set:a', 'set:b'], 'sets merge by identity');
+  assert.equal(capture.completeness.depthLimited, false);
+  assert.equal(capture.completeness.budgetLimited, false);
+  assert.equal(capture.completeness.stitchedCaptures, 3);
+  assert.equal(capture.completeness.budgetCuts, 2);
+  assert.equal(capture.options.complete, true);
+});
+
+test('a complete Capture fails explicitly when the document changes between stitched evals', async () => {
+  const module = createDesignCaptureModule({ maxEntries: 0, maxBytes: 0 });
+  let revision = 4;
+  const adapter = {
+    async evaluateWithMetadata(code) {
+      const nodeId = code.match(/getNodeByIdAsync\("([^"]+)"\)/)?.[1];
+      const metadata = { connectionId: 'CONN_A', fileKey: 'FILE_A', documentRevisionBefore: revision, documentRevisionAfter: revision };
+      revision += 1;
+      const value = nodeId === '1:2'
+        ? { id: '1:2', name: 'Screen', sets: [], frames: [{ t: 'FRAME', n: 'Screen', id: '1:2', more: 1, budgetCut: true, frontier: [{ id: '1:3', name: 'Child' }] }] }
+        : { id: '1:3', name: 'Child', sets: [], frames: [{ t: 'FRAME', n: 'Child', id: '1:3', kids: [] }] };
+      return { value: JSON.stringify(value), metadata };
+    },
+  };
+  await assert.rejects(
+    module.capture({ nodeId: '1:2', fileKey: 'FILE_A', depth: 12 }, adapter),
+    /observed a document change while completing node 1:2/,
+  );
+});
+
+test('complete:false returns the first bounded eval with its budget cut visible', async () => {
+  const module = createDesignCaptureModule({ maxEntries: 0, maxBytes: 0 });
+  let walks = 0;
+  const adapter = {
+    async evaluate(code) {
+      walks++;
+      assert.match(code, /const BUDGET_MS = 0;/, 'opting out of completion also disables the walker budget');
+      return JSON.stringify({ id: '1:2', name: 'Screen', sets: [], frames: [{ t: 'FRAME', n: 'Screen', id: '1:2', more: 1, budgetCut: true, frontier: [{ id: '1:3', name: 'Child' }] }] });
+    },
+  };
+  const capture = await module.capture({ nodeId: '1:2', depth: 12, complete: false }, adapter);
+  assert.equal(walks, 1);
+  assert.equal(capture.completeness.budgetLimited, true);
+  assert.equal(capture.completeness.stitchedCaptures, 0);
+});

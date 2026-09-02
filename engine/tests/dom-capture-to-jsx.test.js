@@ -503,3 +503,72 @@ describe('DOM capture to Figma JSX', () => {
     assert.match(code, /isMask = true; [^]*maskType = 'ALPHA'/);
   });
 });
+
+describe('DOM capture motion on a shared frame timeline', () => {
+  const animated = (name, duration, extra = {}) => ({
+    name, duration, delay: '0s', timingFunction: 'ease-in-out',
+    iterationCount: 'infinite', direction: 'normal', ...extra,
+  });
+  const motionCapture = (animations) => ({
+    version: 2,
+    viewport: { width: 400, height: 300 },
+    keyframes: {
+      orbit: [{ selectorText: '100%', style: { transform: 'translate3d(13px, 0px, 0px)' } }],
+      float: [{ selectorText: '50%', style: { transform: 'translateY(-7px)' } }],
+    },
+    root: {
+      tag: 'main', classes: 'screen', rect: { x: 0, y: 0, w: 400, h: 300 },
+      style: style({}), texts: [], before: null, after: null,
+      children: animations.map((animation, index) => ({
+        tag: 'span', classes: `layer-${index}`, rect: { x: 10 + index * 100, y: 20, w: 80, h: 80 },
+        style: style({ backgroundColor: 'rgb(116, 87, 232)' }),
+        texts: [], before: null, after: null, children: [], animation: [animation],
+      })),
+    },
+  });
+  const motionOf = (plan) => {
+    const found = [];
+    (function walk(node) {
+      if (!node || typeof node !== 'object') return;
+      if (node.props?.motion) found.push({ name: node.props.name, motion: node.props.motion });
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach(walk);
+        else if (value && typeof value === 'object') walk(value);
+      }
+    })(plan.tree);
+    return found;
+  };
+
+  it('repeats a shorter endless loop so it keeps moving for the whole frame timeline', () => {
+    const plan = domCaptureToRenderPlan(motionCapture([
+      animated('orbit', '5s', { direction: 'alternate' }),
+      animated('float', '3.8s'),
+    ]));
+    assert.equal(plan.diagnostics.motion.nodes, 2);
+    assert.equal(plan.diagnostics.motion.timeline, 10);
+    const [orbit, float] = motionOf(plan);
+    assert.equal(orbit.motion.duration, 10, 'the longest animation sets the timeline');
+    assert.equal(float.motion.duration, 10, 'the shorter loop is filled to the same timeline');
+    const times = float.motion.tracks[0].binding.keyframes.map((key) => key.timelinePosition);
+    assert.deepEqual(times, [0, 1.9, 3.8, 5.7, 7.6, 9.5, 10]);
+    assert.ok(plan.diagnostics.motion.limitations.some((line) => /repeated to fill the frame's 10s timeline/.test(line)));
+  });
+
+  it('reports a period it cannot repeat instead of silently freezing the layer', () => {
+    const plan = domCaptureToRenderPlan(motionCapture([
+      animated('orbit', '5s', { direction: 'alternate' }),
+      animated('float', '3.8s', { iterationCount: '1' }),
+    ]));
+    const [, float] = motionOf(plan);
+    assert.equal(float.motion.duration, 3.8, 'a single run is never stretched');
+    assert.ok(plan.diagnostics.motion.limitations.some(
+      (line) => /cannot be repeated to fill the frame's 10s timeline/.test(line),
+    ), plan.diagnostics.motion.limitations.join(' | '));
+  });
+
+  it('leaves a single animated layer on its own period', () => {
+    const plan = domCaptureToRenderPlan(motionCapture([animated('float', '3.8s')]));
+    assert.equal(plan.diagnostics.motion.timeline, 3.8);
+    assert.equal(motionOf(plan)[0].motion.duration, 3.8);
+  });
+});

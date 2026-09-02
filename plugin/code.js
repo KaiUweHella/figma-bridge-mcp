@@ -2386,6 +2386,7 @@ function inspectStructuredRenderPlan(plan) {
     'glassLight', 'glassLightAngle', 'wrap', 'wrapGap', 'counterAxisSpacing', 'gridColumns',
     'gridRows', 'columnGap', 'rowGap', 'gridAutoFlow', 'gridRow', 'gridColumn',
     'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign',
+    'motion',
   ]);
   const textProps = new Set([
     'name', 'content', 'w', 'h', 'width', 'height', 'size', 'weight', 'italic',
@@ -2394,6 +2395,7 @@ function inspectStructuredRenderPlan(plan) {
     'opacity', 'minW', 'maxW', 'minH', 'maxH', 'gridRow', 'gridColumn',
     'gridRowSpan', 'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'truncate',
     'maxLines', 'fontAxes', 'mask', 'maskType', 'runs',
+    'motion',
   ]);
   const rectProps = new Set([
     'name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
@@ -2401,6 +2403,7 @@ function inspectStructuredRenderPlan(plan) {
     'roundedBR', 'cornerSmoothing', 'blendMode', 'opacity', 'visible', 'rotate',
     'position', 'x', 'y', 'gridRow', 'gridColumn', 'gridRowSpan',
     'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'mask', 'maskType', 'filter',
+    'motion',
   ]);
   const ellipseProps = new Set([
     'name', 'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
@@ -2408,6 +2411,7 @@ function inspectStructuredRenderPlan(plan) {
     'strokeCap', 'arc', 'arcStart', 'innerRadius', 'opacity', 'visible', 'rotate',
     'position', 'x', 'y', 'gridRow', 'gridColumn', 'gridRowSpan',
     'gridColumnSpan', 'gridHAlign', 'gridVAlign', 'mask', 'maskType', 'filter',
+    'motion',
   ]);
   const iconProps = new Set([
     'name', 'size', 's', 'w', 'h', 'width', 'height', 'color', 'c',
@@ -3576,6 +3580,31 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
     return node;
   };
 
+  // Native Motion tracks authored in code (CSS animations captured from the
+  // browser) are applied to the created layer. Motion is additive evidence:
+  // a layer that cannot take tracks is reported, never a reason to fail the
+  // whole render, and the root timeline grows to the longest track.
+  const motionContext = { nodes: 0, tracks: 0, duration: 0, skipped: [], failures: [] };
+  const applyStructuredMotion = (node, motion, semanticNode) => {
+    if (!motion || typeof motion !== 'object' || !Array.isArray(motion.tracks) || !motion.tracks.length) return;
+    const path = String(semanticNode.path || node.name || '');
+    if (typeof node.applyManualKeyframeTrack !== 'function') { motionContext.skipped.push(path); return; }
+    let applied = 0;
+    for (const track of motion.tracks) {
+      try {
+        node.applyManualKeyframeTrack(track.field, track.binding);
+        applied += 1;
+      } catch (error) {
+        motionContext.failures.push(`${path}: ${error && error.message ? String(error.message).slice(0, 200) : 'Motion track rejected'}`);
+      }
+    }
+    if (applied) {
+      motionContext.nodes += 1;
+      motionContext.tracks += applied;
+      motionContext.duration = Math.max(motionContext.duration, structuredNumber(motion.duration));
+    }
+  };
+
   const create = async (semanticNode, parent = null, root = false) => {
     const props = semanticNode.source.props;
     let created;
@@ -3860,12 +3889,31 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
       }
     }
     applyFallbackAnnotations(created, semanticNode);
+    applyStructuredMotion(created, props.motion, semanticNode);
     createdRecords.push({ semanticNode, created, parent });
     for (const child of semanticNode.children || []) await create(child, created, false);
     return created;
   };
 
   const root = await create(plan.root, null, true);
+  let motionReport = null;
+  if (motionContext.tracks || motionContext.skipped.length || motionContext.failures.length) {
+    let timelineDuration = null;
+    try {
+      const timeline = Array.isArray(root.timelines) ? root.timelines[0] : null;
+      if (timeline && typeof root.setTimelineDuration === 'function' && structuredNumber(timeline.duration) < motionContext.duration) {
+        root.setTimelineDuration(timeline.id, motionContext.duration);
+      }
+      const fresh = Array.isArray(root.timelines) ? root.timelines[0] : null;
+      timelineDuration = fresh ? structuredNumber(fresh.duration) : null;
+    } catch (error) {
+      motionContext.failures.push(`timeline: ${error && error.message ? String(error.message).slice(0, 200) : 'timeline duration rejected'}`);
+    }
+    motionReport = {
+      nodes: motionContext.nodes, tracks: motionContext.tracks, duration: motionContext.duration, timelineDuration,
+      skipped: motionContext.skipped.slice(0, 32), failures: motionContext.failures.slice(0, 32),
+    };
+  }
   const structuralReport = auditStructuredCreatedNodes(createdRecords);
   const rootEntityBinding = plan.designEntityBindings?.bindings?.[plan.root.source.props.entity];
   return {
@@ -3883,6 +3931,7 @@ async function executePreparedStructuredRenderPlan(figmaApi, plan, {
     ...(variableContext.createdVariables.length ? { createdVariables: variableContext.createdVariables } : {}),
     ...(variableContext.scopeQuestions.length ? { scopeQuestions: variableContext.scopeQuestions } : {}),
     textStyleReport: textStyleContext.textStyleReport,
+    ...(motionReport ? { motionReport } : {}),
     ...(textStyleContext.createdStyles.length ? { createdTextStyles: textStyleContext.createdStyles } : {}),
     ...(fallbackAnnotationReport.requested ? { fallbackAnnotationReport } : {}),
   };

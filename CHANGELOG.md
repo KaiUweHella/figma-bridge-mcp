@@ -5,6 +5,129 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+## [0.7.4] — 2026-09-01
+
+### Added
+
+- Motion round trip (ADR 0129): Design Capture keeps native Motion keyframe
+  tracks and Code Spec projects them to `@keyframes` plus `animation` CSS with
+  Figma's own easing curves (`## Motion` section, `motion` model field);
+  Browser DOM Capture reads CSS animation facts and `@keyframes`, pauses
+  playback while capturing resting geometry, and `render --dom-capture` writes
+  them as native Figma Motion tracks on the created layers (`motionReport`).
+  A Figma frame has one timeline, so an endless CSS loop whose period is
+  shorter than the longest animation on the frame is repeated to fill that
+  timeline, with the mid-cycle cut interpolated on its own easing curve;
+  a period that cannot be repeated (finite iteration count, positive delay,
+  mixed cycles) keeps its length and says so instead of freezing silently.
+  `render --dom-capture` now reports both the captured animations with their
+  limitations and the tracks Figma accepted; the motion outcome used to be
+  written without a single line of output.
+  Motion writes no longer roll back on Figma's canonicalized readback.
+- Complete bounded Design Capture: the plugin walker now stops descending
+  once a wall-clock or serialized-size budget is reached and reports the
+  remaining subtrees as a `budgetCut` frontier; the host Design Capture completes every cut in
+  further bounded plugin evals, verifies that each eval observed the same
+  revision, and stitches one canonical capture. An 800-layer screen no longer
+  outlives the plugin transport window or forces screenshot-derived guesses.
+  `figma_spec` accepts `outFile` and `export code-spec` accepts `-o/--output`
+  to persist the complete projection in the workspace and return summary
+  facts instead of hitting the inline result budget. Code Spec runs in the
+  long timeout class (ADR 0128). The live 826-layer Northern screen, whose
+  single-eval capture exceeded the 5 MB plugin message limit, now captures
+  completely.
+- Canvas and Node authoring now has first-party Command Applications for Frame,
+  Shape, Vector/Slice, Line, Text, Auto Layout and remote-image creation plus
+  rename, resize, reparent, group/ungroup, flatten, Boolean operations, fills,
+  image fills and Variable bindings. Each mutation closes over one validated
+  target and reports verified rollback residue instead of retrying an unknown
+  write.
+- Native Auto Layout Grid workflows now cover configuration, inspection,
+  auto-flow, child placement and track reordering. Layout Guide mutation,
+  Figma Section creation/batching/arrangement/fitting and native Annotation
+  inventory/editing/clearing are available through the same bounded plan
+  model.
+- Design handoff workflows now include Component Specs, Design Links, Dev
+  Resources, Storybook maps, edge pins, Font Axis metadata, Measurements,
+  Named Version history, Slot reads/configuration/reset, Prototype mutations,
+  native Draw operations and guarded Library/Shader reads and mutations.
+- Page census and lint diagnostics plus Accessibility audit, contrast, touch,
+  text, focus and vision-simulation reads are exposed as bounded structured
+  results.
+- FigJam now has owned board inspection, Sections, Stickies and sticky batches,
+  Shapes, Connectors, Tables, Code Blocks and bounded arrangement. The public
+  workflows preserve editor identity and verify the useful native structure
+  they create.
+- Figma Slides beta now supports deck inspection and the complete safe
+  structural lifecycle: create, duplicate, move, transition/skip properties
+  and explicit deletion through durable labels. Slide content authoring is not
+  part of this beta surface.
+- Native Motion now includes bounded reads, timeline control, clear/style/add,
+  presets, stagger and spec application. Prototype/Motion behavior that does
+  not map losslessly remains an explicit runtime boundary.
+- Gradient workflows now cover image extraction, editable paint application
+  and mesh generation. Build verification accepts browser capture and fidelity
+  ledger evidence for bounded Figma-to-browser acceptance.
+- Export now includes owned Node JSON plus JPG, SVG, PDF, MP4, GIF and WebM
+  publication, and remote image creation materializes one validated asset
+  through the authenticated Plugin boundary.
+- Size Variant generation now runs through one bounded, non-retrying Command
+  Application for CLI and MCP. It creates exactly the requested Small, Medium
+  and Large Components, verifies their hierarchy and geometry, and removes
+  attributable clones when a postcondition fails.
+- Component Combination generation now bounds the Cartesian product before
+  mutation, supports a non-confirming dry run, verifies every requested
+  property combination, and reports rollback residue instead of accepting a
+  partial grid.
+- Color Variable aliases with authored opacity now survive Variable Facts,
+  portable Variable Snapshot capture and CSS/DTCG export as Figma's native
+  `COMPOSE_COLOR(alias, opacityPercent)` value. DTCG retains Alias identity and
+  opacity in the Bridge extension while standard consumers receive the
+  alpha-composed color.
+- The bundled Component Library workflow now starts with a leaf-to-root
+  decomposition pass. It maps reusable primitives and descendant intent to
+  nested Components plus TEXT, BOOLEAN, INSTANCE_SWAP, VARIANT and SLOT
+  contracts before any top-level shell is accepted as complete.
+
+### Changed
+
+- CLI and MCP now converge on capability-gated immutable Command Plans for the
+  new Design, FigJam and Slides workflows. Editor context, filesystem effects,
+  confirmation, dispatch state and structured failure facts remain explicit at
+  every boundary.
+- MP4, GIF and WebM export now shares one long-running CLI/MCP Command
+  Application. Requested settings, canonical Base64 and the matching media
+  container are validated before the exact Workspace output is published.
+- Three-way Token Sync now resolves one exact Collection, source and lockfile
+  through the same closed Plan in CLI and MCP. Apply revalidates immediately
+  before mutation, never retries after dispatch, freshly reports bounded
+  residue and advances the lock only after complete verified success.
+- Value replacement refuses before mutation when the prior mode contains a
+  composed color Alias that Figma's public Plugin setter cannot restore.
+  Snapshot import reports the same platform boundary instead of flattening or
+  silently dropping Alias opacity.
+- Scoped CSS/DTCG export resolves nested composed-Alias chains cumulatively,
+  preserves deterministic alpha at 0 % and 100 %, and keeps authored opacity
+  metadata on the Variable that actually declares it. Legacy DESIGN.md import
+  now refuses this lossless-only value shape and points to Snapshot v2.
+
+### Fixed
+
+- Straight FigJam Connectors accept any valid native endpoint magnet after
+  Figma canonicalizes the requested `AUTO` (observed as `CENTER`) while
+  retaining exact endpoint node and shape verification.
+- Slides Create waits for asynchronous publication into the native canvas
+  grid, Duplicate treats two `NONE` transitions as semantically equivalent
+  even when Figma rewrites irrelevant curve defaults, and Delete waits for
+  renumbered native Slide name getters to stabilize.
+- Slot create/read/configure accepts Figma's sparse native SLOT definitions,
+  normalizes nullable optional fields, and verifies the complete effective
+  default settings when Figma materializes them after a partial edit.
+- Live Node JSON export now accepts Figma's official REST nodes response
+  envelope, preserves its `document` plus component/style catalogs, and
+  validates the requested node identity through `document.id/type`. The prior
+  direct-node test double remains compatible.
+
 ## [0.7.3] — 2026-09-01
 
 ### Fixed

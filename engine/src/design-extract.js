@@ -24,6 +24,10 @@ import {
 } from './lib/variable-snapshot.js';
 import { DEFAULT_WORKSPACE_LIMITS, parseBoundedJson } from './lib/workspace-io.js';
 import { normalizeVariableValue } from './lib/variable-management.js';
+import {
+  composedColorValueParts,
+  isOpacityPercent,
+} from './lib/variable-values.js';
 
 /** Eval snippet: list all pages of the open file. */
 export function listPagesCode() {
@@ -67,7 +71,27 @@ const VAR_EVAL_HELPERS = `
       for (const m of modes) {
         const raw = v.valuesByMode[m.id];
         if (raw == null) continue;
-        if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') {
+        const composed = raw && typeof raw === 'object' && !Array.isArray(raw)
+          && Object.keys(raw).length === 3
+          && raw.type === 'VARIABLE_EXPRESSION'
+          && raw.expressionFunction === 'COMPOSE_COLOR'
+          && Array.isArray(raw.expressionArguments) && raw.expressionArguments.length === 2
+          && raw.expressionArguments[0] && typeof raw.expressionArguments[0] === 'object'
+          && !Array.isArray(raw.expressionArguments[0])
+          && Object.keys(raw.expressionArguments[0]).length === 2
+          && raw.expressionArguments[0].type === 'VARIABLE_ALIAS'
+          && typeof raw.expressionArguments[0].id === 'string'
+          && typeof raw.expressionArguments[1] === 'number'
+          && Number.isFinite(raw.expressionArguments[1])
+          && raw.expressionArguments[1] >= 0 && raw.expressionArguments[1] <= 100
+          ? { alias: raw.expressionArguments[0], opacity: raw.expressionArguments[1] }
+          : null;
+        if (composed) {
+          values[m.name] = {
+            alias: await aliasName(composed.alias.id), opacity: composed.opacity,
+          };
+          exactValues[m.id] = raw;
+        } else if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') {
           values[m.name] = { alias: await aliasName(raw.id) };
           exactValues[m.id] = { alias: raw.id };
         } else {
@@ -284,7 +308,12 @@ function validateLegacyCapturedValues(variable, collection) {
     captureIdentity(modeName, 'legacy mode name');
     if (!modeNames.has(modeName)) throw captureError('legacy value references an unknown mode');
     if (capturePlain(value) && Object.hasOwn(value, 'alias')) {
-      if (!captureClosed(value, ['alias'])) throw captureError('legacy Alias value is not closed');
+      const keys = Object.keys(value);
+      const simple = keys.length === 1 && Object.hasOwn(value, 'alias');
+      const composed = keys.length === 2 && Object.hasOwn(value, 'alias')
+        && Object.hasOwn(value, 'opacity') && variable.type === 'COLOR'
+        && isOpacityPercent(value.opacity);
+      if (!simple && !composed) throw captureError('legacy Alias value is not closed');
       captureIdentity(value.alias, 'legacy Alias target');
     } else {
       if (typeof value === 'string' && value.length > CAPTURE_STRING_VALUE_LIMIT) {
@@ -372,7 +401,7 @@ export function stableVariableCatalog(before, after) {
 export function walkerCode(pageId, {
   maxDepth = 8, textLimit = 80,
   resolveInstances = false, withIds = false, withVars = false,
-  includeHidden = false,
+  includeHidden = false, budgetMs = 0, budgetBytes = 0,
 } = {}) {
   return `(async () => {
     const MAX_DEPTH = ${Number(maxDepth)};
@@ -381,6 +410,21 @@ export function walkerCode(pageId, {
     const WITH_IDS = ${withIds === true};
     const WITH_VARS = ${withVars === true};
     const INCLUDE_HIDDEN = ${includeHidden === true};
+    /* Wall-clock budget for ONE plugin eval (0 = unlimited). Once exceeded,
+       every remaining subtree is reported as a frontier with budgetCut=true
+       so the host Design Capture completes it in further bounded evals
+       instead of one eval outliving the plugin transport window. */
+    const BUDGET_MS = ${Number(budgetMs) > 0 ? Math.floor(Number(budgetMs)) : 0};
+    /* Serialized-size budget for ONE eval (0 = unlimited). The plugin socket
+       and daemon reject oversized messages outright, so a chunk must stay
+       far below that limit; every captured layer's own fields are counted
+       once, before its children are walked. */
+    const BUDGET_BYTES = ${Number(budgetBytes) > 0 ? Math.floor(Number(budgetBytes)) : 0};
+    const WALK_STARTED_AT = Date.now();
+    let CAPTURED_BYTES = 0;
+    const noteCaptured = (o) => { CAPTURED_BYTES += JSON.stringify(o).length + 2; };
+    const overBudget = () => (BUDGET_MS > 0 && (Date.now() - WALK_STARTED_AT) > BUDGET_MS)
+      || (BUDGET_BYTES > 0 && CAPTURED_BYTES > BUDGET_BYTES);
     const imageAssetBase = ${imageAssetBase.toString()};
     /* Figma exposes scaled-instance geometry as floating-point noise. Keep
        meaningful fractions, but never make a code agent reproduce values
@@ -796,7 +840,7 @@ export function walkerCode(pageId, {
       }
       return out;
     };
-    const walk = async (n, depth) => {
+    const walkNode = async (n, depth) => {
       // Invisible nodes do not render — putting them in the spec makes the
       // consumer build phantom elements (hidden tag pills, notification
       // bubbles toggled off via BOOLEAN component props: Figma expresses
@@ -831,6 +875,20 @@ export function walkerCode(pageId, {
       try {
         if (Array.isArray(n.reactions) && n.reactions.length) {
           o.rx = JSON.parse(JSON.stringify(Array.from(n.reactions)));
+        }
+      } catch (e) {}
+      // Native Motion: manual keyframe tracks are authored animation facts.
+      // They are captured raw and bounded; Code Spec projects them to CSS.
+      try {
+        const tracks = n.manualKeyframeTracks;
+        if (tracks && typeof tracks === 'object' && Object.keys(tracks).length) {
+          const serialized = JSON.stringify(tracks);
+          if (serialized.length <= 200000) {
+            o.motion = { tracks: JSON.parse(serialized) };
+            if (Array.isArray(n.timelines) && n.timelines.length) {
+              o.motion.timelines = n.timelines.slice(0, 16).map((timeline) => ({ id: timeline.id, duration: timeline.duration }));
+            }
+          }
         }
       } catch (e) {}
       try {
@@ -1302,7 +1360,9 @@ export function walkerCode(pageId, {
           if (WITH_IDS) o.dvId = dv.id; else o.id = dv.id;
           try { if (dv.key) o.key = dv.key; } catch (e) {}
         }
-        if (n.children.length && depth < MAX_DEPTH) {
+        noteCaptured(o);
+        const setBudgetCut = n.children.length > 0 && depth < MAX_DEPTH && overBudget();
+        if (n.children.length && depth < MAX_DEPTH && !setBudgetCut) {
           o.kids = [];
           for (const child of n.children) {
             const captured = await walk(child, depth + 1);
@@ -1311,6 +1371,7 @@ export function walkerCode(pageId, {
         } else if (n.children.length && MAX_DEPTH > 0) {
           o.frontier = childFrontier(n);
           if (o.frontier.length) o.more = o.frontier.length;
+          if (setBudgetCut) o.budgetCut = true;
         }
         return o;
       }
@@ -1359,11 +1420,14 @@ export function walkerCode(pageId, {
           if (exposed.length) o.exposedInstances = exposed;
         } catch (e) {}
         if ('children' in n && n.children.length) {
-          if (depth >= MAX_DEPTH) {
+          noteCaptured(o);
+          if (depth >= MAX_DEPTH || overBudget()) {
+            const budgetCut = depth < MAX_DEPTH;
             if (MAX_DEPTH > 0 && collapseVectorAsset(n, o)) return o;
             if (MAX_DEPTH > 0) {
               o.frontier = childFrontier(n);
               if (o.frontier.length) o.more = o.frontier.length;
+              if (budgetCut) o.budgetCut = true;
             }
             return o;
           }
@@ -1388,7 +1452,9 @@ export function walkerCode(pageId, {
         } catch (e) { o.slot = { limitViolations: [] }; }
       }
       if ('children' in n && n.children.length) {
-        if (depth >= MAX_DEPTH) {
+        noteCaptured(o);
+        if (depth >= MAX_DEPTH || overBudget()) {
+          const budgetCut = depth < MAX_DEPTH;
           // Hundreds of path children are one exported artwork, not hundreds
           // of missing style contracts. Classify against the live subtree at
           // the cutoff and carry its exact accounted-layer count compactly.
@@ -1396,12 +1462,19 @@ export function walkerCode(pageId, {
           if (MAX_DEPTH > 0) {
             o.frontier = childFrontier(n);
             if (o.frontier.length) o.more = o.frontier.length;
+            if (budgetCut) o.budgetCut = true;
           }
           return o;
         }
         o.kids = [];
         for (const c of n.children) { const k = await walk(c, depth + 1); if (k) o.kids.push(k); }
       }
+      return o;
+    };
+    /* Leaves never reach a descend site; count them here exactly once. */
+    const walk = async (n, depth) => {
+      const o = await walkNode(n, depth);
+      if (o && o.kids === undefined && o.more === undefined && !o.vectorCluster) noteCaptured(o);
       return o;
     };
     // Census is independent from includeHidden and projection depth. Hidden
@@ -1657,7 +1730,25 @@ export function usedVariablesCode(nodeId) {
     const MAX_ALIAS_DEPTH = 256;
     const root = await figma.getNodeByIdAsync(${JSON.stringify(String(nodeId))});
     if (!root) return JSON.stringify({ error: 'node not found: ' + ${JSON.stringify(String(nodeId))} + ' in the currently open file "' + figma.root.name + '". Safe Mode can only reach the file open in Figma Desktop.' });
-    const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('') + (c.a != null && c.a < 1 ? Math.round(c.a * 255).toString(16).padStart(2, '0') : '');
+    const hex = (c, forceAlpha = false) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('') + (forceAlpha || (c.a != null && c.a < 1) ? Math.round((c.a == null ? 1 : c.a) * 255).toString(16).padStart(2, '0') : '');
+    const plain = (value) => value && typeof value === 'object' && !Array.isArray(value)
+      && Object.getPrototypeOf(value) === Object.prototype;
+    const exactKeys = (value, keys) => plain(value) && Object.keys(value).length === keys.length
+      && keys.every((key) => Object.hasOwn(value, key));
+    const aliasValue = (value) => exactKeys(value, ['type', 'id'])
+      && value.type === 'VARIABLE_ALIAS' && typeof value.id === 'string' && value.id.length > 0;
+    const opacityPercent = (value) => typeof value === 'number' && Number.isFinite(value)
+      && value >= 0 && value <= 100;
+    const composedColor = (value) => {
+      if (!exactKeys(value, ['type', 'expressionFunction', 'expressionArguments'])
+        || value.type !== 'VARIABLE_EXPRESSION'
+        || value.expressionFunction !== 'COMPOSE_COLOR'
+        || !Array.isArray(value.expressionArguments)
+        || value.expressionArguments.length !== 2
+        || !aliasValue(value.expressionArguments[0])
+        || !opacityPercent(value.expressionArguments[1])) return null;
+      return { alias: value.expressionArguments[0], opacity: value.expressionArguments[1] };
+    };
     const ids = [];
     const idSet = new Set();
     const add = (id) => {
@@ -1744,9 +1835,24 @@ export function usedVariablesCode(nodeId) {
         let val = current.valuesByMode?.[currentMode.modeId];
         let ref = null;
         let refId = null;
+        let opacity = null;
+        const composedOpacities = [];
+        let sawComposedColor = false;
         let guard = MAX_ALIAS_DEPTH;
         const chain = new Set([current.id]);
-        while (val && typeof val === 'object' && val.type === 'VARIABLE_ALIAS' && guard-- > 0) {
+        while (true) {
+          const composed = v.resolvedType === 'COLOR' ? composedColor(val) : null;
+          if (composed) {
+            /* Only the root's own value is its authored opacity; inherited
+               intermediate expressions stay attributed to their owner. */
+            if (current === v) opacity = composed.opacity;
+            composedOpacities.push(composed.opacity);
+            sawComposedColor = true;
+            val = composed.alias;
+            continue;
+          }
+          if (!aliasValue(val)) break;
+          if (guard-- <= 0) throw new Error('Scoped token export exceeds the Alias depth limit.');
           add(val.id); /* alias target exports as a token of its own */
           let target = null;
           try { target = await figma.variables.getVariableByIdAsync(val.id); } catch (e) {}
@@ -1766,8 +1872,19 @@ export function usedVariablesCode(nodeId) {
           currentMode = targetMode || { modeId: Object.keys(target.valuesByMode || {})[0], name: currentMode.name };
           val = current.valuesByMode?.[currentMode.modeId];
         }
-        if (guard < 0) throw new Error('Scoped token export exceeds the Alias depth limit.');
-        if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) val = hex(val);
+        if (v.resolvedType === 'COLOR' && val && typeof val === 'object' && 'r' in val) {
+          if (sawComposedColor) {
+            /* Round to an alpha byte per layer, innermost first, so the scoped
+               and file-wide projections emit identical bytes. */
+            let alpha = val.a == null ? 1 : val.a;
+            if (alpha < 1) alpha = Math.round(alpha * 255) / 255;
+            for (let layer = composedOpacities.length - 1; layer >= 0; layer--) {
+              alpha = Math.round(alpha * (composedOpacities[layer] / 100) * 255) / 255;
+            }
+            val = { ...val, a: alpha };
+          }
+          val = hex(val, sawComposedColor);
+        }
         else if (v.resolvedType === 'EASING' && val && typeof val === 'object') {
           val = {
             type: val.type,
@@ -1784,7 +1901,10 @@ export function usedVariablesCode(nodeId) {
             } : {}),
           };
         } else if (val && typeof val === 'object') val = null; /* unresolvable */
-        valuesByMode[mode.modeId] = { value: val === undefined ? null : val, ref, refId };
+        valuesByMode[mode.modeId] = {
+          value: val === undefined ? null : val, ref, refId,
+          ...(opacity === null ? {} : { opacity }),
+        };
       }
       const defaultModeId = collection?.defaultModeId || modes[0]?.modeId;
       const selected = valuesByMode[defaultModeId] || valuesByMode[modes[0]?.modeId]
@@ -1796,6 +1916,7 @@ export function usedVariablesCode(nodeId) {
         value: selected.value,
         ref: selected.ref,
         refId: selected.refId,
+        ...(selected.opacity === undefined ? {} : { opacity: selected.opacity }),
         valuesByMode,
         modes,
         defaultModeId,
@@ -2125,7 +2246,10 @@ export function resolveAliases(collections = []) {
     for (const v of col.variables || []) idToName.set(v.id, v.name);
   const resolveVal = (val) =>
     val && typeof val === 'object' && 'alias' in val
-      ? { alias: idToName.get(val.alias) || val.alias }
+      ? {
+          alias: idToName.get(val.alias) || val.alias,
+          ...(isOpacityPercent(val.opacity) ? { opacity: val.opacity } : {}),
+        }
       : val;
   return collections.map(col => ({
     name: col.name,
@@ -2140,7 +2264,9 @@ export function resolveAliases(collections = []) {
 /** One variable value → a markdown table cell. Pure. */
 export function formatVarValue(val) {
   if (val == null) return '—';
-  if (typeof val === 'object' && 'alias' in val) return `→ var:${val.alias}`;
+  if (typeof val === 'object' && 'alias' in val) {
+    return `→ var:${val.alias}${isOpacityPercent(val.opacity) ? ` @ ${val.opacity}%` : ''}`;
+  }
   if (typeof val === 'string') return val.startsWith('#') ? `\`${val}\`` : `"${val}"`;
   return String(val);
 }
@@ -2263,18 +2389,25 @@ export function buildVariableSnapshotV2(collections = []) {
               throw new Error('Invalid Variable Snapshot capture: a Variable value references a foreign or missing mode.');
             }
             const rawIsObject = raw && typeof raw === 'object' && !Array.isArray(raw);
-            if (rawIsObject && Object.hasOwn(raw, 'alias')) {
-              if (Object.keys(raw).length !== 1 || typeof raw.alias !== 'string') {
+            const composed = variable.type === 'COLOR' ? composedColorValueParts(raw) : null;
+            const aliasSourceId = composed?.alias.id
+              || (rawIsObject && Object.hasOwn(raw, 'alias') ? raw.alias : null);
+            if (aliasSourceId !== null) {
+              if (!composed && (Object.keys(raw).length !== 1 || typeof raw.alias !== 'string')) {
                 throw new Error('Invalid Variable Snapshot capture: an Alias value is not a closed source fact.');
               }
-              const target = variableHandles.get(raw.alias);
+              const target = variableHandles.get(aliasSourceId);
               values[modeHandle] = target ? {
                 $alias: {
                   status: 'local',
-                  collection: variableCollections.get(raw.alias),
+                  collection: variableCollections.get(aliasSourceId),
                   variable: target,
+                  ...(composed ? { opacity: composed.opacity } : {}),
                 },
-              } : { $alias: { status: 'unresolved', sourceId: raw.alias } };
+              } : { $alias: {
+                status: 'unresolved', sourceId: aliasSourceId,
+                ...(composed ? { opacity: composed.opacity } : {}),
+              } };
             } else values[modeHandle] = raw;
           }
           return {

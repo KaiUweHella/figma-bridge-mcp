@@ -192,3 +192,26 @@ test('Node Discovery resolves policy-identical CLI and MCP Plans', () => {
   const { adapter: _mcpAdapter, allowed: _mcpAllowed, ...mcpPolicy } = mcp;
   assert.deepEqual(cliPolicy, mcpPolicy);
 });
+
+test('Node Discovery skips a node whose identity turns stale mid-scan instead of aborting', async () => {
+  const figma = {
+    currentPage: {
+      id: '0:1', type: 'PAGE', name: 'Page', async loadAsync() {},
+      children: [
+        {
+          id: 'I1:1;2:2', type: 'INSTANCE', children: [],
+          get name() {
+            throw new Error('in get_name: The node (instance sublayer or table cell) with id "I1:1;2:2" does not exist');
+          },
+        },
+        { id: '3:1', type: 'FRAME', name: 'Card after the stale node', children: [] },
+      ],
+    },
+  };
+  const value = await new Function('figma', `return ${nodeDiscoveryCode({
+    query: 'card', type: null, limit: 20,
+  })};`)(figma);
+  assert.deepEqual(value.matches.map((match) => match.id), ['3:1']);
+  assert.equal(value.visitedNodes, 3);
+  assert.equal(value.traversalTruncated, false);
+});

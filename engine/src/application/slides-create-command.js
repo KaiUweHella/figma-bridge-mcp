@@ -142,7 +142,16 @@ export function slidesCreateCode(request) {
       && slide.row === position(actual.rows, slide.id).row
       && slide.col === position(actual.rows, slide.id).col
       && slide.label === (request.label || null);
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const settle = (delay = 0) => new Promise((resolve) => setTimeout(resolve, delay));
+    const settledSnapshot = async () => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try { return snapshot(); }
+        catch (error) { lastError = error; }
+        await settle(50);
+      }
+      throw lastError || new Error('Slides Create native grid did not settle.');
+    };
 
     let beforeRefs;
     try { beforeRefs = snapshot(); }
@@ -174,7 +183,7 @@ export function slidesCreateCode(request) {
     let created = null;
     let slide = null;
     try {
-      actualRefs = snapshot();
+      actualRefs = await settledSnapshot();
       const beforeIds = new Set(beforeRefs.value.rows.flat());
       const newIds = actualRefs.value.rows.flat().filter((id) => !beforeIds.has(id));
       if (!createdId && newIds.length === 1
@@ -211,7 +220,7 @@ export function slidesCreateCode(request) {
     }
 
     try {
-      const probe = actualRefs || snapshot();
+      const probe = actualRefs || await settledSnapshot();
       const beforeIds = new Set(beforeRefs.value.rows.flat());
       const newIds = probe.value.rows.flat().filter((id) => !beforeIds.has(id));
       let candidateId = createdId;
@@ -233,7 +242,7 @@ export function slidesCreateCode(request) {
       try { beforeRefs.page.focusedSlide = beforeRefs.focus; } catch {}
       try { beforeRefs.page.selection = beforeRefs.selection; } catch {}
       try { await settle(); } catch {}
-      const restored = snapshot().value;
+      const restored = (await settledSnapshot()).value;
       const residue = [];
       if (candidateId && occurrences(restored.rows, candidateId) > 0) residue.push('created-slide');
       if (!sameRows(restored.rows, beforeRefs.value.rows)) residue.push('grid-membership');

@@ -15,6 +15,15 @@ cross-Collection Aliases resolve to a Collection and Variable handle;
 unavailable external targets remain explicit unresolved Alias facts instead of
 being guessed or silently flattened.
 
+Figma-authored color Alias opacity is captured as the native closed
+`COMPOSE_COLOR(alias, opacityPercent)` value and normalized into the existing
+Alias identity fact with an optional bounded `opacity` percentage. This keeps
+the target edge and authored modifier together without treating arbitrary
+Variable expressions as valid. The current public Plugin setter rejects
+composed color values, so exact import refuses a snapshot containing Alias
+opacity before Plugin readiness. Export evidence remains complete; import does
+not flatten the value to RGBA or discard its Alias identity.
+
 Chunked extraction records the expected Collection membership. Every catalog
 and value read is pinned to one daemon-attested connection, file and document
 revision; connection or revision drift aborts publication. A failed catalog

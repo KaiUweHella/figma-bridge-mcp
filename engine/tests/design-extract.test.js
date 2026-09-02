@@ -369,6 +369,7 @@ test('variableChunkCode embeds the id slice + modes and is valid JS', () => {
   assert.match(code, /"Light"/);
   // shares the same alias-resolution helper as the one-shot path
   assert.match(code, /alias: await aliasName\(raw\.id\)/);
+  assert.match(code, /COMPOSE_COLOR/);
 });
 
 test('chunk capture requires the exact unique requested Collection membership', () => {
@@ -573,6 +574,35 @@ test('Variable Snapshot v2 preserves duplicate names, exact modes, metadata and 
   });
   assert.deepEqual(snapshot.collections[1].variables[1].values['collection:2/mode:1'], {
     $alias: { status: 'unresolved', sourceId: 'REMOTE:missing' },
+  });
+});
+
+test('Variable Snapshot v2 projects native composed color expressions without flattening', () => {
+  const snapshot = buildVariableSnapshotV2([{
+    id: 'C:1', name: 'Theme', hiddenFromPublishing: false,
+    defaultModeId: 'M:1', expectedVariableCount: 2, captureComplete: true,
+    modes: [{ id: 'M:1', name: 'Mode 1' }],
+    variables: [
+      {
+        id: 'V:base', name: 'color/palette/sand', type: 'COLOR', description: '',
+        hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+        exactValues: { 'M:1': { r: 1, g: 0.8, b: 0.4 } },
+      },
+      {
+        id: 'V:surface', name: 'color/role/surface', type: 'COLOR', description: '',
+        hiddenFromPublishing: false, scopes: ['ALL_SCOPES'], codeSyntax: {},
+        exactValues: { 'M:1': {
+          type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+          expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'V:base' }, 42],
+        } },
+      },
+    ],
+  }]);
+  assert.deepEqual(snapshot.collections[0].variables[1].values['collection:1/mode:1'], {
+    $alias: {
+      status: 'local', collection: 'collection:1', variable: 'collection:1/variable:1',
+      opacity: 42,
+    },
   });
 });
 
@@ -810,12 +840,29 @@ test('variableImportCode is valid JS and embeds the collection data', () => {
   assert.match(code, /button-primary-bgColor-rest/);
 });
 
+test('legacy DESIGN.md Variable import refuses color Alias opacity before generating Plugin code', () => {
+  assert.throws(() => variableImportCode({
+    Theme: {
+      modes: ['Mode 1'],
+      variables: {
+        'color/base': { type: 'COLOR', values: { 'Mode 1': '#ffffff' } },
+        'color/role': {
+          type: 'COLOR', values: { 'Mode 1': { alias: 'color/base', opacity: 42 } },
+        },
+      },
+    },
+  }), /Variable Snapshot v2.*Alias opacity/);
+});
+
 test('variableImportCode is a two-pass build (aliases resolved after creation)', () => {
   const code = variableImportCode(buildVariableTokens(resolveAliases(FIXTURE_VARS)));
   assert.match(code, /PASS 1/);
   assert.match(code, /PASS 2/);
   // pass 1 explicitly defers alias values
   assert.match(code, /'alias' in val\) continue; \/\/ pass 2/);
+  // existing composed (Alias opacity) values are preserved in both passes, never overwritten
+  assert.equal((code.match(/__isComposedValue\(v\.valuesByMode && v\.valuesByMode\[modeId\]\)\) \{ preserved\+\+; continue; \}/g) || []).length, 2);
+  assert.match(code, /unresolved, preserved, scopeQuestions/);
   // colors parse 8-digit hex (alpha) too
   assert.match(code, /\(\[a-f.*\]\{2\}\)\?/);
   assert.match(code, /__scopeTokenVariable\(v, vName, type\)/);

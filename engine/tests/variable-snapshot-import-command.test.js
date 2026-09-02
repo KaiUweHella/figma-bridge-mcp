@@ -134,6 +134,11 @@ test('Variable Snapshot v2 preflight is complete, exact and happens before evalu
   };
   assert.throws(() => prepareVariableSnapshotImport(unresolved), /unresolved external Alias/);
 
+  const composed = fixture();
+  composed.collections[0].variables[1].values['collection:one/mode:light'].$alias.opacity = 42;
+  assert.throws(() => prepareVariableSnapshotImport(composed),
+    /public Figma Plugin API cannot write composed color values/);
+
   const nonFirstDefault = fixture();
   nonFirstDefault.collections[0].defaultMode = 'collection:one/mode:dark';
   assert.throws(() => prepareVariableSnapshotImport(nonFirstDefault), /non-first default mode/);

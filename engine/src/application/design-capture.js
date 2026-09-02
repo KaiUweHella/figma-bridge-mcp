@@ -10,12 +10,18 @@ import {
   stableObservedRevision,
 } from '../lib/revision-context.js';
 
-// Bump whenever the canonical walker payload changes. Version 6 adds the
-// depth- and includeHidden-independent hidden-content census.
-export const DESIGN_CAPTURE_SCHEMA_VERSION = 6;
+// Bump whenever the canonical walker payload changes. Version 7 adds
+// wall-clock-bounded chunks stitched into one complete capture.
+export const DESIGN_CAPTURE_SCHEMA_VERSION = 7;
 
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+// One plugin eval must stay well inside the daemon/plugin transport window
+// (22-25 s) even when a large screen resolves native Inspect CSS per layer.
+const DEFAULT_CHUNK_BUDGET_MS = 12_000;
+// The plugin socket rejects oversized messages outright (MAX_PLUGIN_MESSAGE_BYTES);
+// a chunk stays far below it so the last counted layer cannot push it over.
+const DEFAULT_CHUNK_BUDGET_BYTES = 2_500_000;
 const PROBE_CODE = '(async () => null)()';
 const DEPTH_RETRY_KINDS = new Set(['timeout', 'plugin-timeout', 'plugin-protocol']);
 
@@ -41,6 +47,7 @@ function captureKey(request) {
     nodeId: request.nodeId,
     depth: request.depth,
     includeHidden: request.includeHidden === true,
+    complete: request.complete,
     resolveInstances: true,
     withIds: true,
     withVars: true,
@@ -77,15 +84,33 @@ function normalizedRequest(request = {}) {
   if (!Number.isInteger(depth) || depth < 0 || depth > 30) {
     throw new Error('Design Capture depth must be an integer between 0 and 30');
   }
+  const chunkBudgetMs = request.chunkBudgetMs == null
+    ? DEFAULT_CHUNK_BUDGET_MS
+    : Number(request.chunkBudgetMs);
+  if (!Number.isInteger(chunkBudgetMs) || chunkBudgetMs < 0) {
+    throw new Error('Design Capture chunkBudgetMs must be a non-negative integer');
+  }
+  const chunkBudgetBytes = request.chunkBudgetBytes == null
+    ? DEFAULT_CHUNK_BUDGET_BYTES
+    : Number(request.chunkBudgetBytes);
+  if (!Number.isInteger(chunkBudgetBytes) || chunkBudgetBytes < 0) {
+    throw new Error('Design Capture chunkBudgetBytes must be a non-negative integer');
+  }
   return Object.freeze({
     nodeId: request.nodeId,
     fileKey: request.fileKey || null,
     depth,
     includeHidden: request.includeHidden === true,
+    // Complete captures walk large subtrees in several wall-clock-bounded
+    // plugin evals and stitch them under one observed revision. Opting out
+    // returns the first bounded eval with its frontier marked budgetCut.
+    complete: request.complete !== false,
+    chunkBudgetMs,
+    chunkBudgetBytes,
   });
 }
 
-function captureEnvelope(request, result, actualDepth, source, cache) {
+function captureEnvelope(request, result, actualDepth, source, cache, stitching) {
   return Object.freeze({
     schemaVersion: DESIGN_CAPTURE_SCHEMA_VERSION,
     source: source ? Object.freeze({ ...source }) : null,
@@ -95,16 +120,90 @@ function captureEnvelope(request, result, actualDepth, source, cache) {
       resolveInstances: true,
       withIds: true,
       withVars: true,
+      complete: request.complete,
+      chunkBudgetMs: request.chunkBudgetMs,
+      chunkBudgetBytes: request.chunkBudgetBytes,
     }),
     completeness: Object.freeze({
       requestedDepth: request.depth,
       actualDepth,
       payloadComplete: actualDepth === request.depth,
       depthLimited: result.frames.some(hasDepthMarker),
+      budgetLimited: result.frames.some(hasBudgetCut),
+      stitchedCaptures: stitching.stitchedCaptures,
+      budgetCuts: stitching.budgetCuts,
     }),
     result,
     cache,
   });
+}
+
+function hasBudgetCut(node) {
+  return Boolean(node?.budgetCut) || (node?.kids || []).some(hasBudgetCut);
+}
+
+function setIdentity(entry) {
+  return entry?.entityId || entry?.setKey || entry?.id || entry?.name || null;
+}
+
+function mergeSets(target, extra) {
+  const seen = new Set(target.map(setIdentity));
+  for (const entry of extra || []) {
+    const identity = setIdentity(entry);
+    if (identity && seen.has(identity)) continue;
+    if (identity) seen.add(identity);
+    target.push(entry);
+  }
+}
+
+/**
+ * Complete every budget-cut frontier in place: each frontier child is walked
+ * in its own bounded eval at the depth that remains below it, and its frames
+ * replace the cut. Every stitched eval must observe the same revision as the
+ * root walk; a changed document fails explicitly instead of mixing revisions.
+ */
+async function completeBudgetCuts(result, request, source, walkOnce) {
+  const pending = [];
+  const scan = (node, absoluteDepth) => {
+    if (node?.budgetCut && Array.isArray(node.frontier) && node.frontier.length) {
+      pending.push({ node, absoluteDepth });
+    }
+    for (const kid of node?.kids || []) scan(kid, absoluteDepth + 1);
+  };
+  for (const frame of result.frames) scan(frame, 0);
+  let stitchedCaptures = 0;
+  let budgetCuts = 0;
+  while (pending.length) {
+    const { node, absoluteDepth } = pending.shift();
+    const kids = [];
+    for (const child of node.frontier) {
+      const childDepth = absoluteDepth + 1;
+      const response = await walkOnce(child.id, Math.max(0, request.depth - childDepth));
+      if (source && response?.metadata && !sameObservedRevision(source, response.metadata)) {
+        throw new Error(
+          `Design Capture observed a document change while completing node ${request.nodeId} `
+          + `(${stitchedCaptures} stitched eval(s) so far); retry the capture on the settled document.`,
+        );
+      }
+      const part = parseEval(response?.value);
+      if (part?.error) throw new Error(part.error);
+      if (!part || !Array.isArray(part.frames)) {
+        throw new Error(`Design Capture returned no data for frontier node ${child.id}`);
+      }
+      for (const frame of part.frames) {
+        kids.push(frame);
+        scan(frame, childDepth);
+      }
+      mergeSets(result.sets, part.sets);
+      stitchedCaptures++;
+    }
+    node.kids = kids;
+    delete node.frontier;
+    delete node.more;
+    delete node.budgetCut;
+    budgetCuts++;
+  }
+  return { stitchedCaptures, budgetCuts };
 }
 
 /**
@@ -147,17 +246,20 @@ export function createDesignCaptureModule({
       ? adapters.evaluateWithMetadata
       : async (code) => ({ value: await adapters.evaluate(code), metadata: null });
     let source = null;
+    const walkOnce = (nodeId, maxDepth) => evaluateWithMetadata(nodeWalkerCode(nodeId, {
+      maxDepth,
+      // 0 = unlimited. Truncating copy is acceptable for a page census, but
+      // never for the canonical design-to-code Capture.
+      textLimit: 0,
+      resolveInstances: true,
+      withIds: true,
+      withVars: true,
+      includeHidden: request.includeHidden,
+      budgetMs: request.complete ? request.chunkBudgetMs : 0,
+      budgetBytes: request.complete ? request.chunkBudgetBytes : 0,
+    }));
     const { result, depth } = await walkWithDepthRetry(request.depth, async (candidateDepth) => {
-      const response = await evaluateWithMetadata(nodeWalkerCode(request.nodeId, {
-        maxDepth: candidateDepth,
-        // 0 = unlimited. Truncating copy is acceptable for a page census, but
-        // never for the canonical design-to-code Capture.
-        textLimit: 0,
-        resolveInstances: true,
-        withIds: true,
-        withVars: true,
-        includeHidden: request.includeHidden,
-      }));
+      const response = await walkOnce(request.nodeId, candidateDepth);
       source = response?.metadata || null;
       return parseEval(response?.value);
     });
@@ -166,8 +268,12 @@ export function createDesignCaptureModule({
     if (!result || !Array.isArray(result.frames)) {
       throw new Error(`Design Capture returned no data for node ${request.nodeId}`);
     }
+    if (!Array.isArray(result.sets)) result.sets = [];
+    const stitching = request.complete
+      ? await completeBudgetCuts(result, request, source, walkOnce)
+      : { stitchedCaptures: 0, budgetCuts: 0 };
     deepFreeze(result);
-    return captureEnvelope(request, result, depth, source, 'miss');
+    return captureEnvelope(request, result, depth, source, 'miss', stitching);
   }
 
   return Object.freeze({

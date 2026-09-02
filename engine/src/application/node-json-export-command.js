@@ -141,12 +141,30 @@ function validatedEnvelope(result, request) {
     || result.nodeId !== request.nodeId
     || !NODE_ID_PATTERN.test(result.nodeId)
     || !result.value || typeof result.value !== 'object' || Array.isArray(result.value)
-    || result.value.id !== request.nodeId
-    || typeof result.value.type !== 'string' || !NODE_TYPE_PATTERN.test(result.value.type)
-    || (result.value.name != null
-      && (typeof result.value.name !== 'string'
-        || result.value.name.length > MAX_NODE_JSON_NAME_CODE_UNITS))
     || !validJsonGraph(result.value)) {
+    throw new Error('Node JSON Export returned invalid bounded node facts.');
+  }
+  const value = result.value;
+  const isRestEnvelope = Object.hasOwn(value, 'document');
+  const document = isRestEnvelope ? value.document : value;
+  if (!document || typeof document !== 'object' || Array.isArray(document)
+    || document.id !== request.nodeId
+    || typeof document.type !== 'string' || !NODE_TYPE_PATTERN.test(document.type)
+    || (document.name != null
+      && (typeof document.name !== 'string'
+        || document.name.length > MAX_NODE_JSON_NAME_CODE_UNITS))
+    || (isRestEnvelope
+      && (!Object.hasOwn(value, 'components')
+        || !Object.hasOwn(value, 'componentSets')
+        || !Object.hasOwn(value, 'schemaVersion')
+        || !Object.hasOwn(value, 'styles')
+        || !value.components || typeof value.components !== 'object'
+        || Array.isArray(value.components)
+        || !value.componentSets || typeof value.componentSets !== 'object'
+        || Array.isArray(value.componentSets)
+        || !Number.isSafeInteger(value.schemaVersion) || value.schemaVersion < 0
+        || !value.styles || typeof value.styles !== 'object'
+        || Array.isArray(value.styles)))) {
     throw new Error('Node JSON Export returned invalid bounded node facts.');
   }
   let compact;
@@ -155,7 +173,7 @@ function validatedEnvelope(result, request) {
   if (Buffer.byteLength(compact, 'utf8') > MAX_NODE_JSON_PLUGIN_BYTES) {
     throw new Error('Node JSON Export returned node facts above its Plugin result budget.');
   }
-  return result.value;
+  return { value, document };
 }
 
 function serializedOutput(value) {
@@ -195,11 +213,14 @@ export async function executeNodeJsonExportPlan(plan, adapters = {}) {
   } else if (plan.outputs.length !== 0 || outputs.length !== 0) {
     throw new Error('Inline Node JSON Export must not declare Workspace outputs.');
   }
-  const value = validatedEnvelope(await adapters.evaluate(nodeJsonExportCode(request)), request);
+  const { value, document } = validatedEnvelope(
+    await adapters.evaluate(nodeJsonExportCode(request)),
+    request,
+  );
   const text = serializedOutput(value);
   const metadata = Object.freeze({
-    nodeId: value.id,
-    type: value.type,
+    nodeId: document.id,
+    type: document.type,
     byteLength: Buffer.byteLength(text, 'utf8'),
     ...(request.outputPath ? { saved: request.outputPath } : {}),
   });

@@ -85,6 +85,8 @@ test("Codex plugin bundles the MCP server and focused bidirectional skills", () 
   assert.match(skills["figma-bridge-code-to-figma"], /Componentize repeated source structures/);
   assert.match(skills["figma-bridge-component-library"], /INSTANCE_SWAP/);
   assert.match(skills["figma-bridge-component-library"], /Cartesian variant matrix at 30/);
+  assert.match(skills["figma-bridge-component-library"], /component decomposition pass/);
+  assert.match(skills["figma-bridge-component-library"], /polished top-level shell with inert descendants is not a complete component/);
 });
 
 test("Claude Code plugin reuses the same MCP server and skill", () => {

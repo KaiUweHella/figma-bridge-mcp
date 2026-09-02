@@ -986,3 +986,20 @@ describe('semantic browser capture contract', () => {
     assert.equal(track.source.props.h, 80);
   });
 });
+
+describe('browser DOM capture motion facts', () => {
+  it('reads CSS animation facts and @keyframes before neutralizing playback', () => {
+    const script = browserDomCaptureScript('.screen');
+    assert.match(script, /animationName/);
+    assert.match(script, /animationIterationCount/);
+    assert.match(script, /CSSKeyframesRule/);
+    assert.match(script, /keyText/);
+    assert.match(script, /animation-timing-function/);
+    assert.match(script, /motion-neutralizer/);
+    assert.match(script, /animation: none !important; transition: none !important/);
+    assert.match(script, /animation: animationFacts\.get\(element\) \|\| null/);
+    assert.match(script, /keyframes: keyframeRules/);
+    assert.ok(script.indexOf('animationFacts.set(element, facts)') < script.indexOf('document.head.appendChild(neutralizer)'), 'facts are read before playback is neutralized');
+    assert.ok(script.indexOf('capturedRoot = visit(root)') < script.indexOf('neutralizer.remove()'), 'the neutralizer is removed after the walk');
+  });
+});

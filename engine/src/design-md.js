@@ -477,6 +477,17 @@ export function designMdVariableSnapshot({ tokens }) {
  * Pure string builder (no Figma access here) so it is unit-testable.
  */
 export function variableImportCode(variables) {
+  for (const collection of Object.values(designRecord(variables, 'Variable Snapshot'))) {
+    if (!plainRecord(collection)) continue;
+    for (const variable of Object.values(collection.variables || {})) {
+      if (!plainRecord(variable)) continue;
+      for (const value of Object.values(variable.values || {})) {
+        if (plainRecord(value) && Object.hasOwn(value, 'alias') && Object.hasOwn(value, 'opacity')) {
+          throw new Error('Variable Snapshot v2 is required because legacy DESIGN.md Variable import cannot preserve Alias opacity.');
+        }
+      }
+    }
+  }
   return `(async () => {
   const VARS = ${JSON.stringify(variables)};
   ${variableScopePolicyCode()}
@@ -486,6 +497,9 @@ export function variableImportCode(variables) {
     return { r: parseInt(m[1], 16) / 255, g: parseInt(m[2], 16) / 255, b: parseInt(m[3], 16) / 255, a: m[4] != null ? parseInt(m[4], 16) / 255 : 1 };
   };
   const TYPES = { COLOR: 1, FLOAT: 1, STRING: 1, BOOLEAN: 1 };
+  // Existing native expressions (color Alias opacity) cannot be restored by
+  // this legacy path, so they are preserved and counted instead of replaced.
+  const __isComposedValue = (value) => !!value && typeof value === 'object' && value.type === 'VARIABLE_EXPRESSION';
   const existingCols = await figma.variables.getLocalVariableCollectionsAsync();
   const allVars = await figma.variables.getLocalVariablesAsync();
   const byName = new Map();
@@ -493,7 +507,7 @@ export function variableImportCode(variables) {
   allVars.forEach(register);
 
   const ctx = {};
-  let createdCount = 0, aliasCount = 0, unresolved = 0;
+  let createdCount = 0, aliasCount = 0, unresolved = 0, preserved = 0;
   const scopeQuestions = [];
 
   // PASS 1 — collections, modes, variables, non-alias values
@@ -521,6 +535,7 @@ export function variableImportCode(variables) {
         const modeId = modeIds[mn];
         if (modeId == null) continue;
         if (val && typeof val === 'object' && 'alias' in val) continue; // pass 2
+        if (__isComposedValue(v.valuesByMode && v.valuesByMode[modeId])) { preserved++; continue; }
         try {
           if (type === 'COLOR') { const rgba = hexToRgba(val); if (rgba) v.setValueForMode(modeId, rgba); }
           else if (type === 'FLOAT') { if (typeof val === 'number') v.setValueForMode(modeId, val); }
@@ -546,12 +561,13 @@ export function variableImportCode(variables) {
         let target = c.vars[val.alias];
         if (!target) { const cand = byName.get(val.alias); if (cand && cand.length) target = cand[0]; }
         if (!target) { unresolved++; continue; }
+        if (__isComposedValue(v.valuesByMode && v.valuesByMode[modeId])) { preserved++; continue; }
         try { v.setValueForMode(modeId, figma.variables.createVariableAlias(target)); aliasCount++; }
         catch (e) { unresolved++; }
       }
     }
   }
 
-  return JSON.stringify({ collections: Object.keys(VARS).length, createdCount, aliasCount, unresolved, scopeQuestions });
+  return JSON.stringify({ collections: Object.keys(VARS).length, createdCount, aliasCount, unresolved, preserved, scopeQuestions });
 })()`;
 }

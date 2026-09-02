@@ -547,3 +547,25 @@ test('successful create publishes the freshly verified Variable identity', async
   const lock = JSON.parse(output.writes[0].value);
   assert.equal(lock.tokens['space/md'].id, fixture.variables[0].id);
 });
+
+test('composed color Alias values in Figma are conflicts, never literal overwrites', async () => {
+  const composed = {
+    type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+    expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'v9' }, 42],
+  };
+  const fixture = figmaFixture({ existing: [
+    { id: 'v1', name: 'color/role/surface', type: 'COLOR', value: composed },
+  ] });
+  const plan = {
+    ...prepared({ apply: true }),
+    tokens: [{ name: 'color/role/surface', type: 'COLOR', value: '#ffcc66' }],
+  };
+  const result = await executeTokenSync(plan, {
+    evaluate: fixture.evaluate, workspaceIO: workspace(), fileKey: 'FILE_A',
+  });
+  assert.equal(result.result.status, 'conflict');
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /nothing was applied/);
+  assert.deepEqual(fixture.variables[0].valuesByMode['c1:mode'], composed,
+    'the native COMPOSE_COLOR expression is untouched');
+});

@@ -137,9 +137,13 @@ export function variableSetValueBatchCommandCode(request) {
         throw new Error('Variable Set Value Batch encountered incompatible preflight metadata.');
       }
       const hadPrevious = Object.prototype.hasOwnProperty.call(variable.valuesByMode, mode.modeId);
+      const previous = hadPrevious ? variable.valuesByMode[mode.modeId] : null;
+      if (hadPrevious && __bridgeComposedColorValue(previous)) {
+        throw new Error('Variable Set Value Batch cannot restore composed color values because the public Figma Plugin API does not accept them in setValueForMode. Change the alias opacity in Figma or detach it before replacing this mode value.');
+      }
       prepared.push({
         index, item, variable, collection, mode, resolution: resolved.resolution,
-        hadPrevious, previous: hadPrevious ? variable.valuesByMode[mode.modeId] : null,
+        hadPrevious, previous,
         ...valueIntent,
       });
     }

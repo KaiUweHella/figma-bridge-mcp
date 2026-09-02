@@ -59,6 +59,22 @@ const __bridgeVariableFacts = async (variable, collection) => ({
   modes: collection.modes.map((entry) => ({ modeId: entry.modeId, name: entry.name })),
   publishStatus: await variable.getPublishStatusAsync(),
 });
+const __bridgeComposedColorValue = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 3
+    || !['type', 'expressionFunction', 'expressionArguments'].every((key) => keys.includes(key))
+    || value.type !== 'VARIABLE_EXPRESSION'
+    || value.expressionFunction !== 'COMPOSE_COLOR'
+    || !Array.isArray(value.expressionArguments) || value.expressionArguments.length !== 2) return false;
+  const alias = value.expressionArguments[0];
+  const opacity = value.expressionArguments[1];
+  return alias && typeof alias === 'object' && !Array.isArray(alias)
+    && Object.keys(alias).length === 2 && alias.type === 'VARIABLE_ALIAS'
+    && typeof alias.id === 'string' && alias.id.length > 0
+    && typeof opacity === 'number' && Number.isFinite(opacity)
+    && opacity >= 0 && opacity <= 100;
+};
 const __bridgeValidateVariableFacts = (facts) => {
   const allowedTypes = new Set(['BOOLEAN', 'COLOR', 'EASING', 'FLOAT', 'STRING', 'TIMING']);
   const allowedStatuses = new Set(['UNPUBLISHED', 'CURRENT', 'CHANGED']);
@@ -84,6 +100,15 @@ const __bridgeValidateVariableFacts = (facts) => {
   };
   const aliasValue = (value) => exactObject(value, ['type', 'id'])
     && value.type === 'VARIABLE_ALIAS' && boundedText(value.id, false);
+  const composedColorValue = (value) => exactObject(value, [
+    'type', 'expressionFunction', 'expressionArguments',
+  ]) && value.type === 'VARIABLE_EXPRESSION'
+    && value.expressionFunction === 'COMPOSE_COLOR'
+    && Array.isArray(value.expressionArguments) && value.expressionArguments.length === 2
+    && aliasValue(value.expressionArguments[0])
+    && typeof value.expressionArguments[1] === 'number'
+    && Number.isFinite(value.expressionArguments[1])
+    && value.expressionArguments[1] >= 0 && value.expressionArguments[1] <= 100;
   const unit = (value) => typeof value === 'number' && Number.isFinite(value)
     && value >= 0 && value <= 1;
   const valueForType = (value, type) => {
@@ -93,7 +118,8 @@ const __bridgeValidateVariableFacts = (facts) => {
     if (type === 'FLOAT' || type === 'TIMING') {
       return typeof value === 'number' && Number.isFinite(value);
     }
-    if (type === 'COLOR') return (exactObject(value, ['r', 'g', 'b'])
+    if (type === 'COLOR') return composedColorValue(value)
+      || (exactObject(value, ['r', 'g', 'b'])
       || exactObject(value, ['r', 'g', 'b', 'a']))
       && unit(value.r) && unit(value.g) && unit(value.b)
       && (value.a === undefined || unit(value.a));

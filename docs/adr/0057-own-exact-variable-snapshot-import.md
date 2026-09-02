@@ -37,3 +37,9 @@ file that already owns a source Collection name is a conflict, not an implicit
 sync. A future synchronization transaction may define explicit identity and
 merge policy without weakening import safety. Legacy v1 retains its bounded
 compatibility route but is never upgraded by inference or described as exact.
+
+Figma may expose a color Alias with opacity as a readable `COMPOSE_COLOR`
+expression even though `Variable.setValueForMode()` rejects that same value.
+The v2 source preserves the Alias and percentage, but import rejects it during
+source preflight. A literal alpha color would be visually similar but is not an
+exact substitute because it destroys authored Alias identity.

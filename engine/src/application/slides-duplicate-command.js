@@ -72,7 +72,9 @@ export function slidesDuplicateCode(request) {
       && left.every((value, index) => value === right[index]);
     const sameRows = (left, right) => left.length === right.length
       && left.every((row, index) => same(row, right[index]));
-    const sameTransition = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+    const sameTransition = (left, right) => left && right
+      && (left.style === 'NONE' && right.style === 'NONE'
+        || JSON.stringify(left) === JSON.stringify(right));
     const rounded = (value) => Math.round(value * 10000) / 10000;
     const result = (payload) => {
       const serialized = JSON.stringify(payload);
@@ -489,7 +491,8 @@ function position(rowsValue, nodeId) {
 }
 
 function sameTransition(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return left && right && (left.style === 'NONE' && right.style === 'NONE'
+    || JSON.stringify(left) === JSON.stringify(right));
 }
 
 function validRequest(value, input) {

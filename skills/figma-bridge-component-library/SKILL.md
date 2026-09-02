@@ -23,15 +23,29 @@ finished component.
 
 ## Lock the component contract
 
-1. Inspect the code component, prop types and defaults, CSS or token sources,
+1. Run a component decomposition pass before naming the Figma deliverables.
+   Walk the rendered subtree and the code imports from leaves to root. Classify
+   repeated controls, icons, avatars, badges, list rows and card shells as
+   primitives or nested components instead of flattening them into a composite.
+   For every meaningful descendant ask: is it fixed decoration, editable text,
+   optional content, a replaceable component, a state/size/tone axis, or a
+   structurally flexible region? Map those answers respectively to a fixed layer,
+   TEXT, BOOLEAN, INSTANCE_SWAP, VARIANT or SLOT. Record why a candidate remains
+   fixed.
+   A polished top-level shell with inert descendants is not a complete component.
+   Keep the code's CSS animations in the captured DOM: `render --dom-capture`
+   writes them as native Motion tracks on the Component's layers, so the
+   Component carries its motion instead of a static pose. Check the render
+   result's `Motion:` line and `figma_run ["motion","inspect","<layerId>"]`.
+2. Inspect the code component, prop types and defaults, CSS or token sources,
    assets, states, responsive behavior, Storybook stories, and tests.
-2. Inspect the target Figma file's pages, variables, styles, components,
+3. Inspect the target Figma file's pages, variables, styles, components,
    variant naming, and `figma-bridge.json` links. Call `figma_reference` with
    `name: "components"` once; add `name: "workflow:code-to-figma"` when a
    screen or code-render workflow is also in scope.
-3. Produce a concise gap map: what exists only in code, only in Figma, and on
+4. Produce a concise gap map: what exists only in code, only in Figma, and on
    both sides with a conflict. Resolve real conflicts before mutation.
-4. Define the component contract across all five native property types: TEXT,
+5. Define the component contract across all five native property types: TEXT,
    BOOLEAN, INSTANCE_SWAP, VARIANT and SLOT. Record scalar definition-to-layer
    bindings, nested Instance exposure, Slot limits and preferred values,
    interaction states, token bindings, assets, and the Design Entity id. Cap a
@@ -73,7 +87,10 @@ update-batch` call; keep `var update` for one target.
 1. Reuse or update an exact linked component. A matching display name without
    a Design Entity, component key, or confirmed contract is not sufficient.
 2. Build the base component with semantic Auto Layout and stable layer names.
-   Give every overridable text layer an explicit name.
+   Give every overridable text layer an explicit name. Repeated card and row
+   content must expose useful TEXT properties rather than preserving sample copy.
+   Consumer-facing optional layers must expose BOOLEAN properties; visibility is
+   not represented by deleting the layer from one sample.
 3. Create each variant from the closest valid base, edit only its differences,
    then combine and arrange the variants into one component set. Use
    `component add-variant` when extending an existing set; it preserves scalar
@@ -98,6 +115,9 @@ update-batch` call; keep `var update` for one target.
    `component nested expose` only on a primary nested Instance when consumers
    of the wrapper should access that Instance's own properties. Do not detach,
    flatten, or claim exposure for an inherited Instance below another Instance.
+   Prefer nesting the same primitive used by code. If code composes a Button,
+   Badge or Avatar, the Figma composite must use its Instance unless a recorded
+   platform limitation makes that impossible.
 6. Map representable state transitions and interactions to native prototype
    reactions, then verify them with `prototype inspect`. Do not invent a
    reaction when the source behavior depends on app state, routing or async

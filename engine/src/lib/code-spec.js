@@ -14,6 +14,7 @@
  */
 import { dedupSiblings } from '../design-extract.js';
 import { assetFileName } from './asset-names.js';
+import { motionCssName, motionToCss, projectMotion } from './motion-css.js';
 import {
   captureVectorFacts,
   capturedVectorCluster,
@@ -390,6 +391,11 @@ export function factSegs(node) {
       : 'slot:valid');
   }
   if (node.annotations?.length) parts.push(`figma-annotations:${node.annotations.length}`);
+  const motion = motionFact(node);
+  if (motion) {
+    const fields = motion.tracks.map((track) => track.field);
+    parts.push(`motion:${fields.join('/')}${motion.timeline ? ` over ${motion.timeline.duration}s` : ''} → CSS in the Motion section`);
+  }
   if (node.rx?.length) parts.push(`prototype-reactions:${node.rx.length}`);
   if (node.mask) parts.push(`mask:${String(node.maskType || 'ALPHA').toLowerCase()}`);
   if (node.vb && Object.keys(node.vb).length) parts.push(`variable-context:${Object.keys(node.vb).length}`);
@@ -409,6 +415,28 @@ const annotationSpecLines = (node, depth) => (node.annotations || []).map((annot
 
 const reactionSpecLines = (node, depth) => (node.rx || []).map((reaction) =>
   `${'  '.repeat(depth)}- Prototype reaction: ${stableStringify(reaction)}`);
+
+/** Bounded Motion Capture fact of one node (native tracks → projection). */
+export function motionFact(node) {
+  if (!node?.motion?.tracks) return null;
+  return projectMotion(node.motion.tracks, node.motion.timelines || []);
+}
+
+/** Every animated node in capture order with its CSS projection. */
+export function motionProjections(frames = []) {
+  const out = [];
+  const visit = (node) => {
+    if (!node) return;
+    const fact = motionFact(node);
+    if (fact) {
+      const css = motionToCss(fact, { name: motionCssName(node.id) });
+      if (css) out.push({ id: node.id, name: node.n, fact, css });
+    }
+    for (const kid of node.kids || []) visit(kid);
+  };
+  for (const frame of frames) visit(frame);
+  return out;
+}
 
 const supplementalSpecLines = (node, depth, { reactions = true } = {}) => [
   ...annotationSpecLines(node, depth),
@@ -1275,6 +1303,16 @@ export function formatCodeSpec(result, { phase = 'all', dedup = true } = {}) {
       out.push('_⚑ = required INTERACTIVE STATES. One figma_spec call on the listed SET id captures ALL variants; implement their exact hover/active/focus/disabled styles._', '');
     }
   }
+  const motions = motionProjections(result.frames || []);
+  if (motions.length) {
+    out.push('## Motion (implement as CSS — the design owns these animations)', '');
+    for (const entry of motions) {
+      out.push(`- ${entry.name} [${entry.id}] · ${entry.css.animation}`);
+      out.push(...entry.css.keyframes.split('\n').map((line) => `  ${line}`));
+      for (const limitation of entry.css.limitations) out.push(`  ⚠ ${limitation}`);
+    }
+    out.push('', '_Motion facts are exact Figma keyframes projected with Figma\'s own easing curves; transforms are relative to the layer\'s resting geometry. Keep the resting values in the base rules and add only the `animation` line plus a `prefers-reduced-motion: reduce` override._', '');
+  }
   out.push('_Figma facts: copy, never invent content/names. `→ var(name)` = token binding; `style:<name>` / `→ style(name)` = shared style._');
   const coverage = layerCoverage(result.frames || [], result.visibleNodeCount);
   out.push('', `_Layer coverage: ${coverage.captured}/${coverage.sourceVisible} visible Figma layers accounted for; ${coverage.explicitRows} explicit implementation row(s), ${coverage.assetInternalLayers} SVG-internal, ${coverage.componentInternalLayers} component-internal, ${coverage.nonRenderingHelpers} non-rendering helper(s), ${coverage.unaccounted} unaccounted.${coverage.complete ? '' : ' INCOMPLETE — request deeper or smaller node specs before coding.'}_`);
@@ -1481,6 +1519,11 @@ export function specModel(result, { phase = 'all', dedup = true, capture = {} } 
       }
     }
     if (node.repeat) o.repeat = node.repeat;
+    const motion = motionFact(node);
+    if (motion) {
+      const css = motionToCss(motion, { name: motionCssName(node.id) });
+      o.motion = { ...motion, ...(css ? { css } : {}) };
+    }
     if (node.more) o.more = node.more;
     if (node.frontier?.length) o.frontier = node.frontier;
     // Icon instances collapse (identity = main-component name); everything

@@ -13,9 +13,13 @@ import {
   parseSlidesCreateRequest,
 } from '../src/application/slides-create-request.js';
 
-function runtime({ labelFailure = null, factoryFailure = false, removeFailure = null } = {}) {
+function runtime({
+  labelFailure = null, factoryFailure = false, removeFailure = null, gridDelayReads = 0,
+} = {}) {
   let next = 3;
   let grid = [];
+  let staleGrid = null;
+  let pendingGridReads = 0;
   const registry = new Map();
   const labels = new Map();
   const makeSlide = (id, name) => {
@@ -43,15 +47,23 @@ function runtime({ labelFailure = null, factoryFailure = false, removeFailure = 
   const page = { id: '0:1', focusedSlide: intro, selection: [details] };
   const figma = {
     editorType: 'slides', currentPage: page,
-    getCanvasGrid() { return grid; },
+    getCanvasGrid() {
+      if (pendingGridReads > 0) {
+        pendingGridReads -= 1;
+        return staleGrid;
+      }
+      return grid;
+    },
     async getNodeByIdAsync(id) { return registry.get(id) || null; },
     createSlide(row, col) {
+      staleGrid = grid.map((currentRow) => [...currentRow]);
       const slide = makeSlide(`1:${next}`, `Slide ${next++}`);
       if (row === undefined) grid[grid.length - 1].push(slide);
       else {
         while (grid.length <= row) grid.push([]);
         grid[row].splice(col === undefined ? grid[row].length : col, 0, slide);
       }
+      pendingGridReads = gridDelayReads;
       if (factoryFailure) throw new Error('factory acknowledgement failed');
       return slide;
     },
@@ -78,6 +90,17 @@ test('Slides Create closes labels, coordinates, option multiplicity and canonica
     ['slides', 'create', '--future'],
   ]) assert.equal(acceptsSlidesCreateArgv(argv), false, argv.join(' '));
   assert.throws(() => slidesCreateArgvFromRequest({ future: true }), /unknown field/);
+});
+
+test('Slides Create waits for Figma to publish a freshly created Slide into the native grid', async () => {
+  const live = runtime({ gridDelayReads: 2 });
+  const result = await executeSlidesCreate({ label: 'Agenda' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.outcome, 'verified');
+  assert.deepEqual(result.result.actual.slide, {
+    id: '1:3', name: 'Slide 3', label: 'Agenda', row: 0, col: 2,
+  });
 });
 
 test('Slides Create appends, labels, focuses and selects one freshly verified Slide', async () => {

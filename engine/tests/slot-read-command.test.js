@@ -16,7 +16,7 @@ const slot = {
   limitViolations: ['HAS_NON_PREFERRED'],
 };
 const definition = {
-  type: 'SLOT', defaultValue: '2:1',
+  type: 'SLOT',
   preferredValues: [{ type: 'COMPONENT', key: 'published-key' }],
   description: 'Content area',
   slotSettings: { minChildren: 1, maxChildren: 3, allowPreferredValuesOnly: true },
@@ -79,7 +79,7 @@ test('Slot Read preserves Slot, Component definition, and validation report shap
   });
   assert.deepEqual(inspectComponent.result, {
     id: '1:1', name: 'Card', type: 'COMPONENT',
-    slots: [{ name: 'Content#2:1', definition }],
+    slots: [{ name: 'Content#2:1', definition: { ...definition, defaultValue: null } }],
   });
 
   for (const request of [{ action: 'validate' }, { action: 'validate', nodeId: '0:1' }]) {

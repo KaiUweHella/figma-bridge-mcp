@@ -21,7 +21,7 @@ function runtime({
   fills = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }], applyNoEffect = false,
   throwAfterApply = false, timelineNoEffect = false, throwAfterTimeline = false,
   removeNoEffect = false, rollbackApplyNoEffect = false, rollbackTimelineNoEffect = false,
-  failGetCalls = [], children = null,
+  failGetCalls = [], children = null, canonicalize = false,
 } = {}) {
   const page = { id: '0:1', type: 'PAGE', name: 'Motion Lab', children: [] };
   const parent = { id: '0:2', type: 'FRAME', name: 'Inner', parent: page, children: [] };
@@ -31,11 +31,31 @@ function runtime({
   let timelineCalls = 0;
   let removeCalls = 0;
   let getCalls = 0;
+  // Mirror Figma's native canonicalization of a written track: ids, baseValue,
+  // keyframeOperation, default easing, expanded named easings, float32 numbers.
+  let nextId = 900;
+  const f32 = (value) => (typeof value === 'number' ? Math.fround(value) : value);
+  const deepF32 = (value) => Array.isArray(value) ? value.map(deepF32)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deepF32(v)])) : f32(value);
+  const figmaLike = (track) => ({
+    id: `KeyframeTrackId:${nextId++}`,
+    keyframeOperation: 'SET',
+    baseValue: deepF32(track.keyframes[0].value),
+    keyframes: track.keyframes.map((keyframe) => ({
+      id: `${nextId++}:1`,
+      timelinePosition: f32(keyframe.timelinePosition),
+      value: deepF32(keyframe.value),
+      easing: keyframe.easing?.type === 'EASE_IN_AND_OUT'
+        ? { type: 'EASE_IN_AND_OUT', easingFunctionCubicBezier: { x1: 0.42, y1: 0, x2: 0.58, y2: 1 } }
+        : keyframe.easing || { type: 'CUSTOM_CUBIC_BEZIER', easingFunctionCubicBezier: { x1: 0.5, y1: 0, x2: 0.5, y2: 1 } },
+    })),
+  });
   const setTrack = (field, track) => {
-    if (field.type === 'PROPERTY') tracks[field.name] = copy(track);
+    const stored = canonicalize ? figmaLike(track) : copy(track);
+    if (field.type === 'PROPERTY') tracks[field.name] = stored;
     else {
       tracks[field.collection] ||= {};
-      tracks[field.collection][String(field.index)] = copy(track);
+      tracks[field.collection][String(field.index)] = stored;
     }
   };
   const removeTrack = (field) => {
@@ -287,4 +307,27 @@ test('Motion Add generated Plugin code parses without a private timer', () => {
   assert.match(code, /applyManualKeyframeTrack/);
   assert.match(code, /removeManualKeyframeTrack/);
   assert.match(code, /setTimelineDuration/);
+});
+
+test('Motion Add verifies against Figma\'s canonicalized readback instead of the raw binding', async () => {
+  const live = runtime({ canonicalize: true, timelineDuration: 2 });
+  const result = await executeMotionAdd({
+    nodeId: live.node.id, field: 'scale', keys: '0:1:ease-in-out, 5:1.04:ease-in-out, 10:1',
+  }, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.timelineDuration, 10);
+  const stored = live.tracks().SCALE_XY;
+  assert.match(stored.id, /^KeyframeTrackId:/);
+  assert.equal(stored.keyframes[1].value.value.x, Math.fround(1.04), 'float32 storage is accepted');
+  assert.equal(stored.keyframes[2].easing.type, 'CUSTOM_CUBIC_BEZIER', 'a default easing filled by Figma is accepted');
+
+  const again = await executeMotionAdd({
+    nodeId: live.node.id, field: 'scale', keys: '0:1:ease-in-out, 5:1.04:ease-in-out, 10:1',
+  }, { evaluate: evaluate(live.figma) });
+  assert.ok(again.stdout || again.result, 'the repeat call still returns a result');
+  assert.equal(live.applyCalls(), 1, 'an identical track against the canonical readback is a no-op');
+
+  const wrong = runtime({ canonicalize: true, applyNoEffect: true });
+  await assert.rejects(() => executeMotionAdd({
+    nodeId: wrong.node.id, field: 'opacity', keys: '0:0,1:1',
+  }, { evaluate: evaluate(wrong.figma) }), /Motion add failed/);
 });

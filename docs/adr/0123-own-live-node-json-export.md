@@ -16,8 +16,12 @@ that path, declares it as the sole `node-json-output`, and classifies the
 document-only operation as a safe read before readiness.
 
 The Plugin serializes the result envelope and refuses it below the generic
-authenticated result ceiling. The host accepts only the requested node id and
-a bounded REST-shaped JSON object with a canonical node id and type. It rejects
+authenticated result ceiling. Figma's official projection is the REST nodes
+response envelope: the requested canonical node lives under `document`, beside
+`components`, `componentSets`, `schemaVersion` and `styles`. The host
+accepts that complete bounded response and uses its `document` for requested
+node identity/type verification; the older direct-node fixture remains accepted
+for compatibility. It rejects
 accessors, exotic prototypes, cycles, sparse arrays, non-finite values,
 oversized keys or names, excessive depth or entry counts, and results above the
 transport budget. Pretty JSON is produced only after validation; directional

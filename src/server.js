@@ -837,6 +837,10 @@ const SPEC_REQUEST_PROPERTIES = {
     default: false,
     description: "false: inline every layer; true: compact repeats.",
   },
+  outFile: {
+    type: "string",
+    description: "Workspace file for the complete spec; returns a summary.",
+  },
 };
 
 // Exported so tests can assert on the surface itself: "12 tools" is a claim the
@@ -1330,23 +1334,21 @@ Design-to-code: Figma is the spec. Never drop text, assets,
 tokens, layout or states. Follow this order:
 1. figma_screenshot, then read the PNG as visual ground truth.
 2. One figma_spec call: phase "all", format "tree", depth 3-4. Copy hierarchy,
-   text, ids and exact styles; use structure for huge frames.
+   text, ids and exact styles; huge frame: depth 30 + outFile.
 3. figma_run ["export","css","<nodeId>"] and wire up the scoped tokens/fonts.
 4. figma_run ["export","assets","<nodeId>","-o","/abs/project/src/assets"]
    for images/SVGs plus assets.json. Never substitute CSS placeholders or
    inline SVGs. If still RUNNING, poll the same call.
 5. Missing styles: use one figma_spec nodeIds[] batch for all section ids;
-   depth 0, dedup repeats. Do not call each section separately.
+   depth 0, dedup repeats.
 6. Per-section fact ledger: artwork, paints/blends/effects, side strokes,
    fonts, fill/hug. Account for each. Ask the user before changing design semantics.
 7. Implement every interactive state flagged by component sets.
-8. Before done, run figma_run ["verify-build","/abs/project"] and
-   fix every missing asset/lint. Screenshot the build at the design width and
-   compare it to Figma (verify-build --compare/--design).
+8. Do not finish before figma_run ["verify-build","/abs/project"] is clean
+   and a design-width build screenshot is compared (--compare/--design).
 
 Preserve the target stack. Never add Tailwind, a UI kit or icon library solely
 for this build; never approximate exported artwork.
-Do not finish until assets.json is covered and the visual diff is inspected.
 Never estimate values from the screenshot.
 Full guide: figma_reference {name:"workflow"}. Use fileKey with multiple open
 Figma windows.`;
@@ -5958,6 +5960,9 @@ export async function handleTool(name, rawArgs) {
         if (input.nodeId != null) {
           return errorResult("Use either nodeId or nodeIds[], not both.");
         }
+        if (input.outFile != null) {
+          return errorResult("outFile writes one node's complete spec; batch nodeIds[] results stay inline.");
+        }
         const { nodeIds, fileKey, ...shared } = input;
         const requests = Array.isArray(nodeIds)
           ? nodeIds.map((nodeId) => ({ ...shared, nodeId }))
@@ -5973,6 +5978,10 @@ export async function handleTool(name, rawArgs) {
       }
       const dedup = input.dedup === true;
       const format = input.format == null ? DEFAULT_SPEC_FORMAT : String(input.format);
+      if (input.outFile != null && (typeof input.outFile !== "string" || !input.outFile.trim())) {
+        return errorResult("outFile must be a non-empty string.");
+      }
+      const outFile = input.outFile != null ? input.outFile.trim() : null;
       const requestFor = (useDedup) => ({
         nodeId,
         phase: input.phase,
@@ -5981,6 +5990,7 @@ export async function handleTool(name, rawArgs) {
         includeHidden: input.includeHidden,
         format,
         dedup: useDedup,
+        ...(outFile ? { outputPath: outFile } : {}),
       });
       try {
         codeSpecPlanningArgvFromRequest(requestFor(dedup));
@@ -5993,6 +6003,7 @@ export async function handleTool(name, rawArgs) {
         async ({ plan, fileKey, expectedEditor, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
           return executeCodeSpecPlan(plan, {
+            workspaceIO: WORKSPACE_IO,
             evaluate: (code) => evaluateFigma(code, {
               fileKey,
               expectedEditor,
@@ -6006,6 +6017,11 @@ export async function handleTool(name, rawArgs) {
           });
         },
       );
+      if (outFile) {
+        // The complete projection is persisted; only summary facts return
+        // inline, so neither trailers nor the result budget apply.
+        return resultFromCli(await runSpec(dedup));
+      }
       const project = (result) => {
         if (format === "tree") {
         // Tree mapping remains a presentation trailer. Structured formats
