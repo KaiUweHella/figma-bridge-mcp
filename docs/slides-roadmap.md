@@ -40,8 +40,16 @@ label change the target file.
 - Inspect a slide's text, media, components and interactive elements as a
   compact structured model rather than only returning `childCount`.
 - Add slide-scoped accessibility and overflow checks.
-- Reuse the existing render pipeline with one explicit target slide. Do not
-  introduce a Slides-only renderer or a second transport.
+- ~~Reuse the existing render pipeline with one explicit target slide. Do not
+  introduce a Slides-only renderer or a second transport.~~ **Delivered**
+  (ADR 0130): `render --slide <nodeId>` renders a Semantic Render Plan into one
+  named slide. The Dispatch Receipt guard admits exactly `render-plan` +
+  `slides` + a well-formed slide id; `render-plan-batch` and every other editor
+  stay refused. The executor resolves the target before any mutation and places
+  the root in the slide's own coordinate space. Slide ids come from
+  `slides inspect`; `name:`/`label:` references are not accepted, because
+  resolving one needs a read and an ambiguous reference must never let a render
+  choose its own target.
 - Add row creation and row-level movement only if their destructive semantics
   can be made as explicit as slide movement.
 
@@ -66,6 +74,31 @@ label change the target file.
 - Add viewport/focus helpers only when they improve a concrete authoring or
   verification workflow; do not automate presentation playback for its own
   sake.
+
+## Verified against the installed typings (1.133.0, 2026-09-02)
+
+A re-audit of `@figma/plugin-typings` 1.133.0 for the P3 items:
+
+- `InteractiveSlideElementNode` declares `type` and
+  `interactiveSlideElementType: 'POLL' | 'EMBED' | 'FACEPILE' | 'ALIGNMENT' |
+'YOUTUBE'` — **readable**. Its only method is `clone()`; no
+  `createInteractiveSlideElement` factory exists, so authoring one stays
+  blocked.
+- `createGif` and `createLinkPreviewAsync` are documented in the typings
+  themselves as "only available in FigJam" — **blocked for Slides**, so the
+  link-preview network question is moot here.
+- `createVideoAsync(data)` carries no editor restriction, only a paid-team
+  restriction. `Video` exposes nothing but `hash` (no `getBytesAsync`/
+  `getSizeAsync`, unlike `Image`), so a written video cannot be read back the
+  way an image can.
+- `PageNode.focusedSlide`, `PageNode.focusedNode`, `ViewportAPI.slidesView` and
+  `ViewportAPI.canvasView` are all declared as getters _and_ setters — viewport
+  and focus helpers are implementable whenever a concrete workflow needs them.
+- `createSlideRow(row?)` is declared and not deprecated: the row-level gap in
+  P1 is a product decision about destructive semantics, not an API gap.
+  `SlideGridNode.clone()` is typed but documented to throw at runtime.
+- Speaker notes remain absent from the typings entirely — no member of any name
+  on `SlideNode` or `PluginAPI`.
 
 ## Currently blocked by the public Plugin API
 

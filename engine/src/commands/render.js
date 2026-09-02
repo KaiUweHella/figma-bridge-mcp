@@ -584,6 +584,7 @@ program
   .option('--approve-fallback <list>', 'Comma-separated reviewed fallback kinds or paths approved for this render/audit')
   .option('--approve-flat-repetition <ids>', 'Approve exact flat-repetition finding ids for a multi-root render')
   .option('--allow-free-layout <paths>', 'Comma-separated semantic paths allowed to use explicit free layout')
+  .option('--slide <nodeId>', 'Figma Slides: render into this slide by explicit node id (e.g. 12:34); the root is placed in the slide\'s own coordinate space')
   .action(async (rawJsx, options) => {
     let legacyVerificationPlan = null;
     try {

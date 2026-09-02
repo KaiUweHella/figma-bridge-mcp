@@ -2077,3 +2077,88 @@ describe('structured executor Motion', () => {
     assert.throws(() => assertSemanticRenderPlan(late), /inside the motion duration/);
   });
 });
+
+describe('rendering into one explicit Figma Slides target', () => {
+  const slidePlan = () => new FigmaClient().planJSX(
+    '<Frame name="Cover" flex="col" w="1920" h="1080" bg="#0E0F12">'
+    + '<Text name="Title" size="88" weight="700" color="#F5F5F1">Hello</Text></Frame>',
+  );
+
+  // A slide is a container the executor may append to. It is deliberately not
+  // built by fakeFigma's layer factory: the executor must accept any node whose
+  // type is SLIDE, and reject everything else, on type alone.
+  const fakeSlide = (id = '12:34', type = 'SLIDE') => ({
+    id,
+    type,
+    name: 'Slide 1',
+    children: [],
+    appendChild(child) {
+      const owner = child.parent;
+      if (owner && Array.isArray(owner.children)) {
+        owner.children.splice(owner.children.indexOf(child), 1);
+      }
+      this.children.push(child);
+      child.parent = this;
+    },
+  });
+
+  it('moves the created root into the named slide and places it at the slide origin', async () => {
+    const figma = fakeFigma();
+    const slide = fakeSlide();
+    figma.currentPage.children.push(slide);
+
+    const result = await executeStructuredRenderPlan(figma, slidePlan(), { slide: '12:34' });
+    const root = figma.created.find((node) => node.name === 'Cover');
+
+    assert.equal(result.executor, 'structured-v1');
+    assert.equal(root.parent, slide, 'the root belongs to the slide, not to the focused page');
+    assert.deepEqual(slide.children.map((child) => child.name), ['Cover']);
+    assert.equal(root.x, 0, 'placement is in the slide\'s own coordinate space');
+    assert.equal(root.y, 0);
+  });
+
+  it('honours an explicit position inside the slide', async () => {
+    const figma = fakeFigma();
+    const slide = fakeSlide();
+    figma.currentPage.children.push(slide);
+
+    await executeStructuredRenderPlan(figma, slidePlan(), { slide: '12:34', x: 40, y: 24 });
+    const root = figma.created.find((node) => node.name === 'Cover');
+
+    assert.equal(root.parent, slide);
+    assert.equal(root.x, 40);
+    assert.equal(root.y, 24);
+  });
+
+  it('refuses a target that is not a slide, before creating anything', async () => {
+    const figma = fakeFigma();
+    figma.currentPage.children.push(fakeSlide('12:34', 'FRAME'));
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, slidePlan(), { slide: '12:34' }), (error) => {
+      assert.match(error.message, /is a FRAME, not a SLIDE/);
+      assert.equal(error.mutationOutcome, 'no-mutation');
+      return true;
+    });
+    assert.equal(figma.created.length, 0, 'a wrong-typed target must not leave a frame behind');
+  });
+
+  it('refuses a target that does not exist, before creating anything', async () => {
+    const figma = fakeFigma();
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, slidePlan(), { slide: '99:99' }), (error) => {
+      assert.match(error.message, /99:99 was not found/);
+      assert.equal(error.mutationOutcome, 'no-mutation');
+      return true;
+    });
+    assert.equal(figma.created.length, 0);
+  });
+
+  it('refuses a slide target that is not a node id', async () => {
+    const figma = fakeFigma();
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, slidePlan(), { slide: '' }), (error) => {
+      assert.match(error.message, /slide target must be a node id/);
+      return true;
+    });
+  });
+});

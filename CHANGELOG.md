@@ -5,6 +5,33 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Added
+
+- Figma Slides content can be authored through the native render pipeline
+  (ADR 0130): `render --slide <nodeId>` renders one Semantic Render Plan into
+  the named slide. Previously `render-plan` was refused outside Figma Design,
+  so a deck could only be filled by accident — through the legacy compatibility
+  executor, which is not editor-gated — and it landed in whichever slide
+  happened to be focused, because `figma.currentPage` in the Slides editor is
+  the focused slide.
+  The Dispatch Receipt guard now admits exactly one exception: action
+  `render-plan`, editor `slides`, and a well-formed slide id carried by the
+  same request payload the plugin executes. `render-plan-batch` stays refused
+  in Slides, and FigJam and Dev Mode stay closed even with a slide-shaped
+  target. The executor resolves the target before any mutation and refuses a
+  missing or wrong-typed node with `no-mutation`, then places the root in the
+  slide's own coordinate space. `--slide` takes a node id from
+  `slides inspect`; `name:`/`label:` references are not accepted, because
+  resolving one needs a read and an ambiguous reference must never let a render
+  pick its own target. Plugin build 3.3.41 — relaunch the development plugin
+  before rendering into a slide.
+- `docs/slides-roadmap.md` records a fresh audit of `@figma/plugin-typings`
+  1.133.0 for the remaining Slides items: interactive slide elements are
+  readable but have no create factory, `createGif` and
+  `createLinkPreviewAsync` are FigJam-only per the typings themselves,
+  `createVideoAsync` carries only a paid-team restriction, focus and
+  `slidesView` are settable, and speaker notes have no declared surface at all.
+
 ## [0.7.4] — 2026-09-01
 
 ### Added

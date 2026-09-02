@@ -23,6 +23,8 @@ test('always-write commands are gated regardless of arguments', () => {
     ['gradient', 'mesh', '#f00,#00f'],
     ['combos', '1:2'],          // generates a variant grid — was ungated
     ['sizes', '1:2'],           // generates size variants — was ungated
+    // A render into one explicit slide is still a design mutation.
+    ['render', '<Frame/>', '--slide=12:34'],
   ]) {
     assert.equal(isWrite(args), true, args.join(' '));
   }
@@ -38,6 +40,8 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['dev', 'list'],
     ['annotate', 'list', '1:2'],
     ['section', 'list'],
+    ['slides', 'inspect'],         // the deck's only read verb
+    ['slides', 'inspect', 'label:Cover'],
     ['grid', 'list', '1:2'],
     ['col', 'list'],
     ['var', 'list'],
@@ -118,6 +122,13 @@ test('write subcommands of gated groups require confirm', () => {
     ['jam', 'arrange'],
     ['section', 'fit', '1:2'],
     ['section', 'arrange', '1:2'],
+    // Every Slides verb except inspect mutates the deck.
+    ['slides', 'create', 'Cover'],
+    ['slides', 'duplicate', 'label:Cover'],
+    ['slides', 'move', 'label:Cover', '1', '0'],
+    ['slides', 'transition', 'label:Cover', 'DISSOLVE'],
+    ['slides', 'skip', 'label:Cover'],
+    ['slides', 'delete', 'label:Cover'],
   ]) {
     assert.equal(isWrite(args), true, args.join(' '));
   }

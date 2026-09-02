@@ -136,7 +136,7 @@ test('Semantic Render request Interface closes argv before policy and preserves 
   assert.deepEqual(request, {
     jsx: SIMPLE_JSX,
     keepWrapper: true,
-    placement: { smart: true, x: null, y: null },
+    placement: { smart: true, x: null, y: null, slide: null },
     collection: 'Brand',
     resourcePolicy: { materializeGenerated: false },
     preset: 'desktop',
@@ -160,10 +160,45 @@ test('Semantic Render request Interface closes argv before policy and preserves 
   const positioned = semanticRenderRequestFromArgv([
     'render', SIMPLE_JSX, '-x-120.5', '-y240', '--no-smart-position',
   ]);
-  assert.deepEqual(positioned.placement, { smart: false, x: -120.5, y: 240 });
+  assert.deepEqual(positioned.placement, { smart: false, x: -120.5, y: 240, slide: null });
   assert.deepEqual(semanticRenderArgvFromRequest(positioned), [
     'render', SIMPLE_JSX, '-x-120.5', '-y240', '--no-smart-position',
   ]);
+
+  const slideTargeted = semanticRenderRequestFromArgv([
+    'render', SIMPLE_JSX, '--slide=12:34',
+  ]);
+  assert.deepEqual(
+    slideTargeted.placement,
+    { smart: true, x: null, y: null, slide: '12:34' },
+    'one explicit target slide rides on placement',
+  );
+  assert.deepEqual(semanticRenderArgvFromRequest(slideTargeted), [
+    'render', SIMPLE_JSX, '--slide=12:34',
+  ]);
+  assert.deepEqual(
+    semanticRenderArgvRoute(['render', SIMPLE_JSX, '--slide=12:34']),
+    { kind: 'simple', reason: null },
+    'a slide target stays on the native route instead of falling back',
+  );
+  assert.equal(
+    semanticRenderRequestFromArgv(['render', SIMPLE_JSX, '--slide=node:12:34']).placement.slide,
+    '12:34',
+    'a node: prefix is canonicalized away',
+  );
+  // An empty value is refused by the shared bounded-option check before the
+  // slide grammar is reached; the grammar owns everything else.
+  assert.throws(
+    () => semanticRenderRequestFromArgv(['render', SIMPLE_JSX, '--slide=']),
+    /--slide must not be empty/,
+  );
+  for (const bad of ['--slide=label:Cover', '--slide=12-34', '--slide=Cover']) {
+    assert.throws(
+      () => semanticRenderRequestFromArgv(['render', SIMPLE_JSX, bad]),
+      /slide must be a Figma slide node id/,
+      bad,
+    );
+  }
 
   const materialized = semanticRenderRequestFromArgv([
     'render', SIMPLE_JSX, '--materialize-resources',

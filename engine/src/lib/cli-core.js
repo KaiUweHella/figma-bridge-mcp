@@ -173,6 +173,12 @@ function expectedEditorForCommand() {
   if (command === 'jam') return 'figjam';
   if (command === 'slides') return 'slides';
   if (command === 'measure') return 'dev';
+  // A render that names a target slide runs in the Slides editor. The target is
+  // explicit in argv, so the editor follows from the request rather than from
+  // whichever window happens to be focused.
+  if (command === 'render' && cliArgs.some((value) => value === '--slide' || value.startsWith('--slide='))) {
+    return 'slides';
+  }
   return 'figma';
 }
 

@@ -830,7 +830,13 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   if (prepared.support.supported) {
     try {
       raw = await adapters.renderPlan(prepared.renderPlan, {
-        ...prepared.request.placement,
+        smart: prepared.request.placement.smart,
+        x: prepared.request.placement.x,
+        y: prepared.request.placement.y,
+        // Only a named target travels; a Design render's payload stays exactly
+        // what it was before Slides became reachable.
+        ...(prepared.request.placement.slide == null
+          ? {} : { slide: prepared.request.placement.slide }),
         materializeResources: prepared.request.resourcePolicy.materializeGenerated,
       });
       executor = 'structured-v1';
