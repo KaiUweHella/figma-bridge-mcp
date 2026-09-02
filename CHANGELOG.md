@@ -25,6 +25,21 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   resolving one needs a read and an ambiguous reference must never let a render
   pick its own target. Plugin build 3.3.41 — relaunch the development plugin
   before rendering into a slide.
+- `slides inspect` now uses the shared deck-facts eval fragment instead of its
+  own inlined copy of the grid walk, the label reader, the transition reader
+  and the fact projection (403 to 316 lines, same output). `slides duplicate`
+  and `slides move` keep their own walks on purpose: theirs are mutation
+  verification snapshots that also capture the page id, the selection and a
+  node map, with per-command bounds and error messages their tests pin — the
+  leaf facts coincide, the purpose does not.
+- Corrected an availability claim in `docs/slides-roadmap.md` that had been
+  taken from a typings doc comment rather than measured. `createGif` is
+  documented as FigJam-only but is callable in Figma Slides — a live call there
+  fails with `Invalid SHA1 hash`, an argument complaint rather than an editor
+  refusal — so GIF insertion was never blocked by the platform, only by our own
+  reading. `createVideoAsync` likewise fails on file type, not on the editor.
+  `createLinkPreviewAsync` really is `undefined` in the Slides runtime, and
+  speaker notes really have no member of any name on a live slide node.
 - The two implementable Figma Slides P3 items. `slides manifest` now
   inventories each slide's `INTERACTIVE_SLIDE_ELEMENT` nodes with their native
   type (`POLL`, `EMBED`, `FACEPILE`, `ALIGNMENT`, `YOUTUBE`), walking the

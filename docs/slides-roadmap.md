@@ -155,13 +155,21 @@ A re-audit of `@figma/plugin-typings` 1.133.0 for the P3 items:
 'YOUTUBE'` — **readable**. Its only method is `clone()`; no
   `createInteractiveSlideElement` factory exists, so authoring one stays
   blocked.
-- `createGif` and `createLinkPreviewAsync` are documented in the typings
-  themselves as "only available in FigJam" — **blocked for Slides**, so the
-  link-preview network question is moot here.
+- `createGif` and `createLinkPreviewAsync` both carry the typings' note "only
+  available in FigJam". **That note is not a runtime fact, and only one of the
+  two is actually blocked.** Measured in a live Slides file on 2026-09-03:
+  `typeof figma.createGif === 'function'`, and calling it there fails with
+  `in createGif: Invalid SHA1 hash` — an argument complaint, not an editor
+  refusal — so the API is live in Slides. `figma.createLinkPreviewAsync` is
+  `undefined` in the Slides runtime and is genuinely unavailable.
+  The lesson generalises: a doc comment in the typings states availability, it
+  does not enforce it. Availability claims that gate our own surface must be
+  probed, not quoted.
 - `createVideoAsync(data)` carries no editor restriction, only a paid-team
   restriction. `Video` exposes nothing but `hash` (no `getBytesAsync`/
   `getSizeAsync`, unlike `Image`), so a written video cannot be read back the
-  way an image can.
+  way an image can. Live probe: it exists in Slides and fails on file type
+  (`Video file type must be MP4, MOV, or WebM.`), never on the editor.
 - `PageNode.focusedSlide`, `PageNode.focusedNode`, `ViewportAPI.slidesView` and
   `ViewportAPI.canvasView` are all declared as getters _and_ setters — viewport
   and focus helpers are implementable whenever a concrete workflow needs them.
@@ -169,15 +177,28 @@ A re-audit of `@figma/plugin-typings` 1.133.0 for the P3 items:
   P1 is a product decision about destructive semantics, not an API gap.
   `SlideGridNode.clone()` is typed but documented to throw at runtime.
 - Speaker notes remain absent from the typings entirely — no member of any name
-  on `SlideNode` or `PluginAPI`.
+  on `SlideNode` or `PluginAPI`. Confirmed on the live runtime as well: no own
+  or prototype member of a real `SLIDE` node matches `/note|speaker/`. This one
+  is genuinely blocked, not a documentation artefact.
 
 ## Currently blocked by the public Plugin API
 
+Each item below was checked against the live Slides runtime, not only against
+the typings, after a doc comment turned out to overstate one restriction.
+
 - Creating native polls, facepiles, alignment activities, and specialized
   YouTube interactive elements: the typings expose their node type and cloning,
-  but no public create method.
+  but no public create method. Reading them is delivered (`slides manifest`).
 - Reading or writing speaker notes: no speaker-notes surface is declared in the
-  installed Plugin API typings.
+  installed Plugin API typings, and none exists on a live slide node.
+- Link previews and embeds: `createLinkPreviewAsync` is `undefined` in the
+  Slides runtime.
+
+Not blocked, and available to build when a workflow needs it: GIF and video
+insertion. `createGif` and `createVideoAsync` are both callable in Slides
+despite the typings' FigJam note; what they need is the same asset-input policy
+Figma Design media already uses, not a new capability decision.
+
 - Any future Slides feature that only exists in the UI must remain documented
   as blocked until it appears in the official typings and passes a live check.
 

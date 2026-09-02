@@ -2,10 +2,10 @@
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import {
-  SLIDE_LABEL_KEY,
   TRANSITION_CURVES,
   TRANSITION_STYLES,
   TRANSITION_TIMINGS,
+  slideDeckFactsFragment,
 } from '../lib/slides-snippets.js';
 import {
   parseSlidesReferenceRequest,
@@ -50,9 +50,6 @@ export function slidesInspectCode(request) {
     const schemaVersion = 1;
     const reference = ${jsValue(reference)};
     const nodeIdPattern = ${NODE_REFERENCE_PATTERN};
-    const transitionStyles = new Set(${jsValue(TRANSITION_STYLES)});
-    const transitionCurves = new Set(${jsValue(TRANSITION_CURVES)});
-    const transitionTimings = new Set(${jsValue(TRANSITION_TIMINGS)});
     const exact = (value, keys) => value && typeof value === 'object'
       && !Array.isArray(value)
       && Object.keys(value).length === keys.length
@@ -61,9 +58,6 @@ export function slidesInspectCode(request) {
       && value.length <= ${MAX_NODE_REFERENCE_CODE_UNITS} && nodeIdPattern.test(value);
     const text = (value, maximum, empty = true) => typeof value === 'string'
       && value.length <= maximum && (empty || value.length > 0);
-    const integer = (value, maximum) => Number.isSafeInteger(value)
-      && value >= 0 && value <= maximum;
-    const rounded = (value) => Math.round(value * 10000) / 10000;
     const result = (payload) => {
       const serialized = JSON.stringify(payload);
       if (serialized.length > ${MAX_SLIDES_INSPECT_RESULT_CODE_UNITS}) {
@@ -71,55 +65,22 @@ export function slidesInspectCode(request) {
       }
       return serialized;
     };
+    ${slideDeckFactsFragment()}
     try {
       if (figma.editorType !== 'slides') {
         return result({ schemaVersion, status: 'wrong-editor' });
       }
-      if (!figma.currentPage || typeof figma.getCanvasGrid !== 'function'
-        || typeof figma.getNodeByIdAsync !== 'function') {
+      if (typeof figma.getNodeByIdAsync !== 'function') {
         return result({ schemaVersion, status: 'invalid-runtime' });
       }
-      const grid = figma.getCanvasGrid();
-      if (!Array.isArray(grid) || grid.length > ${MAX_SLIDES_INSPECT_ROWS}) {
-        return result({ schemaVersion, status: 'invalid-runtime' });
-      }
-      const rows = [];
-      const slides = [];
-      const coordinates = new Map();
-      const seen = new Set();
-      let gridEntries = 0;
-      for (let row = 0; row < grid.length; row++) {
-        const source = grid[row];
-        if (!Array.isArray(source) || source.length > ${MAX_SLIDES_INSPECT_ROW_ENTRIES}) {
-          return result({ schemaVersion, status: 'invalid-runtime' });
-        }
-        gridEntries += source.length;
-        if (gridEntries > ${MAX_SLIDES_INSPECT_GRID_ENTRIES}) {
-          return result({ schemaVersion, status: 'invalid-runtime' });
-        }
-        const slideRow = [];
-        for (let col = 0; col < source.length; col++) {
-          const node = source[col];
-          if (!node || node.type !== 'SLIDE') continue;
-          if (!validId(node.id) || !text(node.name, ${MAX_NAME_CODE_UNITS})
-            || seen.has(node.id) || slides.length >= ${MAX_SLIDES_INSPECT_SLIDES}) {
-            return result({ schemaVersion, status: 'invalid-runtime' });
-          }
-          seen.add(node.id);
-          coordinates.set(node.id, { row, col });
-          slides.push(node);
-          slideRow.push(node);
-        }
-        rows.push(slideRow);
-      }
-      const labelOf = (slide) => {
-        let label = '';
-        try { label = slide.getPluginData(${jsValue(SLIDE_LABEL_KEY)}) || ''; } catch {}
-        if (!text(label, ${MAX_NAME_CODE_UNITS})) {
-          throw new Error('invalid slide label');
-        }
-        return label;
-      };
+      // The shared deck walk owns grid bounds and fact shape; anything it
+      // cannot trust throws and surfaces here as invalid-runtime, exactly as
+      // the inlined walk used to report it.
+      const deck = __deckRead();
+      const rows = deck.rows;
+      const slides = deck.slides;
+      const labelOf = __deckLabel;
+      const facts = __deckFacts;
       const identity = (slide) => {
         if (!slide || slide.type !== 'SLIDE' || !validId(slide.id)
           || !text(slide.name, ${MAX_NAME_CODE_UNITS})) {
@@ -127,56 +88,7 @@ export function slidesInspectCode(request) {
         }
         return { id: slide.id, name: slide.name, label: labelOf(slide) || null };
       };
-      const transitionOf = (slide) => {
-        if (typeof slide.getSlideTransition !== 'function') {
-          throw new Error('invalid slide transition reader');
-        }
-        const value = slide.getSlideTransition();
-        if (!exact(value, ['style', 'duration', 'curve', 'timing'])
-          || !transitionStyles.has(value.style) || !transitionCurves.has(value.curve)
-          || typeof value.duration !== 'number' || !Number.isFinite(value.duration)
-          || value.duration < 0 || value.duration > ${MAX_TRANSITION_SECONDS}
-          || !value.timing || !transitionTimings.has(value.timing.type)) {
-          throw new Error('invalid slide transition');
-        }
-        const timingKeys = value.timing.type === 'AFTER_DELAY' ? ['type', 'delay'] : ['type'];
-        if (!exact(value.timing, timingKeys)
-          || (value.timing.type === 'AFTER_DELAY'
-            && (typeof value.timing.delay !== 'number' || !Number.isFinite(value.timing.delay)
-              || value.timing.delay < 0 || value.timing.delay > ${MAX_TRANSITION_SECONDS}))) {
-          throw new Error('invalid slide transition timing');
-        }
-        return {
-          style: value.style,
-          duration: rounded(value.duration),
-          curve: value.curve,
-          timing: value.timing.type === 'AFTER_DELAY'
-            ? { type: value.timing.type, delay: rounded(value.timing.delay) }
-            : { type: value.timing.type },
-        };
-      };
-      const facts = (slide) => {
-        const base = identity(slide);
-        if (!Array.isArray(slide.children)
-          || slide.children.length > ${MAX_SLIDES_INSPECT_CHILDREN}
-          || typeof slide.isSkippedSlide !== 'boolean') {
-          throw new Error('invalid slide facts');
-        }
-        const coordinate = coordinates.get(slide.id) || { row: null, col: null };
-        return {
-          ...base,
-          row: coordinate.row,
-          col: coordinate.col,
-          skipped: slide.isSkippedSlide,
-          transition: transitionOf(slide),
-          childCount: slide.children.length,
-        };
-      };
-      const focused = figma.currentPage.focusedSlide;
-      const focusedId = focused == null ? null : focused.id;
-      if (focusedId !== null && !validId(focusedId)) {
-        return result({ schemaVersion, status: 'invalid-runtime' });
-      }
+      const focusedId = deck.focusedId;
       if (!reference) {
         const data = {
           editor: 'slides',

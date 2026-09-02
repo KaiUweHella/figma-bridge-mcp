@@ -26,6 +26,8 @@ export const SLIDE_LABEL_KEY = 'bridge-slide-label';
 export const MAX_DECK_ROWS = 4_096;
 export const MAX_DECK_ROW_ENTRIES = 4_096;
 export const MAX_DECK_SLIDES = 50_000;
+export const MAX_DECK_GRID_ENTRIES = 50_000;
+export const MAX_DECK_CHILDREN = 50_000;
 export const MAX_DECK_NAME_CODE_UNITS = 4_096;
 export const MAX_DECK_TRANSITION_SECONDS = 86_400;
 export const INTERACTIVE_SLIDE_ELEMENT_TYPES = Object.freeze([
@@ -120,11 +122,14 @@ export function slideDeckFactsFragment() {
       const rows = [];
       const slides = [];
       const seen = new Set();
+      let entries = 0;
       for (let row = 0; row < grid.length; row++) {
         const source = grid[row];
         if (!Array.isArray(source) || source.length > ${MAX_DECK_ROW_ENTRIES}) {
           throw new Error('invalid slide row');
         }
+        entries += source.length;
+        if (entries > ${MAX_DECK_GRID_ENTRIES}) throw new Error('invalid slide grid');
         const slideRow = [];
         for (let col = 0; col < source.length; col++) {
           const node = source[col];
@@ -150,7 +155,8 @@ export function slideDeckFactsFragment() {
       if (!slide || slide.type !== 'SLIDE' || !__deckId(slide.id) || !__deckText(slide.name)) {
         throw new Error('invalid slide identity');
       }
-      if (!Array.isArray(slide.children) || typeof slide.isSkippedSlide !== 'boolean') {
+      if (!Array.isArray(slide.children) || typeof slide.isSkippedSlide !== 'boolean'
+        || slide.children.length > ${MAX_DECK_CHILDREN}) {
         throw new Error('invalid slide facts');
       }
       const coordinate = __deckCoordinates.get(slide.id) || { row: null, col: null };
