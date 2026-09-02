@@ -5,7 +5,7 @@ import {
   unionReferenceArgvValue,
 } from './union-reference.js';
 
-const ACTIONS = new Set(['inspect', 'create', 'duplicate', 'move', 'transition', 'skip', 'delete', 'lint', 'manifest']);
+const ACTIONS = new Set(['inspect', 'create', 'duplicate', 'move', 'transition', 'skip', 'delete', 'lint', 'manifest', 'focus', 'view']);
 const VALUE_OPTIONS = Object.freeze({
   create: new Set(['--row', '--col']),
   duplicate: new Set(['--label', '--row', '--col']),
@@ -20,6 +20,8 @@ const FLAG_OPTIONS = Object.freeze({
 const POSITIONAL_BOUNDS = Object.freeze({
   lint: [0, 0],
   manifest: [0, 0],
+  focus: [1, 1],
+  view: [1, 1],
   inspect: [0, 1],
   create: [0, 1],
   duplicate: [1, 1],
@@ -28,7 +30,7 @@ const POSITIONAL_BOUNDS = Object.freeze({
   skip: [1, 2],
   delete: [1, 1],
 });
-const REFERENCE_ACTIONS = new Set(['inspect', 'duplicate', 'move', 'transition', 'skip', 'delete']);
+const REFERENCE_ACTIONS = new Set(['inspect', 'duplicate', 'move', 'transition', 'skip', 'delete', 'focus']);
 
 function requestError(message) {
   return new Error(`Invalid Slides command: ${message}.`);

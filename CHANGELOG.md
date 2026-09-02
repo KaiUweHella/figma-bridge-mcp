@@ -25,6 +25,19 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   resolving one needs a read and an ambiguous reference must never let a render
   pick its own target. Plugin build 3.3.41 — relaunch the development plugin
   before rendering into a slide.
+- The two implementable Figma Slides P3 items. `slides manifest` now
+  inventories each slide's `INTERACTIVE_SLIDE_ELEMENT` nodes with their native
+  type (`POLL`, `EMBED`, `FACEPILE`, `ALIGNMENT`, `YOUTUBE`), walking the
+  subtree under a node and per-slide budget and reporting
+  `interactiveTruncated` when one is hit; an undeclared type is reported as
+  `UNKNOWN` rather than passed through. Reading is the whole capability — the
+  typings declare `clone()` and no create factory for these nodes.
+  `slides focus <slide>` and `slides view <grid | single-slide>` move the
+  editor's own context using the setters the typings declare
+  (`PageNode.focusedSlide`, `ViewportAPI.slidesView`), verifying by readback so
+  a silently refused change is reported as a refusal. Neither changes the
+  document: both report `effects.figma: 'read'` with `effects.editor: 'write'`
+  and are not gated by write confirmation.
 - Bounded Figma Slides batch operations (roadmap P2):
   `slides batch '<json>' [--apply]` plans up to 64 heterogeneous `create`,
   `duplicate` and `move` items and performs them only when asked. The plan is

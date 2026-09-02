@@ -9,8 +9,11 @@
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import {
+  INTERACTIVE_SLIDE_ELEMENT_TYPES,
   MAX_DECK_SLIDES,
+  MAX_INTERACTIVE_ELEMENTS_PER_SLIDE,
   slideDeckFactsFragment,
+  slideInteractiveElementsFragment,
 } from '../lib/slides-snippets.js';
 import { parseSlidesReferenceRequest } from './slides-reference-request.js';
 import { validDeckFact } from './slides-facts.js';
@@ -30,12 +33,24 @@ export function slidesManifestCode() {
       return serialized;
     };
     ${slideDeckFactsFragment()}
+    ${slideInteractiveElementsFragment()}
     try {
       if (figma.editorType !== 'slides') {
         return result({ schemaVersion, status: 'wrong-editor' });
       }
       const deck = __deckRead();
-      const rows = deck.rows.map((row) => row.map(__deckFacts));
+      const rows = deck.rows.map((row) => row.map((slide) => {
+        const facts = __deckFacts(slide);
+        // Interactive elements are reportable but not authorable: the typings
+        // declare no create factory for them, so a manifest is the only place
+        // a reviewer can see that a slide carries a poll or a facepile.
+        const interactive = __deckInteractive(slide);
+        return {
+          ...facts,
+          interactive: interactive.elements,
+          interactiveTruncated: interactive.truncated,
+        };
+      }));
       return result({
         schemaVersion,
         status: 'ok',
@@ -50,6 +65,29 @@ export function slidesManifestCode() {
       return JSON.stringify({ schemaVersion, status: 'invalid-runtime' });
     }
   })()`;
+}
+
+const INTERACTIVE_TYPES = new Set([...INTERACTIVE_SLIDE_ELEMENT_TYPES, 'UNKNOWN']);
+const INTERACTIVE_NODE_ID = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+
+function validInteractiveElement(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Object.keys(value).length !== 3) return false;
+  if (typeof value.id !== 'string' || !INTERACTIVE_NODE_ID.test(value.id)) return false;
+  if (!INTERACTIVE_TYPES.has(value.type)) return false;
+  return typeof value.name === 'string' && value.name.length <= 4096;
+}
+
+/** One manifest row: the shared deck fact plus its interactive inventory. */
+function validManifestFact(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { interactive, interactiveTruncated, ...fact } = value;
+  if (!validDeckFact(fact)) return false;
+  if (typeof interactiveTruncated !== 'boolean') return false;
+  if (!Array.isArray(interactive)
+    || interactive.length > MAX_INTERACTIVE_ELEMENTS_PER_SLIDE
+    || !interactive.every(validInteractiveElement)) return false;
+  return true;
 }
 
 function validPayload(value) {
@@ -72,7 +110,7 @@ function validPayload(value) {
   for (const row of data.rows) {
     if (!Array.isArray(row)) return false;
     for (const fact of row) {
-      if (!validDeckFact(fact)) return false;
+      if (!validManifestFact(fact)) return false;
       if (seen.has(fact.id)) return false;
       seen.add(fact.id);
       counted++;
@@ -97,12 +135,16 @@ function formatManifest(data) {
       return;
     }
     for (const fact of row) {
+      const interactive = fact.interactive.length
+        ? `interactive: ${fact.interactive.map((element) => element.type).join(', ')}${fact.interactiveTruncated ? ', …' : ''}`
+        : null;
       const marks = [
         fact.skipped ? 'skipped' : null,
         fact.childCount === 0 ? 'empty' : `${fact.childCount} child(ren)`,
         fact.transition.style === 'NONE'
           ? 'no transition'
           : `${fact.transition.style} ${fact.transition.duration}s ${fact.transition.curve}`,
+        interactive,
       ].filter(Boolean);
       lines.push(`[${fact.row},${fact.col}] ${fact.id} ${JSON.stringify(fact.label ?? fact.name)} — ${marks.join(' · ')}`);
     }

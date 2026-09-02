@@ -28,6 +28,12 @@ export const MAX_DECK_ROW_ENTRIES = 4_096;
 export const MAX_DECK_SLIDES = 50_000;
 export const MAX_DECK_NAME_CODE_UNITS = 4_096;
 export const MAX_DECK_TRANSITION_SECONDS = 86_400;
+export const INTERACTIVE_SLIDE_ELEMENT_TYPES = Object.freeze([
+  'POLL', 'EMBED', 'FACEPILE', 'ALIGNMENT', 'YOUTUBE',
+]);
+export const MAX_INTERACTIVE_ELEMENTS_PER_SLIDE = 64;
+export const MAX_INTERACTIVE_WALK_NODES = 4_096;
+
 export const DECK_FACT_KEYS = Object.freeze([
   'id', 'name', 'label', 'row', 'col', 'skipped', 'transition', 'childCount',
 ]);
@@ -158,6 +164,50 @@ export function slideDeckFactsFragment() {
         transition: __deckTransition(slide),
         childCount: slide.children.length,
       };
+    };
+  `;
+}
+
+/**
+ * Eval source for the interactive elements on one slide.
+ *
+ * Read-only by necessity as much as by choice: `@figma/plugin-typings` 1.133
+ * declares `InteractiveSlideElementNode` with `interactiveSlideElementType`
+ * and `clone()`, and no create factory of any kind, so a poll or a facepile
+ * can be reported but never authored. Kept separate from the deck-facts walk
+ * because it descends a subtree, which the batch preflight has no use for.
+ *
+ * Defines `__deckInteractive(slide)` returning a bounded array of
+ * `{ id, type, name }` plus a `truncated` marker when the walk hit its budget.
+ */
+export function slideInteractiveElementsFragment() {
+  return `
+    const __interactiveTypes = new Set(${JSON.stringify(INTERACTIVE_SLIDE_ELEMENT_TYPES)});
+    const __deckInteractive = (slide) => {
+      const found = [];
+      let visited = 0;
+      let truncated = false;
+      const walk = (node) => {
+        if (truncated || !node) return;
+        if (visited++ >= ${MAX_INTERACTIVE_WALK_NODES}) { truncated = true; return; }
+        if (node.type === 'INTERACTIVE_SLIDE_ELEMENT') {
+          if (found.length >= ${MAX_INTERACTIVE_ELEMENTS_PER_SLIDE}) { truncated = true; return; }
+          const kind = node.interactiveSlideElementType;
+          found.push({
+            id: typeof node.id === 'string' ? node.id : '',
+            // An element type the installed typings do not declare is reported
+            // as unknown rather than passed through as a new fact.
+            type: __interactiveTypes.has(kind) ? kind : 'UNKNOWN',
+            name: __deckText(node.name) ? node.name : '',
+          });
+          return;
+        }
+        const children = node.children;
+        if (!Array.isArray(children)) return;
+        for (const child of children) walk(child);
+      };
+      walk(slide);
+      return { elements: found, truncated };
     };
   `;
 }

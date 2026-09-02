@@ -387,6 +387,7 @@ import {
   parseSlidesCreateRequest,
   slidesCreateArgvFromRequest,
 } from '../engine/src/application/slides-create-request.js';
+import { acceptsSlidesViewArgv } from '../engine/src/application/slides-viewport-command.js';
 import {
   acceptsSlidesBatchArgv,
   slidesBatchArgvFromRequest,
@@ -982,7 +983,7 @@ const COMMANDS = Object.freeze({
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
-  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect', 'lint', 'manifest']),
+  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect', 'lint', 'manifest', 'focus', 'view']),
   kit: { summary: 'Prepare a design system for agent use', mutation: 'read', timeout: 'long', path: 'kit-files' },
 });
 
@@ -1027,6 +1028,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
   'sizes', 'var.visualize', 'gradient.mesh',
   'slides.create', 'slides.duplicate', 'slides.batch',
+  'slides.focus', 'slides.view',
   'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.table',
   'canvas.page',
 ]);
@@ -1129,6 +1131,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
   'slides.lint', 'slides.manifest', 'slides.batch',
+  'slides.focus', 'slides.view',
   'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
   'jam.table', 'jam.section', 'jam.code',
   'dev.list',
@@ -1870,6 +1873,10 @@ function commandCapability(args) {
   }
   if (name === 'slides' && args[1] === 'batch'
     && !action.help && !acceptsSlidesBatchArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] === 'view'
+    && !action.help && !acceptsSlidesViewArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides' && ['transition', 'skip'].includes(args[1])

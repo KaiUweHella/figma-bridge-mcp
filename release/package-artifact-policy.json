@@ -296,6 +296,7 @@
     "engine/src/application/slides-property-command.js",
     "engine/src/application/slides-property-request.js",
     "engine/src/application/slides-reference-request.js",
+    "engine/src/application/slides-viewport-command.js",
     "engine/src/application/slot-configuration-command.js",
     "engine/src/application/slot-configuration-request.js",
     "engine/src/application/slot-read-command.js",

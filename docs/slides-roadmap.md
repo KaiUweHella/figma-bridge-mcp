@@ -92,15 +92,40 @@ label change the target file.
 
 ### P3 — media and interactive content where the API permits it
 
-- Inspect existing `INTERACTIVE_SLIDE_ELEMENT` nodes and report their native
-  type (`POLL`, `EMBED`, `FACEPILE`, `ALIGNMENT`, `YOUTUBE`).
+- ~~Inspect existing `INTERACTIVE_SLIDE_ELEMENT` nodes and report their native
+  type (`POLL`, `EMBED`, `FACEPILE`, `ALIGNMENT`, `YOUTUBE`).~~ **Delivered**:
+  `slides manifest` inventories them per slide, walking the subtree under a
+  node and per-slide budget and reporting `interactiveTruncated` when a budget
+  is hit. A type the installed typings do not declare is reported as `UNKNOWN`
+  rather than passed through as a new fact. Reading is the whole capability:
+  the typings declare `clone()` and no create factory, so authoring one stays
+  blocked.
 - Evaluate link previews/embeds only after confirming their network and consent
   behavior fits the loopback-only security model.
 - Evaluate video insertion using existing Plugin API media primitives and the
   same asset-input policy as Figma Design.
-- Add viewport/focus helpers only when they improve a concrete authoring or
+- ~~Add viewport/focus helpers only when they improve a concrete authoring or
   verification workflow; do not automate presentation playback for its own
-  sake.
+  sake.~~ **Delivered**: `slides focus <slide>` and `slides view <grid |
+single-slide>`. Both use surfaces the typings declare as settable
+  (`PageNode.focusedSlide`, `ViewportAPI.slidesView`) and both verify by
+  reading the value back, so a change Figma silently refuses is reported as a
+  refusal rather than as success. Neither changes the document: both report
+  `effects.figma: 'read'` with `effects.editor: 'write'` and are therefore not
+  gated by write confirmation. The concrete workflow they serve is
+  verification — focusing the slide a render targeted, and switching to
+  single-slide view before a screenshot. Presentation playback is still not
+  automated.
+
+## Known ergonomics wart across the whole group
+
+Invalid argv for any Slides subcommand is refused by the Capability Catalog
+before dispatch, but the message is the generic "Command not allowed: slides
+&lt;verb&gt;" rather than the specific reason. `slides view sideways` reports the
+verb as disallowed when the real problem is the mode. This is the established
+behaviour for `create`, `duplicate` and `move` too, so it was left consistent
+rather than special-cased; fixing it belongs at the catalog's refusal
+projection, once, for all of them.
 
 ## Observed Figma behaviour worth knowing (2026-09-02)
 

@@ -594,6 +594,12 @@ import {
   slidesBatchPlanRoute,
 } from "../engine/src/application/slides-batch-command.js";
 import {
+  executeSlidesFocusPlan,
+  executeSlidesViewPlan,
+  slidesFocusPlanRoute,
+  slidesViewPlanRoute,
+} from "../engine/src/application/slides-viewport-command.js";
+import {
   executeSlidesManifestPlan,
   slidesManifestPlanRoute,
 } from "../engine/src/application/slides-manifest-command.js";
@@ -4778,6 +4784,40 @@ export async function handleTool(name, rawArgs) {
               fileKey,
               expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesFocusRoute = slidesFocusPlanRoute(plan);
+      if (slidesFocusRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesFocusPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesViewRoute = slidesViewPlanRoute(plan);
+      if (slidesViewRoute === "command-application") {
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesViewPlan(plan, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }),
           });
         });

@@ -14,17 +14,23 @@ import { slidesManifestCode } from '../src/application/slides-manifest-command.j
 const DISSOLVE = { style: 'DISSOLVE', duration: 0.35, curve: 'GENTLE', timing: { type: 'ON_CLICK' } };
 const NONE = { style: 'NONE', duration: 0, curve: 'EASE_IN', timing: { type: 'ON_CLICK' } };
 
-function slide(id, name, { label = '', skipped = false, children = 1, transition = DISSOLVE } = {}) {
+function slide(id, name, {
+  label = '', skipped = false, children = 1, transition = DISSOLVE, tree = null,
+} = {}) {
   return {
     id,
     name,
     type: 'SLIDE',
     isSkippedSlide: skipped,
-    children: Array.from({ length: children }, (_, index) => ({ id: `${id}:${index}` })),
+    children: tree || Array.from({ length: children }, (_, index) => ({ id: `${id}:${index}` })),
     getPluginData(key) { return key === SLIDE_LABEL_KEY ? label : ''; },
     getSlideTransition() { return transition; },
   };
 }
+
+const interactive = (id, kind, name = kind.toLowerCase()) => ({
+  id, name, type: 'INTERACTIVE_SLIDE_ELEMENT', interactiveSlideElementType: kind,
+});
 
 function runtime(rows, { editorType = 'slides', focusedSlide = null } = {}) {
   const figma = {
@@ -65,9 +71,41 @@ describe('Slides deck manifest', () => {
       skipped: false,
       transition: NONE,
       childCount: 1,
+      interactive: [],
+      interactiveTruncated: false,
     });
     assert.match(result.stdout, /3 slide\(s\), focused 1:2/);
     assert.match(result.stdout, /\[0,1\] 1:2 "02 · Body" — 1 child\(ren\) · DISSOLVE 0\.35s GENTLE/);
+  });
+
+  it('inventories interactive elements a slide carries, however deeply nested', async () => {
+    const rows = [[
+      slide('1:1', '1', {
+        tree: [
+          interactive('1:10', 'POLL', 'Warm-up poll'),
+          { id: '1:11', type: 'FRAME', children: [interactive('1:12', 'FACEPILE')] },
+        ],
+      }),
+      slide('1:2', '2'),
+    ]];
+    const live = runtime(rows);
+    const result = await executeSlidesManifest({ evaluate: live.evaluate });
+
+    const [first, second] = result.result.rows[0];
+    assert.deepEqual(first.interactive, [
+      { id: '1:10', type: 'POLL', name: 'Warm-up poll' },
+      { id: '1:12', type: 'FACEPILE', name: 'facepile' },
+    ]);
+    assert.equal(first.interactiveTruncated, false);
+    assert.deepEqual(second.interactive, []);
+    assert.match(result.stdout, /interactive: POLL, FACEPILE/);
+  });
+
+  it('reports an element type the typings do not declare as UNKNOWN', async () => {
+    const rows = [[slide('1:1', '1', { tree: [interactive('1:10', 'TELEPORT')] })]];
+    const result = await executeSlidesManifest({ evaluate: runtime(rows).evaluate });
+    assert.deepEqual(result.result.rows[0][0].interactive,
+      [{ id: '1:10', type: 'UNKNOWN', name: 'teleport' }]);
   });
 
   it('refuses a deck it cannot read and a non-Slides editor', async () => {

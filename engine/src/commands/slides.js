@@ -40,6 +40,10 @@ import {
 } from '../application/slides-delete-command.js';
 import { executeSlidesLintPlan } from '../application/slides-lint-command.js';
 import { executeSlidesBatchPlan } from '../application/slides-batch-command.js';
+import {
+  executeSlidesFocusPlan,
+  executeSlidesViewPlan,
+} from '../application/slides-viewport-command.js';
 import { slidesBatchPlanningArgvFromRequest } from '../application/slides-batch-request.js';
 import { slidesLintPlanningArgvFromRequest } from '../application/slides-lint-request.js';
 import {
@@ -362,6 +366,60 @@ slides
       if (result.stderr) console.error(result.stderr);
     } catch (error) {
       console.error(chalk.red('\u2717 Slides batch failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Editor context, not document content: focusedSlide and viewport.slidesView
+// are both declared as setters by the Plugin API, and neither changes the file.
+slides
+  .command('focus <slide>')
+  .description('Focus one slide by typed node:/name:/label: reference or compatible query')
+  .allowExcessArguments(false)
+  .action(async (slide) => {
+    try {
+      const plan = planFigmaCommand(['slides', 'focus', slide], {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesFocusPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides focus failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+slides
+  .command('view <mode>')
+  .description('Set the deck view: grid or single-slide')
+  .allowExcessArguments(false)
+  .action(async (mode) => {
+    try {
+      const plan = planFigmaCommand(['slides', 'view', mode], {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesViewPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides view failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

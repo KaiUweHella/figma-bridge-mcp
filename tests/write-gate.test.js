@@ -45,6 +45,9 @@ test('read subcommands of gated groups pass without confirm', () => {
     ['slides', 'lint'],
     ['slides', 'lint', '--fail-on-issues'],
     ['slides', 'manifest'],
+    // Editor context, not document content: neither changes the file.
+    ['slides', 'focus', 'label:Cover'],
+    ['slides', 'view', 'single-slide'],
     // A batch is a plan until --apply; the plan writes nothing.
     ['slides', 'batch', "[{\"op\": \"create\", \"label\": \"X\"}]"],
     ['grid', 'list', '1:2'],
