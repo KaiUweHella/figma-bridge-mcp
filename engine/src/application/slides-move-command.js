@@ -60,8 +60,13 @@ export function slidesMoveCode(request) {
       && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
     const clean = (value, maximum) => String(value).slice(0, maximum)
       .replace(/[\\u0000-\\u001f\\u007f-\\u009f\\u2028-\\u202e\\u2066-\\u2069]/g, ' ');
+    // A Figma rejection is not always an Error: a string or an object with
+    // no message would otherwise vanish behind the fallback sentence.
     const failureText = (error, fallback) => clean(
-      error && error.message ? error.message : fallback, ${MAX_FAILURE_CODE_UNITS});
+      error && error.message ? error.message
+        : typeof error === 'string' && error ? error
+          : error && typeof error === 'object' && Object.keys(error).length
+            ? JSON.stringify(error) : fallback, ${MAX_FAILURE_CODE_UNITS});
     const validId = (value) => typeof value === 'string' && value.length > 0
       && value.length <= ${MAX_NODE_REFERENCE_CODE_UNITS} && nodeIdPattern.test(value);
     const text = (value, maximum, empty = true) => typeof value === 'string'
@@ -166,7 +171,13 @@ export function slidesMoveCode(request) {
         }
         ids.add(node.id); nodes.set(node.id, node); unlisted.push(node.id);
       }
-      const focus = page.focusedSlide || null;
+      // The focus can rest on a node that was just removed: reading it throws
+      // or reports removed. That is no focus, not an invalid snapshot.
+      let focus = null;
+      try {
+        const candidate = page.focusedSlide || null;
+        focus = candidate && candidate.removed !== true && candidate.type ? candidate : null;
+      } catch { focus = null; }
       if (focus && (focus.type !== 'SLIDE' || !validId(focus.id) || !ids.has(focus.id))) {
         throw new Error('Slides Move found an invalid focused Slide.');
       }

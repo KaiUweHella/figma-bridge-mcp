@@ -286,3 +286,30 @@ test('a slide is deleted by existence while the canvas grid throws on every read
   assert.deepEqual(result.result.actual.unlisted, ['1:1', '1:2', '1:3']);
   assert.equal(live.registry.has(ghost.id), false);
 });
+
+test('a focus resting on the slide just removed does not make the readback unavailable', async () => {
+  const live = runtime();
+  // After removal Figma can still hand back the dead node as focusedSlide,
+  // and every property read on it throws. Seen live under a throwing grid.
+  const original = live.details;
+  let removed = false;
+  const dead = new Proxy({}, { get(_target, key) {
+    if (key === 'then') return undefined;
+    throw new Error(`in get_${String(key)}: The node with id "1:2" does not exist`);
+  } });
+  Object.defineProperty(live.page, 'focusedSlide', {
+    get: () => (removed ? dead : original), set: () => {}, configurable: true,
+  });
+  const remove = original.remove.bind(original);
+  original.remove = () => { remove(); removed = true; };
+  const result = await executeSlidesDelete({ reference: 'label:Body' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'deleted');
+  assert.equal(result.result.actual.focusedId, null);
+});
+
+test('a rejection that is not an Error still names itself', () => {
+  const code = slidesDeleteCode({ reference: 'label:Body' });
+  assert.match(code, /typeof error === 'string' && error \? error/);
+});
