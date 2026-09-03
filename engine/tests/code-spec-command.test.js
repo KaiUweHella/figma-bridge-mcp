@@ -88,7 +88,7 @@ test('code-spec request closes and canonicalizes options around an optional node
     'export', 'code-spec', '--format=yaml', '--no-dedup', '1-2', '-p', 'STYLE', '-d=0', '--include-hidden',
   ]), {
     nodeId: '1:2', phase: 'style', depth: 0, section: null,
-    format: 'yaml', includeHidden: true, dedup: false,
+    format: 'yaml', includeHidden: true, dedup: false, outputPath: null,
   });
   assert.deepEqual(codeSpecArgvFromRequest({ nodeId: '1-2', phase: 'structure' }), [
     'export', 'code-spec', '1:2', '--phase', 'structure',
@@ -300,4 +300,58 @@ test('cached projections equal fresh projections and execute only one walker', a
   }
   assert.equal(walks, 1);
   assert.equal(probes, 2);
+});
+
+test('code-spec persists a complete projection to the workspace and returns summary facts', async () => {
+  const adapter = evaluator();
+  const writes = [];
+  const workspaceIO = { write: async (path, text, options) => { writes.push({ path, text, options }); } };
+  const request = { nodeId: '1:2', depth: 12, format: 'json', outputPath: '/workspace/spec/screen.json' };
+  const result = await executeCodeSpec(request, { ...adapter, workspaceIO });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, '/workspace/spec/screen.json');
+  assert.deepEqual(writes[0].options, { role: 'code-spec-output', createParents: true });
+  assert.doesNotThrow(() => parseSpecModel(writes[0].text, 'json'), 'the file holds the lossless model');
+  assert.match(result.stdout, /✓ Code Spec written to \/workspace\/spec\/screen\.json/);
+  assert.match(result.stdout, /layers: unknown visible, 0 unaccounted · plugin evals: 1/);
+  assert.match(result.stdout, /bytes: \d+/);
+  assert.equal(result.saved, '/workspace/spec/screen.json');
+  assert.ok(result.stdout.length < 400, 'stdout stays a summary, never the projection');
+
+  await assert.rejects(
+    executeCodeSpec(request, adapter),
+    /requires WorkspaceIO for persisted output/,
+  );
+  assert.deepEqual(
+    codeSpecArgvFromRequest(request),
+    ['export', 'code-spec', '1:2', '--format', 'json', '--output', '/workspace/spec/screen.json'],
+  );
+  assert.equal(parseCodeSpecRequest(['export', 'code-spec', '1:2', '-o', 'spec.yaml']).outputPath, 'spec.yaml');
+  assert.equal(parseCodeSpecRequest(['export', 'code-spec', '1:2', '--output=spec.yaml']).outputPath, 'spec.yaml');
+  assert.throws(() => parseCodeSpecRequest(['export', 'code-spec', '1:2', '--output']), /requires a value/);
+});
+
+test('code-spec output paths are owned by the Command Plan, run long, and stay a safe read', async () => {
+  const plan = planFigmaCommand(['export', 'code-spec', '1:2', '--format', 'json', '-o', 'spec/screen.json'], {
+    adapter: 'mcp', workspaceDir: '/workspace', fileKey: 'FILE_A',
+  });
+  assert.equal(plan.allowed, true);
+  assert.equal(plan.execution.timeout, 'long');
+  assert.equal(plan.execution.retry, 'safe-read');
+  assert.deepEqual(plan.outputs.map((output) => [output.role, output.path]),
+    [['code-spec-output', '/workspace/spec/screen.json']]);
+  assert.equal(plan.effects.workspace, 'write');
+  assert.equal(plan.effects.figma, 'read');
+
+  const writes = [];
+  const adapter = evaluator();
+  const result = await executeCodeSpecPlan(plan, {
+    ...adapter, workspaceIO: { write: async (path, text) => { writes.push(path); } },
+  });
+  assert.deepEqual(writes, ['/workspace/spec/screen.json']);
+  assert.match(result.stdout, /written to \/workspace\/spec\/screen\.json/);
+
+  const inline = planFigmaCommand(['export', 'code-spec', '1:2'], { adapter: 'mcp', workspaceDir: '/workspace', fileKey: 'FILE_A' });
+  assert.equal(inline.execution.timeout, 'long');
+  assert.deepEqual(inline.outputs, []);
 });

@@ -169,6 +169,10 @@ export function dispatchReceiptIdentityMatches(prepared, terminal) {
     && prepared.capability === terminal.capability;
 }
 
+// Figma node id, as accepted everywhere else in the Bridge. Kept local so the
+// synced plugin runtime stays dependency-free.
+const SLIDE_TARGET_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+
 function dispatchContextFailure(reason, message) {
   return { ok: false, reason, message };
 }
@@ -178,6 +182,7 @@ export function validatePreparedDispatchContext(receipt, {
   connectionEpoch,
   fileKey = null,
   editorType,
+  slideTarget = null,
 }) {
   const receiptError = dispatchReceiptValidationError(receipt, { terminal: false });
   if (receiptError) return dispatchContextFailure('malformed-receipt', receiptError);
@@ -194,7 +199,22 @@ export function validatePreparedDispatchContext(receipt, {
     return dispatchContextFailure('editor-mismatch', 'Dispatch Receipt editor does not match the active Figma editor');
   }
   if (['render-plan', 'render-plan-batch'].includes(action) && editorType !== 'figma') {
-    return dispatchContextFailure('editor-mismatch', 'Semantic Render Plans require Figma Design');
+    // Figma Slides is the one other editor a Render Plan may reach, and only
+    // when the request named the slide it writes into. Without that the
+    // executor would fall back to the implicitly focused slide, which is not
+    // an explicit target and cannot be authorized.
+    // Only the single-plan action; a batch spreads several roots across a
+    // canvas, which has no meaning inside one slide.
+    const slideTargeted = action === 'render-plan'
+      && editorType === 'slides'
+      && typeof slideTarget === 'string'
+      && SLIDE_TARGET_PATTERN.test(slideTarget);
+    if (!slideTargeted) {
+      return dispatchContextFailure(
+        'editor-mismatch',
+        'Semantic Render Plans require Figma Design, or Figma Slides with an explicit target slide',
+      );
+    }
   }
   if (fileKey) {
     if (receipt.target.kind !== 'file-key' || receipt.target.value !== fileKey) {

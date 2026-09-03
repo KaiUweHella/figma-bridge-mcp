@@ -70,6 +70,23 @@ test('v2 source preflight is closed, typed, identity-safe and deeply immutable',
   assert.equal(Object.isFrozen(snapshot.collections[0].variables[0].values), true);
 });
 
+test('v2 source preflight preserves composed color Alias opacity exactly', () => {
+  const value = fixture();
+  value.collections[0].variables[1].values['c:one/m:dark'].$alias.opacity = 42;
+  const snapshot = normalizeVariableSnapshotV2(value);
+  assert.deepEqual(snapshot.collections[0].variables[1].values['c:one/m:dark'], {
+    $alias: {
+      status: 'local', collection: 'c:two', variable: 'c:two/v:target', opacity: 42,
+    },
+  });
+
+  for (const opacity of [-1, 101, Infinity]) {
+    const malformed = fixture();
+    malformed.collections[0].variables[1].values['c:one/m:dark'].$alias.opacity = opacity;
+    assert.throws(() => normalizeVariableSnapshotV2(malformed), /Invalid Variable Snapshot v2/);
+  }
+});
+
 test('v2 source preflight rejects identity, topology, metadata and value drift', () => {
   const cases = [
     (value) => { value.schemaVersion = 3; },

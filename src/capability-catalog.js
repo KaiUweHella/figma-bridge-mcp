@@ -388,6 +388,24 @@ import {
   slidesCreateArgvFromRequest,
 } from '../engine/src/application/slides-create-request.js';
 import {
+  acceptsSlidesViewArgv,
+  parseSlidesViewRequest,
+} from '../engine/src/application/slides-viewport-command.js';
+import { parseSlidesLintRequest } from '../engine/src/application/slides-lint-request.js';
+import {
+  acceptsSlidesMediaArgv,
+  parseSlidesMediaRequest,
+  slidesMediaArgvFromRequest,
+  slidesMediaFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-media-request.js';
+import {
+  acceptsSlidesBatchArgv,
+  parseSlidesBatchRequest,
+  slidesBatchArgvFromRequest,
+  slidesBatchFigmaUrlFileKeyFromArgv,
+  slidesBatchMutatesDesign,
+} from '../engine/src/application/slides-batch-request.js';
+import {
   acceptsSlidesDuplicateArgv,
   parseSlidesDuplicateRequest,
   slidesDuplicateArgvFromRequest,
@@ -976,7 +994,7 @@ const COMMANDS = Object.freeze({
   'verify-build': { summary: 'Verify code against exported design facts', mutation: 'read', target: 'conditional', path: 'verify-build' },
   history: readGroup('Create or compare structural snapshots and save named Figma versions', ['snapshot', 'list', 'diff'], { path: 'history-output' }),
   jam: readGroup('Inspect or author FigJam boards', ['board']),
-  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect']),
+  slides: readGroup('Inspect or author Figma Slides decks (beta)', ['inspect', 'lint', 'manifest', 'focus', 'view']),
   kit: { summary: 'Prepare a design system for agent use', mutation: 'read', timeout: 'long', path: 'kit-files' },
 });
 
@@ -1000,6 +1018,7 @@ const SAFE_READ_ACTIONS = new Set([
   'layout.grid.inspect',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
   'analyze.lint',
+  'slides.lint', 'slides.manifest',
   'a11y.contrast', 'a11y.touch', 'a11y.text', 'a11y.focus', 'a11y.audit',
   'jam.board',
   'export.node-json',
@@ -1010,7 +1029,7 @@ const SAFE_READ_ACTIONS = new Set([
 const EDITOR_CONTEXT_READ_ACTIONS = new Set([
   'canvas.info', 'canvas.next', 'canvas.pages',
   'slot.validate',
-  'slides.inspect',
+  'slides.inspect', 'slides.lint', 'slides.manifest',
   'export.screenshot',
   'section.list',
   'analyze.colors', 'analyze.typography', 'analyze.spacing', 'analyze.clusters',
@@ -1019,7 +1038,8 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
   'sizes', 'var.visualize', 'gradient.mesh',
-  'slides.create', 'slides.duplicate',
+  'slides.create', 'slides.duplicate', 'slides.batch', 'slides.media',
+  'slides.focus', 'slides.view',
   'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.table',
   'canvas.page',
 ]);
@@ -1121,6 +1141,8 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
+  'slides.lint', 'slides.manifest', 'slides.batch', 'slides.media',
+  'slides.focus', 'slides.view',
   'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
   'jam.table', 'jam.section', 'jam.code',
   'dev.list',
@@ -1210,6 +1232,11 @@ function mutatesDesign(entry, args, options, actionId) {
   if (actionId === 'motion.timeline') {
     return parseMotionTimelineRequest(args).duration !== null;
   }
+  if (actionId === 'slides.batch') {
+    // A batch resolves and validates its items and writes nothing until the
+    // caller asks for it, so the plan itself must not be gated as a write.
+    return slidesBatchMutatesDesign(args);
+  }
   if (SAFE_READ_ACTIONS.has(actionId)) return false;
   const sub = args[1];
   if (actionId === 'import') {
@@ -1287,6 +1314,8 @@ function specializedPolicy(name, entry, args, actionId) {
       pathPolicy = 'export-image';
     } else if (sub === 'code-spec') {
       retry = 'safe-read';
+      // Complete captures of large screens run several bounded plugin evals.
+      timeoutClass = 'long';
       pathPolicy = 'code-spec-input';
     } else if (sub === 'css' || sub === 'dtcg') {
       retry = 'safe-read';
@@ -1552,12 +1581,15 @@ function specializedPolicy(name, entry, args, actionId) {
   }
   if (name === 'slides') {
     if (sub === 'inspect') retry = 'safe-read';
+    if (sub === 'lint' || sub === 'manifest') retry = 'safe-read';
     pathPolicy = sub === 'create' ? 'slides-create-input'
       : sub === 'duplicate' ? 'slides-duplicate-input'
         : sub === 'move' ? 'slides-move-input'
-          : ['transition', 'skip'].includes(sub)
-            ? 'slides-property-input'
-            : sub === 'delete' ? 'slides-delete-input' : 'slides-reference-input';
+          : sub === 'batch' ? 'slides-batch-input'
+            : sub === 'media' ? 'slides-media-input'
+            : ['transition', 'skip'].includes(sub)
+              ? 'slides-property-input'
+              : sub === 'delete' ? 'slides-delete-input' : 'slides-reference-input';
   }
   if (name === 'jam' && sub === 'board') {
     retry = 'safe-read';
@@ -1851,6 +1883,18 @@ function commandCapability(args) {
     && !action.help && !acceptsSlidesMoveArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'slides' && args[1] === 'batch'
+    && !action.help && !acceptsSlidesBatchArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] === 'view'
+    && !action.help && !acceptsSlidesViewArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
+  if (name === 'slides' && args[1] === 'media'
+    && !action.help && !acceptsSlidesMediaArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'slides' && ['transition', 'skip'].includes(args[1])
     && !action.help && !acceptsSlidesPropertyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1896,7 +1940,7 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
-    && !['create', 'duplicate', 'move', 'transition', 'skip', 'delete'].includes(args[1])
+    && !['create', 'duplicate', 'move', 'transition', 'skip', 'delete', 'batch', 'media'].includes(args[1])
     && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -2316,13 +2360,14 @@ function acceptedForm(actionId) {
   return action ? `["${root}","${action}","--help"]` : `["${root}","--help"]`;
 }
 
-function payloadFreeTypedRequestDetail(raw, prefix) {
+function payloadFreeTypedRequestDetail(raw, prefix, extraSafePatterns = []) {
   const detail = String(raw).replace(prefix, '').replace(/\.$/, '');
   if (/^unknown option /.test(detail)) return { kind: 'unknown-option', detail: null };
   if (/^unexpected argument /.test(detail)) {
     return { kind: 'malformed', detail: 'too many positional arguments' };
   }
   const safePatterns = [
+    ...extraSafePatterns,
     /^(?:query|style|nodeIds|style and nodeIds) (?:is|are) required$/,
     /^only one query is accepted$/,
     /^(?:type|limit) (?:may be provided only once|must be .+)$/,
@@ -2340,12 +2385,12 @@ function payloadFreeTypedRequestDetail(raw, prefix) {
 }
 
 function explainTypedRequestRejection({
-  normalized, actionId, label, parse, errorPrefix, responseIsStructured = false,
+  normalized, actionId, label, parse, errorPrefix, responseIsStructured = false, safePatterns = [],
 }) {
   try {
     parse(normalized);
   } catch (error) {
-    const failure = payloadFreeTypedRequestDetail(error?.message || String(error), errorPrefix);
+    const failure = payloadFreeTypedRequestDetail(error?.message || String(error), errorPrefix, safePatterns);
     const option = optionNameFromArgv(normalized);
     if (failure.kind === 'unknown-option') {
       const structured = option === '--json' && responseIsStructured
@@ -2360,14 +2405,53 @@ function explainTypedRequestRejection({
   return `Malformed request for ${label}. Accepted form: ${acceptedForm(actionId)}.`;
 }
 
+// Every Slides parser refuses with `Invalid Slides[ Verb] command: <reason>.`; the
+// reasons below carry no caller payload (option names, closed value sets,
+// bounds and Union Reference codes only), so they may be shown verbatim. A
+// reason that echoes an argument -- an unknown lint kind, an unknown batch
+// field -- is not listed and falls back to the generic contract sentence.
+const SLIDES_REJECTION_PARSERS = Object.freeze({
+  'slides.inspect': parseSlidesReferenceRequest,
+  'slides.manifest': parseSlidesReferenceRequest,
+  'slides.focus': parseSlidesReferenceRequest,
+  'slides.lint': parseSlidesLintRequest,
+  'slides.view': parseSlidesViewRequest,
+  'slides.create': parseSlidesCreateRequest,
+  'slides.duplicate': parseSlidesDuplicateRequest,
+  'slides.move': parseSlidesMoveRequest,
+  'slides.transition': parseSlidesPropertyRequest,
+  'slides.skip': parseSlidesPropertyRequest,
+  'slides.delete': parseSlidesDeleteRequest,
+  'slides.batch': parseSlidesBatchRequest,
+  'slides.media': parseSlidesMediaRequest,
+});
+const SLIDES_SAFE_REJECTION_PATTERNS = Object.freeze([
+  // Reference errors are re-thrown with the parser's own trailing period, so
+  // the inner sentence's period survives the strip; allow it.
+  /^Invalid (?:Union|Node) Reference \([a-z-]+\)\.?$/,
+  /^slide reference(?:, row and col| and style)? is required$/,
+  /^[a-z-]+ (?:is missing a required argument|received an unexpected argument)$/,
+  /^(?:--)?(?:row|col|label|duration|delay|curve|timing|style|fit|name|limit|kinds|fail-on-issues|apply) (?:requires a value|may be provided only once|does not take a value|must be (?:a string|a zero-based non-negative integer|an integer between \d+ and \d+|between \d+ and \d+ seconds|one of [A-Za-z0-9_, -]+)|must not exceed \d+(?: code units)?|must name at least one finding kind|is invalid or too long)$/,
+  /^(?:--col requires --row|col requires row|duplicate option --[a-z-]+)$/,
+  /^view mode must be one of [a-z, -]+$/,
+  /^media (?:requires a slide reference and a file|file must be [a-z., ]+|file path is invalid or too long|reference must not carry a file key)$/,
+  /^batch (?:payload must (?:be JSON|be a JSON array|contain at (?:least|most) (?:one|\d+) items?)|requires exactly one JSON payload argument|items \d+ and \d+ target the same slide reference)$/,
+  /^batch item \d+ (?:must be an object|op must be one of [a-z, ]+|requires a slide reference|reference must not carry a file key; a batch runs against one deck|col requires row|move requires both row and col|(?:row|col) must be an integer between \d+ and \d+|label must be a non-empty string of at most \d+ characters|: Invalid (?:Union|Node) Reference \([a-z-]+\)\.?)$/,
+]);
+
 /**
  * Project a denied argv into bounded, payload-free guidance for human and MCP
  * Adapters. This does not change the fail-closed Command Plan.
+ *
+ * `prefix` lets an Adapter that already said the command was refused (the
+ * in-process Command Application's "Command not allowed") append the reason
+ * without repeating that it was refused.
  */
-export function explainFigmaCommandRejection(rawArgs) {
+export function explainFigmaCommandRejection(rawArgs, {
+  prefix = 'Unknown or unsupported Figma Command — ',
+} = {}) {
   const args = Array.isArray(rawArgs) ? rawArgs : [];
   const rootName = canonicalFigmaCommandRoot(args[0]);
-  const prefix = 'Unknown or unsupported Figma Command — ';
   if (!rootName) {
     return `${prefix}Unknown command group. Accepted form: ["--help"].`;
   }
@@ -2420,6 +2504,18 @@ export function explainFigmaCommandRejection(rawArgs) {
         label: 'style apply',
         parse: parseStyleApplyRequest,
         errorPrefix: /^Invalid style apply command: /,
+      }),
+    );
+  }
+  if (SLIDES_REJECTION_PARSERS[actionId]) {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: actionId.replace('.', ' '),
+        parse: SLIDES_REJECTION_PARSERS[actionId],
+        errorPrefix: /^Invalid Slides(?: [A-Za-z]+)? command: /,
+        safePatterns: [...SLIDES_SAFE_REJECTION_PATTERNS],
       }),
     );
   }
@@ -3400,6 +3496,26 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
         ...slidesCreateArgvFromRequest(parseSlidesCreateRequest(args)));
       break;
     }
+    case 'slides-media-input': {
+      // The media file is a workspace read, marked before the argv is
+      // canonicalized so the Command Plan reports effects.workspace: 'read'.
+      const request = parseSlidesMediaRequest(args);
+      const resolved = absolute(baseDir, request.file);
+      args[request.fileIndex] = resolved;
+      markRead(resolved, 'slides-media');
+      const closedMediaFileKey = slidesMediaFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedMediaFileKey;
+      args.splice(0, args.length, ...slidesMediaArgvFromRequest(parseSlidesMediaRequest(args)));
+      break;
+    }
+    case 'slides-batch-input': {
+      // A batch never derives its deck from an item reference; the closed
+      // key is always null, and a reference carrying one is already refused.
+      const closedFileKey = slidesBatchFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
+      args.splice(0, args.length, ...slidesBatchArgvFromRequest({ argv: [...args] }));
+      break;
+    }
     case 'slides-duplicate-input': {
       const closedFileKey = slidesDuplicateFigmaUrlFileKeyFromArgv(args);
       if (projectUrlTarget) figmaUrlFileKey = closedFileKey;
@@ -3672,7 +3788,13 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     }
     case 'code-spec-input': {
       if (projectUrlTarget) figmaUrlFileKey = codeSpecFigmaUrlFileKeyFromArgv(args);
-      args.splice(0, args.length, ...codeSpecArgvFromRequest(parseCodeSpecRequest(args)));
+      const request = parseCodeSpecRequest(args);
+      const output = request.outputPath ? absolute(baseDir, request.outputPath) : null;
+      args.splice(0, args.length, ...codeSpecArgvFromRequest({ ...request, outputPath: output }));
+      if (output) {
+        outputRole = 'code-spec-output';
+        markWrite(output, 'code-spec-output');
+      }
       break;
     }
     case 'gradient-input': {

@@ -212,6 +212,75 @@ const ANNOTATION_PROPERTIES = new Set([
   'gridColumnAnchorIndex', 'gridRowSpan', 'gridColumnSpan',
 ]);
 
+const MOTION_FIELD_NAMES = new Set([
+  'CORNER_RADIUS', 'STROKE_WEIGHT', 'STACK_SPACING', 'STACK_PADDING_LEFT', 'STACK_PADDING_TOP',
+  'STACK_PADDING_RIGHT', 'STACK_PADDING_BOTTOM', 'WIDTH', 'HEIGHT',
+  'RECTANGLE_TOP_LEFT_CORNER_RADIUS', 'RECTANGLE_TOP_RIGHT_CORNER_RADIUS',
+  'RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS', 'RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS',
+  'BORDER_TOP_WEIGHT', 'BORDER_BOTTOM_WEIGHT', 'BORDER_LEFT_WEIGHT', 'BORDER_RIGHT_WEIGHT',
+  'STACK_COUNTER_SPACING', 'OPACITY', 'GRID_ROW_GAP', 'GRID_COLUMN_GAP',
+  'TRANSLATION_X', 'TRANSLATION_Y', 'TRANSLATION_XY', 'ROTATION', 'SCALE_X', 'SCALE_Y', 'SCALE_XY',
+  'PATH_TRIM_START', 'PATH_TRIM_END',
+]);
+const MOTION_EASING_TYPES = new Set([
+  'EASE_IN', 'EASE_OUT', 'EASE_IN_AND_OUT', 'LINEAR', 'EASE_IN_BACK', 'EASE_OUT_BACK', 'EASE_IN_AND_OUT_BACK',
+  'CUSTOM_CUBIC_BEZIER', 'GENTLE', 'QUICK', 'BOUNCY', 'SLOW', 'CUSTOM_SPRING', 'HOLD',
+]);
+const finiteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+
+/** Native Figma Motion tracks carried by a rendered node: bounded, closed, Figma-shaped. */
+function validateMotionProp(motion, location) {
+  if (!isRecord(motion)) throw new Error(`Semantic Render Plan ${location} must be an object`);
+  if (!finiteNumber(motion.duration) || motion.duration < 0 || motion.duration > 3600) {
+    throw new Error(`Semantic Render Plan ${location}.duration must be a finite number of seconds`);
+  }
+  if (!Array.isArray(motion.tracks) || !motion.tracks.length || motion.tracks.length > 64) {
+    throw new Error(`Semantic Render Plan ${location}.tracks must hold 1-64 tracks`);
+  }
+  const identities = new Set();
+  motion.tracks.forEach((track, index) => {
+    const at = `${location}.tracks[${index}]`;
+    if (!isRecord(track) || !isRecord(track.field) || !isRecord(track.binding)) throw new Error(`Semantic Render Plan ${at} must hold field and binding`);
+    let identity;
+    if (track.field.type === 'PROPERTY' && MOTION_FIELD_NAMES.has(track.field.name)) identity = track.field.name;
+    else if (track.field.type === 'INDEXED_ITEM' && ['fills', 'strokes'].includes(track.field.collection)
+      && Number.isInteger(track.field.index) && track.field.index >= 0 && track.field.index < 256) identity = `${track.field.collection}:${track.field.index}`;
+    else throw new Error(`Semantic Render Plan ${at}.field is not a supported Figma Motion field`);
+    if (identities.has(identity)) throw new Error(`Semantic Render Plan ${at} repeats field ${identity}`);
+    identities.add(identity);
+    const keyframes = track.binding.keyframes;
+    if (!Array.isArray(keyframes) || keyframes.length < 2 || keyframes.length > 256) throw new Error(`Semantic Render Plan ${at}.binding.keyframes must hold 2-256 keyframes`);
+    let previous = -1;
+    keyframes.forEach((keyframe, keyIndex) => {
+      const where = `${at}.binding.keyframes[${keyIndex}]`;
+      if (!isRecord(keyframe) || !finiteNumber(keyframe.timelinePosition) || keyframe.timelinePosition < 0 || keyframe.timelinePosition > motion.duration) {
+        throw new Error(`Semantic Render Plan ${where}.timelinePosition must lie inside the motion duration`);
+      }
+      if (keyframe.timelinePosition <= previous) throw new Error(`Semantic Render Plan ${where} must be later than the previous keyframe`);
+      previous = keyframe.timelinePosition;
+      const value = keyframe.value;
+      const valid = isRecord(value) && (
+        (value.type === 'FLOAT' && finiteNumber(value.value))
+        || (value.type === 'BOOL' && typeof value.value === 'boolean')
+        || (value.type === 'VECTOR' && isRecord(value.value) && finiteNumber(value.value.x) && finiteNumber(value.value.y))
+        || (value.type === 'COLOR' && isRecord(value.value) && ['r', 'g', 'b', 'a'].every((key) => finiteNumber(value.value[key]) && value.value[key] >= 0 && value.value[key] <= 1)));
+      if (!valid) throw new Error(`Semantic Render Plan ${where}.value is not a Figma keyframe value`);
+      if (keyframe.easing !== undefined) {
+        const easing = keyframe.easing;
+        if (!isRecord(easing) || !MOTION_EASING_TYPES.has(easing.type)) throw new Error(`Semantic Render Plan ${where}.easing is not a Figma Motion easing`);
+        if (easing.easingFunctionCubicBezier !== undefined && !(isRecord(easing.easingFunctionCubicBezier)
+          && ['x1', 'y1', 'x2', 'y2'].every((key) => finiteNumber(easing.easingFunctionCubicBezier[key])))) {
+          throw new Error(`Semantic Render Plan ${where}.easing.easingFunctionCubicBezier is invalid`);
+        }
+        if (easing.easingFunctionSpring !== undefined && !(isRecord(easing.easingFunctionSpring)
+          && Object.values(easing.easingFunctionSpring).every(finiteNumber))) {
+          throw new Error(`Semantic Render Plan ${where}.easing.easingFunctionSpring is invalid`);
+        }
+      }
+    });
+  });
+}
+
 function validateFallbackAnnotations(annotations, location) {
   if (!Array.isArray(annotations)) {
     throw new Error('Semantic Render Plan fallbackAnnotations must be an array');
@@ -404,6 +473,7 @@ function validateNode(node, location, executable, depth, state) {
     if (!isRecord(node.source.props)) {
       throw new Error(`Semantic Render Plan ${location}.source.props must be an object`);
     }
+    if (node.source.props.motion !== undefined) validateMotionProp(node.source.props.motion, `${location}.source.props.motion`);
     if (node.source.type === 'instance'
       && ['key', 'id', 'component'].some((field) => node.source.props[field] != null)) {
       throw new Error(`Semantic Render Plan ${location} component handles must exist only in Design Entity bindings`);

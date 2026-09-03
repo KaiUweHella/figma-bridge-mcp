@@ -16,6 +16,7 @@ import {
 import { createSemanticRenderPlan } from './semantic-render-plan.js';
 import { bindSemanticDesignEntities } from './design-entity-bindings.js';
 import { getBuiltinIconSvg } from './builtin-icons.js';
+import { cssAnimationToMotion, repeatMotionToTimeline } from './motion-css.js';
 
 const TRANSPARENT = new Set(['transparent', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)']);
 
@@ -117,8 +118,10 @@ function nodeName(node, suffix = '') {
 }
 
 function propsString(props) {
+  // Structured props (motion tracks) only exist on the executable plan; the
+  // compatibility JSX string cannot carry them.
   return Object.entries(props)
-    .filter(([, value]) => value !== undefined && value !== null && value !== false && value !== '')
+    .filter(([, value]) => value !== undefined && value !== null && value !== false && value !== '' && typeof value !== 'object')
     .map(([key, value]) => `${key}="${attr(value)}"`)
     .join(' ');
 }
@@ -843,6 +846,19 @@ function renderNode(node, parentRect, state, { root = false, suffix = '', forceL
   };
   const { props, borders } = visualProps(node.style || {}, local, { root, semantic });
   props.name = nodeName(node, suffix);
+  if (Array.isArray(node.animation) && node.animation.length && state.keyframes) {
+    // CSS animations become native Figma Motion tracks on the created layer.
+    const motion = cssAnimationToMotion(node.animation, state.keyframes, node.style || {});
+    if (motion) {
+      props.motion = { duration: motion.duration, tracks: motion.tracks };
+      state.motionCount++;
+      // The frame's timeline is the longest animation on it, which is only
+      // known once the whole tree is walked. fillSharedMotionTimeline also
+      // flushes the limitations, because whether a loop actually got repeated
+      // decides how it must be reported.
+      state.motionNodes.push({ props, name: props.name, motion });
+    }
+  }
   if (!root && (!semantic || semantic.positioning.kind === 'absolute')) {
     props.x = round(local.x);
     props.y = round(local.y);
@@ -1082,8 +1098,13 @@ function projectDomCapture(capture, { projectIcons = {}, componentLinks = {} } =
   const semantic = capture.version >= 2
     ? domCaptureToSemanticModel(capture, { resolveProjectIcon, resolveComponent })
     : null;
-  const state = { icons: {}, images: {}, imageAssets: {}, iconIndex: 0, borderIndex: 0, elementCount: 0, textCount: 0, pseudoCount: 0 };
+  const state = {
+    icons: {}, images: {}, imageAssets: {}, iconIndex: 0, borderIndex: 0, elementCount: 0, textCount: 0, pseudoCount: 0,
+    keyframes: capture.keyframes && typeof capture.keyframes === 'object' ? capture.keyframes : null,
+    motionCount: 0, motionLimitations: [], motionNodes: [],
+  };
   const tree = renderNode(capture.root, capture.root.rect, state, { root: true, semantic: semantic?.root || null });
+  const motionTimeline = fillSharedMotionTimeline(state);
   return {
     tree,
     icons: state.icons,
@@ -1098,9 +1119,56 @@ function projectDomCapture(capture, { projectIcons = {}, componentLinks = {} } =
       borderVectors: state.borderIndex,
       width: round(capture.root.rect.w),
       height: round(capture.root.rect.h),
+      ...(state.motionCount ? { motion: { nodes: state.motionCount, timeline: motionTimeline, limitations: state.motionLimitations } } : {}),
       ...(semantic ? { semantic: semantic.diagnostics } : {}),
     },
   };
+}
+
+/**
+ * A Figma frame has one timeline, so every layer on it shares the longest
+ * animation's duration. An endless CSS loop with a shorter period is repeated
+ * to fill that timeline — otherwise it would freeze partway through while a
+ * longer sibling kept moving. A period that cannot be repeated (a finite
+ * iteration count, a positive delay, mixed cycles) keeps its own length and
+ * says so.
+ */
+function fillSharedMotionTimeline(state) {
+  const nodes = state.motionNodes;
+  if (!nodes.length) return 0;
+  const timeline = round(Math.max(...nodes.map((entry) => entry.motion.duration)));
+  for (const entry of nodes) {
+    const shorter = entry.motion.duration < timeline - 1e-6;
+    const filled = shorter ? repeatMotionToTimeline(entry.motion, timeline) : entry.motion;
+    const repeated = shorter && filled.duration >= timeline - 1e-6;
+    if (repeated) entry.props.motion = { duration: filled.duration, tracks: filled.tracks };
+    for (const text of entry.motion.limitations) {
+      state.motionLimitations.push(`${entry.name}: ${rephraseLoopLimitation(text, { timeline, repeated })}`);
+    }
+    // A period the projection cannot repeat must be named even when the
+    // animation itself raised no limitation: it stops while siblings move on.
+    if (shorter && !repeated) {
+      state.motionLimitations.push(
+        `${entry.name}: the ${entry.motion.duration}s animation cannot be repeated to fill the frame's ${timeline}s timeline; the layer holds its last value afterwards`,
+      );
+    }
+  }
+  return timeline;
+}
+
+/**
+ * The per-animation projection can only say that a loop is endless; whether
+ * its period was repeated to fill the frame's timeline is decided afterwards.
+ * Keep that report truthful instead of always claiming "one period".
+ */
+function rephraseLoopLimitation(text, { timeline, repeated }) {
+  const match = /^animation (.+?) repeats \((.+?)\); Figma receives one (alternate )?period$/.exec(text);
+  if (!match) return text;
+  const [, name, iterations, alternate] = match;
+  const period = `one ${alternate || ''}period`;
+  return repeated
+    ? `animation ${name} repeats (${iterations}); ${period} is repeated to fill the frame's ${timeline}s timeline, which Figma plays once`
+    : `animation ${name} repeats (${iterations}); Figma receives ${period} and plays the ${timeline}s timeline once`;
 }
 
 export function domCaptureToJsx(capture, options = {}) {

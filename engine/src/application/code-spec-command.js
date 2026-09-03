@@ -33,6 +33,7 @@ export {
 export { walkWithDepthRetry };
 
 const CODE_SPEC_APPLICATION_ID = 'export.code-spec';
+export const CODE_SPEC_OUTPUT_ROLE = 'code-spec-output';
 
 // CLI calls are short-lived and cannot prove a revision, so they use the same
 // Capture Interface with storage disabled. MCP supplies the long-lived,
@@ -95,19 +96,23 @@ function normalizedRequest(request = {}) {
     section: request.section || null,
     includeHidden: request.includeHidden === true,
     dedup: request.dedup !== false,
+    outputPath: request.outputPath ? String(request.outputPath) : null,
   };
 }
 
 /**
  * Execute one code-spec request without CLI/MCP process concerns.
  * @param {object} request
- * @param {{evaluate?: (code: string) => Promise<any>, captureDesign?: Function}} [adapters]
- * @returns {Promise<{stdout: string, stderr: string, nodeId: string, format: string}>}
+ * @param {{evaluate?: (code: string) => Promise<any>, captureDesign?: Function, workspaceIO?: {write: Function}}} [adapters]
+ * @returns {Promise<{stdout: string, stderr: string, nodeId: string, format: string, saved?: string}>}
  */
 export async function executeCodeSpec(request, adapters = {}) {
-  const { evaluate, captureDesign } = adapters;
+  const { evaluate, captureDesign, workspaceIO } = adapters;
   if (typeof evaluate !== 'function') throw new TypeError('executeCodeSpec requires evaluate(code)');
   const input = normalizedRequest(request);
+  if (input.outputPath && (!workspaceIO || typeof workspaceIO.write !== 'function')) {
+    throw new TypeError('executeCodeSpec requires WorkspaceIO for persisted output.');
+  }
   const diagnostics = [];
   let nodeId = input.nodeId;
   const cacheableExplicitNode = Boolean(nodeId) && !input.section;
@@ -210,11 +215,31 @@ export async function executeCodeSpec(request, adapters = {}) {
     stdout = serializeSpecModel(model, input.format);
   }
 
+  if (input.outputPath) {
+    // Large screens exceed any inline result budget. The complete projection
+    // lands in the workspace; stdout carries only verifiable summary facts.
+    const text = stdout.endsWith('\n') ? stdout : `${stdout}\n`;
+    await workspaceIO.write(input.outputPath, text, {
+      role: CODE_SPEC_OUTPUT_ROLE,
+      createParents: true,
+    });
+    const completeness = capture.completeness;
+    const stitched = Number(completeness.stitchedCaptures) || 0;
+    stdout = [
+      `✓ Code Spec written to ${input.outputPath}`,
+      `node: ${result.name || nodeId} [${nodeId}] · phase ${input.phase} · depth ${depth}/${input.depth} · format ${input.format}`,
+      `layers: ${Number.isFinite(result.visibleNodeCount) ? result.visibleNodeCount : 'unknown'} visible, ${coverage.unaccounted} unaccounted · plugin evals: ${1 + stitched}`
+        + (stitched ? ` (${completeness.budgetCuts} budget cut(s) completed under one observed revision)` : ''),
+      `bytes: ${Buffer.byteLength(text, 'utf8')}`,
+    ].join('\n');
+  }
+
   return {
     stdout,
     stderr: diagnostics.join('\n'),
     nodeId,
     format: input.format,
+    ...(input.outputPath ? { saved: input.outputPath } : {}),
   };
 }
 
@@ -231,5 +256,14 @@ export async function executeCodeSpecPlan(plan, adapters = {}) {
   if (codeSpecPlanRoute(plan) !== 'command-application') {
     throw new Error(`Command Plan ${plan?.id || '(unknown)'} is not owned by the Code Spec Command Application.`);
   }
-  return executeCodeSpec(parseCodeSpecRequest(plan.argv), adapters);
+  const request = parseCodeSpecRequest(plan.argv);
+  const outputs = (plan.outputs || []).filter((output) => output.role === CODE_SPEC_OUTPUT_ROLE);
+  if (request.outputPath) {
+    if ((plan.outputs || []).length !== 1 || outputs.length !== 1 || outputs[0].path !== request.outputPath) {
+      throw new Error('Code Spec output path is not owned by the Command Plan.');
+    }
+  } else if ((plan.outputs || []).length !== 0) {
+    throw new Error('Inline Code Spec must not declare Workspace outputs.');
+  }
+  return executeCodeSpec(request, adapters);
 }

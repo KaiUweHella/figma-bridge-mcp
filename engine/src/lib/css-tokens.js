@@ -11,6 +11,10 @@
 
 /** Figma variable name → valid CSS custom-property name. */
 import { canonicalMotionEasing, motionEasingProjection } from './motion-easing.js';
+import {
+  applyOpacityToHex,
+  composedColorValueParts,
+} from './variable-values.js';
 
 export function cssName(name) {
   return '--' + String(name)
@@ -72,8 +76,11 @@ export function projectVariableModes(variables, collections) {
     if (!variable || chain.has(variable.id)) return { value: null, ref: null, refId: null };
     const nextChain = new Set(chain).add(variable.id);
     let value = variable.valuesByMode?.[mode.modeId];
-    if (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS') {
-      const target = byId.get(value.id);
+    const composed = variable.resolvedType === 'COLOR' ? composedColorValueParts(value) : null;
+    const alias = composed?.alias
+      || (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS' ? value : null);
+    if (alias) {
+      const target = byId.get(alias.id);
       if (!target) return { value: null, ref: null, refId: null };
       const targetCollection = collectionsById.get(target.variableCollectionId);
       const targetModes = targetCollection?.modes || [];
@@ -83,6 +90,14 @@ export function projectVariableModes(variables, collections) {
           || targetModes.find((candidate) => candidate.modeId === targetCollection?.defaultModeId)
           || targetModes[0];
       const resolved = resolve(target, targetMode || mode, nextChain);
+      if (composed) {
+        return {
+          value: applyOpacityToHex(resolved.value, composed.opacity),
+          ref: target.name,
+          refId: target.id,
+          opacity: composed.opacity,
+        };
+      }
       return { value: resolved.value, ref: target.name, refId: target.id };
     }
     if (variable.resolvedType === 'COLOR' && value && typeof value === 'object' && 'r' in value) {
@@ -109,6 +124,7 @@ export function projectVariableModes(variables, collections) {
       value: selected.value,
       ref: selected.ref,
       refId: selected.refId,
+      ...(selected.opacity === undefined ? {} : { opacity: selected.opacity }),
       valuesByMode,
       modes,
       defaultModeId,
@@ -156,6 +172,7 @@ function modeEntries(variable) {
       value: variable.value,
       ref: variable.ref || null,
       refId: variable.refId || null,
+      opacity: variable.opacity ?? null,
       isDefault: true,
     }];
   }
@@ -171,14 +188,15 @@ function modeEntries(variable) {
       value: record.value,
       ref: record.ref || null,
       refId: record.refId || null,
+      opacity: record.opacity ?? null,
       isDefault: mode.modeId === defaultModeId,
     };
   });
 }
 
-function dtcgValue(variable, value, ref, refId, dialect, resolveReference = null) {
+function dtcgValue(variable, value, ref, refId, opacity, dialect, resolveReference = null) {
   const dot = (name) => String(name).replace(/\//g, '.');
-  if (ref) {
+  if (ref && opacity === null) {
     const resolved = resolveReference ? resolveReference(ref, refId) : ref;
     return '{' + dot(resolved) + '}';
   }
@@ -232,9 +250,13 @@ function bridgeExtension(variable, dialect, { outputPath = variable.name, resolv
         entry.value,
         entry.ref,
         entry.refId,
+        entry.opacity,
         dialect,
         resolveReference,
       ),
+      ...(entry.opacity !== null && entry.ref ? { alias: entry.ref } : {}),
+      ...(entry.opacity !== null && entry.refId ? { aliasVariableId: entry.refId } : {}),
+      ...(entry.opacity !== null ? { opacity: entry.opacity } : {}),
     }]));
   }
   return Object.keys(metadata).length ? { [DTCG_BRIDGE_EXTENSION]: metadata } : null;
@@ -351,6 +373,7 @@ export function buildDtcgTree(vars, { dialect = 'legacy' } = {}) {
         selected?.value,
         selected?.ref,
         selected?.refId,
+        selected?.opacity ?? null,
         dialect,
         resolveReference,
       ),

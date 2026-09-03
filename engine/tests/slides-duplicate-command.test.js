@@ -21,18 +21,22 @@ const TRANSITION = Object.freeze({
 
 function runtime({
   cloneFailure = null, moveFailure = null, labelFailure = null, removeFailure = null,
+  noneCurveDrift = false,
 } = {}) {
   let next = 3;
   let grid = [];
   const registry = new Map();
   const labels = new Map();
-  const makeSlide = (id, name, { label = '', childCount = 2, skipped = false } = {}) => {
+  const makeSlide = (id, name, {
+    label = '', childCount = 2, skipped = false, transition = TRANSITION,
+  } = {}) => {
     if (label) labels.set(id, label);
     const slide = {
       id, name, type: 'SLIDE',
       children: Array.from({ length: childCount }, (_, index) => ({ id: `${id}:${index}` })),
       isSkippedSlide: skipped,
-      getSlideTransition() { return structuredClone(TRANSITION); },
+      transition: structuredClone(transition),
+      getSlideTransition() { return structuredClone(this.transition); },
       getPluginData(key) { return key === 'bridge-slide-label' ? labels.get(id) || '' : ''; },
       setPluginData(key, value) {
         if (labelFailure === 'before') throw new Error('label setter failed');
@@ -44,6 +48,10 @@ function runtime({
         const copy = makeSlide(`1:${next}`, `Slide ${next++}`, {
           label: labels.get(id) || '', childCount: slide.children.length,
           skipped: slide.isSkippedSlide,
+          transition: noneCurveDrift && slide.transition.style === 'NONE'
+            ? { ...slide.transition,
+              curve: slide.transition.curve === 'EASE_IN' ? 'EASE_OUT' : 'EASE_IN' }
+            : slide.transition,
         });
         grid[grid.length - 1].push(copy);
         if (cloneFailure === 'after') throw new Error('clone acknowledgement failed');
@@ -143,6 +151,19 @@ test('default duplicate placement and label preserve the legacy Slides contract'
       row: result.result.actual.slide.row, col: result.result.actual.slide.col },
     { label: 'Opening copy', row: 0, col: 2 },
   );
+});
+
+test('Slides Duplicate ignores native curve drift when both transitions are NONE', async () => {
+  const live = runtime({ noneCurveDrift: true });
+  const none = {
+    style: 'NONE', duration: 0, curve: 'EASE_OUT', timing: { type: 'ON_CLICK' },
+  };
+  live.intro.transition = none;
+  const result = await executeSlidesDuplicate({
+    reference: 'label:Opening', label: 'Opening copy',
+  }, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.outcome, 'verified');
+  assert.equal(result.result.actual.slide.transition.style, 'NONE');
 });
 
 test('ambiguous sources and invalid coordinates refuse before cloning', async () => {
@@ -292,4 +313,22 @@ test('Slides Duplicate generated Plugin code parses', () => {
   assert.doesNotThrow(() => new Function(`return ${slidesDuplicateCode({
     reference: 'label:Body', label: 'Copy', row: 0, col: 1,
   })}`));
+});
+
+test('a source slide the grid has not listed yet can be duplicated', async () => {
+  const live = runtime();
+  const ghost = live.makeSlide('1:9', 'Ghost', { label: 'Stray', childCount: 2 });
+  Object.defineProperty(live.page, 'children', {
+    get: () => [{ type: 'SLIDE_ROW', children: [...live.getGrid().flat(), ghost] }],
+  });
+  const result = await executeSlidesDuplicate({ reference: 'label:Stray' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'duplicated');
+  assert.equal(result.result.before.source.id, '1:9');
+  assert.equal(result.result.before.source.row, null);
+  assert.deepEqual(result.result.before.unlisted, ['1:9']);
+  assert.deepEqual(result.result.actual.unlisted, ['1:9'], 'the source stays where it was');
+  assert.equal(result.result.actual.slide.label, 'Stray copy');
+  assert.ok(result.result.actual.slide.row !== null, 'the copy landed in the grid');
 });

@@ -152,6 +152,21 @@ test('Variable Set Value Batch completes all resolution and type preflight befor
   assert.equal(state.writeCount, 0);
 });
 
+test('Variable Set Value Batch refuses composed color rollback gaps before every write', async () => {
+  const state = fixture();
+  const composed = {
+    type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+    expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'VariableID:3' }, 42],
+  };
+  state.variables[2].valuesByMode['ModeId:light'] = composed;
+  await assert.rejects(() => runCode({ items: [
+    { variable: 'space/s', mode: 'Light', value: 12 },
+    { variable: 'color/accent', mode: 'Light', value: '#ffffff' },
+  ] }, state.figma), /cannot restore composed color values/i);
+  assert.equal(state.writeCount, 0);
+  assert.deepEqual(state.variables[2].valuesByMode['ModeId:light'], composed);
+});
+
 test('Variable Set Value Batch restores prior values and reports exact empty-mode residue', async () => {
   const partial = fixture({ failResultFor: 'VariableID:2' });
   const request = { items: [

@@ -73,6 +73,27 @@ test('execution protocol accepts bounded eval and Semantic Render Plan shapes', 
   assert.match(validateExecPayload({ action: 'render-plan', plan, options: { smart: 'no' } }), /boolean/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, options: { materializeResources: 'yes' } }), /boolean/);
   assert.match(validateExecPayload({ action: 'render-plan', plan, options: { x: Infinity } }), /finite/);
+  // One explicit target slide is accepted on a single plan; shape only.
+  assert.equal(validateExecPayload({
+    action: 'render-plan', plan, options: { slide: '12:34' },
+    expectedEditor: 'slides', timeoutMs: 1000, fileKey: 'FILE',
+  }), null);
+  assert.equal(validateExecPayload({
+    action: 'render-plan', plan, options: { slide: 'I12:34;56:78' },
+    expectedEditor: 'slides', timeoutMs: 1000, fileKey: 'FILE',
+  }), null);
+  for (const slide of ['', 'label:Cover', '12-34', 12, {}, 'x'.repeat(5000)]) {
+    assert.match(
+      validateExecPayload({ action: 'render-plan', plan, options: { slide } }),
+      /slide must be a Figma node id/,
+      `slide target ${JSON.stringify(slide)} must be refused`,
+    );
+  }
+  // A batch spreads roots across a canvas, so it takes no slide target at all.
+  assert.match(
+    validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { slide: '12:34' } }),
+    /unknown/,
+  );
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [] }), /1-100/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { future: true } }), /unknown/);
   assert.match(validateExecPayload({ action: 'render-plan-batch', plans: [plan], options: { x: Infinity } }), /finite/);

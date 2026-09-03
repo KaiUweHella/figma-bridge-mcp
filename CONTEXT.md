@@ -49,8 +49,16 @@ The immutable decision produced for one **Figma Command** after path normalizati
 _Avoid_: prepared arguments, execution options, mutable command context
 
 **Design Capture**:
-The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and observed page revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it.
-_Avoid_: walker output, cache entry
+The canonical, lossless Figma facts collected for one node and one set of capture options, bound to a Bridge Daemon connection and observed page revision. It keeps authored Figma facts, Figma heuristics and Code-to-Figma source intent under explicit provenance rather than flattening them into one claim. Structure, style, deduplication, enrichment and serialization are projections of a Design Capture, never inputs that reduce it. A complete Capture of a large subtree is assembled from several wall-clock-bounded plugin evals that must all observe the same revision; a `budgetCut` frontier is a stitching seam, never a delivered result.
+_Avoid_: walker output, cache entry, partial capture presented as complete
+
+**Motion Capture**:
+The bounded raw fact of one node's native Figma Motion: its manual keyframe tracks and the timelines that own them, collected by Design Capture and projected without ids, `baseValue` or float32 noise. Unsupported track shapes are listed by field name, never dropped silently.
+_Avoid_: animation dump, prototype reaction, CSS guess
+
+**Motion Projection**:
+The lossless-where-possible translation between Motion Capture and CSS animation in both directions. Figma-to-code emits `@keyframes` plus one `animation` declaration with Figma's own easing functions and explicit limitations for springs and fields CSS cannot express; code-to-Figma reads computed animation facts and `@keyframes` from the browser at rest and writes native keyframe tracks on the rendered layer. The easing stored on a Figma keyframe describes the segment that arrives at it; the CSS timing function of a keyframe describes the segment that leaves it, and both projections apply that shift.
+_Avoid_: approximated spring, looping timeline, invented rest state
 
 **Revision Observation**:
 The explicit scope and authenticated freshness proof for a multi-roundtrip Figma Command. A one-root Command observes the root's containing Page through its granular `nodechange` stream and pins connection, file, Page identity and Page revision. A genuinely multi-page Command explicitly observes the Document and pays for full-page loading. Ordinary commands request neither scope. Known older Plugins may retain their version-bounded Document proof, while a Plugin advertising Page observation fails closed if Page facts are absent.

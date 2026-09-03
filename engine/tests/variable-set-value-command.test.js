@@ -152,6 +152,22 @@ test('Variable Set Value restores an existing value after post-set failure', asy
   );
 });
 
+test('Variable Set Value refuses to overwrite a composed color before the setter', async () => {
+  const composed = {
+    type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+    expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'VariableID:2' }, 42],
+  };
+  const state = fixture({ type: 'COLOR', initial: composed });
+  await assert.rejects(
+    () => runCode({
+      variable: 'space/md', mode: 'Mode 1', value: '#ffffff',
+    }, state.figma),
+    /cannot restore composed color values/i,
+  );
+  assert.equal(state.setterCalls, 0);
+  assert.deepEqual(state.variable.valuesByMode['ModeId:default'], composed);
+});
+
 test('Variable Set Value reports truthful bounded residue when Figma cannot reverse the write', async () => {
   const absent = fixture({ hasInitial: false, publishFails: true });
   const absentPayload = await runCode({

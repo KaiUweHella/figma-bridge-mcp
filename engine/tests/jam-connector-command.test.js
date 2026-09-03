@@ -17,6 +17,7 @@ import {
 function runtime({
   editorType = 'figjam', wrongEndpoint = false, removeNoEffect = false,
   throwAfterLine = false, factoryThrows = false, switchPageDuringFontLoad = false,
+  canonicalStraightMagnet = false,
 } = {}) {
   const registry = new Map();
   const page = { id: '0:1', type: 'PAGE', children: [], selection: [] };
@@ -51,6 +52,10 @@ function runtime({
         get connectorLineType() { return line; },
         set connectorLineType(value) {
           line = value;
+          if (canonicalStraightMagnet && value === 'STRAIGHT') {
+            start = { ...start, magnet: 'CENTER' };
+            end = { ...end, magnet: 'CENTER' };
+          }
           if (throwAfterLine) throw new Error('injected acknowledgement');
         },
         remove() {
@@ -107,6 +112,16 @@ test('Jam Connector creates and freshly verifies exact native endpoint facts', a
   assert.equal(result.stdout, '✓ Connector 9:1');
   assert.deepEqual(live.page.selection.map((node) => node.id), ['1:1']);
   assert.equal(live.fontLoads(), 2);
+});
+
+test('Jam Connector accepts Figma canonical CENTER magnets on straight endpoints', async () => {
+  const live = runtime({ canonicalStraightMagnet: true });
+  const result = await executeJamConnector({
+    fromId: '1:1', toId: '1:2', text: 'next', line: 'STRAIGHT',
+  }, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.outcome, 'verified');
+  assert.deepEqual(result.result.actual.node.start, { endpointNodeId: '1:1', magnet: 'CENTER' });
+  assert.deepEqual(result.result.actual.node.end, { endpointNodeId: '1:2', magnet: 'CENTER' });
 });
 
 test('setter acknowledgement errors require exact fresh Connector readback', async () => {

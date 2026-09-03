@@ -56,8 +56,11 @@ apply a newer browser feature.
 Before implementation, collect and retain:
 
 - one `figma_screenshot` PNG as visual ground truth;
-- one bounded `figma_spec` `phase: "all"` map with section node ids (use
-  `structure` only when the screen is too large);
+- one bounded `figma_spec` `phase: "all"` map with section node ids; when the
+  screen is large, one complete capture per screen or section with
+  `depth: 30` and `outFile` (the Bridge stitches bounded plugin evals under one
+  observed revision and writes the whole projection to the workspace) — never
+  fall back to screenshot-derived values because a tree was truncated;
 - one scoped CSS or DTCG token export for the target node;
 - one asset export into the target project, including `assets.json`;
 - bounded style specs for the sections being implemented, grouped into one
@@ -91,6 +94,13 @@ explicit user-approved deviation; it may never disappear silently.
 - Preserve native masks, blend modes, corner smoothing, stroke inclusion and
   every parameter of modern Figma effects from the Spec. Do not replace these
   facts with a screenshot-derived approximation.
+- Treat every `motion:` segment and the spec's `## Motion (implement as CSS)`
+  section as authored animation. Copy the emitted `@keyframes` and `animation`
+  declaration into the component's stylesheet (CSS only; no animation library),
+  keep the resting values in the base rules, add `iteration-count`/`direction`
+  only where the product owns a loop, and add a `prefers-reduced-motion:
+reduce` override that disables it. Report each listed limitation (springs,
+  unsupported fields) instead of approximating it.
 - Treat each `Prototype reaction:` record as interaction evidence. Implement
   corresponding application behavior only when the mapping is clear; do not
   translate Figma navigation, overlays or back actions blindly into app routes.

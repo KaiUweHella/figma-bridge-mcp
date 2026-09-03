@@ -5,6 +5,7 @@ import {
   parseVariableFactsRequest,
   variableFactsArgvFromRequest,
 } from './variable-facts-request.js';
+import { isComposedColorValue } from '../lib/variable-values.js';
 
 export { variableFactsArgvFromRequest } from './variable-facts-request.js';
 
@@ -234,7 +235,7 @@ function easingValue(value) {
 function valueForType(value, resolvedType) {
   if (variableAlias(value)) return true;
   if (resolvedType === 'BOOLEAN') return typeof value === 'boolean';
-  if (resolvedType === 'COLOR') return colorValue(value);
+  if (resolvedType === 'COLOR') return colorValue(value) || isComposedColorValue(value);
   if (resolvedType === 'EASING') return easingValue(value);
   if (resolvedType === 'FLOAT' || resolvedType === 'TIMING') {
     return finiteNumber(value);

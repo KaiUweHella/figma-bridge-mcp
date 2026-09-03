@@ -1,6 +1,6 @@
 // Commands: setup (extracted from index.js)
 import chalk from 'chalk';
-import { existsSync, mkdirSync, copyFileSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { planFigmaCommand } from '../../../src/capability-catalog.js';
@@ -32,11 +32,26 @@ const DEV_MODE_PLUGIN_MANIFEST_TEMPLATE = join(
 );
 const LOCAL_PLUGIN_DIR = join(PLUGIN_SRC_DIR, 'local');
 
+// Figma reloads a development plugin whenever its files change on disk, in
+// every window that runs it, and an eval in flight dies with the reload.
+// `connect` runs at every MCP server start, so an unconditional copy turned
+// each server start into a plugin reload (measured live on 2026-09-03: all
+// three windows dropped and re-authenticated the moment a server started).
+// Write only what actually changed.
+function copyIfDifferent(source, target) {
+  const bytes = readFileSync(source);
+  try {
+    if (readFileSync(target).equals(bytes)) return false;
+  } catch {}
+  writeFileSync(target, bytes);
+  return true;
+}
+
 function copyImportablePluginBundle(dest, manifestSource) {
   mkdirSync(dest, { recursive: true });
-  copyFileSync(manifestSource, join(dest, 'manifest.json'));
+  copyIfDifferent(manifestSource, join(dest, 'manifest.json'));
   for (const file of ['code.js', 'ui.html']) {
-    copyFileSync(join(PLUGIN_SRC_DIR, file), join(dest, file));
+    copyIfDifferent(join(PLUGIN_SRC_DIR, file), join(dest, file));
   }
   return join(dest, 'manifest.json');
 }

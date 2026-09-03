@@ -47,6 +47,19 @@ extension retains the original Variable name. Figma `TIMING` values remain
 seconds in CSS and standard DTCG duration values; bounded numeric cleanup
 removes only float-storage noise.
 
+Color Alias opacity is the single accepted native Variable expression:
+`COMPOSE_COLOR` with one exact Alias and a finite `0..100` percentage. The
+formatter resolves its visible alpha for CSS and the standard DTCG value while
+the Bridge extension retains Alias name, Variable id and authored percentage.
+Alias resolution decodes every `COMPOSE_COLOR` layer in a complete Alias chain
+and composes its alpha cumulatively with the resolved base color. Authored
+opacity metadata remains attached only to the exported Variable whose value
+declares it; inherited intermediate expressions affect the visible color but
+are not misreported as top-level authorship. Explicit 0 % and 100 % compositions
+retain an alpha byte in CSS/DTCG projections so their expression-derived form
+remains deterministic. Other expression functions remain invalid rather than
+being guessed.
+
 ## Consequences
 
 CLI and MCP now share target resolution, timeout, safe-read retry, capture,
@@ -57,4 +70,6 @@ stderr. Existing node-scoped library-token utility and file-wide workflows
 remain available, while missing revision proof, drift, overflow and incomplete
 identity become explicit failures instead of plausible partial output.
 Legitimate cross-Collection name overlap no longer drops CSS declarations or
-aborts DTCG export.
+aborts DTCG export. The legacy DESIGN.md Variable importer refuses composed
+Alias values and directs callers to Portable Variable Snapshot v2 rather than
+silently flattening or dropping authored opacity.

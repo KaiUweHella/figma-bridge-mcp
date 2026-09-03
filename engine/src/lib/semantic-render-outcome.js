@@ -25,7 +25,7 @@ const NODE_ID = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
 const TOP_LEVEL_FIELDS = new Set([
   'id', 'name', 'executor', 'width', 'height', 'overflow', 'structuralReport',
   'unresolved', 'createdVariables', 'createdTextStyles', 'scopeQuestions',
-  'variableReport', 'textStyleReport', 'fallbackAnnotationReport',
+  'variableReport', 'textStyleReport', 'fallbackAnnotationReport', 'motionReport',
   'designEntity',
   'mutationOutcome', 'mutationReport',
 ]);
@@ -55,7 +55,7 @@ const EXECUTORS = Object.freeze({
 });
 const BATCH_TOP_LEVEL_FIELDS = new Set([
   'frames', 'executor', 'unresolved', 'createdVariables', 'createdTextStyles',
-  'scopeQuestions', 'variableReport', 'textStyleReport', 'fallbackAnnotationReport',
+  'scopeQuestions', 'variableReport', 'textStyleReport', 'fallbackAnnotationReport', 'motionReport',
   'mutationOutcome', 'mutationReport',
 ]);
 const COMPOUND_STAGE_KINDS = new Set([
@@ -222,6 +222,25 @@ function projectFallbackReport(value) {
     throw resultError('Semantic Render returned an inconsistent fallbackAnnotationReport.');
   }
   return report;
+}
+
+const MOTION_REPORT_FIELDS = new Set(['nodes', 'tracks', 'duration', 'timelineDuration', 'skipped', 'failures']);
+function projectMotionReport(value) {
+  if (value === undefined) return null;
+  if (!isRecord(value)) throw resultError('Semantic Render returned an invalid motionReport.');
+  rejectUnknownFields(value, MOTION_REPORT_FIELDS, 'motionReport');
+  const nodes = finiteCount(value.nodes, 'motionReport.nodes');
+  const tracks = finiteCount(value.tracks, 'motionReport.tracks');
+  if (typeof value.duration !== 'number' || !Number.isFinite(value.duration) || value.duration < 0) throw resultError('Semantic Render returned an invalid motionReport.duration.');
+  if (value.timelineDuration !== null && (typeof value.timelineDuration !== 'number' || !Number.isFinite(value.timelineDuration) || value.timelineDuration < 0)) {
+    throw resultError('Semantic Render returned an invalid motionReport.timelineDuration.');
+  }
+  if (tracks && nodes === 0) throw resultError('Semantic Render returned an inconsistent motionReport.');
+  return Object.freeze({
+    nodes, tracks, duration: value.duration, timelineDuration: value.timelineDuration,
+    skipped: stringArray(value.skipped, 'motionReport.skipped'),
+    failures: stringArray(value.failures, 'motionReport.failures'),
+  });
 }
 
 function projectStructuralReport(value, { required }) {
@@ -413,6 +432,7 @@ function emptyResources() {
     variableReport: null,
     textStyleReport: null,
     fallbackAnnotationReport: null,
+    motionReport: null,
     scopeQuestions: Object.freeze([]),
   });
 }
@@ -681,6 +701,7 @@ export function projectSemanticRenderOutcome(value, {
       variableReport: projectVariableReport(value.variableReport),
       textStyleReport: projectTextStyleReport(value.textStyleReport),
       fallbackAnnotationReport: projectFallbackReport(value.fallbackAnnotationReport),
+      motionReport: projectMotionReport(value.motionReport),
       scopeQuestions: projectScopeQuestions(value.scopeQuestions),
     }),
     overflow,
@@ -715,6 +736,7 @@ function projectBatchFrame(frame, { native }) {
   projectVariableReport(frame.variableReport);
   projectTextStyleReport(frame.textStyleReport);
   projectFallbackReport(frame.fallbackAnnotationReport);
+  projectMotionReport(frame.motionReport);
   projectScopeQuestions(frame.scopeQuestions);
   const overflow = frame.overflow === undefined ? null : finiteNumber(frame.overflow, 'batch frame overflow');
   return Object.freeze({ root: rootFromPlugin(frame), live, overflow });
@@ -807,6 +829,7 @@ export function projectSemanticRenderBatchOutcome(value, {
       variableReport: projectVariableReport(envelope.variableReport),
       textStyleReport: projectTextStyleReport(envelope.textStyleReport),
       fallbackAnnotationReport: projectFallbackReport(envelope.fallbackAnnotationReport),
+      motionReport: projectMotionReport(envelope.motionReport),
       scopeQuestions: projectScopeQuestions(envelope.scopeQuestions),
     }),
     overflow: overflowPixels.length ? Object.freeze({ pixels: Math.max(...overflowPixels) }) : null,

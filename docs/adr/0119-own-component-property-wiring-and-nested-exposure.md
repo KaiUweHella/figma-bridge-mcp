@@ -44,7 +44,14 @@ violations. Unknown references or oversized subtrees fail instead of becoming
 plausible partial facts. Because the read bypasses the mutation lane, it remains
 available to reconcile an unknown prior write. Figma omits `defaultValue` from
 real SLOT definitions, so the projection normalizes that one native absence to
-`null` while retaining strict scalar defaults.
+`null` while retaining strict scalar defaults. Native Slot reads may also
+return `null` for absent descriptions, preferred values and settings; Slot
+Read reports those native values unchanged, while the Slot Configuration
+projection canonicalizes them to an empty description, an empty
+preferred-value list and the complete effective default settings. When
+Figma materializes all five Slot settings after one field is edited, command
+verification compares that same complete canonical shape instead of reporting
+false rollback residue.
 
 `component add-variant --from` snapshots the source Variant's bounded
 definition-owned descendant paths before cloning. After Figma's native clone,
@@ -69,3 +76,6 @@ native, separate workflows: Variants come from named Component combinations,
 while Slots use the dedicated Slot commands and structural child operations.
 Slot minimum violations are authoritative on exercised Instances; Figma can
 report no violation for an empty Slot on the main Component itself.
+Native Slot creation and inspection therefore accept both Figma's sparse and
+materialized definition shapes without weakening validation for scalar
+property types.

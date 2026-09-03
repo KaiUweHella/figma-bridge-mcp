@@ -118,6 +118,46 @@ export function motionTrackMutationCode(value) {
     const canonical = (value) => Array.isArray(value) ? value.map(canonical) : record(value)
       ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
     const same = (left, right) => JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+    /* Figma canonicalizes every written track: it assigns track and keyframe
+       ids, adds baseValue and keyframeOperation, fills a default easing and
+       expands named easings with their cubic-bezier function. Track equality
+       therefore compares the semantic keyframe content (position, value and
+       the easing the author actually specified), never the raw readback. */
+    const projectEasing = (easing) => {
+      if (!record(easing)) return null;
+      if (easing.type === 'CUSTOM_CUBIC_BEZIER') return { type: easing.type, fn: canonical(easing.easingFunctionCubicBezier || null) };
+      if (easing.type === 'CUSTOM_SPRING') return { type: easing.type, fn: canonical(easing.easingFunctionSpring || null) };
+      return typeof easing.type === 'string' ? { type: easing.type } : canonical(easing);
+    };
+    /* Figma stores keyframe numbers as 32-bit floats (1.04 reads back as
+       1.0399999618530273); compare both sides at that precision. */
+    const f32 = (value) => typeof value === 'number'
+      ? (typeof Math.fround === 'function' ? Math.fround(value) : Math.round(value * 1e6) / 1e6) : value;
+    const numeric = (value) => Array.isArray(value) ? value.map(numeric) : record(value)
+      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, numeric(value[key])])) : f32(value);
+    const projectKeyframes = (track) => (record(track) && Array.isArray(track.keyframes) ? track.keyframes : [])
+      .map((keyframe) => ({ t: f32(keyframe.timelinePosition), value: numeric(keyframe.value), easing: numeric(projectEasing(keyframe.easing)) }))
+      .sort((a, b) => a.t - b.t);
+    const sameTrack = (left, right) => {
+      const a = projectKeyframes(left); const b = projectKeyframes(right);
+      return a.length === b.length && a.every((keyframe, index) => keyframe.t === b[index].t
+        && JSON.stringify(keyframe.value) === JSON.stringify(b[index].value)
+        && (keyframe.easing === null || b[index].easing === null
+          || JSON.stringify(keyframe.easing) === JSON.stringify(b[index].easing)));
+    };
+    const sameTracks = (left, right) => {
+      const l = record(left) ? left : {}; const r = record(right) ? right : {};
+      for (const key of new Set([...Object.keys(l), ...Object.keys(r)])) {
+        if (!Object.hasOwn(l, key) || !Object.hasOwn(r, key)) return false;
+        if (key === 'fills' || key === 'strokes') {
+          const lc = record(l[key]) ? l[key] : {}; const rc = record(r[key]) ? r[key] : {};
+          for (const index of new Set([...Object.keys(lc), ...Object.keys(rc)])) {
+            if (!Object.hasOwn(lc, index) || !Object.hasOwn(rc, index) || !sameTrack(lc[index], rc[index])) return false;
+          }
+        } else if (!sameTrack(l[key], r[key])) return false;
+      }
+      return true;
+    };
     const failureText = (error, fallback) => clean(error && error.message ? error.message : fallback, ${MAX_FAILURE_CODE_UNITS});
     const nodeFact = (target, afterTimelines) => ({
       requestedId: target.requestedId,
@@ -215,7 +255,7 @@ export function motionTrackMutationCode(value) {
           const before = binding(target.beforeTracks, track.field);
           target.beforeBindings.push(before);
           assign(target.expectedTracks, track.field, track.binding);
-          const changed = !before.exists || !same(before.value, track.binding);
+          const changed = !before.exists || !sameTrack(before.value, track.binding);
           target.changedTracks.push(changed);
           if (changed && before.exists) target.replacedCount += 1;
         }
@@ -258,14 +298,14 @@ export function motionTrackMutationCode(value) {
     let after = null;
     try {
       after = await fresh();
-      const complete = targets.every((target, index) => same(after[index].tracks, target.expectedTracks)
+      const complete = targets.every((target, index) => sameTracks(after[index].tracks, target.expectedTracks)
         && same(after[index].timelines, target.expectedTimelines));
       if (complete) {
         delete globalThis.__invCache;
         return success(mutationError ? 'verified-after-error' : 'verified', 1, targets, after, mutationError);
       }
     } catch (error) { mutationError ||= error; }
-    if (after && targets.every((target, index) => same(after[index].tracks, target.beforeTracks)
+    if (after && targets.every((target, index) => sameTracks(after[index].tracks, target.beforeTracks)
       && same(after[index].timelines, target.beforeTimelines))) return failed('unchanged', 0, mutationError, ['motion-state']);
 
     let rollbackError = null;
@@ -288,13 +328,13 @@ export function motionTrackMutationCode(value) {
     }
     try {
       const restored = await fresh();
-      if (targets.every((target, index) => same(restored[index].tracks, target.beforeTracks)
+      if (targets.every((target, index) => sameTracks(restored[index].tracks, target.beforeTracks)
         && same(restored[index].timelines, target.beforeTimelines))) {
         delete globalThis.__invCache;
         return failed('rolled-back', 1, mutationError || rollbackError, []);
       }
       const residue = [];
-      if (targets.some((target, index) => !same(restored[index].tracks, target.beforeTracks))) residue.push('manual-track-state');
+      if (targets.some((target, index) => !sameTracks(restored[index].tracks, target.beforeTracks))) residue.push('manual-track-state');
       if (targets.some((target, index) => !same(restored[index].timelines, target.beforeTimelines))) residue.push('timeline-state');
       return failed('partial-residue', 0, mutationError || rollbackError, residue);
     } catch (error) { return failed('verification-unavailable', 0, mutationError || rollbackError || error, []); }

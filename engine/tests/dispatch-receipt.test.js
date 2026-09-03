@@ -104,6 +104,73 @@ test('Plugin preflight rejects stale connection, target, editor, and capability 
   assert.equal(validatePreparedDispatchContext(receipt, { ...actual, editorType: 'dev' }).reason, 'editor-mismatch');
 });
 
+test('a Render Plan reaches Figma Slides only with an explicit, well-formed target slide', () => {
+  // The receipt is prepared for the Slides editor; the slide target rides on
+  // the request payload the plugin is about to execute.
+  const receipt = prepared({ editorType: 'slides' });
+  const slides = {
+    action: 'render-plan',
+    connectionEpoch: CONNECTION_EPOCH,
+    fileKey: 'FILE_A',
+    editorType: 'slides',
+  };
+
+  assert.deepEqual(
+    validatePreparedDispatchContext(receipt, { ...slides, slideTarget: '12:34' }),
+    { ok: true },
+    'an explicit slide id authorizes the render',
+  );
+  assert.deepEqual(
+    validatePreparedDispatchContext(receipt, { ...slides, slideTarget: 'I12:34;56:78' }),
+    { ok: true },
+    'the full node-id grammar is accepted',
+  );
+
+  for (const [label, slideTarget] of [
+    ['no target at all', undefined],
+    ['an explicitly absent target', null],
+    ['an empty string', ''],
+    ['a name reference rather than an id', 'label:Cover'],
+    ['a malformed id', '12-34'],
+    ['a non-string', 12],
+  ]) {
+    const outcome = validatePreparedDispatchContext(receipt, { ...slides, slideTarget });
+    assert.equal(outcome.ok, false, `${label} must not authorize a Slides render`);
+    assert.equal(outcome.reason, 'editor-mismatch', label);
+    assert.match(outcome.message, /explicit target slide/, label);
+  }
+});
+
+test('the Slides exception never widens to batches or to other editors', () => {
+  const batchReceipt = prepared({ editorType: 'slides', action: 'render-plan-batch' });
+  assert.equal(
+    validatePreparedDispatchContext(batchReceipt, {
+      action: 'render-plan-batch',
+      connectionEpoch: CONNECTION_EPOCH,
+      fileKey: 'FILE_A',
+      editorType: 'slides',
+      slideTarget: '12:34',
+    }).reason,
+    'editor-mismatch',
+    'a batch spreads roots across a canvas and has no meaning inside one slide',
+  );
+
+  for (const editorType of ['figjam', 'dev']) {
+    const receipt = prepared({ editorType });
+    assert.equal(
+      validatePreparedDispatchContext(receipt, {
+        action: 'render-plan',
+        connectionEpoch: CONNECTION_EPOCH,
+        fileKey: 'FILE_A',
+        editorType,
+        slideTarget: '12:34',
+      }).reason,
+      'editor-mismatch',
+      `${editorType} stays closed to Render Plans even with a slide-shaped target`,
+    );
+  }
+});
+
 test('Design render operations reject every non-Design editor while eval and reload remain editor-bound', () => {
   for (const editorType of ['figjam', 'slides', 'dev']) {
     const receipt = prepared({ editorType });

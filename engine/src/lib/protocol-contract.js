@@ -18,6 +18,20 @@ import {
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+// A Render Plan may name one explicit target slide. Shape only: whether the id
+// resolves to a SLIDE is the plugin's decision at execution time.
+const RENDER_PLAN_SLIDE_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+
+function renderPlanSlideTargetError(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096
+    || !RENDER_PLAN_SLIDE_PATTERN.test(value)) {
+    return 'render plan slide must be a Figma node id';
+  }
+  return null;
+}
+
+
 // The semantic value limit stays decimal because it is part of existing user-
 // facing errors. The transport envelopes use a slightly larger binary limit so
 // a maximum-size value still has room for JSON keys, targeting and timeouts.
@@ -186,10 +200,12 @@ export function validateExecPayload(value) {
     catch (error) { return `render plan is invalid: ${error.message}`; }
     if (value.options != null && !isRecord(value.options)) return 'render plan options must be an object';
     if (value.options && Object.keys(value.options).some((key) => ![
-      'smart', 'x', 'y', 'materializeResources',
+      'smart', 'x', 'y', 'materializeResources', 'slide',
     ].includes(key))) {
       return 'render plan options contain an unknown field';
     }
+    const slideError = renderPlanSlideTargetError(value.options?.slide);
+    if (slideError) return slideError;
     if (value.options?.smart != null && typeof value.options.smart !== 'boolean') return 'render plan smart must be boolean';
     if (value.options?.materializeResources != null
       && typeof value.options.materializeResources !== 'boolean') {

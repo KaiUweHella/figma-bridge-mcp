@@ -403,6 +403,7 @@ exp
     DEFAULT_SPEC_FORMAT,
   )
   .option('--no-dedup', 'Print every style value inline instead of S<n> bundle refs')
+  .option('-o, --output <file>', 'Write the complete spec to this workspace file and print summary facts (large screens)')
   .allowExcessArguments(false)
   .action(async (nodeId, options) => {
     try {
@@ -414,6 +415,7 @@ exp
         includeHidden: options.includeHidden,
         format: options.format,
         dedup: options.dedup,
+        ...(options.output ? { outputPath: options.output } : {}),
       };
       const plan = planFigmaCommand(codeSpecPlanningArgvFromRequest(request), {
         adapter: 'cli',
@@ -423,6 +425,7 @@ exp
         async ({ fileKey, deadline }) => {
           await ensurePluginReadiness({ deadline, maxWaitMs: 8000 });
           return executeCodeSpecPlan(plan, {
+            workspaceIO: workspaceIO(),
             evaluate: (code) => daemonExec('eval', {
               code,
               ...(fileKey ? { fileKey } : {}),

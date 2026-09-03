@@ -55,9 +55,26 @@ const OPTION_SPECS = new Map([
   ['--approve-fallback', { key: 'approveFallback', value: 'required' }],
   ['--approve-flat-repetition', { key: 'approveFlatRepetition', value: 'required' }],
   ['--allow-free-layout', { key: 'allowFreeLayout', value: 'required' }],
+  ['--slide', { key: 'slide', value: 'required' }],
   ['--help', { key: 'help', value: 'none' }],
   ['-h', { key: 'help', value: 'none' }],
 ]);
+
+
+const SLIDE_TARGET_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+
+/**
+ * One explicit target slide, as a Figma node id. Name and label references are
+ * deliberately not accepted here: resolving them needs a document read, and a
+ * render must never pick its own target when a reference turns out ambiguous.
+ */
+function slideOption(value) {
+  const text = String(value ?? '').replace(/^node:/, '');
+  if (!text || text.length > 4096 || !SLIDE_TARGET_PATTERN.test(text)) {
+    throw requestError('--slide must be a Figma slide node id, for example 12:34');
+  }
+  return text;
+}
 
 const BATCH_OPTION_SPECS = new Map([
   ['-g', { key: 'gap', value: 'required' }],
@@ -454,6 +471,7 @@ function inspectRenderArgv(args) {
         smart: values.noSmartPosition !== true,
         x: values.x === undefined ? null : finiteOption(values.x, '-x'),
         y: values.y === undefined ? null : finiteOption(values.y, '-y'),
+        slide: values.slide === undefined ? null : slideOption(values.slide),
       }),
       collection: values.collection || null,
       resourcePolicy: Object.freeze({
@@ -668,6 +686,9 @@ export function semanticRenderArgvFromRequest(request) {
     options.push(`-y${finiteOption(request.placement.y, '-y')}`);
   }
   if (request.placement?.smart === false) options.push('--no-smart-position');
+  if (request.placement?.slide != null) {
+    options.push(`--slide=${slideOption(request.placement.slide)}`);
+  }
   // Inline option values preserve the full accepted value range, including a
   // legitimate leading dash, when typed requests round-trip through argv.
   if (request.collection != null) options.push(`--collection=${String(request.collection)}`);

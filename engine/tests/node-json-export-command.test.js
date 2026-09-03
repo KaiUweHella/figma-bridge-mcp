@@ -36,6 +36,26 @@ function envelope(overrides = {}) {
   };
 }
 
+function restEnvelope(overrides = {}) {
+  return {
+    nodeId: '1:2',
+    value: {
+      document: {
+        id: '1:2',
+        name: 'Card',
+        type: 'FRAME',
+        visible: true,
+        children: [{ id: '2:1', name: 'Label', type: 'TEXT', characters: 'Hello' }],
+      },
+      components: {},
+      componentSets: {},
+      schemaVersion: 0,
+      styles: {},
+    },
+    ...overrides,
+  };
+}
+
 test('Node JSON Export closes request grammar and preserves URL target identity only for planning', () => {
   assert.deepEqual(parseNodeJsonExportRequest([
     'export', 'node-json', '1-2', '--output=facts.json',
@@ -79,6 +99,31 @@ test('JSON_REST_V1 is exported from the live Plugin document with one bounded en
   )(figma);
   assert.deepEqual(settings, { format: 'JSON_REST_V1' });
   assert.deepEqual(result, { nodeId: '1:2', value });
+});
+
+test('Node JSON Export accepts Figma\'s official REST nodes response envelope', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'node-json-export-rest-envelope-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const io = createWorkspaceIO({ root });
+  const plan = planFigmaCommand([
+    'export', 'node-json', '1:2', '-o', 'facts.json',
+  ], { adapter: 'cli', workspaceDir: root, workspaceIO: io });
+
+  const result = await executeNodeJsonExportPlan(plan, {
+    workspaceIO: io,
+    evaluate: async () => restEnvelope(),
+  });
+
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(root, 'facts.json'), 'utf8')),
+    restEnvelope().value,
+  );
+  assert.deepEqual(result.result, {
+    nodeId: '1:2',
+    type: 'FRAME',
+    byteLength: Buffer.byteLength(readFileSync(join(root, 'facts.json'), 'utf8')),
+    saved: join(root, 'facts.json'),
+  });
 });
 
 test('CLI and MCP use one safe-read Plan-bound Node JSON Export Application', async (t) => {
@@ -199,6 +244,15 @@ test('malformed or unbounded Plugin facts fail before Workspace publication', as
     envelope({ value: sparse }),
     envelope({ value: deep }),
     envelope({ value: many }),
+    restEnvelope({
+      value: { ...restEnvelope().value, document: { ...restEnvelope().value.document, id: '9:9' } },
+    }),
+    restEnvelope({
+      value: { ...restEnvelope().value, components: [] },
+    }),
+    restEnvelope({
+      value: { ...restEnvelope().value, schemaVersion: -1 },
+    }),
   ];
   for (const result of rejected) {
     await assert.rejects(() => executeNodeJsonExportPlan(plan, {

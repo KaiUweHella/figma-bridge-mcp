@@ -20,6 +20,9 @@ function normalizedSource(value) {
         if (value?.$alias?.status === 'unresolved') {
           throw new Error('Variable Snapshot v2 contains an unresolved external Alias and cannot be imported exactly.');
         }
+        if (value?.$alias?.opacity !== undefined) {
+          throw new Error('Variable Snapshot v2 contains composed Alias opacity, but the public Figma Plugin API cannot write composed color values yet. The snapshot remains exact export evidence and must not be flattened during import.');
+        }
       }
     }
   }

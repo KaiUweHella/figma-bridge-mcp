@@ -8,6 +8,7 @@ export const CODE_SPEC_PHASES = Object.freeze(['structure', 'style', 'all']);
 export const CODE_SPEC_FORMATS = Object.freeze(['tree', 'yaml', 'json']);
 export const MAX_CODE_SPEC_NODE_ID_CODE_UNITS = 512;
 export const MAX_CODE_SPEC_SECTION_CODE_UNITS = 4096;
+export const MAX_CODE_SPEC_OUTPUT_PATH_CODE_UNITS = 4096;
 const NODE_ID_PATTERN = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
 
 function commandError(message) {
@@ -46,17 +47,25 @@ function parsedCodeSpecRequest(args) {
   let format = DEFAULT_SPEC_FORMAT;
   let includeHidden = false;
   let dedup = true;
+  let outputPath = null;
   let literal = false;
   const valueOptions = new Map([
     ['-p', 'phase'], ['--phase', 'phase'],
     ['-d', 'depth'], ['--depth', 'depth'],
     ['-s', 'section'], ['--section', 'section'],
     ['-f', 'format'], ['--format', 'format'],
+    ['-o', 'output'], ['--output', 'output'],
   ]);
   const assign = (kind, value) => {
     if (kind === 'phase') phase = enumValue(value, CODE_SPEC_PHASES, 'phase');
     else if (kind === 'depth') depth = depthValue(value);
     else if (kind === 'format') format = enumValue(value, CODE_SPEC_FORMATS, 'format');
+    else if (kind === 'output') {
+      if (!value || value.length > MAX_CODE_SPEC_OUTPUT_PATH_CODE_UNITS) {
+        throw commandError(`output must be non-empty and at most ${MAX_CODE_SPEC_OUTPUT_PATH_CODE_UNITS} code units`);
+      }
+      outputPath = value;
+    }
     else {
       if (!value || value.length > MAX_CODE_SPEC_SECTION_CODE_UNITS) {
         throw commandError(`section must be non-empty and at most ${MAX_CODE_SPEC_SECTION_CODE_UNITS} code units`);
@@ -78,7 +87,7 @@ function parsedCodeSpecRequest(args) {
       continue;
     }
     if (!literal) {
-      const combined = token.match(/^(-[pdsf]|--(?:phase|depth|section|format))=(.*)$/);
+      const combined = token.match(/^(-[pdsfo]|--(?:phase|depth|section|format|output))=(.*)$/);
       if (combined) { assign(valueOptions.get(combined[1]), combined[2]); continue; }
       if (token === '--include-hidden') { includeHidden = true; continue; }
       if (token === '--no-dedup') { dedup = false; continue; }
@@ -98,7 +107,7 @@ function parsedCodeSpecRequest(args) {
       throw commandError('nodeId must be a bounded Figma node id or URL containing node-id');
     }
   }
-  return { nodeId, fileKey, phase, depth, section, format, includeHidden, dedup };
+  return { nodeId, fileKey, phase, depth, section, format, includeHidden, dedup, outputPath };
 }
 
 export function parseCodeSpecRequest(args) {
@@ -134,6 +143,9 @@ function typedRequest(request) {
   if (request.dedup != null && typeof request.dedup !== 'boolean') {
     throw commandError('dedup must be a boolean');
   }
+  if (request.outputPath != null && (typeof request.outputPath !== 'string' || !request.outputPath)) {
+    throw commandError('outputPath must be a non-empty string');
+  }
   const args = ['export', 'code-spec'];
   if (request.nodeId != null && request.nodeId !== '') args.push(String(request.nodeId).trim());
   args.push('--phase', String(request.phase ?? 'all'), '--depth', String(request.depth ?? 12));
@@ -141,6 +153,7 @@ function typedRequest(request) {
   args.push('--format', String(request.format ?? DEFAULT_SPEC_FORMAT));
   if (request.includeHidden === true) args.push('--include-hidden');
   if (request.dedup === false) args.push('--no-dedup');
+  if (request.outputPath != null) args.push('--output', String(request.outputPath));
   return parsedCodeSpecRequest(args);
 }
 
@@ -154,6 +167,7 @@ export function codeSpecArgvFromRequest(request) {
   if (input.format !== DEFAULT_SPEC_FORMAT) args.push('--format', input.format);
   if (input.includeHidden) args.push('--include-hidden');
   if (!input.dedup) args.push('--no-dedup');
+  if (input.outputPath) args.push('--output', input.outputPath);
   return args;
 }
 

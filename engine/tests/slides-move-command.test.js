@@ -234,3 +234,20 @@ test('Slides Move generated Plugin code parses', () => {
     reference: 'label:Body', row: 1, col: 0,
   })}`));
 });
+
+test('a slide the grid has not listed yet is resolved but refused for a move, with the reason', async () => {
+  const live = runtime();
+  const ghost = {
+    id: '1:9', name: 'Ghost', type: 'SLIDE', isSkippedSlide: false, children: [],
+    getSlideTransition() { return structuredClone(TRANSITION); },
+    getPluginData(key) { return key === 'bridge-slide-label' ? 'Stray' : ''; },
+  };
+  Object.defineProperty(live.page, 'children', {
+    get: () => [{ type: 'SLIDE_ROW', children: [...live.getGrid().flat(), ghost] }],
+  });
+  await assert.rejects(
+    () => executeSlidesMove({ reference: 'label:Stray', row: 0, col: 0 }, { evaluate: evaluate(live.figma) }),
+    /not listed by the canvas grid yet.*could not be reversed/,
+  );
+  assert.equal(live.calls(), 0, 'nothing was moved');
+});

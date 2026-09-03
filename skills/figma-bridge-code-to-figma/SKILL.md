@@ -50,6 +50,13 @@ contract. Preserve all three instead of drawing a flattened approximation.
 
 ## Build in dependency order
 
+0. Keep CSS animations in the captured DOM: the browser capture expression
+   reads `animation-*` facts and `@keyframes` and pauses playback so the
+   resting geometry is captured. `render --dom-capture` then writes them as
+   native Figma Motion tracks on the created layers (and on Component layers
+   created from that DOM); read the `Motion:` line of the render result and
+   verify with `figma_run ["motion","inspect","<layerId>"]`. Loops and springs
+   are reported limitations, never silently dropped.
 1. Match the real viewport or reference-frame dimensions before rendering.
 2. Import or sync tokens first. Reuse variables and styles, preserve authored
    CSS variable names, and handle every `SCOPE DECISION REQUIRED` result before

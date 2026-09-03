@@ -35,7 +35,8 @@ import {
   semanticRenderArgvRoute,
   semanticRenderRequestFromArgv,
 } from './semantic-render-request.js';
-import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
+import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT, inboundImageCeilingGuidance } from '../lib/image-file.js';
+import { MAX_PROTOCOL_VALUE_BYTES } from '../lib/protocol-contract.js';
 import { rasterDimensions, rasterKind } from '../lib/raster-dimensions.js';
 import { materializeRemoteRenderImage } from '../lib/remote-render-assets.js';
 import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
@@ -99,6 +100,60 @@ function preflightError(message) {
     phase: 'request-validation',
     outcome: 'not-dispatched',
   });
+}
+
+/** The render-plan options exactly as the native executor receives them. */
+function nativeRenderOptions(request) {
+  return {
+    smart: request.placement.smart,
+    x: request.placement.x,
+    y: request.placement.y,
+    // Only a named target travels; a Design render's payload stays exactly
+    // what it was before Slides became reachable.
+    ...(request.placement.slide == null ? {} : { slide: request.placement.slide }),
+    materializeResources: request.resourcePolicy.materializeGenerated,
+  };
+}
+
+/** The batch options exactly as the native compound executor receives them. */
+function nativeCompoundOptions(request) {
+  return {
+    gap: request.layout.gap,
+    vertical: request.layout.direction === 'col',
+    smart: request.placement.smart,
+    x: request.placement.x,
+    y: request.placement.y,
+    materializeResources: request.resourcePolicy.materializeGenerated,
+  };
+}
+
+// Every embedded image rides inside one protocol value, so the transport's
+// limit applies to their sum, not to each file. Measure the payload the
+// executor will send -- serialized the way the protocol validator serializes
+// it, against the same MAX_PROTOCOL_VALUE_BYTES -- and refuse here, before
+// Plugin readiness, with the command's own guidance rather than the
+// transport's error afterwards. The measure is inlined rather than exported
+// from protocol-contract.js because that module is part of the Plugin
+// compatibility fingerprint, and a preflight is not a protocol change.
+function renderPayloadByteLength(payload) {
+  try {
+    const serialized = JSON.stringify(payload);
+    return typeof serialized === 'string' ? Buffer.byteLength(serialized, 'utf8') : null;
+  } catch {
+    return null;
+  }
+}
+
+function assertRenderPayloadFits(payload) {
+  const bytes = renderPayloadByteLength(payload);
+  if (bytes === null) throw preflightError('Semantic Render produced a payload that cannot be serialized.');
+  if (bytes > MAX_PROTOCOL_VALUE_BYTES) {
+    throw preflightError(
+      `Semantic Render payload is ${bytes} bytes serialized, over the ${MAX_PROTOCOL_VALUE_BYTES} byte `
+      + 'protocol limit. Embedded images ride inside the plan as base64 (4/3 of their file size) and '
+      + 'count together; downscale or drop images until the plan fits.',
+    );
+  }
 }
 
 function preflightCount(value, label, max = 20_000) {
@@ -239,6 +294,7 @@ export function prepareSemanticRenderPlan(plan, adapters = {}) {
   }
   const renderPlan = client.planJSX(preset.jsx);
   assertRootIdentityStageCompatibility(request, [renderPlan]);
+  assertRenderPayloadFits({ plan: renderPlan, options: nativeRenderOptions(request) });
   const evidence = compileEvidence(client, preset.jsx, renderPlan, request, preset.note);
   const support = inspectStructuredRenderPlan(renderPlan);
   const prepared = Object.freeze({ request, client, renderPlan, support, evidence, jsx: preset.jsx });
@@ -312,7 +368,10 @@ async function resolveCompoundImages(roots, io, materializeRemoteImage) {
     const accepted = io.authorizePath(input, { access: 'read', role: 'render-image', kind: 'file' });
     const size = accepted.metadata.size;
     if (size > IMAGE_HARD_LIMIT) {
-      throw preflightError(`Semantic Render image exceeds ${IMAGE_HARD_LIMIT} bytes.`);
+      throw preflightError(
+        `Semantic Render image exceeds ${IMAGE_HARD_LIMIT} bytes (${basename(input)} is ${size} bytes). `
+        + inboundImageCeilingGuidance(),
+      );
     }
     const bytes = io.read(accepted.canonical, { role: 'render-image', maxBytes: IMAGE_HARD_LIMIT });
     const kind = rasterKind(bytes);
@@ -402,6 +461,7 @@ export async function prepareCompoundSemanticRenderPlan(plan, adapters = {}) {
   assertMultiScreenReuseAcceptance(reusePlan);
   const renderPlans = presetRoots.map(({ jsx }) => client.planJSX(jsx));
   assertRootIdentityStageCompatibility(request, renderPlans);
+  assertRenderPayloadFits({ plans: renderPlans, options: nativeCompoundOptions(request) });
   const evidence = renderPlans.map((renderPlan, index) => compileEvidence(
     client, presetRoots[index].jsx, renderPlan, request, presetRoots[index].note,
   ));
@@ -608,14 +668,7 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     return failure;
   };
 
-  const options = {
-    gap: prepared.request.layout.gap,
-    vertical: prepared.request.layout.direction === 'col',
-    smart: prepared.request.placement.smart,
-    x: prepared.request.placement.x,
-    y: prepared.request.placement.y,
-    materializeResources: prepared.request.resourcePolicy.materializeGenerated,
-  };
+  const options = nativeCompoundOptions(prepared.request);
   let raw;
   let executor;
   let compatibilityReason = null;
@@ -829,10 +882,7 @@ export async function executePreparedSemanticRender(prepared, adapters = {}) {
   };
   if (prepared.support.supported) {
     try {
-      raw = await adapters.renderPlan(prepared.renderPlan, {
-        ...prepared.request.placement,
-        materializeResources: prepared.request.resourcePolicy.materializeGenerated,
-      });
+      raw = await adapters.renderPlan(prepared.renderPlan, nativeRenderOptions(prepared.request));
       executor = 'structured-v1';
     } catch (error) {
       throw attachFailureOutcome(error, 'structured-v1');
@@ -990,6 +1040,12 @@ export function semanticRenderResultRows(result) {
       tone: 'muted',
       text: `${report.literal} unmatched typography candidate(s) stayed literal; no parallel Text Style was created.`,
     });
+  }
+  if (resources.motionReport) {
+    const report = resources.motionReport;
+    if (report.tracks) rows.push({ tone: 'success', text: `Motion: ${report.tracks} native keyframe track(s) on ${report.nodes} layer(s) from captured CSS animations; timeline ${report.timelineDuration ?? report.duration}s.` });
+    if (report.skipped.length) rows.push({ tone: 'warning', text: `Motion skipped on ${report.skipped.length} layer(s) that cannot take keyframe tracks: ${report.skipped.join(', ')}` });
+    if (report.failures.length) rows.push({ tone: 'warning', text: `Motion rejected by Figma on ${report.failures.length} track(s): ${report.failures.join('; ')}` });
   }
   if (resources.fallbackAnnotationReport?.requested) {
     const report = resources.fallbackAnnotationReport;

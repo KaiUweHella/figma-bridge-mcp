@@ -110,7 +110,8 @@ export function jamConnectorCode(request) {
       }
     } catch (error) { return refused(error); }
     const endpoint = (value) => {
-      if (!value || !validId(value.endpointNodeId) || value.magnet !== 'AUTO') {
+      if (!value || !validId(value.endpointNodeId)
+        || !['NONE', 'AUTO', 'TOP', 'LEFT', 'BOTTOM', 'RIGHT', 'CENTER'].includes(value.magnet)) {
         throw new Error('Jam Connector returned an invalid native endpoint.');
       }
       return { endpointNodeId: value.endpointNodeId, magnet: value.magnet };
@@ -246,7 +247,8 @@ function validTarget(value, expected) {
 }
 function validEndpoint(value, expectedId) {
   return exact(value, ['endpointNodeId', 'magnet'])
-    && value.endpointNodeId === expectedId && value.magnet === 'AUTO';
+    && value.endpointNodeId === expectedId
+    && ['NONE', 'AUTO', 'TOP', 'LEFT', 'BOTTOM', 'RIGHT', 'CENTER'].includes(value.magnet);
 }
 function validRequest(value, input) {
   return exact(value, ['fromId', 'toId', 'text', 'line'])

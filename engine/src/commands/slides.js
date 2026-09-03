@@ -38,10 +38,31 @@ import {
   executeSlidesDeletePlan,
   slidesDeletePlanningArgvFromRequest,
 } from '../application/slides-delete-command.js';
+import { executeSlidesLintPlan } from '../application/slides-lint-command.js';
+import { executeSlidesBatchPlan } from '../application/slides-batch-command.js';
+import {
+  executeSlidesFocusPlan,
+  executeSlidesViewPlan,
+} from '../application/slides-viewport-command.js';
+import { workspaceIO } from '../lib/workspace-io.js';
+import {
+  executeSlidesMediaPrepared,
+  prepareSlidesMediaPlan,
+} from '../application/slides-media-command.js';
+import { slidesMediaPlanningArgvFromRequest } from '../application/slides-media-request.js';
+import { slidesBatchPlanningArgvFromRequest } from '../application/slides-batch-request.js';
+import {
+  SLIDES_LINT_KINDS,
+  slidesLintPlanningArgvFromRequest,
+} from '../application/slides-lint-request.js';
+import {
+  executeSlidesManifestPlan,
+  slidesManifestPlanningArgvFromRequest,
+} from '../application/slides-manifest-command.js';
 
 const slides = program
   .command('slides')
-  .description('Figma Slides beta: inspect, create, duplicate, move, transition, skip, delete');
+  .description('Figma Slides beta: inspect, lint, manifest, create, duplicate, move, transition, skip, delete');
 
 slides
   .command('inspect [slide]')
@@ -262,6 +283,189 @@ slides
       if (result.stderr) console.error(result.stderr);
     } catch (error) {
       console.error(chalk.red('✗ Slides delete failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Deck-wide reads. Both are safe reads: they walk the canvas grid and touch
+// nothing, so neither takes a slide reference nor a write confirmation.
+slides
+  .command('lint')
+  .description('Report structural findings across the whole deck')
+  .option('--kinds <list>', `Comma-separated finding kinds: ${SLIDES_LINT_KINDS.join(', ')}`)
+  .option('--limit <n>', 'Maximum findings printed per kind (default 20)')
+  .option('--fail-on-issues', 'Exit non-zero when the deck has findings')
+  .allowExcessArguments(false)
+  .action(async (options) => {
+    try {
+      const plan = planFigmaCommand(slidesLintPlanningArgvFromRequest({
+        kinds: options.kinds ? String(options.kinds).split(',').map((part) => part.trim()).filter(Boolean) : undefined,
+        limit: options.limit === undefined ? undefined : Number(options.limit),
+        failOnIssues: options.failOnIssues === true,
+      }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesLintPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+      if (result.code) process.exitCode = result.code;
+    } catch (error) {
+      console.error(chalk.red('✗ Slides lint failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+slides
+  .command('manifest')
+  .description('Export a compact deck manifest for review and version control')
+  .allowExcessArguments(false)
+  .action(async () => {
+    try {
+      const plan = planFigmaCommand(slidesManifestPlanningArgvFromRequest(), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesManifestPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('✗ Slides manifest failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Batch is a plan by default. --apply is the deliberate second step, and the
+// Capability Catalog gates it accordingly: without it the command is a read.
+slides
+  .command('batch <json>')
+  .description('Plan create/duplicate/move operations over the deck; --apply performs them')
+  .option('--apply', 'Perform the planned operations instead of only reporting them')
+  .allowExcessArguments(false)
+  .action(async (json, options) => {
+    try {
+      const argv = ['slides', 'batch', json, ...(options.apply ? ['--apply'] : [])];
+      const plan = planFigmaCommand(slidesBatchPlanningArgvFromRequest({ argv }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesBatchPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides batch failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Editor context, not document content: focusedSlide and viewport.slidesView
+// are both declared as setters by the Plugin API, and neither changes the file.
+slides
+  .command('focus <slide>')
+  .description('Focus one slide by typed node:/name:/label: reference or compatible query')
+  .allowExcessArguments(false)
+  .action(async (slide) => {
+    try {
+      const plan = planFigmaCommand(['slides', 'focus', slide], {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesFocusPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides focus failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+slides
+  .command('view <mode>')
+  .description('Set the deck view: grid or single-slide')
+  .allowExcessArguments(false)
+  .action(async (mode) => {
+    try {
+      const plan = planFigmaCommand(['slides', 'view', mode], {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+      });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesViewPlan(plan, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides view failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Media insertion. The file is authorized and read before any Figma call, and
+// the bytes ride in the eval payload -- there is no inbound asset stream --
+// so the ceiling is derived from the protocol limit, as for every image command.
+slides
+  .command('media <slide> <file>')
+  .description('Insert a local image, animated GIF or video into one slide')
+  .option('--name <name>', 'Name for the created node')
+  .option('--fit <mode>', 'Scale mode: FILL, FIT, CROP or TILE (default FILL)')
+  .allowExcessArguments(false)
+  .action(async (slide, file, options) => {
+    try {
+      const io = workspaceIO();
+      const argv = ['slides', 'media', slide, file];
+      if (options.name) argv.push(`--name=${options.name}`);
+      if (options.fit) argv.push(`--fit=${options.fit}`);
+      const plan = planFigmaCommand(slidesMediaPlanningArgvFromRequest({ argv }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+        workspaceDir: io.roots[0], workspaceIO: io,
+      });
+      const prepared = prepareSlidesMediaPlan(plan, { workspaceIO: io });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesMediaPrepared(prepared, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides media failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

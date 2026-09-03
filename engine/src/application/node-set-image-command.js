@@ -1,5 +1,5 @@
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT } from '../lib/image-file.js';
+import { IMAGE_HARD_LIMIT, IMAGE_WARN_LIMIT, inboundImageCeilingGuidance } from '../lib/image-file.js';
 import { NODE_REFERENCE_PATTERN } from './node-reference.js';
 import {
   MAX_NODE_SET_IMAGE_PATH_CODE_UNITS,
@@ -41,7 +41,10 @@ export function prepareNodeSetImagePlan(plan, adapters = {}) {
     access: 'read', role: 'node-image', kind: 'file',
   });
   if (accepted.metadata.size > IMAGE_HARD_LIMIT) {
-    throw new Error(`Workspace node-image rejected: file exceeds ${IMAGE_HARD_LIMIT} bytes.`);
+    throw new Error(
+      `Workspace node-image rejected: file is ${accepted.metadata.size} bytes, over the `
+      + `${IMAGE_HARD_LIMIT} byte ceiling. ${inboundImageCeilingGuidance()}`,
+    );
   }
   const bytes = adapters.workspaceIO.read(accepted.canonical, {
     role: 'node-image', maxBytes: IMAGE_HARD_LIMIT,

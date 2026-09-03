@@ -559,6 +559,7 @@ tokens
         if (r) {
           spinnerSucceed(spinner, `Created ${r.createdCount} variable(s), wired ${r.aliasCount} alias(es) across ${r.collections} collection(s)`);
           if (r.unresolved) console.log(chalk.yellow(`  ⚠ ${r.unresolved} alias value(s) unresolved (target outside this file / type mismatch)`));
+          if (r.preserved) console.log(chalk.yellow(`  ⚠ ${r.preserved} existing composed color Alias value(s) preserved (legacy import cannot restore Alias opacity; use a Variable Snapshot v2)`));
           printVariableScopeQuestions(r.scopeQuestions);
         } else {
           spinnerSucceed(spinner, 'Variables imported');

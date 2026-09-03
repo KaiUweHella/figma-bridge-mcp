@@ -96,6 +96,54 @@ test('typed discovery and Style rejection guidance explains the actual contract 
   }
 });
 
+test('Slides rejection guidance names the parser reason without echoing arguments', () => {
+  const cases = [
+    {
+      args: ['slides', 'view', 'private-payload'],
+      pattern: /Malformed request for slides view: view mode must be one of grid, single-slide\. Accepted form:/,
+    },
+    {
+      args: ['slides', 'media', 'label:Cover', '/w/private-payload.png', '--fit', 'private-payload'],
+      pattern: /Malformed request for slides media: --fit must be one of FILL, FIT, CROP, TILE\./,
+    },
+    {
+      args: ['slides', 'create', '--col', '1'],
+      pattern: /Malformed request for slides create: --col requires --row\./,
+    },
+    {
+      args: ['slides', 'transition', 'label:Cover', 'private-payload'],
+      pattern: /Malformed request for slides transition: style must be one of NONE, DISSOLVE/,
+    },
+    {
+      args: ['slides', 'batch', '[{"op":"private-payload"}]'],
+      pattern: /Malformed request for slides batch: batch item 1 op must be one of create, duplicate, move\./,
+    },
+    {
+      args: ['slides', 'delete', 'node:private-payload'],
+      pattern: /Malformed request for slides delete: Invalid (?:Union|Node) Reference \([a-z-]+\)\./,
+    },
+    {
+      args: ['slides', 'duplicate', 'label:Cover', '--future', 'private-payload'],
+      pattern: /Unsupported option --future for slides duplicate\. Accepted form:/,
+    },
+    {
+      // An unknown lint kind would echo the argument, so it stays generic.
+      args: ['slides', 'lint', '--kinds', 'private-payload'],
+      pattern: /Malformed request for slides lint: arguments do not match the typed command contract\./,
+    },
+  ];
+  for (const { args, pattern } of cases) {
+    const message = explainFigmaCommandRejection(args);
+    assert.match(message, pattern, args.join(' '));
+    assert.ok(message.length <= 700, args.join(' '));
+    assert.doesNotMatch(message, /private-payload/, args.join(' '));
+  }
+  assert.match(
+    explainFigmaCommandRejection(['slides', 'view', 'sideways'], { prefix: '' }),
+    /^Malformed request for slides view: /,
+  );
+});
+
 test('catalog owns the full read/write matrix including special flag semantics', () => {
   for (const args of [
     ['render', '<Frame/>'], ['combos', '1:2'], ['node', 'delete', '1:2'],

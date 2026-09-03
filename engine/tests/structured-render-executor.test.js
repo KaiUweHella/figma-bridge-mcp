@@ -6,6 +6,8 @@ import { executeStructuredRenderPlan, executeStructuredRenderPlanBatch, inspectS
 import { VARIABLE_SCOPES_BY_TYPE } from '../src/lib/variable-scope-policy.js';
 import { designEntityRegistryProjection } from '../src/lib/design-link-registry.js';
 import { projectSemanticRenderOutcome } from '../src/lib/semantic-render-outcome.js';
+import { domCaptureToRenderPlan } from '../src/lib/dom-capture-to-jsx.js';
+import { assertSemanticRenderPlan } from '../src/lib/semantic-render-plan.js';
 
 function designClient(entities, targetFileKey = 'FILE_A') {
   const client = new FigmaClient();
@@ -1721,6 +1723,16 @@ function fakeFigma({ fileKey = 'FILE_A', variables: initialVariables = [], colle
   const base = (type) => ({
     id: `1:${++id}`, type, name: '', x: 0, y: 0, width: type === 'TEXT' ? 1 : 0, height: type === 'TEXT' ? 16 : 0,
     children: [], fills: [], strokes: [], effects: [], annotations: [], layoutMode: 'NONE', visible: true, locked: false,
+    manualKeyframeTracks: {}, timelines: [{ id: 'timeline:1', duration: 0.2 }],
+    applyManualKeyframeTrack(field, binding) {
+      const key = field.type === 'PROPERTY' ? field.name : `${field.collection}:${field.index}`;
+      this.manualKeyframeTracks[key] = { id: `track:${key}`, keyframes: binding.keyframes.map((keyframe, index) => ({ id: `k${index}`, ...keyframe })) };
+    },
+    setTimelineDuration(id, duration) {
+      const timeline = this.timelines.find((entry) => entry.id === id);
+      if (!timeline) throw new Error('unknown timeline');
+      timeline.duration = duration;
+    },
     resize(width, height) { this.width = width; this.height = height; },
     appendChild(child) {
       const priorOwner = child.parent || currentPage;
@@ -2005,3 +2017,148 @@ function fakeFigma({ fileKey = 'FILE_A', variables: initialVariables = [], colle
   };
   return api;
 }
+
+describe('structured executor Motion', () => {
+  const animatedCapture = {
+    version: 2, viewport: { width: 400, height: 300 },
+    keyframes: { orbit: [{ selectorText: 'to', style: { transform: 'translate(13px, -7px) scale(1.04)' } }] },
+    root: {
+      tag: 'section', classes: 'hero', rect: { x: 0, y: 0, w: 400, h: 300 }, texts: [], before: null, after: null,
+      style: { display: 'block', position: 'relative', overflow: 'hidden', opacity: '1', backgroundColor: 'rgb(32, 33, 39)', borderTopLeftRadius: '0px', borderTopRightRadius: '0px', borderBottomRightRadius: '0px', borderBottomLeftRadius: '0px', boxShadow: 'none', backdropFilter: 'none', mixBlendMode: 'normal', transform: 'none' },
+      children: [{
+        tag: 'i', classes: 'orb orb-one', rect: { x: 232, y: 16, w: 165, h: 165 }, texts: [], before: null, after: null, children: [],
+        style: { display: 'block', position: 'absolute', overflow: 'visible', opacity: '1', backgroundColor: 'rgb(201, 255, 88)', borderTopLeftRadius: '50%', borderTopRightRadius: '50%', borderBottomRightRadius: '50%', borderBottomLeftRadius: '50%', boxShadow: 'none', backdropFilter: 'none', mixBlendMode: 'normal', transform: 'none' },
+        animation: [{ name: 'orbit', duration: '5s', delay: '0s', timingFunction: 'ease-in-out', iterationCount: 'infinite', direction: 'alternate', fillMode: 'none', playState: 'running' }],
+      }],
+    },
+  };
+
+  it('applies captured CSS animations as native Motion tracks and grows the root timeline', async () => {
+    const { renderPlan, diagnostics } = domCaptureToRenderPlan(animatedCapture, { captureHash: 'b'.repeat(64) });
+    assert.equal(diagnostics.motion.nodes, 1);
+    const orbPlan = renderPlan.root.children[0];
+    assert.equal(orbPlan.source.props.motion.duration, 10);
+    assert.deepEqual(orbPlan.source.props.motion.tracks.map((track) => track.field.name), ['TRANSLATION_X', 'TRANSLATION_Y', 'SCALE_XY']);
+
+    const figma = fakeFigma();
+    const result = await executeStructuredRenderPlan(figma, renderPlan);
+    const root = figma.created.find((node) => node.name === renderPlan.root.name || node.parent === figma.currentPage);
+    const orb = figma.created.find((node) => Object.keys(node.manualKeyframeTracks).length);
+    assert.ok(orb, 'the animated layer received tracks');
+    assert.deepEqual(orb.manualKeyframeTracks.TRANSLATION_X.keyframes.map((key) => [key.timelinePosition, key.value.value]), [[0, 0], [5, 13], [10, 0]]);
+    assert.equal(orb.manualKeyframeTracks.TRANSLATION_X.keyframes[1].easing.type, 'EASE_IN_AND_OUT');
+    assert.equal(root.timelines[0].duration, 10, 'the created root timeline covers the longest track');
+    assert.deepEqual(result.motionReport, { nodes: 1, tracks: 3, duration: 10, timelineDuration: 10, skipped: [], failures: [] });
+  });
+
+  it('reports a layer that rejects Motion instead of failing the render', async () => {
+    const { renderPlan } = domCaptureToRenderPlan(animatedCapture, { captureHash: 'b'.repeat(64) });
+    const figma = fakeFigma();
+    const originalCreate = figma.createFrame.bind(figma);
+    figma.createFrame = () => {
+      const node = originalCreate();
+      node.applyManualKeyframeTrack = () => { throw new Error('Motion API is not enabled'); };
+      return node;
+    };
+    const result = await executeStructuredRenderPlan(figma, renderPlan);
+    assert.equal(result.mutationOutcome, 'completed');
+    assert.equal(result.motionReport.tracks, 0);
+    assert.equal(result.motionReport.failures.length, 3);
+    assert.match(result.motionReport.failures[0], /Motion API is not enabled/);
+  });
+
+  it('refuses a plan whose motion prop is not Figma-shaped', () => {
+    const { renderPlan } = domCaptureToRenderPlan(animatedCapture, { captureHash: 'b'.repeat(64) });
+    const forged = structuredClone(renderPlan);
+    forged.root.children[0].source.props.motion.tracks[0].field = { type: 'PROPERTY', name: 'GLOW' };
+    assert.throws(() => assertSemanticRenderPlan(forged), /not a supported Figma Motion field/);
+    const late = structuredClone(renderPlan);
+    late.root.children[0].source.props.motion.tracks[0].binding.keyframes[2].timelinePosition = 11;
+    assert.throws(() => assertSemanticRenderPlan(late), /inside the motion duration/);
+  });
+});
+
+describe('rendering into one explicit Figma Slides target', () => {
+  const slidePlan = () => new FigmaClient().planJSX(
+    '<Frame name="Cover" flex="col" w="1920" h="1080" bg="#0E0F12">'
+    + '<Text name="Title" size="88" weight="700" color="#F5F5F1">Hello</Text></Frame>',
+  );
+
+  // A slide is a container the executor may append to. It is deliberately not
+  // built by fakeFigma's layer factory: the executor must accept any node whose
+  // type is SLIDE, and reject everything else, on type alone.
+  const fakeSlide = (id = '12:34', type = 'SLIDE') => ({
+    id,
+    type,
+    name: 'Slide 1',
+    children: [],
+    appendChild(child) {
+      const owner = child.parent;
+      if (owner && Array.isArray(owner.children)) {
+        owner.children.splice(owner.children.indexOf(child), 1);
+      }
+      this.children.push(child);
+      child.parent = this;
+    },
+  });
+
+  it('moves the created root into the named slide and places it at the slide origin', async () => {
+    const figma = fakeFigma();
+    const slide = fakeSlide();
+    figma.currentPage.children.push(slide);
+
+    const result = await executeStructuredRenderPlan(figma, slidePlan(), { slide: '12:34' });
+    const root = figma.created.find((node) => node.name === 'Cover');
+
+    assert.equal(result.executor, 'structured-v1');
+    assert.equal(root.parent, slide, 'the root belongs to the slide, not to the focused page');
+    assert.deepEqual(slide.children.map((child) => child.name), ['Cover']);
+    assert.equal(root.x, 0, 'placement is in the slide\'s own coordinate space');
+    assert.equal(root.y, 0);
+  });
+
+  it('honours an explicit position inside the slide', async () => {
+    const figma = fakeFigma();
+    const slide = fakeSlide();
+    figma.currentPage.children.push(slide);
+
+    await executeStructuredRenderPlan(figma, slidePlan(), { slide: '12:34', x: 40, y: 24 });
+    const root = figma.created.find((node) => node.name === 'Cover');
+
+    assert.equal(root.parent, slide);
+    assert.equal(root.x, 40);
+    assert.equal(root.y, 24);
+  });
+
+  it('refuses a target that is not a slide, before creating anything', async () => {
+    const figma = fakeFigma();
+    figma.currentPage.children.push(fakeSlide('12:34', 'FRAME'));
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, slidePlan(), { slide: '12:34' }), (error) => {
+      assert.match(error.message, /is a FRAME, not a SLIDE/);
+      assert.equal(error.mutationOutcome, 'no-mutation');
+      return true;
+    });
+    assert.equal(figma.created.length, 0, 'a wrong-typed target must not leave a frame behind');
+  });
+
+  it('refuses a target that does not exist, before creating anything', async () => {
+    const figma = fakeFigma();
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, slidePlan(), { slide: '99:99' }), (error) => {
+      assert.match(error.message, /99:99 was not found/);
+      assert.equal(error.mutationOutcome, 'no-mutation');
+      return true;
+    });
+    assert.equal(figma.created.length, 0);
+  });
+
+  it('refuses a slide target that is not a node id', async () => {
+    const figma = fakeFigma();
+
+    await assert.rejects(() => executeStructuredRenderPlan(figma, slidePlan(), { slide: '' }), (error) => {
+      assert.match(error.message, /slide target must be a node id/);
+      return true;
+    });
+  });
+});

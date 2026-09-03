@@ -19,7 +19,7 @@ function fixture({ createMode = 'apply', editMode = 'apply' } = {}) {
   const definitions = {
     'Keep#1:0': { type: 'TEXT', defaultValue: 'Keep' },
     'Content#1:1': {
-      type: 'SLOT', defaultValue: '', preferredValues: [], description: '',
+      type: 'SLOT', preferredValues: [], description: '',
       slotSettings: { minChildren: 0 },
     },
   };
@@ -39,7 +39,9 @@ function fixture({ createMode = 'apply', editMode = 'apply' } = {}) {
         limitViolations: [], parent: component,
         remove() { const index = slots.indexOf(this); if (index >= 0) slots.splice(index, 1); },
       };
-      slots.push(slot); definitions[`Slot#1:${slots.length}`] = { type: 'SLOT', defaultValue: '' };
+      slots.push(slot); definitions[`Slot#1:${slots.length}`] = {
+        type: 'SLOT', preferredValues: null, description: null, slotSettings: null,
+      };
       if (createMode === 'throw-after-apply') throw new Error('create failed');
       return slot;
     },
@@ -53,7 +55,15 @@ function fixture({ createMode = 'apply', editMode = 'apply' } = {}) {
         ...(update.preferredValues === undefined ? {} : { preferredValues: structuredClone(update.preferredValues) }),
         ...(update.description === undefined ? {} : { description: update.description }),
         ...(update.slotSettings === undefined ? {} : {
-          slotSettings: { ...(before.slotSettings || {}), ...structuredClone(update.slotSettings) },
+          slotSettings: {
+            stretchChildOnInsert: false,
+            displayEmptyByDefault: false,
+            minChildren: null,
+            maxChildren: null,
+            allowPreferredValuesOnly: false,
+            ...(before.slotSettings || {}),
+            ...structuredClone(update.slotSettings),
+          },
         }),
       };
       if (nextName !== propertyName) delete definitions[propertyName];
@@ -118,6 +128,7 @@ test('Slot Create invokes one factory and freshly verifies its Slot and definiti
   assert.equal(result.result.outcome, 'verified');
   assert.equal(result.result.slot.name, 'Body');
   assert.equal(result.result.definition.slotSettings.minChildren, 1);
+  assert.equal(result.result.definition.defaultValue, null);
   assert.equal(live.createCalls(), 1); assert.equal(live.editCalls(), 1);
 });
 

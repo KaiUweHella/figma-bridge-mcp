@@ -42,7 +42,7 @@ const makeTree = () => {
   return root;
 };
 
-const stubFigma = (root) => ({
+const stubFigma = (root, { variables = VARS, collections = COLLECTIONS } = {}) => ({
   mixed: Symbol('mixed'),
   root: { name: 'Untitled' },
   getNodeByIdAsync: async (id) => (id === root.id ? root : null),
@@ -50,11 +50,11 @@ const stubFigma = (root) => ({
     ? { name: 'label/small', boundVariables: { fontSize: [{ type: 'VARIABLE_ALIAS', id: 'v:fontsize' }] } }
     : null),
   variables: {
-    getVariableByIdAsync: async (id) => VARS[id] || null,
-    getVariableCollectionByIdAsync: async (id) => COLLECTIONS[id] || null,
+    getVariableByIdAsync: async (id) => variables[id] || null,
+    getVariableCollectionByIdAsync: async (id) => collections[id] || null,
   },
 });
-const run = (root) => new Function('figma', `return ${usedVariablesCode(root.id)}`)(stubFigma(root));
+const run = (root, registry) => new Function('figma', `return ${usedVariablesCode(root.id)}`)(stubFigma(root, registry));
 
 test('scoped collector: bound variables + style bindings + alias targets; hidden subtrees and unrelated collections stay out', async () => {
   const result = JSON.parse(await run(makeTree()));
@@ -83,6 +83,79 @@ test('scoped collector: unknown node reports the open file', async () => {
   const result = JSON.parse(await new Function('figma', `return ${usedVariablesCode('nope')}`)(stubFigma(makeTree())));
   assert.match(result.error, /nope/);
   assert.match(result.error, /Untitled/);
+});
+
+test('scoped collector composes every nested color Alias opacity and preserves authored metadata', async () => {
+  const root = {
+    id: 'n:composed', name: 'composed screen', type: 'FRAME', visible: true,
+    boundVariables: { fills: [{ type: 'VARIABLE_ALIAS', id: 'v:top' }] }, children: [],
+  };
+  const variables = {
+    'v:top': {
+      id: 'v:top', name: 'color/role/top', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'v:mid' }, 50],
+      } },
+    },
+    'v:mid': {
+      id: 'v:mid', name: 'color/role/mid', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'v:base' }, 50],
+      } },
+    },
+    'v:base': {
+      id: 'v:base', name: 'color/palette/base', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: { r: 1, g: 0, b: 0, a: 0.5 } },
+    },
+  };
+  const collections = {
+    'c:theme': {
+      id: 'c:theme', name: 'Theme', defaultModeId: 'mode',
+      modes: [{ modeId: 'mode', name: 'Mode' }],
+    },
+  };
+
+  const result = JSON.parse(await run(root, { variables, collections }));
+  const top = result.vars.find((variable) => variable.id === 'v:top');
+  const mid = result.vars.find((variable) => variable.id === 'v:mid');
+  assert.deepEqual(top.valuesByMode.mode, {
+    value: '#ff000020', ref: 'color/role/mid', refId: 'v:mid', opacity: 50,
+  });
+  assert.deepEqual(mid.valuesByMode.mode, {
+    value: '#ff000040', ref: 'color/palette/base', refId: 'v:base', opacity: 50,
+  });
+});
+
+test('scoped collector emits deterministic alpha bytes for composed opacity 0 and 100', async () => {
+  for (const [opacity, expected] of [[0, '#33669900'], [100, '#336699ff']]) {
+    const root = {
+      id: `n:${opacity}`, name: `opacity ${opacity}`, type: 'FRAME', visible: true,
+      boundVariables: { fills: [{ type: 'VARIABLE_ALIAS', id: 'v:role' }] }, children: [],
+    };
+    const variables = {
+      'v:role': {
+        id: 'v:role', name: 'color/role', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+        valuesByMode: { mode: {
+          type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+          expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'v:base' }, opacity],
+        } },
+      },
+      'v:base': {
+        id: 'v:base', name: 'color/base', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+        valuesByMode: { mode: { r: 0.2, g: 0.4, b: 0.6 } },
+      },
+    };
+    const collections = {
+      'c:theme': {
+        id: 'c:theme', name: 'Theme', defaultModeId: 'mode',
+        modes: [{ modeId: 'mode', name: 'Mode' }],
+      },
+    };
+    const result = JSON.parse(await run(root, { variables, collections }));
+    assert.equal(result.vars.find((variable) => variable.id === 'v:role').value, expected);
+  }
 });
 
 test('buildDtcgTree: aliases become {dot.path} refs, floats px, colors hex', () => {
@@ -337,4 +410,63 @@ test('formatCssTokens consumes the scoped list unchanged', () => {
   ]);
   assert.match(css, /--color-surface: #060914;/);
   assert.match(css, /--spacing-s: 16px;/);
+});
+
+test('scoped collector attributes composed opacity to its owner only and matches the file-wide bytes', async () => {
+  const root = {
+    id: 'n:inherit', name: 'inherit screen', type: 'FRAME', visible: true,
+    boundVariables: { fills: [{ type: 'VARIABLE_ALIAS', id: 'v:plain' }, { type: 'VARIABLE_ALIAS', id: 'v:top' }] },
+    children: [],
+  };
+  const variables = {
+    'v:plain': {
+      id: 'v:plain', name: 'color/role/plain', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: { type: 'VARIABLE_ALIAS', id: 'v:mid' } },
+    },
+    'v:top': {
+      id: 'v:top', name: 'color/role/top', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'v:mid' }, 70],
+      } },
+    },
+    'v:mid': {
+      id: 'v:mid', name: 'color/role/mid', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'v:base' }, 50],
+      } },
+    },
+    'v:base': {
+      id: 'v:base', name: 'color/palette/red', resolvedType: 'COLOR', variableCollectionId: 'c:theme',
+      valuesByMode: { mode: { r: 1, g: 0, b: 0 } },
+    },
+  };
+  const collections = {
+    'c:theme': {
+      id: 'c:theme', name: 'Theme', defaultModeId: 'mode',
+      modes: [{ modeId: 'mode', name: 'Mode' }],
+    },
+  };
+
+  const result = JSON.parse(await run(root, { variables, collections }));
+  const scoped = new Map(result.vars.map((variable) => [variable.name, variable.valuesByMode.mode]));
+  /* A plain Alias keeps its reference and inherits the visual value, but the
+     50 % belongs to color/role/mid — it is not the plain Alias's own authorship. */
+  assert.deepEqual(scoped.get('color/role/plain'), {
+    value: '#ff000080', ref: 'color/role/mid', refId: 'v:mid',
+  });
+  assert.deepEqual(scoped.get('color/role/mid'), {
+    value: '#ff000080', ref: 'color/palette/red', refId: 'v:base', opacity: 50,
+  });
+  /* Per-layer alpha bytes: 0x80/255 × 0.7 × 255 = 89.6 → 0x5a, never 0x59. */
+  assert.deepEqual(scoped.get('color/role/top'), {
+    value: '#ff00005a', ref: 'color/role/mid', refId: 'v:mid', opacity: 70,
+  });
+
+  const fileWide = projectVariableModes(Object.values(variables), Object.values(collections));
+  for (const name of ['color/role/plain', 'color/role/mid', 'color/role/top']) {
+    const projected = fileWide.find((variable) => variable.name === name).valuesByMode.mode;
+    assert.deepEqual(scoped.get(name), projected, `${name}: scoped and file-wide projections agree`);
+  }
 });

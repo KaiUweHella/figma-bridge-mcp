@@ -5,13 +5,23 @@ import {
   unionReferenceArgvValue,
 } from './union-reference.js';
 
-const ACTIONS = new Set(['inspect', 'create', 'duplicate', 'move', 'transition', 'skip', 'delete']);
+const ACTIONS = new Set(['inspect', 'create', 'duplicate', 'move', 'transition', 'skip', 'delete', 'lint', 'manifest', 'focus', 'view']);
 const VALUE_OPTIONS = Object.freeze({
   create: new Set(['--row', '--col']),
   duplicate: new Set(['--label', '--row', '--col']),
   transition: new Set(['--duration', '--curve', '--timing', '--delay']),
+  lint: new Set(['--kinds', '--limit']),
+});
+// Options that stand alone. The reference grammar had no boolean flag before
+// deck lint, so every `--flag` used to be rejected as unknown.
+const FLAG_OPTIONS = Object.freeze({
+  lint: new Set(['--fail-on-issues']),
 });
 const POSITIONAL_BOUNDS = Object.freeze({
+  lint: [0, 0],
+  manifest: [0, 0],
+  focus: [1, 1],
+  view: [1, 1],
   inspect: [0, 1],
   create: [0, 1],
   duplicate: [1, 1],
@@ -20,7 +30,7 @@ const POSITIONAL_BOUNDS = Object.freeze({
   skip: [1, 2],
   delete: [1, 1],
 });
-const REFERENCE_ACTIONS = new Set(['inspect', 'duplicate', 'move', 'transition', 'skip', 'delete']);
+const REFERENCE_ACTIONS = new Set(['inspect', 'duplicate', 'move', 'transition', 'skip', 'delete', 'focus']);
 
 function requestError(message) {
   return new Error(`Invalid Slides command: ${message}.`);
@@ -29,6 +39,7 @@ function requestError(message) {
 function positionalIndexes(args, action) {
   const indexes = [];
   const valueOptions = VALUE_OPTIONS[action] || new Set();
+  const flagOptions = FLAG_OPTIONS[action] || new Set();
   let literal = false;
   for (let index = 2; index < args.length; index++) {
     const token = args[index];
@@ -39,6 +50,10 @@ function positionalIndexes(args, action) {
     if (!literal && token.startsWith('--')) {
       const equals = token.indexOf('=');
       const name = equals === -1 ? token : token.slice(0, equals);
+      if (flagOptions.has(name)) {
+        if (equals !== -1) throw requestError(`${name} does not take a value`);
+        continue;
+      }
       if (!valueOptions.has(name)) throw requestError(`unknown option ${name}`);
       if (equals === -1) {
         if (typeof args[index + 1] !== 'string') throw requestError(`${name} requires a value`);

@@ -2,7 +2,14 @@
 // broken outputs found during acceptance testing — each one must now come out valid.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cssName, mapFontWeight, fontSource, formatCssTokens } from '../src/lib/css-tokens.js';
+import {
+  buildDtcgTree,
+  cssName,
+  mapFontWeight,
+  fontSource,
+  formatCssTokens,
+  projectVariableModes,
+} from '../src/lib/css-tokens.js';
 
 test('cssName kebab-cases spaces and slashes, lowercases', () => {
   assert.equal(cssName('color/on primary'), '--color-on-primary');
@@ -77,4 +84,85 @@ test('formatCssTokens: floats round to 2 decimals, integers stay clean', () => {
   ]);
   assert.match(out, /--space-4: 16px;/);
   assert.match(out, /--radius-odd: 12\.34px;/);
+});
+
+test('composed color Alias opacity resolves visually and remains explicit in DTCG', () => {
+  const projected = projectVariableModes([
+    {
+      id: 'Variable:base', name: 'color/palette/sand', resolvedType: 'COLOR',
+      variableCollectionId: 'Collection:theme',
+      valuesByMode: { 'Mode:1': { r: 1, g: 0.8, b: 0.4 } },
+    },
+    {
+      id: 'Variable:surface', name: 'color/role/surface', resolvedType: 'COLOR',
+      variableCollectionId: 'Collection:theme',
+      valuesByMode: { 'Mode:1': {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'Variable:base' }, 42],
+      } },
+    },
+  ], [{
+    id: 'Collection:theme', name: 'Theme', defaultModeId: 'Mode:1',
+    modes: [{ modeId: 'Mode:1', name: 'Mode 1' }],
+  }]);
+
+  assert.deepEqual(projected[1].valuesByMode['Mode:1'], {
+    value: '#ffcc666b', ref: 'color/palette/sand', refId: 'Variable:base', opacity: 42,
+  });
+  assert.match(formatCssTokens(projected), /--color-role-surface: #ffcc666b;/);
+  const dtcg = buildDtcgTree(projected);
+  assert.equal(dtcg.color.role.surface.$value, '#ffcc666b');
+  assert.deepEqual(
+    dtcg.color.role.surface.$extensions['figma-bridge-mcp'].valuesByMode['Mode:1'],
+    {
+      modeName: 'Mode 1', value: '#ffcc666b',
+      alias: 'color/palette/sand', aliasVariableId: 'Variable:base', opacity: 42,
+    },
+  );
+});
+
+test('file-wide projection rounds nested composed opacity to an alpha byte per layer', () => {
+  const projected = projectVariableModes([
+    {
+      id: 'Variable:base', name: 'color/palette/red', resolvedType: 'COLOR',
+      variableCollectionId: 'Collection:theme',
+      valuesByMode: { 'Mode:1': { r: 1, g: 0, b: 0 } },
+    },
+    {
+      id: 'Variable:mid', name: 'color/role/mid', resolvedType: 'COLOR',
+      variableCollectionId: 'Collection:theme',
+      valuesByMode: { 'Mode:1': {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'Variable:base' }, 50],
+      } },
+    },
+    {
+      id: 'Variable:top', name: 'color/role/top', resolvedType: 'COLOR',
+      variableCollectionId: 'Collection:theme',
+      valuesByMode: { 'Mode:1': {
+        type: 'VARIABLE_EXPRESSION', expressionFunction: 'COMPOSE_COLOR',
+        expressionArguments: [{ type: 'VARIABLE_ALIAS', id: 'Variable:mid' }, 70],
+      } },
+    },
+    {
+      id: 'Variable:plain', name: 'color/role/plain', resolvedType: 'COLOR',
+      variableCollectionId: 'Collection:theme',
+      valuesByMode: { 'Mode:1': { type: 'VARIABLE_ALIAS', id: 'Variable:mid' } },
+    },
+  ], [{
+    id: 'Collection:theme', name: 'Theme', defaultModeId: 'Mode:1',
+    modes: [{ modeId: 'Mode:1', name: 'Mode 1' }],
+  }]);
+  const byName = new Map(projected.map((variable) => [variable.name, variable.valuesByMode['Mode:1']]));
+  assert.deepEqual(byName.get('color/role/mid'), {
+    value: '#ff000080', ref: 'color/palette/red', refId: 'Variable:base', opacity: 50,
+  });
+  /* 0x80/255 × 0.7 × 255 = 89.6 → 0x5a: the intermediate byte is reused, not re-derived. */
+  assert.deepEqual(byName.get('color/role/top'), {
+    value: '#ff00005a', ref: 'color/role/mid', refId: 'Variable:mid', opacity: 70,
+  });
+  /* A plain alias inherits the composed visual value but never the authored opacity. */
+  assert.deepEqual(byName.get('color/role/plain'), {
+    value: '#ff000080', ref: 'color/role/mid', refId: 'Variable:mid',
+  });
 });

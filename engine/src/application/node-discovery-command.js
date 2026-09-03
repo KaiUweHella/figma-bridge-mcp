@@ -53,8 +53,12 @@ export function nodeDiscoveryCode(request) {
       if (!frame.entered) {
         frame.entered = true;
         visitedNodes++;
-        if (typeof node.name === 'string' && node.name.length > 0
-          && node.name.toLowerCase().includes(query)
+        /* Figma throws from getters of nodes whose identity is stale mid-scan
+           (observed after reparenting into an Instance Slot); skip them. */
+        let nodeName = null;
+        try { nodeName = node.name; } catch (error) { nodeName = null; }
+        if (typeof nodeName === 'string' && nodeName.length > 0
+          && nodeName.toLowerCase().includes(query)
           && (!typeFilter || node.type === typeFilter)) {
           if (typeof node.id !== 'string' || node.id.length < 1
             || node.id.length > ${MAX_NODE_DISCOVERY_ID_CODE_UNITS}
@@ -62,11 +66,11 @@ export function nodeDiscoveryCode(request) {
             || node.type.length > ${MAX_NODE_DISCOVERY_TYPE_CODE_UNITS}) {
             throw new Error('Node Discovery encountered invalid node identity facts.');
           }
-          const nameTruncated = node.name.length > MAX_NAME;
+          const nameTruncated = nodeName.length > MAX_NAME;
           matches.push({
             id: node.id,
             type: node.type,
-            name: nameTruncated ? node.name.slice(0, MAX_NAME - 1) + '…' : node.name,
+            name: nameTruncated ? nodeName.slice(0, MAX_NAME - 1) + '…' : nodeName,
             nameTruncated,
           });
         }

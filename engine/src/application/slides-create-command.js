@@ -1,7 +1,7 @@
 // Plan-bound, freshly verified and rollback-owned `slides create` mutation.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { SLIDE_LABEL_KEY } from '../lib/slides-snippets.js';
+import { SLIDE_LABEL_KEY, slidePageSlidesFragment } from '../lib/slides-snippets.js';
 import {
   MAX_SLIDES_CREATE_INDEX,
   MAX_SLIDES_CREATE_LABEL_CODE_UNITS,
@@ -66,6 +66,7 @@ export function slidesCreateCode(request) {
       || typeof figma.getNodeByIdAsync !== 'function' || typeof figma.createSlide !== 'function') {
       return refused('Slides Create requires the native Slides API.');
     }
+    ${slidePageSlidesFragment()}
     const snapshot = () => {
       const page = figma.currentPage;
       if (!page || !validId(page.id) || !Array.isArray(page.selection)
@@ -94,6 +95,17 @@ export function slidesCreateCode(request) {
           return node.id;
         });
       });
+      // The grid is authoritative for coordinates, the page tree for existence:
+      // a slide the grid has not listed yet is still a slide, and still may be
+      // the focused one. It joins the snapshot without a coordinate.
+      const unlisted = [];
+      for (const node of __pageSlides()) {
+        if (ids.has(node.id)) continue;
+        if (node.type !== 'SLIDE' || !validId(node.id)) {
+          throw new Error('Slides Create requires unique native Slide identities.');
+        }
+        ids.add(node.id); unlisted.push(node.id);
+      }
       const focus = page.focusedSlide || null;
       if (focus && (focus.type !== 'SLIDE' || !validId(focus.id) || !ids.has(focus.id))) {
         throw new Error('Slides Create found an invalid focused Slide.');
@@ -109,7 +121,7 @@ export function slidesCreateCode(request) {
         page,
         selection: [...page.selection],
         focus,
-        value: { pageId: page.id, rows, focusedId: focus ? focus.id : null, selectionIds },
+        value: { pageId: page.id, rows, unlisted, focusedId: focus ? focus.id : null, selectionIds },
       };
     };
     const without = (rows, nodeId) => rows
@@ -142,7 +154,30 @@ export function slidesCreateCode(request) {
       && slide.row === position(actual.rows, slide.id).row
       && slide.col === position(actual.rows, slide.id).col
       && slide.label === (request.label || null);
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    // The canvas grid can lag the page tree by minutes. A created slide the
+    // grid has not listed yet is still verified by identity, label, focus and
+    // selection -- the grid itself must then be unchanged -- and reported as
+    // gridObserved:false, the way slides batch reports it, instead of being
+    // left behind as residue by a rollback that cannot see it either.
+    const unobservedSuccess = (before, actual, slide) => actual.pageId === before.pageId
+      && actual.focusedId === slide.id && same(actual.selectionIds, [slide.id])
+      && sameRows(actual.rows, before.rows)
+      && actual.unlisted.length === before.unlisted.length + 1
+      && actual.unlisted.includes(slide.id)
+      && before.unlisted.every((id) => actual.unlisted.includes(id))
+      && slide.label === (request.label || null);
+    const attributableByExistence = (before, after, nodeId) => !before.unlisted.includes(nodeId)
+      && after.unlisted.includes(nodeId) && sameRows(before.rows, after.rows);
+    const settle = (delay = 0) => new Promise((resolve) => setTimeout(resolve, delay));
+    const settledSnapshot = async () => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try { return snapshot(); }
+        catch (error) { lastError = error; }
+        await settle(50);
+      }
+      throw lastError || new Error('Slides Create native grid did not settle.');
+    };
 
     let beforeRefs;
     try { beforeRefs = snapshot(); }
@@ -174,7 +209,16 @@ export function slidesCreateCode(request) {
     let created = null;
     let slide = null;
     try {
-      actualRefs = snapshot();
+      actualRefs = await settledSnapshot();
+      // A slide the page tree holds but the grid has not listed yet usually
+      // settles within a moment; give the grid the same short window the
+      // snapshot itself gets before reporting the position as unobserved.
+      for (let attempt = 0; createdId && attempt < 20
+        && !position(actualRefs.value.rows, createdId)
+        && actualRefs.value.unlisted.includes(createdId); attempt++) {
+        await settle(50);
+        actualRefs = await settledSnapshot();
+      }
       const beforeIds = new Set(beforeRefs.value.rows.flat());
       const newIds = actualRefs.value.rows.flat().filter((id) => !beforeIds.has(id));
       if (!createdId && newIds.length === 1
@@ -183,26 +227,36 @@ export function slidesCreateCode(request) {
       }
       created = createdId ? await figma.getNodeByIdAsync(createdId) : null;
       const coordinate = createdId ? position(actualRefs.value.rows, createdId) : null;
-      if (created && created.type === 'SLIDE' && coordinate
+      const unobserved = Boolean(createdId) && !coordinate
+        && actualRefs.value.unlisted.includes(createdId);
+      if (created && created.type === 'SLIDE' && (coordinate || unobserved)
         && validId(created.id) && text(created.name, ${MAX_SLIDES_CREATE_LABEL_CODE_UNITS})
         && typeof created.getPluginData === 'function') {
         const label = created.getPluginData(${jsValue(SLIDE_LABEL_KEY)}) || '';
         if (text(label, ${MAX_SLIDES_CREATE_LABEL_CODE_UNITS})) {
           slide = {
             id: created.id, name: created.name, label: label || null,
-            row: coordinate.row, col: coordinate.col,
+            row: coordinate ? coordinate.row : null, col: coordinate ? coordinate.col : null,
           };
         }
       }
-      if (slide && exactSuccess(beforeRefs.value, actualRefs.value, slide)) {
+      const gridObserved = Boolean(slide) && !unobserved;
+      if (slide && (gridObserved
+        ? exactSuccess(beforeRefs.value, actualRefs.value, slide)
+        : unobservedSuccess(beforeRefs.value, actualRefs.value, slide))) {
         return result({
           schemaVersion, status: 'created',
           outcome: failure ? 'verified-after-error' : 'verified',
-          attempted: 1, restored: 0, residue: [],
+          attempted: 1, restored: 0, residue: [], gridObserved,
           request, before: beforeRefs.value, actual: { ...actualRefs.value, slide },
-          warnings: failure
-            ? ['Figma reported an error, but fresh Slides readback verified the requested creation.']
-            : [],
+          warnings: [
+            ...(failure
+              ? ['Figma reported an error, but fresh Slides readback verified the requested creation.']
+              : []),
+            ...(gridObserved ? [] : [
+              'Figma had not listed the new slide in the canvas grid yet; identity, label, focus and selection were verified. Run slides manifest to read the settled deck.',
+            ]),
+          ],
         });
       }
       if (!failure) failure = 'Slides Create postcondition was not satisfied.';
@@ -211,7 +265,7 @@ export function slidesCreateCode(request) {
     }
 
     try {
-      const probe = actualRefs || snapshot();
+      const probe = actualRefs || await settledSnapshot();
       const beforeIds = new Set(beforeRefs.value.rows.flat());
       const newIds = probe.value.rows.flat().filter((id) => !beforeIds.has(id));
       let candidateId = createdId;
@@ -219,7 +273,8 @@ export function slidesCreateCode(request) {
         && attributable(beforeRefs.value.rows, probe.value.rows, newIds[0])) {
         candidateId = newIds[0];
       }
-      if (candidateId && attributable(beforeRefs.value.rows, probe.value.rows, candidateId)) {
+      if (candidateId && (attributable(beforeRefs.value.rows, probe.value.rows, candidateId)
+        || attributableByExistence(beforeRefs.value, probe.value, candidateId))) {
         let candidate = created && created.id === candidateId ? created : null;
         if (!candidate) {
           try { candidate = await figma.getNodeByIdAsync(candidateId); } catch {}
@@ -233,9 +288,10 @@ export function slidesCreateCode(request) {
       try { beforeRefs.page.focusedSlide = beforeRefs.focus; } catch {}
       try { beforeRefs.page.selection = beforeRefs.selection; } catch {}
       try { await settle(); } catch {}
-      const restored = snapshot().value;
+      const restored = (await settledSnapshot()).value;
       const residue = [];
-      if (candidateId && occurrences(restored.rows, candidateId) > 0) residue.push('created-slide');
+      if (candidateId && (occurrences(restored.rows, candidateId) > 0
+        || restored.unlisted.includes(candidateId))) residue.push('created-slide');
       if (!sameRows(restored.rows, beforeRefs.value.rows)) residue.push('grid-membership');
       if (restored.pageId !== beforeRefs.value.pageId) residue.push('page');
       if (restored.focusedId !== beforeRefs.value.focusedId) residue.push('focus');
@@ -294,16 +350,29 @@ function rows(value) {
   return true;
 }
 
+function unlistedIds(value, rowsValue, maximum) {
+  if (!Array.isArray(value) || value.length > maximum) return false;
+  const gridIds = new Set(rowsValue.flat());
+  const seen = new Set();
+  return value.every((nodeId) => {
+    if (!id(nodeId) || gridIds.has(nodeId) || seen.has(nodeId)) return false;
+    seen.add(nodeId);
+    return true;
+  });
+}
+
 function snapshot(value) {
-  if (!exact(value, ['pageId', 'rows', 'focusedId', 'selectionIds'])
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds'])
     || !id(value.pageId) || !rows(value.rows)
+    || !unlistedIds(value.unlisted, value.rows, MAX_SLIDES_CREATE_GRID_ENTRIES)
     || (value.focusedId !== null && !id(value.focusedId))
     || !Array.isArray(value.selectionIds)
     || value.selectionIds.length > MAX_SLIDES_CREATE_SELECTION
     || value.selectionIds.some((nodeId) => !id(nodeId))
     || new Set(value.selectionIds).size !== value.selectionIds.length) return false;
   const gridIds = new Set(value.rows.flat());
-  return value.focusedId === null || gridIds.has(value.focusedId);
+  return value.focusedId === null || gridIds.has(value.focusedId)
+    || value.unlisted.includes(value.focusedId);
 }
 
 function same(left, right) {
@@ -332,17 +401,25 @@ function validRequest(value, input) {
     && value.label === input.label && value.row === input.row && value.col === input.col;
 }
 
-function slideFact(value) {
+function slideFact(value, gridObserved = true) {
   return exact(value, ['id', 'name', 'label', 'row', 'col'])
     && id(value.id) && text(value.name, MAX_SLIDES_CREATE_LABEL_CODE_UNITS)
     && (value.label === null || text(value.label, MAX_SLIDES_CREATE_LABEL_CODE_UNITS))
-    && count(value.row, MAX_SLIDES_CREATE_INDEX)
-    && count(value.col, MAX_SLIDES_CREATE_INDEX);
+    && (gridObserved
+      ? count(value.row, MAX_SLIDES_CREATE_INDEX) && count(value.col, MAX_SLIDES_CREATE_INDEX)
+      : value.row === null && value.col === null);
 }
 
-function matchesSuccess(before, actual, slide, input) {
+function matchesSuccess(before, actual, slide, input, gridObserved = true) {
   if (before.pageId !== actual.pageId || actual.focusedId !== slide.id
     || !same(actual.selectionIds, [slide.id])) return false;
+  if (!gridObserved) {
+    return sameRows(actual.rows, before.rows)
+      && actual.unlisted.length === before.unlisted.length + 1
+      && actual.unlisted.includes(slide.id)
+      && before.unlisted.every((nodeId) => actual.unlisted.includes(nodeId))
+      && slide.label === (input.label || null);
+  }
   const coordinate = position(actual.rows, slide.id);
   if (!coordinate || coordinate.row !== slide.row || coordinate.col !== slide.col
     || !sameRows(without(actual.rows, slide.id), before.rows)) return false;
@@ -358,20 +435,20 @@ function matchesSuccess(before, actual, slide, input) {
 function validSuccess(value, input) {
   return exact(value, [
     'schemaVersion', 'status', 'outcome', 'attempted', 'restored', 'residue',
-    'request', 'before', 'actual', 'warnings',
+    'request', 'before', 'actual', 'warnings', 'gridObserved',
   ]) && value.schemaVersion === 1 && value.status === 'created'
     && ['verified', 'verified-after-error'].includes(value.outcome)
+    && typeof value.gridObserved === 'boolean'
     && value.attempted === 1 && value.restored === 0
     && Array.isArray(value.residue) && value.residue.length === 0
     && validRequest(value.request, input) && snapshot(value.before)
-    && exact(value.actual, ['pageId', 'rows', 'focusedId', 'selectionIds', 'slide'])
-    && snapshot({
-      pageId: value.actual.pageId, rows: value.actual.rows,
-      focusedId: value.actual.focusedId, selectionIds: value.actual.selectionIds,
-    }) && slideFact(value.actual.slide)
-    && matchesSuccess(value.before, value.actual, value.actual.slide, input)
+    && exact(value.actual, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'slide'])
+    && snapshot({ pageId: value.actual.pageId, rows: value.actual.rows, unlisted: value.actual.unlisted,
+      focusedId: value.actual.focusedId, selectionIds: value.actual.selectionIds }) && slideFact(value.actual.slide, value.gridObserved)
+    && matchesSuccess(value.before, value.actual, value.actual.slide, input, value.gridObserved)
     && Array.isArray(value.warnings)
-    && value.warnings.length === (value.outcome === 'verified-after-error' ? 1 : 0)
+    && value.warnings.length
+      === (value.outcome === 'verified-after-error' ? 1 : 0) + (value.gridObserved ? 0 : 1)
     && value.warnings.every((warning) => text(warning, MAX_FAILURE_CODE_UNITS, false));
 }
 
@@ -423,7 +500,10 @@ function safeText(value) {
 export function formatSlidesCreateResult(result) {
   const slide = result.actual.slide;
   const labelled = slide.label ? ` [${safeText(slide.label)}]` : '';
-  return `✓ Slide ${slide.id}${labelled} at ${slide.row},${slide.col} `
+  const where = slide.row === null
+    ? 'created; the canvas grid has not listed its position yet'
+    : `at ${slide.row},${slide.col}`;
+  return `✓ Slide ${slide.id}${labelled} ${where} `
     + `(Figma name: ${JSON.stringify(safeText(slide.name))})`;
 }
 

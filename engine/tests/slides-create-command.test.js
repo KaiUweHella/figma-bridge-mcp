@@ -13,9 +13,15 @@ import {
   parseSlidesCreateRequest,
 } from '../src/application/slides-create-request.js';
 
-function runtime({ labelFailure = null, factoryFailure = false, removeFailure = null } = {}) {
+function runtime({
+  labelFailure = null, factoryFailure = false, removeFailure = null, gridDelayReads = 0,
+  gridNeverLists = false,
+} = {}) {
   let next = 3;
   let grid = [];
+  let orphans = [];
+  let staleGrid = null;
+  let pendingGridReads = 0;
   const registry = new Map();
   const labels = new Map();
   const makeSlide = (id, name) => {
@@ -30,6 +36,7 @@ function runtime({ labelFailure = null, factoryFailure = false, removeFailure = 
       remove() {
         if (removeFailure === 'before') throw new Error('remove failed');
         grid = grid.map((row) => row.filter((node) => node.id !== id)).filter((row) => row.length);
+        orphans = orphans.filter((node) => node.id !== id);
         registry.delete(id);
         if (removeFailure === 'after') throw new Error('remove acknowledgement failed');
       },
@@ -40,18 +47,30 @@ function runtime({ labelFailure = null, factoryFailure = false, removeFailure = 
   const intro = makeSlide('1:1', 'Intro');
   const details = makeSlide('1:2', 'Details');
   grid = [[intro, details]];
-  const page = { id: '0:1', focusedSlide: intro, selection: [details] };
+  const page = {
+    id: '0:1', focusedSlide: intro, selection: [details],
+    get children() { return [{ type: 'SLIDE_ROW', children: [...grid.flat(), ...orphans] }]; },
+  };
   const figma = {
     editorType: 'slides', currentPage: page,
-    getCanvasGrid() { return grid; },
+    getCanvasGrid() {
+      if (pendingGridReads > 0) {
+        pendingGridReads -= 1;
+        return staleGrid;
+      }
+      return grid;
+    },
     async getNodeByIdAsync(id) { return registry.get(id) || null; },
     createSlide(row, col) {
+      staleGrid = grid.map((currentRow) => [...currentRow]);
       const slide = makeSlide(`1:${next}`, `Slide ${next++}`);
-      if (row === undefined) grid[grid.length - 1].push(slide);
+      if (gridNeverLists) orphans.push(slide);
+      else if (row === undefined) grid[grid.length - 1].push(slide);
       else {
         while (grid.length <= row) grid.push([]);
         grid[row].splice(col === undefined ? grid[row].length : col, 0, slide);
       }
+      pendingGridReads = gridDelayReads;
       if (factoryFailure) throw new Error('factory acknowledgement failed');
       return slide;
     },
@@ -78,6 +97,17 @@ test('Slides Create closes labels, coordinates, option multiplicity and canonica
     ['slides', 'create', '--future'],
   ]) assert.equal(acceptsSlidesCreateArgv(argv), false, argv.join(' '));
   assert.throws(() => slidesCreateArgvFromRequest({ future: true }), /unknown field/);
+});
+
+test('Slides Create waits for Figma to publish a freshly created Slide into the native grid', async () => {
+  const live = runtime({ gridDelayReads: 2 });
+  const result = await executeSlidesCreate({ label: 'Agenda' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.outcome, 'verified');
+  assert.deepEqual(result.result.actual.slide, {
+    id: '1:3', name: 'Slide 3', label: 'Agenda', row: 0, col: 2,
+  });
 });
 
 test('Slides Create appends, labels, focuses and selects one freshly verified Slide', async () => {
@@ -229,4 +259,42 @@ test('Slides Create generated Plugin code parses', () => {
   assert.doesNotThrow(() => new Function(`return ${slidesCreateCode({
     label: 'Agenda', row: 1, col: 0,
   })}`));
+});
+
+test('a created slide the grid never lists is verified by existence and reported as unobserved', async () => {
+  const live = runtime({ gridNeverLists: true });
+  const result = await executeSlidesCreate({ label: 'Agenda' }, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.status, 'created');
+  assert.equal(result.result.outcome, 'verified');
+  assert.equal(result.result.gridObserved, false);
+  assert.deepEqual(result.result.actual.slide, {
+    id: '1:3', name: 'Slide 3', label: 'Agenda', row: null, col: null,
+  });
+  assert.deepEqual(result.result.actual.unlisted, ['1:3']);
+  assert.deepEqual(live.getGrid().map((row) => row.map((node) => node.id)), [['1:1', '1:2']]);
+  assert.equal(live.page.focusedSlide.id, '1:3');
+  assert.match(result.stdout, /Slide 1:3 \[Agenda\] created; the canvas grid has not listed/);
+  assert.match(result.stderr, /Run slides manifest/);
+
+  // A label failure on such a slide still removes it: attribution by existence.
+  const failing = runtime({ gridNeverLists: true, labelFailure: 'before' });
+  await assert.rejects(
+    () => executeSlidesCreate({ label: 'Agenda' }, { evaluate: evaluate(failing.figma) }),
+    /rolled-back/,
+  );
+  assert.equal(failing.page.children[0].children.length, 2, 'the orphan was removed again');
+});
+
+test('a focus resting on a slide the grid has not listed yet does not refuse creation', async () => {
+  const live = runtime();
+  const ghost = { id: '1:9', name: 'Ghost', type: 'SLIDE' };
+  const listed = live.page.children;
+  Object.defineProperty(live.page, 'children', {
+    get: () => [{ type: 'SLIDE_ROW', children: [...listed[0].children, ghost] }],
+  });
+  live.page.focusedSlide = ghost;
+  const result = await executeSlidesCreate({ label: 'Fresh' }, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.status, 'created');
+  assert.equal(result.result.before.focusedId, '1:9');
+  assert.deepEqual(result.result.before.unlisted, ['1:9']);
 });

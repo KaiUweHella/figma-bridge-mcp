@@ -1,7 +1,7 @@
 // Plan-bound, bounded and irreversible `slides delete` Application.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { SLIDE_LABEL_KEY } from '../lib/slides-snippets.js';
+import { SLIDE_LABEL_KEY, slidePageSlidesFragment } from '../lib/slides-snippets.js';
 import {
   parseSlidesDeleteRequest,
   slidesDeleteArgvFromRequest,
@@ -66,6 +66,7 @@ export function slidesDeleteCode(request) {
       || typeof figma.getNodeByIdAsync !== 'function') {
       return refused('Slides Delete requires the native Slides API.');
     }
+    ${slidePageSlidesFragment()}
     const labelOf = (slide) => {
       if (typeof slide.getPluginData !== 'function') {
         throw new Error('Slides Delete requires durable label facts.');
@@ -104,6 +105,17 @@ export function slidesDeleteCode(request) {
           ids.add(node.id); nodes.set(node.id, node); return node.id;
         });
       });
+      // The grid is authoritative for coordinates, the page tree for existence:
+      // a slide the grid has not listed yet is still a slide, and still may be
+      // the focused one. It joins the snapshot without a coordinate.
+      const unlisted = [];
+      for (const node of __pageSlides()) {
+        if (ids.has(node.id)) continue;
+        if (node.type !== 'SLIDE' || !validId(node.id) || !text(node.name, ${MAX_TEXT_CODE_UNITS})) {
+          throw new Error('Slides Delete requires unique native Slide identities.');
+        }
+        ids.add(node.id); nodes.set(node.id, node); unlisted.push(node.id);
+      }
       const focus = page.focusedSlide || null;
       if (focus && (focus.type !== 'SLIDE' || !validId(focus.id) || !ids.has(focus.id))) {
         throw new Error('Slides Delete found an invalid focused Slide.');
@@ -116,7 +128,7 @@ export function slidesDeleteCode(request) {
         throw new Error('Slides Delete found duplicate selection identities.');
       }
       return {
-        nodes, value: { pageId: page.id, rows, focusedId: focus ? focus.id : null, selectionIds },
+        nodes, value: { pageId: page.id, rows, unlisted, focusedId: focus ? focus.id : null, selectionIds },
       };
     };
     const position = (rows, nodeId) => {
@@ -126,12 +138,13 @@ export function slidesDeleteCode(request) {
       }
       return null;
     };
-    const targetFacts = (slide, rows) => {
+    const targetFacts = (slide, state) => {
       if (!slide || slide.type !== 'SLIDE' || !validId(slide.id)
         || !text(slide.name, ${MAX_TEXT_CODE_UNITS})) {
         throw new Error('Slides Delete found invalid target facts.');
       }
-      const coordinate = position(rows, slide.id);
+      const coordinate = position(state.rows, slide.id)
+        || (state.unlisted.includes(slide.id) ? { row: null, col: null } : null);
       if (!coordinate) throw new Error('Slides Delete found a target outside the grid.');
       return { id: slide.id, name: slide.name, label: labelOf(slide) || null, ...coordinate };
     };
@@ -142,7 +155,7 @@ export function slidesDeleteCode(request) {
         if (byId && byId.type === 'SLIDE' && state.nodes.has(byId.id)) {
           target = state.nodes.get(byId.id);
         } else if (request.reference.kind === 'node') {
-          throw new Error('Slide reference did not resolve to a Slide in the current grid.');
+          throw new Error('Slide reference did not resolve to a Slide in the current deck.');
         }
       }
       const slides = [...state.nodes.values()];
@@ -170,19 +183,25 @@ export function slidesDeleteCode(request) {
       (before.focusedId === targetId || before.focusedId === actual.focusedId)
       && (before.selectionIds.includes(targetId)
         || same(before.selectionIds, actual.selectionIds));
+    const withoutUnlisted = (unlisted, targetId) => unlisted.filter((nodeId) => nodeId !== targetId);
     const desired = (before, actual, targetId) => before.pageId === actual.pageId
       && sameRows(actual.rows, withoutTarget(before.rows, targetId))
+      && same(actual.unlisted, withoutUnlisted(before.unlisted, targetId))
       && !actual.targetPresent && !actual.lookupPresent
       && contextStable(before, actual, targetId);
     const unchanged = (before, actual) => before.pageId === actual.pageId
-      && sameRows(before.rows, actual.rows) && before.focusedId === actual.focusedId
+      && sameRows(before.rows, actual.rows) && same(before.unlisted, actual.unlisted)
+      && before.focusedId === actual.focusedId
       && same(before.selectionIds, actual.selectionIds)
       && actual.targetPresent && actual.lookupPresent;
     const residueFor = (before, actual, targetId) => {
       const residue = [];
       if (actual.targetPresent || actual.lookupPresent) residue.push('target');
       const expectedRows = actual.targetPresent ? before.rows : withoutTarget(before.rows, targetId);
-      if (!sameRows(actual.rows, expectedRows)) residue.push('grid-membership');
+      const expectedUnlisted = actual.targetPresent
+        ? before.unlisted : withoutUnlisted(before.unlisted, targetId);
+      if (!sameRows(actual.rows, expectedRows)
+        || !same(actual.unlisted, expectedUnlisted)) residue.push('grid-membership');
       if (actual.pageId !== before.pageId) residue.push('page');
       if (before.focusedId !== targetId && before.focusedId !== actual.focusedId) residue.push('focus');
       if ((!before.selectionIds.includes(targetId)
@@ -190,11 +209,21 @@ export function slidesDeleteCode(request) {
         || actual.selectionIds.includes(targetId)) residue.push('selection');
       return residue;
     };
+    const settle = (delay = 0) => new Promise((resolveTask) => setTimeout(resolveTask, delay));
+    const settledSnapshot = async () => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try { return snapshot(); }
+        catch (error) { lastError = error; }
+        await settle(50);
+      }
+      throw lastError || new Error('Slides Delete native grid did not settle.');
+    };
 
     let beforeRefs; let target; let slide;
     try {
       beforeRefs = snapshot(); target = await resolve(beforeRefs);
-      slide = targetFacts(target, beforeRefs.value.rows);
+      slide = targetFacts(target, beforeRefs.value);
       if (typeof target.remove !== 'function') return refused('Slide cannot be removed.');
     } catch (error) {
       return refused(failureText(error, 'Slides Delete preflight failed.'));
@@ -204,15 +233,15 @@ export function slidesDeleteCode(request) {
     try { target.remove(); }
     catch (error) { failure = failureText(error, 'Slides Delete failed.'); }
     try {
-      await new Promise((resolveTask) => setTimeout(resolveTask, 0));
-      const actualRefs = snapshot();
-      const lookup = await figma.getNodeByIdAsync(target.id);
+      await settle();
+      const actualRefs = await settledSnapshot();
+      const lookup = await figma.getNodeByIdAsync(slide.id);
       const actual = {
         ...actualRefs.value,
-        targetPresent: actualRefs.nodes.has(target.id),
+        targetPresent: actualRefs.nodes.has(slide.id),
         lookupPresent: lookup !== null,
       };
-      if (desired(beforeRefs.value, actual, target.id)) {
+      if (desired(beforeRefs.value, actual, slide.id)) {
         return bounded({
           schemaVersion, status: 'deleted', outcome: failure ? 'verified-after-error' : 'verified',
           attempted: 1, residue: [], request, before, actual,
@@ -225,7 +254,7 @@ export function slidesDeleteCode(request) {
       return bounded({
         schemaVersion, status: 'failed', outcome: noEffect ? 'unchanged' : 'partial-residue',
         attempted: 1, request, before, actual,
-        residue: noEffect ? ['target'] : residueFor(beforeRefs.value, actual, target.id),
+        residue: noEffect ? ['target'] : residueFor(beforeRefs.value, actual, slide.id),
         failure: clean(failure || 'Slides Delete postcondition was not satisfied.',
           ${MAX_FAILURE_CODE_UNITS}),
       });
@@ -261,15 +290,28 @@ function rows(value) {
   }
   return true;
 }
+function unlistedIds(value, rowsValue, maximum) {
+  if (!Array.isArray(value) || value.length > maximum) return false;
+  const gridIds = new Set(rowsValue.flat());
+  const seen = new Set();
+  return value.every((nodeId) => {
+    if (!id(nodeId) || gridIds.has(nodeId) || seen.has(nodeId)) return false;
+    seen.add(nodeId);
+    return true;
+  });
+}
+
 function snapshot(value) {
-  if (!exact(value, ['pageId', 'rows', 'focusedId', 'selectionIds'])
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds'])
     || !id(value.pageId) || !rows(value.rows)
+    || !unlistedIds(value.unlisted, value.rows, MAX_SLIDES_DELETE_GRID_ENTRIES)
     || (value.focusedId !== null && !id(value.focusedId))
     || !Array.isArray(value.selectionIds) || value.selectionIds.length > MAX_SLIDES_DELETE_SELECTION
     || value.selectionIds.some((nodeId) => !id(nodeId))
     || new Set(value.selectionIds).size !== value.selectionIds.length) return false;
   const gridIds = new Set(value.rows.flat());
-  return value.focusedId === null || gridIds.has(value.focusedId);
+  return value.focusedId === null || gridIds.has(value.focusedId)
+    || value.unlisted.includes(value.focusedId);
 }
 function same(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -279,6 +321,14 @@ function sameRows(left, right) {
 }
 function withoutTarget(value, targetId) {
   return value.map((row) => row.filter((nodeId) => nodeId !== targetId)).filter((row) => row.length > 0);
+}
+function withoutUnlisted(value, targetId) {
+  return value.filter((nodeId) => nodeId !== targetId);
+}
+function placed(state, slide) {
+  const coordinate = position(state.rows, slide.id);
+  if (coordinate) return coordinate.row === slide.row && coordinate.col === slide.col;
+  return slide.row === null && slide.col === null && state.unlisted.includes(slide.id);
 }
 function position(value, targetId) {
   for (let row = 0; row < value.length; row++) {
@@ -291,19 +341,18 @@ function validRequest(value, input) {
     && value.reference.kind === input.reference.kind && value.reference.value === input.reference.value;
 }
 function validBefore(value, input) {
-  if (!exact(value, ['pageId', 'rows', 'focusedId', 'selectionIds', 'slide'])
-    || !snapshot({ pageId: value.pageId, rows: value.rows,
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'slide'])
+    || !snapshot({ pageId: value.pageId, rows: value.rows, unlisted: value.unlisted,
       focusedId: value.focusedId, selectionIds: value.selectionIds })
     || !exact(value.slide, ['id', 'name', 'label', 'row', 'col'])
     || !id(value.slide.id) || !text(value.slide.name, MAX_TEXT_CODE_UNITS)
     || (value.slide.label !== null && !text(value.slide.label, MAX_TEXT_CODE_UNITS))) return false;
-  const coordinate = position(value.rows, value.slide.id);
-  return coordinate && coordinate.row === value.slide.row && coordinate.col === value.slide.col
+  return placed(value, value.slide)
     && (input.reference.kind !== 'node' || input.reference.value === value.slide.id);
 }
 function validActual(value) {
-  return exact(value, ['pageId', 'rows', 'focusedId', 'selectionIds', 'targetPresent', 'lookupPresent'])
-    && snapshot({ pageId: value.pageId, rows: value.rows,
+  return exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'targetPresent', 'lookupPresent'])
+    && snapshot({ pageId: value.pageId, rows: value.rows, unlisted: value.unlisted,
       focusedId: value.focusedId, selectionIds: value.selectionIds })
     && typeof value.targetPresent === 'boolean' && typeof value.lookupPresent === 'boolean';
 }
@@ -315,18 +364,22 @@ function contextStable(before, actual) {
 function desired(before, actual) {
   return before.pageId === actual.pageId
     && sameRows(actual.rows, withoutTarget(before.rows, before.slide.id))
+    && same(actual.unlisted, withoutUnlisted(before.unlisted, before.slide.id))
     && !actual.targetPresent && !actual.lookupPresent && contextStable(before, actual);
 }
 function unchanged(before, actual) {
   return before.pageId === actual.pageId && sameRows(before.rows, actual.rows)
-    && before.focusedId === actual.focusedId && same(before.selectionIds, actual.selectionIds)
+    && same(before.unlisted, actual.unlisted) && before.focusedId === actual.focusedId && same(before.selectionIds, actual.selectionIds)
     && actual.targetPresent && actual.lookupPresent;
 }
 function expectedResidue(before, actual) {
   const residue = [];
   if (actual.targetPresent || actual.lookupPresent) residue.push('target');
   const expectedRows = actual.targetPresent ? before.rows : withoutTarget(before.rows, before.slide.id);
-  if (!sameRows(actual.rows, expectedRows)) residue.push('grid-membership');
+  const expectedUnlisted = actual.targetPresent
+    ? before.unlisted : withoutUnlisted(before.unlisted, before.slide.id);
+  if (!sameRows(actual.rows, expectedRows)
+    || !same(actual.unlisted, expectedUnlisted)) residue.push('grid-membership');
   if (actual.pageId !== before.pageId) residue.push('page');
   if (before.focusedId !== before.slide.id && before.focusedId !== actual.focusedId) residue.push('focus');
   if ((!before.selectionIds.includes(before.slide.id)

@@ -754,7 +754,10 @@ when its rendered design and states actually match.
 
 1. **`figma_screenshot`** on the target frame, then read the saved PNG — the
    visual ground truth. Never build from a node tree alone.
-2. **One `figma_spec` with `phase: "all"`, `depth: 3–4`** — build the markup
+2. **One `figma_spec` with `phase: "all"`, `depth: 3–4`** (for a large screen:
+   `depth: 30` plus `outFile`, which stitches the complete capture from bounded
+   plugin evals under one observed revision and writes it to the workspace —
+   implement from that file, never from the screenshot) — build the markup
    skeleton and its bounded exact styles: real text characters, resolved
    icon/component names (instances are
    descended into, so overrides and true main-component names appear),
@@ -917,6 +920,10 @@ mode for standard consumers. CSS emits the default under `:root` and each
 additional mode under `[data-figma-mode="<Mode name>"]`; applying that
 attribute is an explicit application responsibility. Different mode values
 are never converted into `clamp()` without authored viewport/min/max intent.
+Color aliases with Figma-authored opacity are read as the native closed
+`COMPOSE_COLOR(alias, opacityPercent)` expression. CSS receives the resolved
+alpha-composed color; DTCG additionally preserves the exact Alias name,
+Variable id and opacity percentage in the Bridge extension.
 
 Public MCP failures use stable error kinds and user-facing details; internal
 Node executable paths and command arguments are never returned. Safe read
@@ -1505,7 +1512,13 @@ figma_run ["col", "extend", "Primitives", "Brand"]
 Application from CLI and MCP: values by mode, alias ids, scopes, code syntax,
 collection/mode identity and publish status. Variable and collection names must
 resolve uniquely; `--collection` is the explicit way to disambiguate duplicate
-variable names. `var create-batch` accepts either `value` or an explicit
+variable names. For a color Alias whose opacity was authored in Figma,
+`valuesByMode` retains Figma's native `COMPOSE_COLOR` expression and percentage.
+The current public Figma Plugin API can read but cannot set that expression:
+`var set-value` and `var set-value-batch` therefore refuse before mutation when
+replacing such a prior value, and exact Snapshot import refuses before Plugin
+readiness instead of flattening it. Change or detach the opacity in Figma until
+Figma exposes a writable public setter. `var create-batch` accepts either `value` or an explicit
 `alias` per item. `aliasCollection` scopes a target in another Collection;
 same-batch forward references are also supported. Alias ambiguity, type
 mismatch and cycles stop before creation, and equal literals are never inferred
@@ -1677,7 +1690,17 @@ claim an independently known default subtree or rollback. JSX `<Slot>` uses
 An empty Slot on a main Component can have no reported
 violation even when `minChildren` is nonzero; instantiate the Component and run
 `slot validate` on that exercised Instance to observe `BELOW_MIN`. Component
-Property Facts normalize Figma's missing SLOT `defaultValue` to `null`.
+Property Facts normalize Figma's missing SLOT `defaultValue` to `null` and
+nullable descriptions, preferred values and settings to their complete
+effective defaults.
+
+When generating a library from code, decompose each rendered subtree from the
+leaves upward before creating the wrapper. Repeated buttons, icons, avatars,
+badges, rows and card shells should remain nested reusable Components. Map
+editable copy to TEXT, optional descendants to BOOLEAN, replaceable children to
+INSTANCE_SWAP, state/size/tone to VARIANT and structurally flexible regions to
+native SLOT. A visually polished wrapper with inert descendants is not a
+finished code-to-Figma component contract.
 Draw commands cover text paths, repeat transform
 groups, stretch/scatter/dynamic strokes, variable-width profiles, and async
 pattern fill/stroke setters. Run the corresponding `inspect`/`validate` read
@@ -1770,13 +1793,15 @@ figma_run ["export", "node-json", "12:34", "-o", "facts/card.json"]
 its Inspect panel. This is deliberately separate from `export css`, which
 exports design-token custom properties. Its text and JSON projections share
 one target-bound, bounded safe-read Application; an oversized or malformed
-Plugin result is refused rather than silently truncated. `export node-json` uses
-`exportAsync({format:"JSON_REST_V1"})`: the shape resembles the REST file
-schema, but the bytes come from the live plugin document and need neither a
-token nor a network request. CLI and MCP share one target-bound safe-read
-Application: the Command Plan owns the optional output file before readiness,
-and bounded node identity, JSON structure, transport size and formatted output
-are validated before stdout or Workspace publication.
+Plugin result is refused rather than silently truncated. `export node-json`
+uses `exportAsync({format:"JSON_REST_V1"})`: Figma returns the official REST
+nodes response envelope with the requested node under `document`, alongside
+`components`, `componentSets`, `schemaVersion` and `styles`. The bytes
+come from the live plugin document and need neither a token nor a network
+request. CLI and MCP share one target-bound safe-read Application: the Command
+Plan owns the optional output file before readiness, and bounded
+`document.id/type`, JSON structure, transport size and formatted output are
+validated before stdout or Workspace publication.
 
 ## Version history and diffs
 
@@ -1841,6 +1866,24 @@ under `FIGMA_WRITE_CONFIRM=1`.
 Motion is rolling out behind a Figma Beta flag. Without access, the commands
 fail with a named `MOTION_DISABLED` error telling you to update Figma Desktop
 rather than a generic API failure.
+
+Motion also travels with the design in both directions (ADR 0129):
+
+- **Figma → code.** `figma_spec` and `export code-spec` capture a layer's
+  native keyframe tracks and project them to CSS: every animated layer gets a
+  `motion:` segment and the spec ends with a `## Motion (implement as CSS)`
+  section holding one `@keyframes` block and `animation` declaration per
+  layer, using Figma's own easing curves. Springs, Variable-bound easings and
+  fields CSS cannot express are listed as limitations; Figma timelines play
+  once, so loops (`iteration-count`, `direction`) stay a code decision, and a
+  `prefers-reduced-motion: reduce` override is expected. The JSON/YAML model
+  carries `motion` with the same `css` projection.
+- **Code → Figma.** The browser capture expression reads each element's CSS
+  animation facts and the referenced `@keyframes`, pauses playback while it
+  captures resting geometry, and `render --dom-capture` writes the animation
+  as native Motion tracks on the created layer (negative delays become phase
+  shifts, `alternate` becomes a two-period timeline). The render result
+  reports `Motion: N native keyframe track(s) …` plus any layer Figma refused.
 
 ## Security model
 
