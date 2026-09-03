@@ -269,3 +269,20 @@ test('a focus resting on an unlisted slide no longer refuses deleting a listed o
   assert.equal(result.result.before.focusedId, '1:9');
   assert.deepEqual(result.result.actual.unlisted, ['1:9']);
 });
+
+test('a slide is deleted by existence while the canvas grid throws on every read', async () => {
+  // Seen live: after a clone was removed, figma.getCanvasGrid() kept its id and
+  // threw "does not exist" for minutes. The page tree still held every slide.
+  const live = runtime();
+  const ghost = ghostIn(live);
+  live.figma.getCanvasGrid = () => { throw new Error('in getCanvasGrid: The node with id "21:299" does not exist'); };
+  const result = await executeSlidesDelete({ reference: 'label:Stray' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'deleted');
+  assert.match(result.result.before.gridError, /does not exist/);
+  assert.deepEqual(result.result.before.rows, []);
+  assert.deepEqual(result.result.before.unlisted, ['1:1', '1:2', '1:3', '1:9']);
+  assert.deepEqual(result.result.actual.unlisted, ['1:1', '1:2', '1:3']);
+  assert.equal(live.registry.has(ghost.id), false);
+});

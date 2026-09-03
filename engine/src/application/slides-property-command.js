@@ -130,7 +130,18 @@ export function slidesPropertyCode(request) {
         || page.selection.length > ${MAX_SLIDES_PROPERTY_SELECTION}) {
         throw new Error('Slides Property mutation requires a bounded current Page and selection.');
       }
-      const grid = figma.getCanvasGrid();
+      // After a slide is removed the grid can keep the dead id and throw on
+      // every read until it settles (seen live). The page tree still knows
+      // every slide, and this command verifies by existence, so a throwing
+      // grid is an empty grid with a remembered reason rather than a refusal.
+      let grid;
+      let gridError = null;
+      try {
+        grid = figma.getCanvasGrid();
+      } catch (error) {
+        gridError = clean(error && error.message ? error.message : String(error), 512);
+        grid = [];
+      }
       if (!Array.isArray(grid) || grid.length > ${MAX_SLIDES_PROPERTY_ROWS}) {
         throw new Error('Slides Property mutation requires a bounded native grid.');
       }
@@ -176,7 +187,7 @@ export function slidesPropertyCode(request) {
         throw new Error('Slides Property mutation found duplicate selection identities.');
       }
       return {
-        nodes, value: { pageId: page.id, rows, unlisted, focusedId: focus ? focus.id : null, selectionIds },
+        nodes, value: { pageId: page.id, rows, unlisted, gridError, focusedId: focus ? focus.id : null, selectionIds },
       };
     };
     const position = (rows, nodeId) => {
@@ -361,9 +372,11 @@ function coordinateFact(row, col, maxRow, maxCol) {
 }
 
 function snapshot(value) {
-  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds'])
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'gridError', 'focusedId', 'selectionIds'])
     || !id(value.pageId) || !rows(value.rows)
     || !unlistedIds(value.unlisted, value.rows, MAX_SLIDES_PROPERTY_GRID_ENTRIES)
+    || !(value.gridError === null || (typeof value.gridError === 'string'
+      && value.gridError.length > 0 && value.gridError.length <= 512))
     || (value.focusedId !== null && !id(value.focusedId))
     || !Array.isArray(value.selectionIds) || value.selectionIds.length > MAX_SLIDES_PROPERTY_SELECTION
     || value.selectionIds.some((nodeId) => !id(nodeId))
@@ -435,13 +448,13 @@ function validSuccess(value, input) {
     && value.attempted === 1 && value.restored === 0
     && Array.isArray(value.residue) && value.residue.length === 0
     && validRequest(value.request, input)
-    && exact(value.before, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'slide'])
+    && exact(value.before, ['pageId', 'rows', 'unlisted', 'gridError', 'focusedId', 'selectionIds', 'slide'])
     && snapshot({ pageId: value.before.pageId, rows: value.before.rows, unlisted: value.before.unlisted,
-      focusedId: value.before.focusedId, selectionIds: value.before.selectionIds })
+      gridError: value.before.gridError, focusedId: value.before.focusedId, selectionIds: value.before.selectionIds })
     && slideFact(value.before.slide)
-    && exact(value.actual, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'slide'])
+    && exact(value.actual, ['pageId', 'rows', 'unlisted', 'gridError', 'focusedId', 'selectionIds', 'slide'])
     && snapshot({ pageId: value.actual.pageId, rows: value.actual.rows, unlisted: value.actual.unlisted,
-      focusedId: value.actual.focusedId, selectionIds: value.actual.selectionIds })
+      gridError: value.actual.gridError, focusedId: value.actual.focusedId, selectionIds: value.actual.selectionIds })
     && slideFact(value.actual.slide) && matchesSuccess(value.before, value.actual, input)
     && Array.isArray(value.warnings)
     && value.warnings.length === (value.outcome === 'verified-after-error' ? 1 : 0)

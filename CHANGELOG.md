@@ -29,6 +29,13 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   Mutations keep refusing, with the runtime's own message. Every reader's
   "could not read a bounded native deck" now carries that message too, so
   a refused read says why instead of only that.
+- `slides delete`, `transition` and `skip` no longer refuse while the canvas
+  grid throws: their snapshots treat a throwing grid as empty with the reason
+  remembered, and since they verify by existence the mutation still proves
+  itself. Live: the empty probe slide left behind earlier was removed this
+  way. The post-mutation readback under that grid state reported
+  `verification-unavailable` although the slide was gone — the readback,
+  not the mutation, is what still needs work there.
 - `slides inspect` (deck-level) reports slides the grid has not listed under
   `unlisted` and carries `gridError`; before, one unlisted slide made its own
   count check fail and the read was reported as an invalid result.

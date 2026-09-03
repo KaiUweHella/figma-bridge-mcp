@@ -83,7 +83,18 @@ export function slidesDeleteCode(request) {
         || page.selection.length > ${MAX_SLIDES_DELETE_SELECTION}) {
         throw new Error('Slides Delete requires a bounded current Page and selection.');
       }
-      const grid = figma.getCanvasGrid();
+      // After a slide is removed the grid can keep the dead id and throw on
+      // every read until it settles (seen live). The page tree still knows
+      // every slide, and this command verifies by existence, so a throwing
+      // grid is an empty grid with a remembered reason rather than a refusal.
+      let grid;
+      let gridError = null;
+      try {
+        grid = figma.getCanvasGrid();
+      } catch (error) {
+        gridError = clean(error && error.message ? error.message : String(error), 512);
+        grid = [];
+      }
       if (!Array.isArray(grid) || grid.length > ${MAX_SLIDES_DELETE_ROWS}) {
         throw new Error('Slides Delete requires a bounded native grid.');
       }
@@ -128,7 +139,7 @@ export function slidesDeleteCode(request) {
         throw new Error('Slides Delete found duplicate selection identities.');
       }
       return {
-        nodes, value: { pageId: page.id, rows, unlisted, focusedId: focus ? focus.id : null, selectionIds },
+        nodes, value: { pageId: page.id, rows, unlisted, gridError, focusedId: focus ? focus.id : null, selectionIds },
       };
     };
     const position = (rows, nodeId) => {
@@ -302,9 +313,11 @@ function unlistedIds(value, rowsValue, maximum) {
 }
 
 function snapshot(value) {
-  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds'])
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'gridError', 'focusedId', 'selectionIds'])
     || !id(value.pageId) || !rows(value.rows)
     || !unlistedIds(value.unlisted, value.rows, MAX_SLIDES_DELETE_GRID_ENTRIES)
+    || !(value.gridError === null || (typeof value.gridError === 'string'
+      && value.gridError.length > 0 && value.gridError.length <= 512))
     || (value.focusedId !== null && !id(value.focusedId))
     || !Array.isArray(value.selectionIds) || value.selectionIds.length > MAX_SLIDES_DELETE_SELECTION
     || value.selectionIds.some((nodeId) => !id(nodeId))
@@ -341,9 +354,9 @@ function validRequest(value, input) {
     && value.reference.kind === input.reference.kind && value.reference.value === input.reference.value;
 }
 function validBefore(value, input) {
-  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'slide'])
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'gridError', 'focusedId', 'selectionIds', 'slide'])
     || !snapshot({ pageId: value.pageId, rows: value.rows, unlisted: value.unlisted,
-      focusedId: value.focusedId, selectionIds: value.selectionIds })
+      gridError: value.gridError, focusedId: value.focusedId, selectionIds: value.selectionIds })
     || !exact(value.slide, ['id', 'name', 'label', 'row', 'col'])
     || !id(value.slide.id) || !text(value.slide.name, MAX_TEXT_CODE_UNITS)
     || (value.slide.label !== null && !text(value.slide.label, MAX_TEXT_CODE_UNITS))) return false;
@@ -351,9 +364,9 @@ function validBefore(value, input) {
     && (input.reference.kind !== 'node' || input.reference.value === value.slide.id);
 }
 function validActual(value) {
-  return exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'targetPresent', 'lookupPresent'])
+  return exact(value, ['pageId', 'rows', 'unlisted', 'gridError', 'focusedId', 'selectionIds', 'targetPresent', 'lookupPresent'])
     && snapshot({ pageId: value.pageId, rows: value.rows, unlisted: value.unlisted,
-      focusedId: value.focusedId, selectionIds: value.selectionIds })
+      gridError: value.gridError, focusedId: value.focusedId, selectionIds: value.selectionIds })
     && typeof value.targetPresent === 'boolean' && typeof value.lookupPresent === 'boolean';
 }
 function contextStable(before, actual) {
