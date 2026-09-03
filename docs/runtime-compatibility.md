@@ -17,5 +17,5 @@ npm run probe:figma-runtime-metadata -- --file-key FILE_KEY
 
 An absent Style or Component kind is reported as `unsampled`, not compatible.
 The sole reviewed runtime exception is missing `descriptionMarkdown` on a
-local Text Style under typings 1.133.0. New omissions and wrong runtime types
+local Text Style under typings 1.136.0. New omissions and wrong runtime types
 fail until the exception policy and public projection are reviewed.

@@ -1,15 +1,16 @@
 # Figma Slides beta roadmap
 
-Last reviewed against `@figma/plugin-typings` 1.133.0 on 2026-08-10, with the
-P3 items re-audited on 2026-09-02. On 2026-09-03 the 1.133.0 → 1.136.0 diff
-was inspected with `api gap`: it adds one Styles/Effects interface (the
-restored `getCSSAsync`) and no Slides symbol, so nothing below changes. The
-package itself stays at 1.133.0 until the pinned review runs — the audited
-version in `api-operation-coverage.js`, the reviewed source digest in
+Last reviewed against `@figma/plugin-typings` 1.136.0 on 2026-09-03. The
+1.133.0 → 1.136.0 diff adds `textWrapStyle` (`AUTO | BALANCE | PRETTY`, with
+`getRangeTextWrapStyle`/`setRangeTextWrapStyle`) and restores `getCSSAsync`;
+the rest is formatting. No Slides symbol changed, so the P3 audit below,
+made against 1.133.0 on 2026-09-02 and confirmed on the live runtime, stands.
+The bump went through the pinned review: audited version in
+`api-operation-coverage.js`, reviewed source digest in
 `api-reference-policy.js`, the operation audit and the Style Facts union
-drift check all pin it on purpose. Note that `api gap` compares the typings
-with this engine's source tree; runtime availability is measured separately,
-as the audit section describes.
+drift check. Note that `api gap` compares the typings with this engine's
+source tree; runtime availability is measured separately, as the audit
+section describes.
 
 This roadmap distinguishes product work from Figma Plugin API boundaries. An
 item being desirable does not imply that the public API can currently perform
@@ -250,7 +251,7 @@ Two things that only live runs showed, both now handled rather than assumed:
   bookkeeping; worth a narrow reproduction against a scratch deck before
   reporting it upstream.
 
-## Verified against the installed typings (1.133.0, 2026-09-02)
+## Verified against the installed typings (1.133.0, 2026-09-02; unchanged in 1.136.0)
 
 A re-audit of `@figma/plugin-typings` 1.133.0 for the P3 items:
 

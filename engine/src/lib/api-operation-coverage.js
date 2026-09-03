@@ -4,7 +4,7 @@
 // the installed official PluginAPI declaration so a new Figma creator cannot
 // arrive unnoticed.
 
-const FIGMA_TYPINGS_AUDITED_VERSION = '1.133.0';
+const FIGMA_TYPINGS_AUDITED_VERSION = '1.136.0';
 
 const supported = (command, note = '') => Object.freeze({ status: 'supported', command: Object.freeze(command), note });
 const alternative = (command, note) => Object.freeze({ status: 'alternative', command: Object.freeze(command), note });

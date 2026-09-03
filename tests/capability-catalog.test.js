@@ -2616,7 +2616,7 @@ test('catalog reports workspace, network and shared-state effects independently 
     figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   const apiPlan = planFigmaCommand(['api', 'setup']);
-  assert.match(apiPlan.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
+  assert.match(apiPlan.audit.materialVersion, /^figma-plugin-typings-1\.136\.0-[a-f0-9]{12}$/);
   assert.doesNotMatch(JSON.stringify(apiPlan.audit), /https?:|node_modules|figma-api[\\/]/i);
   assert.deepEqual(planFigmaCommand(['api']).effects, {
     figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'none',
@@ -2703,7 +2703,7 @@ test('API reference plans expose only private-state effects and stable material 
     figma: 'none', editor: 'none', workspace: 'none', network: 'none', shared: 'read',
   });
   assert.equal(setup.audit.materialVersion, lookup.audit.materialVersion);
-  assert.match(setup.audit.materialVersion, /^figma-plugin-typings-1\.133\.0-[a-f0-9]{12}$/);
+  assert.match(setup.audit.materialVersion, /^figma-plugin-typings-1\.136\.0-[a-f0-9]{12}$/);
   assert.doesNotMatch(JSON.stringify([setup.audit, lookup.audit]), /https?:|node_modules|figma-api[\\/]/i);
 });
 

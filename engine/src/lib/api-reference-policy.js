@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 export const FIGMA_TYPINGS_PACKAGE = '@figma/plugin-typings';
-export const FIGMA_TYPINGS_VERSION = '1.133.0';
-export const FIGMA_TYPINGS_SOURCE_SHA256 = '010eadcbbd278bcd6b99b15f6ba9eacb00be69e14519930b5b816c56c1bc146d';
+export const FIGMA_TYPINGS_VERSION = '1.136.0';
+export const FIGMA_TYPINGS_SOURCE_SHA256 = 'fdaed3366460e94a8cc22fc51269330924e4b2aec582c98a3322a1bc2c976a98';
 export const FIGMA_TYPINGS_MATERIAL_VERSION = `figma-plugin-typings-${FIGMA_TYPINGS_VERSION}-${FIGMA_TYPINGS_SOURCE_SHA256.slice(0, 12)}`;
 export const OFFICIAL_TYPINGS_DIRECTORY = path.join(root, 'node_modules', '@figma', 'plugin-typings');
 export const OFFICIAL_TYPINGS_PATH = path.join(OFFICIAL_TYPINGS_DIRECTORY, 'plugin-api.d.ts');

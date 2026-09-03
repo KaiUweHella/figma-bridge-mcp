@@ -28,7 +28,7 @@ for limits and examples but does not override the declarations used by tests.
 
 The broad type-name report remains useful as a discovery heuristic, but it is
 not treated as proof that a concrete edit exists. The executable operation
-audit is pinned to `@figma/plugin-typings` 1.133.0 and classifies every
+audit is pinned to `@figma/plugin-typings` 1.136.0 and classifies every
 `PluginAPI.create*` method plus every structural combine method. It currently
 records 35 direct commands, 5 safe alternatives, and 4 explicit boundaries.
 Tests also compare the complete engine command list with the Safe Mode

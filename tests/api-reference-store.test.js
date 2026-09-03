@@ -68,7 +68,7 @@ function fixture() {
 test('reviewed official typings project into a complete bounded declaration model', () => {
   const source = readFileSync(OFFICIAL_TYPINGS_PATH, 'utf8');
   const model = projectOfficialReference(source, API_REFERENCE_POLICY);
-  assert.equal(model.entries.length, 372);
+  assert.equal(model.entries.length, 373);
   assert.equal(model.provenance.sourceSha256, API_REFERENCE_POLICY.sourceSha256);
   const plugin = model.entries.find((entry) => entry.name === 'PluginAPI');
   const frame = model.entries.find((entry) => entry.name === 'FrameNode');
@@ -193,7 +193,7 @@ test('agent context uses the activated official material and stays byte bounded'
     const context = docs.getContext('resize');
     process.stdout.write(JSON.stringify({
       bytes: Buffer.byteLength(context, 'utf8'),
-      official: context.includes('figma-plugin-typings-1.133.0-010eadcbbd27'),
+      official: context.includes('figma-plugin-typings-1.136.0-fdaed3366460'),
       relevant: context.includes('LayoutMixin'),
     }));
   `;

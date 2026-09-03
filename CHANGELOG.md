@@ -33,11 +33,11 @@ which was prepared on 2026-09-01 and never published.
 
 ### Changed
 
-- `actions/upload-artifact` v6 → v7.0.1 in both workflows. The
-  `@figma/plugin-typings` 1.136.0 bump stays open on purpose: the diff was
-  inspected (one Styles/Effects interface, no Slides symbol), but the package
-  is pinned by the audited-version, reviewed-source-digest, operation-audit
-  and union-drift checks, which need their own review pass.
+- `actions/upload-artifact` v6 → v7.0.1 in both workflows.
+- `@figma/plugin-typings` 1.133.0 → 1.136.0 through the pinned review:
+  audited version, reviewed source digest, operation audit and Style Facts
+  union drift. The diff adds `textWrapStyle` and restores `getCSSAsync`; no
+  creation or structural operation and no Slides symbol changed.
 - README documents the whole Slides surface, the image ceiling and the
   text-fidelity stage.
 
