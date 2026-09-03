@@ -140,17 +140,17 @@ behaviour for `create`, `duplicate` and `move` too, so it was left consistent
 rather than special-cased; fixing it belongs at the catalog's refusal
 projection, once, for all of them.
 
-## getCanvasGrid() is not a complete slide inventory (2026-09-03)
+## getCanvasGrid() can lag the page tree for minutes (2026-09-03)
 
 The most consequential finding of the session, and it invalidated a claim every
-Slides command rested on.
+Slides command rested on. The first write-up of it here was itself wrong about
+the cause, and the correction matters — see the end of this section.
 
-A timed-out `slides create` left slide `15:287` in the deck. It is a live
-`SLIDE`, `removed === false`, whose parent is `SLIDE_ROW 7:21` — and
-`figma.getCanvasGrid()` does not list it. Measured directly: the page tree
-reports 9 slides and row `7:21` holding `7:12, 7:14, 7:16, 7:18, 15:287`, while
-the grid reports 8. Stable across daemon restarts and many minutes, so this is
-not eventual consistency settling.
+A timed-out `slides create` left slide `15:287` in the deck. It was a live
+`SLIDE`, `removed === false`, whose parent was `SLIDE_ROW 7:21` — and
+`figma.getCanvasGrid()` did not list it. Measured directly: the page tree
+reported 9 slides and row `7:21` holding `7:12, 7:14, 7:16, 7:18, 15:287`,
+while the grid reported 8.
 
 Everything that walked only the grid was blind to it. `slides lint` reported
 "no findings across 8 slide(s)" on a nine-slide deck whose ninth slide was
@@ -164,15 +164,28 @@ and flagged by a new `unlisted-slide` lint kind. `slides inspect`, `lint`,
 `manifest` and the `batch` preflight all gained this at once — the payoff of
 having extracted the fragment.
 
-Still outstanding: `slides delete`, `duplicate` and `move` keep their own
-grid-only walks and remain blind. `slides delete` refuses such a slide twice
-over — once because the focused slide is not in its grid-derived id set, and
-once because the reference "did not resolve to a Slide in the current grid" —
-so **the Bridge cannot remove a slide it created this way**. Fixing that means
-giving those snapshots the same reconciliation and verifying deletion by node
-existence rather than by grid difference, because deleting an unlisted slide
-leaves the grid unchanged. That is a change to a verified mutation command's
-verification model and deserves its own pass.
+**Correction to the first write-up.** This was initially recorded as a
+permanent inventory gap — "stable across daemon restarts, so not eventual
+consistency". That was wrong. The grid did eventually catch up: the same slide
+later reported coordinate `[1,4]`, and `slides delete` then removed it
+normally. So the grid _lags_ the page tree, by minutes and across daemon
+restarts and dozens of intervening commands, but it does settle. The claim was
+made from a long observation window rather than from an unbounded one, which is
+exactly the mistake this document already warns about for typings comments.
+
+What that changes, and what it does not:
+
+- The reconciliation stays correct and necessary. A reader must not
+  under-report a deck, or refuse to read it, during a lag that can outlast a
+  whole working session. `slides lint` calling a nine-slide deck clean was
+  wrong regardless of whether the grid would settle later.
+- The gap in `slides delete`, `duplicate` and `move` is a **window**, not a
+  permanent hole: they cannot address such a slide while the grid lags, and
+  work once it settles. That is far less severe than first recorded, and it
+  lowers the priority of giving those snapshots the same reconciliation —
+  though a command that refuses a slide the user can see is still a poor
+  answer, and the fix would also need verification by node existence rather
+  than grid difference.
 
 ## Observed Figma behaviour worth knowing (2026-09-02)
 

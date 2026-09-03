@@ -37,8 +37,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   by 4/3 against a 5 MB protocol limit, which also makes the 8 MB
   `IMAGE_HARD_LIMIT` other image commands advertise unreachable.
 - **Fixed: every Slides reader under-reported the deck.**
-  `figma.getCanvasGrid()` is not a complete slide inventory — a live slide whose
-  parent is a slide row in the same page was stably absent from the grid, so
+  `figma.getCanvasGrid()` can lag the page tree by minutes — a live slide whose
+  parent was a slide row in the same page was absent from the grid across
+  daemon restarts and dozens of commands before it eventually appeared, so
   `slides lint` reported "no findings across 8 slide(s)" on a nine-slide deck
   whose hidden slide was empty and had no transition. The shared deck-facts
   fragment now reconciles the grid against the page tree: the grid stays
@@ -47,8 +48,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   `slides manifest`, and flagged by a new `unlisted-slide` lint kind.
   `slides inspect`, `lint`, `manifest` and the `batch` preflight all gained
   this. `slides delete`, `duplicate` and `move` keep their own grid-only walks
-  and remain blind; `slides delete` cannot remove such a slide at all, which is
-  recorded in `docs/slides-roadmap.md` with what fixing it requires.
+  and cannot address such a slide while the grid lags, which
+  `docs/slides-roadmap.md` records together with what fixing it requires.
 - `slides manifest` no longer refuses a deck whose focused slide the grid has
   not listed, and reports that state instead. A media insert that Figma rejects
   without an Error message now reports what it can recover from the rejection
