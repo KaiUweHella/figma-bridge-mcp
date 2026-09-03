@@ -3,7 +3,10 @@
 Notable changes per release. Dates are release dates; the project follows
 semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
-## Unreleased
+## [0.8.0] — 2026-09-03
+
+This release also ships everything listed under the 0.7.4 candidate below,
+which was prepared on 2026-09-01 and never published.
 
 ### Added
 
@@ -28,8 +31,20 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   copy is track-bound and stays FILL (`TEXT_HUG_BELOW_TRACK_RATIO`, ADR 0069
   amended).
 
+### Changed
+
+- `actions/upload-artifact` v6 → v7.0.1 in both workflows. The
+  `@figma/plugin-typings` 1.136.0 bump stays open on purpose: the diff was
+  inspected (one Styles/Effects interface, no Slides symbol), but the package
+  is pinned by the audited-version, reviewed-source-digest, operation-audit
+  and union-drift checks, which need their own review pass.
+- README documents the whole Slides surface, the image ceiling and the
+  text-fidelity stage.
+
 ### Fixed
 
+- Production `npm audit` is clean again: fast-uri (high) and qs (moderate),
+  both transitive under the MCP SDK, resolved in the lockfile.
 - **Every MCP server start reloaded the development plugin in every Figma
   window, killing whatever eval was in flight.** `connect` runs at server
   start and copied the plugin bundle unconditionally; Figma reloads a
@@ -56,9 +71,7 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   grid throws: their snapshots treat a throwing grid as empty with the reason
   remembered, and since they verify by existence the mutation still proves
   itself. Live: the empty probe slide left behind earlier was removed this
-  way. The post-mutation readback under that grid state reported
-  `verification-unavailable` although the slide was gone — the readback,
-  not the mutation, is what still needs work there.
+  way. The post-mutation readback under that grid state first reported `verification-unavailable` although the slide was gone: Figma still handed the removed node back as the focused slide and every read on it threw. A focus resting on a removed or unreadable node now counts as no focus, and a rejection that is not an Error keeps its text instead of the fallback sentence.
 - `slides inspect` (deck-level) reports slides the grid has not listed under
   `unlisted` and carries `gridError`; before, one unlisted slide made its own
   count check fail and the read was reported as an invalid result.
@@ -227,7 +240,7 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   above), `createVideoAsync` carries only a paid-team restriction, focus and
   `slidesView` are settable, and speaker notes have no declared surface at all.
 
-## [0.7.4] — 2026-09-01
+## [0.7.4] — 2026-09-01 (never published; folded into 0.8.0)
 
 ### Added
 
