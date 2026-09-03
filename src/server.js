@@ -600,6 +600,11 @@ import {
   slidesViewPlanRoute,
 } from "../engine/src/application/slides-viewport-command.js";
 import {
+  executeSlidesMediaPrepared,
+  prepareSlidesMediaPlan,
+  slidesMediaPlanRoute,
+} from "../engine/src/application/slides-media-command.js";
+import {
   executeSlidesManifestPlan,
   slidesManifestPlanRoute,
 } from "../engine/src/application/slides-manifest-command.js";
@@ -4784,6 +4789,24 @@ export async function handleTool(name, rawArgs) {
               fileKey,
               expectedEditor,
               timeoutMs: Math.max(1, deadline - Date.now()),
+            }),
+          });
+        });
+        return resultFromCli(res);
+      }
+      const slidesMediaRoute = slidesMediaPlanRoute(plan);
+      if (slidesMediaRoute === "command-application") {
+        const prepared = prepareSlidesMediaPlan(plan, { workspaceIO: WORKSPACE_IO });
+        const res = await runInProcessCommandPlan(plan, {
+          label: input.label,
+          compatibilityFallback: false,
+        }, async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({
+            deadline, maxWaitMs: 8000, fileKey, expectedEditor,
+          });
+          return executeSlidesMediaPrepared(prepared, {
+            evaluate: (code) => evaluateFigma(code, {
+              fileKey, expectedEditor, timeoutMs: Math.max(1, deadline - Date.now()),
             }),
           });
         });

@@ -15,6 +15,7 @@ const APPLICATION_ID = 'slides.lint';
 export const MAX_SLIDES_LINT_RESULT_CODE_UNITS = 2_000_000;
 export const SLIDES_LINT_KINDS = Object.freeze([
   'duplicate-name', 'skipped-placement', 'missing-transition', 'empty-slide',
+  'unlisted-slide',
 ]);
 
 const LINT_META = Object.freeze({
@@ -22,6 +23,7 @@ const LINT_META = Object.freeze({
   'skipped-placement': 'skipped slides that still carry content',
   'missing-transition': 'slides without a transition',
   'empty-slide': 'slides with no content',
+  'unlisted-slide': 'slides the canvas grid does not list',
 });
 
 export function slidesLintCode(request) {
@@ -44,6 +46,12 @@ export function slidesLintCode(request) {
       const deck = __deckRead();
       const facts = [];
       for (const row of deck.rows) for (const slide of row) facts.push(__deckFacts(slide));
+      const unlisted = new Set(deck.unlisted);
+      // Slides the grid omits still exist and still present. They have no
+      // coordinate, so they are appended rather than placed.
+      for (const slide of deck.slides) {
+        if (unlisted.has(slide.id)) facts.push(__deckFacts(slide));
+      }
 
       const issues = [];
       const add = (kind, fact, detail) => {
@@ -81,13 +89,19 @@ export function slidesLintCode(request) {
             + ' child(ren), so that content never appears');
         }
         // The deck's first slide has nothing to transition from, so NONE there
-        // is the normal authored state rather than an omission.
-        if (fact.transition.style === 'NONE' && index > 0) {
+        // is the normal authored state rather than an omission. The exemption
+        // is positional, so it never covers a slide without a position.
+        if (fact.transition.style === 'NONE' && (index > 0 || fact.row === null)) {
           add('missing-transition', fact,
             'has no transition while the deck uses them elsewhere');
         }
         if (fact.childCount === 0) {
           add('empty-slide', fact, 'has no content at all');
+        }
+        if (unlisted.has(fact.id)) {
+          add('unlisted-slide', fact,
+            'exists on the page but figma.getCanvasGrid() does not list it, so every'
+            + ' grid-based command is blind to it and slides delete cannot remove it');
         }
       }
 

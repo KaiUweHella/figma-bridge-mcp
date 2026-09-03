@@ -44,6 +44,12 @@ import {
   executeSlidesFocusPlan,
   executeSlidesViewPlan,
 } from '../application/slides-viewport-command.js';
+import { workspaceIO } from '../lib/workspace-io.js';
+import {
+  executeSlidesMediaPrepared,
+  prepareSlidesMediaPlan,
+} from '../application/slides-media-command.js';
+import { slidesMediaPlanningArgvFromRequest } from '../application/slides-media-request.js';
 import { slidesBatchPlanningArgvFromRequest } from '../application/slides-batch-request.js';
 import { slidesLintPlanningArgvFromRequest } from '../application/slides-lint-request.js';
 import {
@@ -420,6 +426,43 @@ slides
       if (result.stderr) console.error(result.stderr);
     } catch (error) {
       console.error(chalk.red('\u2717 Slides view failed: ' + (error?.message || String(error))));
+      process.exitCode = 1;
+    }
+  });
+
+// Media insertion. The file is authorized and read before any Figma call, and
+// the bytes ride in the eval payload -- there is no inbound asset stream --
+// so the ceiling is the protocol limit, not the 8 MB other image commands name.
+slides
+  .command('media <slide> <file>')
+  .description('Insert a local image, animated GIF or video into one slide')
+  .option('--name <name>', 'Name for the created node')
+  .option('--fit <mode>', 'Scale mode: FILL, FIT, CROP or TILE (default FILL)')
+  .allowExcessArguments(false)
+  .action(async (slide, file, options) => {
+    try {
+      const io = workspaceIO();
+      const argv = ['slides', 'media', slide, file];
+      if (options.name) argv.push(`--name=${options.name}`);
+      if (options.fit) argv.push(`--fit=${options.fit}`);
+      const plan = planFigmaCommand(slidesMediaPlanningArgvFromRequest({ argv }), {
+        adapter: 'cli', fileKey: program.opts().figmaFile || null,
+        workspaceDir: io.roots[0], workspaceIO: io,
+      });
+      const prepared = prepareSlidesMediaPlan(plan, { workspaceIO: io });
+      const result = await runInProcessCommandPlan(plan, { compatibilityFallback: false },
+        async ({ fileKey, expectedEditor, deadline }) => {
+          await ensurePluginReadiness({ deadline, maxWaitMs: 8000, fileKey, expectedEditor });
+          return executeSlidesMediaPrepared(prepared, {
+            evaluate: (code) => daemonExec('eval', {
+              code, ...(fileKey ? { fileKey } : {}),
+            }, Math.max(1, deadline - Date.now())),
+          });
+        });
+      if (result.stdout) console.log(result.stdout);
+      if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+      console.error(chalk.red('\u2717 Slides media failed: ' + (error?.message || String(error))));
       process.exitCode = 1;
     }
   });

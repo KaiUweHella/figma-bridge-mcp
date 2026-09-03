@@ -291,6 +291,8 @@
     "engine/src/application/slides-lint-command.js",
     "engine/src/application/slides-lint-request.js",
     "engine/src/application/slides-manifest-command.js",
+    "engine/src/application/slides-media-command.js",
+    "engine/src/application/slides-media-request.js",
     "engine/src/application/slides-move-command.js",
     "engine/src/application/slides-move-request.js",
     "engine/src/application/slides-property-command.js",

@@ -389,6 +389,12 @@ import {
 } from '../engine/src/application/slides-create-request.js';
 import { acceptsSlidesViewArgv } from '../engine/src/application/slides-viewport-command.js';
 import {
+  acceptsSlidesMediaArgv,
+  parseSlidesMediaRequest,
+  slidesMediaArgvFromRequest,
+  slidesMediaFigmaUrlFileKeyFromArgv,
+} from '../engine/src/application/slides-media-request.js';
+import {
   acceptsSlidesBatchArgv,
   slidesBatchArgvFromRequest,
   slidesBatchFigmaUrlFileKeyFromArgv,
@@ -1027,7 +1033,7 @@ const EDITOR_CONTEXT_READ_ACTIONS = new Set([
 ]);
 const EDITOR_CONTEXT_WRITE_ACTIONS = new Set([
   'sizes', 'var.visualize', 'gradient.mesh',
-  'slides.create', 'slides.duplicate', 'slides.batch',
+  'slides.create', 'slides.duplicate', 'slides.batch', 'slides.media',
   'slides.focus', 'slides.view',
   'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.table',
   'canvas.page',
@@ -1130,7 +1136,7 @@ const CLI_COMMAND_APPLICATIONS = new Set([
   'a11y.vision',
   'slides.inspect', 'slides.create', 'slides.duplicate', 'slides.move',
   'slides.transition', 'slides.skip', 'slides.delete',
-  'slides.lint', 'slides.manifest', 'slides.batch',
+  'slides.lint', 'slides.manifest', 'slides.batch', 'slides.media',
   'slides.focus', 'slides.view',
   'jam.board', 'jam.arrange', 'jam.sticky', 'jam.stickies', 'jam.shape', 'jam.connector',
   'jam.table', 'jam.section', 'jam.code',
@@ -1575,6 +1581,7 @@ function specializedPolicy(name, entry, args, actionId) {
       : sub === 'duplicate' ? 'slides-duplicate-input'
         : sub === 'move' ? 'slides-move-input'
           : sub === 'batch' ? 'slides-batch-input'
+            : sub === 'media' ? 'slides-media-input'
             : ['transition', 'skip'].includes(sub)
               ? 'slides-property-input'
               : sub === 'delete' ? 'slides-delete-input' : 'slides-reference-input';
@@ -1879,6 +1886,10 @@ function commandCapability(args) {
     && !action.help && !acceptsSlidesViewArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
+  if (name === 'slides' && args[1] === 'media'
+    && !action.help && !acceptsSlidesMediaArgv(args)) {
+    return Object.freeze({ ...UNKNOWN, name });
+  }
   if (name === 'slides' && ['transition', 'skip'].includes(args[1])
     && !action.help && !acceptsSlidesPropertyArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
@@ -1924,7 +1935,7 @@ function commandCapability(args) {
     return Object.freeze({ ...UNKNOWN, name });
   }
   if (name === 'slides'
-    && !['create', 'duplicate', 'move', 'transition', 'skip', 'delete', 'batch'].includes(args[1])
+    && !['create', 'duplicate', 'move', 'transition', 'skip', 'delete', 'batch', 'media'].includes(args[1])
     && !action.help && !acceptsSlidesReferenceArgv(args)) {
     return Object.freeze({ ...UNKNOWN, name });
   }
@@ -3426,6 +3437,18 @@ function prepareCommandArgs(rawArgs, baseDir = process.cwd(), {
     case 'slides-create-input': {
       args.splice(0, args.length,
         ...slidesCreateArgvFromRequest(parseSlidesCreateRequest(args)));
+      break;
+    }
+    case 'slides-media-input': {
+      // The media file is a workspace read, marked before the argv is
+      // canonicalized so the Command Plan reports effects.workspace: 'read'.
+      const request = parseSlidesMediaRequest(args);
+      const resolved = absolute(baseDir, request.file);
+      args[request.fileIndex] = resolved;
+      markRead(resolved, 'slides-media');
+      const closedMediaFileKey = slidesMediaFigmaUrlFileKeyFromArgv(args);
+      if (projectUrlTarget) figmaUrlFileKey = closedMediaFileKey;
+      args.splice(0, args.length, ...slidesMediaArgvFromRequest(parseSlidesMediaRequest(args)));
       break;
     }
     case 'slides-batch-input': {

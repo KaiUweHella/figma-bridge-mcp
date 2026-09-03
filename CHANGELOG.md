@@ -25,6 +25,35 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   resolving one needs a read and an ambiguous reference must never let a render
   pick its own target. Plugin build 3.3.41 — relaunch the development plugin
   before rendering into a slide.
+- `slides media <slide> <file>` inserts a still image, an animated GIF or a
+  video into one named slide, reusing the WorkspaceIO authorization the Design
+  image commands already use. A GIF becomes a playable `MEDIA` node via
+  `createGif` — the API the typings mark FigJam-only and which a live Slides
+  runtime accepts — a still becomes an `IMAGE` paint at its natural size fitted
+  to the slide, and a video a `VIDEO` paint. The file is authorized and read
+  before any Figma call, and a created node is removed again when the insert
+  cannot be verified. The ceiling is ~3.5 MB of file bytes: inbound media rides
+  in the eval payload (the asset stream is export-only) and base64 inflates it
+  by 4/3 against a 5 MB protocol limit, which also makes the 8 MB
+  `IMAGE_HARD_LIMIT` other image commands advertise unreachable.
+- **Fixed: every Slides reader under-reported the deck.**
+  `figma.getCanvasGrid()` is not a complete slide inventory — a live slide whose
+  parent is a slide row in the same page was stably absent from the grid, so
+  `slides lint` reported "no findings across 8 slide(s)" on a nine-slide deck
+  whose hidden slide was empty and had no transition. The shared deck-facts
+  fragment now reconciles the grid against the page tree: the grid stays
+  authoritative for coordinates, the page tree for existence. Such a slide is
+  reported with `row`/`col` `null`, listed under `unlisted` by
+  `slides manifest`, and flagged by a new `unlisted-slide` lint kind.
+  `slides inspect`, `lint`, `manifest` and the `batch` preflight all gained
+  this. `slides delete`, `duplicate` and `move` keep their own grid-only walks
+  and remain blind; `slides delete` cannot remove such a slide at all, which is
+  recorded in `docs/slides-roadmap.md` with what fixing it requires.
+- `slides manifest` no longer refuses a deck whose focused slide the grid has
+  not listed, and reports that state instead. A media insert that Figma rejects
+  without an Error message now reports what it can recover from the rejection
+  rather than the word "unknown" — which is how a video refusal ("Unable to
+  generate a thumbnail for video") was diagnosed at all.
 - `slides inspect` now uses the shared deck-facts eval fragment instead of its
   own inlined copy of the grid walk, the label reader, the transition reader
   and the fact projection (403 to 316 lines, same output). `slides duplicate`

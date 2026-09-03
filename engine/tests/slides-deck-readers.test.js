@@ -32,10 +32,20 @@ const interactive = (id, kind, name = kind.toLowerCase()) => ({
   id, name, type: 'INTERACTIVE_SLIDE_ELEMENT', interactiveSlideElementType: kind,
 });
 
-function runtime(rows, { editorType = 'slides', focusedSlide = null } = {}) {
+function runtime(rows, { editorType = 'slides', focusedSlide = null, extraSlides = [] } = {}) {
+  // The page tree mirrors the grid, plus any slide the grid deliberately omits
+  // (which Figma really does: see the unlisted-slide finding).
   const figma = {
     editorType,
-    currentPage: { focusedSlide },
+    currentPage: {
+      focusedSlide,
+      type: 'PAGE',
+      children: rows.map((row, index) => ({
+        type: 'SLIDE_ROW',
+        id: `row:${index}`,
+        children: index === rows.length - 1 ? [...row, ...extraSlides] : [...row],
+      })),
+    },
     getCanvasGrid() { return rows; },
   };
   return {
@@ -123,12 +133,39 @@ describe('Slides deck manifest', () => {
     );
   });
 
+  it('reports a focused slide the grid has not listed yet instead of refusing', async () => {
+    // Reproduces a real state: a timed-out `slides create` had created and
+    // focused a slide that figma.getCanvasGrid() did not yet list. Requiring
+    // the focus to appear in the walk turned a readable deck into an error.
+    const rows = [[slide('1:1', '1', { label: 'Cover' })]];
+    const live = runtime(rows, { focusedSlide: { id: '9:99' } });
+    const result = await executeSlidesManifest({ evaluate: live.evaluate });
+
+    assert.equal(result.result.slideCount, 1);
+    assert.equal(result.result.focusedId, '9:99');
+    assert.match(result.stdout, /focused 9:99 \(not yet listed in the grid\)/);
+  });
+
+  it('reports a slide the canvas grid omits, and gives it no coordinate', async () => {
+    const hidden = slide('9:9', '9', { label: 'Hidden', children: 0 });
+    const live = runtime([[slide('1:1', '1', { label: 'Cover' })]], { extraSlides: [hidden] });
+    const result = await executeSlidesManifest({ evaluate: live.evaluate });
+
+    assert.equal(result.result.slideCount, 2, 'the page tree is authoritative for existence');
+    assert.deepEqual(result.result.rows.map((row) => row.length), [1]);
+    assert.equal(result.result.unlisted.length, 1);
+    assert.equal(result.result.unlisted[0].id, '9:9');
+    assert.equal(result.result.unlisted[0].row, null, 'no grid position, so none is claimed');
+    assert.equal(result.result.unlisted[0].col, null);
+    assert.match(result.stdout, /1 slide\(s\) exist on the page but are not listed/);
+  });
+
   it('rejects a payload whose header disagrees with its body', async () => {
     const tampered = {
       evaluate: async () => JSON.stringify({
         schemaVersion: 1,
         status: 'ok',
-        data: { schema: SLIDES_MANIFEST_SCHEMA, slideCount: 9, focusedId: null, rows: [] },
+        data: { schema: SLIDES_MANIFEST_SCHEMA, slideCount: 9, focusedId: null, rows: [], unlisted: [] },
       }),
     };
     await assert.rejects(
@@ -147,8 +184,8 @@ describe('Slides deck manifest', () => {
 });
 
 describe('Slides deck lint', () => {
-  const lint = async (rows, argv = ['slides', 'lint']) => {
-    const live = runtime(rows);
+  const lint = async (rows, argv = ['slides', 'lint'], options = {}) => {
+    const live = runtime(rows, options);
     const result = await executeSlidesLint(argv, { evaluate: live.evaluate });
     return { status: 'ok', data: result.result, code: result.code, stdout: result.stdout };
   };
@@ -183,6 +220,23 @@ describe('Slides deck lint', () => {
     assert.deepEqual(payload.data.counts, {
       'duplicate-name': 2, 'skipped-placement': 1, 'missing-transition': 1, 'empty-slide': 1,
     });
+  });
+
+  it('finds a slide the grid does not list, which every grid-only walk missed', async () => {
+    const hidden = slide('9:9', '9', { label: 'Stray', children: 0, transition: NONE });
+    const rows = [[slide('1:1', '1', { label: 'Cover', transition: NONE })]];
+    const payload = await lint(rows, ['slides', 'lint'], { extraSlides: [hidden] });
+
+    assert.equal(payload.data.slidesWalked, 2);
+    const byKind = payload.data.issues.reduce((all, issue) => {
+      all[issue.kind] = (all[issue.kind] || []).concat(issue.id);
+      return all;
+    }, {});
+    assert.deepEqual(byKind['unlisted-slide'], ['9:9']);
+    assert.deepEqual(byKind['empty-slide'], ['9:9']);
+    // The first-slide transition exemption is positional, so it must not cover
+    // a slide that has no position at all.
+    assert.deepEqual(byKind['missing-transition'], ['9:9']);
   });
 
   it('honours --kinds by emitting only the requested findings', async () => {

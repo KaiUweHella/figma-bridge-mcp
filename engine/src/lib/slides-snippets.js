@@ -28,6 +28,7 @@ export const MAX_DECK_ROW_ENTRIES = 4_096;
 export const MAX_DECK_SLIDES = 50_000;
 export const MAX_DECK_GRID_ENTRIES = 50_000;
 export const MAX_DECK_CHILDREN = 50_000;
+export const MAX_DECK_PAGE_WALK_NODES = 8_192;
 export const MAX_DECK_NAME_CODE_UNITS = 4_096;
 export const MAX_DECK_TRANSITION_SECONDS = 86_400;
 export const INTERACTIVE_SLIDE_ELEMENT_TYPES = Object.freeze([
@@ -145,10 +146,40 @@ export function slideDeckFactsFragment() {
         }
         rows.push(slideRow);
       }
+      // getCanvasGrid() is not a complete inventory. Measured on 2026-09-03: a
+      // live SLIDE whose parent is a SLIDE_ROW in this very page was absent
+      // from the grid while the page tree listed it, stably and across daemon
+      // restarts. Walking only the grid therefore hides real slides -- a deck
+      // lint reported "no findings across 8 slides" on a nine-slide deck. The
+      // grid stays authoritative for coordinates; the page tree is
+      // authoritative for existence.
+      const unlisted = [];
+      let walked = 0;
+      const collect = (node, depth) => {
+        if (!node || depth > 4 || walked >= ${MAX_DECK_PAGE_WALK_NODES}) return;
+        walked++;
+        if (node.type === 'SLIDE') {
+          if (!seen.has(node.id)) {
+            if (!__deckId(node.id) || !__deckText(node.name)
+              || slides.length >= ${MAX_DECK_SLIDES}) {
+              throw new Error('invalid slide identity');
+            }
+            seen.add(node.id);
+            slides.push(node);
+            unlisted.push(node.id);
+          }
+          return;
+        }
+        const children = node.children;
+        if (!Array.isArray(children)) return;
+        for (const child of children) collect(child, depth + 1);
+      };
+      collect(figma.currentPage, 0);
+
       const focused = figma.currentPage.focusedSlide;
       const focusedId = focused == null ? null : focused.id;
       if (focusedId !== null && !__deckId(focusedId)) throw new Error('invalid focused slide');
-      return { rows, slides, coordinates: __deckCoordinates, focusedId };
+      return { rows, slides, coordinates: __deckCoordinates, focusedId, unlisted };
     };
 
     const __deckFacts = (slide) => {

@@ -102,8 +102,21 @@ label change the target file.
   blocked.
 - Evaluate link previews/embeds only after confirming their network and consent
   behavior fits the loopback-only security model.
-- Evaluate video insertion using existing Plugin API media primitives and the
-  same asset-input policy as Figma Design.
+- ~~Evaluate video insertion using existing Plugin API media primitives and the
+  same asset-input policy as Figma Design.~~ **Delivered**:
+  `slides media <slide> <file>` inserts a still image, an animated GIF or a
+  video into one named slide, reusing the same WorkspaceIO authorization the
+  Design image commands use. Live-verified in Slides: a GIF arrives as a
+  playable `MEDIA` node (`createGif`), a still as an `IMAGE` paint at its
+  natural size fitted to the slide, and a video as a `VIDEO` paint. A created
+  node is removed again if the insert cannot be verified.
+  The ceiling is **~3.5 MB of file bytes**, not the 8 MB `IMAGE_HARD_LIMIT`
+  other image commands advertise: inbound bytes ride inside the eval payload
+  (the asset stream is an export path only) and base64 inflates them by 4/3
+  against a 5 MB protocol limit. `IMAGE_HARD_LIMIT` is therefore unreachable
+  by arithmetic — an 8 MB image becomes ~10.7 MB of base64 — and a file
+  between ~3.7 and 8 MB fails at the transport with a protocol error instead of
+  that command's friendly size message. Worth aligning, once, for all of them.
 - ~~Add viewport/focus helpers only when they improve a concrete authoring or
   verification workflow; do not automate presentation playback for its own
   sake.~~ **Delivered**: `slides focus <slide>` and `slides view <grid |
@@ -126,6 +139,40 @@ verb as disallowed when the real problem is the mode. This is the established
 behaviour for `create`, `duplicate` and `move` too, so it was left consistent
 rather than special-cased; fixing it belongs at the catalog's refusal
 projection, once, for all of them.
+
+## getCanvasGrid() is not a complete slide inventory (2026-09-03)
+
+The most consequential finding of the session, and it invalidated a claim every
+Slides command rested on.
+
+A timed-out `slides create` left slide `15:287` in the deck. It is a live
+`SLIDE`, `removed === false`, whose parent is `SLIDE_ROW 7:21` — and
+`figma.getCanvasGrid()` does not list it. Measured directly: the page tree
+reports 9 slides and row `7:21` holding `7:12, 7:14, 7:16, 7:18, 15:287`, while
+the grid reports 8. Stable across daemon restarts and many minutes, so this is
+not eventual consistency settling.
+
+Everything that walked only the grid was blind to it. `slides lint` reported
+"no findings across 8 slide(s)" on a nine-slide deck whose ninth slide was
+empty and had no transition — wrong, and silently so.
+
+Fixed where the fix is shared: `slideDeckFactsFragment` now reconciles the grid
+against the page tree. The grid stays authoritative for **coordinates**; the
+page tree is authoritative for **existence**. A slide the grid omits is
+reported with `row`/`col` `null`, listed under `unlisted` by `slides manifest`,
+and flagged by a new `unlisted-slide` lint kind. `slides inspect`, `lint`,
+`manifest` and the `batch` preflight all gained this at once — the payoff of
+having extracted the fragment.
+
+Still outstanding: `slides delete`, `duplicate` and `move` keep their own
+grid-only walks and remain blind. `slides delete` refuses such a slide twice
+over — once because the focused slide is not in its grid-derived id set, and
+once because the reference "did not resolve to a Slide in the current grid" —
+so **the Bridge cannot remove a slide it created this way**. Fixing that means
+giving those snapshots the same reconciliation and verifying deletion by node
+existence rather than by grid difference, because deleting an unlisted slide
+leaves the grid unchanged. That is a change to a verified mutation command's
+verification model and deserves its own pass.
 
 ## Observed Figma behaviour worth knowing (2026-09-02)
 

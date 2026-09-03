@@ -138,6 +138,7 @@ test('write subcommands of gated groups require confirm', () => {
     ['slides', 'skip', 'label:Cover'],
     ['slides', 'delete', 'label:Cover'],
     ['slides', 'batch', "[{\"op\": \"create\", \"label\": \"X\"}]", '--apply'],
+    ['slides', 'media', 'label:Cover', '/tmp/clip.gif'],
   ]) {
     assert.equal(isWrite(args), true, args.join(' '));
   }

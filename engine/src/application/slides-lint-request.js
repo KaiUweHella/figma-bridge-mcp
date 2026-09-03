@@ -4,6 +4,7 @@ import { parseSlidesReferenceRequest } from './slides-reference-request.js';
 
 export const SLIDES_LINT_KINDS = Object.freeze([
   'duplicate-name', 'skipped-placement', 'missing-transition', 'empty-slide',
+  'unlisted-slide',
 ]);
 export const DEFAULT_SLIDES_LINT_LIMIT = 20;
 export const MAX_SLIDES_LINT_LIMIT = 1_000;

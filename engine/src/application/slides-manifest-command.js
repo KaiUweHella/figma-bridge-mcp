@@ -39,7 +39,7 @@ export function slidesManifestCode() {
         return result({ schemaVersion, status: 'wrong-editor' });
       }
       const deck = __deckRead();
-      const rows = deck.rows.map((row) => row.map((slide) => {
+      const project = (slide) => {
         const facts = __deckFacts(slide);
         // Interactive elements are reportable but not authorable: the typings
         // declare no create factory for them, so a manifest is the only place
@@ -50,7 +50,13 @@ export function slidesManifestCode() {
           interactive: interactive.elements,
           interactiveTruncated: interactive.truncated,
         };
-      }));
+      };
+      const rows = deck.rows.map((row) => row.map(project));
+      // A slide the canvas grid omits still exists and still presents. It has
+      // no coordinate, so it cannot sit in a row, but leaving it out would
+      // make the manifest disagree with the file it describes.
+      const unlistedIds = new Set(deck.unlisted);
+      const unlisted = deck.slides.filter((slide) => unlistedIds.has(slide.id)).map(project);
       return result({
         schemaVersion,
         status: 'ok',
@@ -59,6 +65,7 @@ export function slidesManifestCode() {
           slideCount: deck.slides.length,
           focusedId: deck.focusedId,
           rows,
+          unlisted,
         },
       });
     } catch {
@@ -69,6 +76,7 @@ export function slidesManifestCode() {
 
 const INTERACTIVE_TYPES = new Set([...INTERACTIVE_SLIDE_ELEMENT_TYPES, 'UNKNOWN']);
 const INTERACTIVE_NODE_ID = /^I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*$/;
+const NODE_ID = INTERACTIVE_NODE_ID;
 
 function validInteractiveElement(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -99,12 +107,12 @@ function validPayload(value) {
   if (value.status !== 'ok' || Object.keys(value).length !== 3) return false;
   const data = value.data;
   if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
-  if (Object.keys(data).length !== 4) return false;
+  if (Object.keys(data).length !== 5) return false;
   if (data.schema !== SLIDES_MANIFEST_SCHEMA) return false;
   if (!Number.isSafeInteger(data.slideCount) || data.slideCount < 0
     || data.slideCount > MAX_DECK_SLIDES) return false;
   if (data.focusedId !== null && typeof data.focusedId !== 'string') return false;
-  if (!Array.isArray(data.rows)) return false;
+  if (!Array.isArray(data.rows) || !Array.isArray(data.unlisted)) return false;
   let counted = 0;
   const seen = new Set();
   for (const row of data.rows) {
@@ -116,19 +124,38 @@ function validPayload(value) {
       counted++;
     }
   }
+  for (const fact of data.unlisted) {
+    if (!validManifestFact(fact)) return false;
+    if (seen.has(fact.id)) return false;
+    // A slide outside the grid has no coordinate by definition.
+    if (fact.row !== null || fact.col !== null) return false;
+    seen.add(fact.id);
+    counted++;
+  }
   // The count is a claim about the same walk that produced the rows; a
   // manifest whose header disagrees with its body is not reviewable.
   if (counted !== data.slideCount) return false;
-  if (data.focusedId !== null && !seen.has(data.focusedId)) return false;
+  // The focused slide need not appear in the walk: Figma's canvas grid is
+  // eventually consistent and can omit a slide it has already focused, which a
+  // timed-out create reproduced. Requiring membership turned a readable deck
+  // into an error, so the id is reported and its presence is a separate fact.
+  if (data.focusedId !== null && !NODE_ID.test(data.focusedId)) return false;
   return true;
 }
 
 function formatManifest(data) {
+  const listed = new Set(data.rows.flat().map((fact) => fact.id));
+  const focusNote = data.focusedId
+    ? `, focused ${data.focusedId}${listed.has(data.focusedId) ? '' : ' (not yet listed in the grid)'}`
+    : '';
   const lines = [
     `${data.schema}`,
-    `${data.slideCount} slide(s)${data.focusedId ? `, focused ${data.focusedId}` : ''}`,
+    `${data.slideCount} slide(s)${focusNote}`,
     '',
   ];
+  const tail = data.unlisted.length
+    ? ['', `${data.unlisted.length} slide(s) exist on the page but are not listed in the canvas grid:`]
+    : [];
   data.rows.forEach((row, rowIndex) => {
     if (!row.length) {
       lines.push(`row ${rowIndex}: (empty)`);
@@ -149,7 +176,10 @@ function formatManifest(data) {
       lines.push(`[${fact.row},${fact.col}] ${fact.id} ${JSON.stringify(fact.label ?? fact.name)} — ${marks.join(' · ')}`);
     }
   });
-  return lines.join('\n');
+  for (const fact of data.unlisted) {
+    tail.push(`  [--,--] ${fact.id} ${JSON.stringify(fact.label ?? fact.name)} — ${fact.childCount === 0 ? 'empty' : `${fact.childCount} child(ren)`}`);
+  }
+  return lines.concat(tail).join('\n');
 }
 
 async function executeParsed(adapters) {
