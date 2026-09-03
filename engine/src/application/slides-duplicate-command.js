@@ -227,7 +227,7 @@ export function slidesDuplicateCode(request) {
         if (byId && byId.type === 'SLIDE' && state.nodes.has(byId.id)) {
           target = state.nodes.get(byId.id);
         } else if (request.reference.kind === 'node') {
-          throw new Error('Slide reference did not resolve to a Slide in the current grid.');
+          throw new Error('Slide reference did not resolve to a Slide in the current deck.');
         }
       }
       const slides = [...state.nodes.values()];
@@ -391,7 +391,8 @@ export function slidesDuplicateCode(request) {
       try { await settle(); } catch {}
       const restored = snapshot().value;
       const residue = [];
-      if (candidateId && occurrences(restored.rows, candidateId) > 0) residue.push('duplicated-slide');
+      if (candidateId && (occurrences(restored.rows, candidateId) > 0
+        || restored.unlisted.includes(candidateId))) residue.push('duplicated-slide');
       if (!sameRows(restored.rows, beforeRefs.value.rows)
         || !same(restored.unlisted, beforeRefs.value.unlisted)) residue.push('grid-membership');
       if (restored.pageId !== beforeRefs.value.pageId) residue.push('page');

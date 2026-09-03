@@ -209,7 +209,7 @@ export function slidesPropertyCode(request) {
         if (byId && byId.type === 'SLIDE' && state.nodes.has(byId.id)) {
           target = state.nodes.get(byId.id);
         } else if (request.reference.kind === 'node') {
-          throw new Error('Slide reference did not resolve to a Slide in the current grid.');
+          throw new Error('Slide reference did not resolve to a Slide in the current deck.');
         }
       }
       const slides = [...state.nodes.values()];

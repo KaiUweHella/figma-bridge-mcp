@@ -146,6 +146,10 @@ describe('Slides media', () => {
     const result = await run(live, ['slides', 'media', 'label:Stray', '/w/shot.png']);
     assert.equal(result.result.slideId, '1:9');
     assert.equal(ghost.children.length, 1);
+
+    const fuzzy = await run(live, ['slides', 'media', 'stra', '/w/shot.png']);
+    assert.equal(fuzzy.result.slideId, '1:9', 'a bare query matches an unlisted slide by substring');
+    assert.equal(ghost.children.length, 2);
   });
 
   it('refuses a file larger than the eval payload can carry, before reading it', () => {

@@ -286,4 +286,15 @@ test('a slide the grid has not listed yet still accepts a property write', async
   assert.equal(result.result.actual.slide.skipped, true);
   assert.deepEqual(result.result.actual.unlisted, ['1:9']);
   assert.equal(skipped, true);
+
+  let transition = structuredClone(NONE);
+  ghost.setSlideTransition = (value) => { transition = structuredClone(value); };
+  ghost.getSlideTransition = () => structuredClone(transition);
+  const moved = await executeSlidesProperty({
+    action: 'transition', reference: 'Ghost', style: 'dissolve', duration: 0.5,
+    curve: 'bouncy', timing: 'after_delay', delay: 1.25,
+  }, { evaluate: evaluate(live.figma) });
+  assert.equal(moved.result.status, 'updated', 'a bare query resolves over the page tree too');
+  assert.equal(moved.result.before.slide.row, null);
+  assert.deepEqual(moved.result.actual.slide.transition, DISSOLVE);
 });
