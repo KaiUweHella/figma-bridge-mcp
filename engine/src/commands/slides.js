@@ -51,7 +51,10 @@ import {
 } from '../application/slides-media-command.js';
 import { slidesMediaPlanningArgvFromRequest } from '../application/slides-media-request.js';
 import { slidesBatchPlanningArgvFromRequest } from '../application/slides-batch-request.js';
-import { slidesLintPlanningArgvFromRequest } from '../application/slides-lint-request.js';
+import {
+  SLIDES_LINT_KINDS,
+  slidesLintPlanningArgvFromRequest,
+} from '../application/slides-lint-request.js';
 import {
   executeSlidesManifestPlan,
   slidesManifestPlanningArgvFromRequest,
@@ -289,7 +292,7 @@ slides
 slides
   .command('lint')
   .description('Report structural findings across the whole deck')
-  .option('--kinds <list>', 'Comma-separated finding kinds: duplicate-name, skipped-placement, missing-transition, empty-slide')
+  .option('--kinds <list>', `Comma-separated finding kinds: ${SLIDES_LINT_KINDS.join(', ')}`)
   .option('--limit <n>', 'Maximum findings printed per kind (default 20)')
   .option('--fail-on-issues', 'Exit non-zero when the deck has findings')
   .allowExcessArguments(false)

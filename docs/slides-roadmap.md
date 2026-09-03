@@ -188,9 +188,11 @@ What that changes, and what it does not:
   under-report a deck, or refuse to read it, during a lag that can outlast a
   whole working session. `slides lint` calling a nine-slide deck clean was
   wrong regardless of whether the grid would settle later.
-- The gap in `slides delete`, `duplicate` and `move` is a **window**, not a
-  permanent hole: they cannot address such a slide while the grid lags, and
-  work once it settles. That is far less severe than first recorded, and it
+- The gap in the mutation commands is a **window**, not a permanent hole.
+  `slides delete`, `duplicate`, `move`, `transition` and `skip` cannot address
+  such a slide while the grid lags, and `slides media` and `slides focus`
+  reach it only by `node:` id because their `name:`/`label:` resolution walks
+  the grid too; all of them work once it settles. That is far less severe than first recorded, and it
   lowers the priority of giving those snapshots the same reconciliation —
   though a command that refuses a slide the user can see is still a poor
   answer, and the fix would also need verification by node existence rather

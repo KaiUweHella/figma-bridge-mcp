@@ -47,9 +47,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   reported with `row`/`col` `null`, listed under `unlisted` by
   `slides manifest`, and flagged by a new `unlisted-slide` lint kind.
   `slides inspect`, `lint`, `manifest` and the `batch` preflight all gained
-  this. `slides delete`, `duplicate` and `move` keep their own grid-only walks
-  and cannot address such a slide while the grid lags, which
-  `docs/slides-roadmap.md` records together with what fixing it requires.
+  this. `slides delete`, `duplicate`, `move`, `transition` and `skip` keep
+  their own grid-only walks and cannot address such a slide while the grid
+  lags; `slides media` and `slides focus` reach it only by `node:` id, because
+  their `name:`/`label:` resolution walks the grid too. `docs/slides-roadmap.md`
+  records this together with what fixing it requires.
 - `slides manifest` no longer refuses a deck whose focused slide the grid has
   not listed, and reports that state instead. A media insert that Figma rejects
   without an Error message now reports what it can recover from the rejection
@@ -118,8 +120,9 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 - `docs/slides-roadmap.md` records a fresh audit of `@figma/plugin-typings`
   1.133.0 for the remaining Slides items: interactive slide elements are
   readable but have no create factory, `createGif` and
-  `createLinkPreviewAsync` are FigJam-only per the typings themselves,
-  `createVideoAsync` carries only a paid-team restriction, focus and
+  `createLinkPreviewAsync` carry a FigJam-only note in the typings (a note
+  the live runtime later contradicted for `createGif`; see the correction
+  above), `createVideoAsync` carries only a paid-team restriction, focus and
   `slidesView` are settable, and speaker notes have no declared surface at all.
 
 ## [0.7.4] — 2026-09-01
