@@ -19,6 +19,7 @@ import { projectMutationOutcome, publicError } from "./error-projection.js";
 import { resolveFigmaTarget, targetFileKey } from "./figma-target.js";
 import { auditTrail } from "./audit-trail.js";
 import {
+  explainFigmaCommandRejection,
   isFigmaCommandPlan,
   listFigmaCapabilities,
   planFigmaCommand,
@@ -172,8 +173,12 @@ function startCommandExecution(plan, opts = {}) {
     const rejected = ALLOWED_COMMANDS.has(command) && plan.argv[1]
       ? `${command} ${plan.argv[1]}`
       : command;
+    // The allowlist says what exists; the Capability Catalog's rejection
+    // projection says why this argv was refused, payload-free, so an invalid
+    // option value is not reported as if the verb itself were disallowed.
     throw new Error(
-      `Command not allowed: ${rejected}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}`,
+      `Command not allowed: ${rejected}. Allowed: ${[...ALLOWED_COMMANDS].sort().join(", ")}. `
+      + explainFigmaCommandRejection(plan.argv, { prefix: "" }),
     );
   }
   const targetContext = plan.target;

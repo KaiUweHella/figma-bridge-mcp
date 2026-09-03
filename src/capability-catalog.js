@@ -387,7 +387,11 @@ import {
   parseSlidesCreateRequest,
   slidesCreateArgvFromRequest,
 } from '../engine/src/application/slides-create-request.js';
-import { acceptsSlidesViewArgv } from '../engine/src/application/slides-viewport-command.js';
+import {
+  acceptsSlidesViewArgv,
+  parseSlidesViewRequest,
+} from '../engine/src/application/slides-viewport-command.js';
+import { parseSlidesLintRequest } from '../engine/src/application/slides-lint-request.js';
 import {
   acceptsSlidesMediaArgv,
   parseSlidesMediaRequest,
@@ -396,6 +400,7 @@ import {
 } from '../engine/src/application/slides-media-request.js';
 import {
   acceptsSlidesBatchArgv,
+  parseSlidesBatchRequest,
   slidesBatchArgvFromRequest,
   slidesBatchFigmaUrlFileKeyFromArgv,
   slidesBatchMutatesDesign,
@@ -2355,13 +2360,14 @@ function acceptedForm(actionId) {
   return action ? `["${root}","${action}","--help"]` : `["${root}","--help"]`;
 }
 
-function payloadFreeTypedRequestDetail(raw, prefix) {
+function payloadFreeTypedRequestDetail(raw, prefix, extraSafePatterns = []) {
   const detail = String(raw).replace(prefix, '').replace(/\.$/, '');
   if (/^unknown option /.test(detail)) return { kind: 'unknown-option', detail: null };
   if (/^unexpected argument /.test(detail)) {
     return { kind: 'malformed', detail: 'too many positional arguments' };
   }
   const safePatterns = [
+    ...extraSafePatterns,
     /^(?:query|style|nodeIds|style and nodeIds) (?:is|are) required$/,
     /^only one query is accepted$/,
     /^(?:type|limit) (?:may be provided only once|must be .+)$/,
@@ -2379,12 +2385,12 @@ function payloadFreeTypedRequestDetail(raw, prefix) {
 }
 
 function explainTypedRequestRejection({
-  normalized, actionId, label, parse, errorPrefix, responseIsStructured = false,
+  normalized, actionId, label, parse, errorPrefix, responseIsStructured = false, safePatterns = [],
 }) {
   try {
     parse(normalized);
   } catch (error) {
-    const failure = payloadFreeTypedRequestDetail(error?.message || String(error), errorPrefix);
+    const failure = payloadFreeTypedRequestDetail(error?.message || String(error), errorPrefix, safePatterns);
     const option = optionNameFromArgv(normalized);
     if (failure.kind === 'unknown-option') {
       const structured = option === '--json' && responseIsStructured
@@ -2399,14 +2405,53 @@ function explainTypedRequestRejection({
   return `Malformed request for ${label}. Accepted form: ${acceptedForm(actionId)}.`;
 }
 
+// Every Slides parser refuses with `Invalid Slides[ Verb] command: <reason>.`; the
+// reasons below carry no caller payload (option names, closed value sets,
+// bounds and Union Reference codes only), so they may be shown verbatim. A
+// reason that echoes an argument -- an unknown lint kind, an unknown batch
+// field -- is not listed and falls back to the generic contract sentence.
+const SLIDES_REJECTION_PARSERS = Object.freeze({
+  'slides.inspect': parseSlidesReferenceRequest,
+  'slides.manifest': parseSlidesReferenceRequest,
+  'slides.focus': parseSlidesReferenceRequest,
+  'slides.lint': parseSlidesLintRequest,
+  'slides.view': parseSlidesViewRequest,
+  'slides.create': parseSlidesCreateRequest,
+  'slides.duplicate': parseSlidesDuplicateRequest,
+  'slides.move': parseSlidesMoveRequest,
+  'slides.transition': parseSlidesPropertyRequest,
+  'slides.skip': parseSlidesPropertyRequest,
+  'slides.delete': parseSlidesDeleteRequest,
+  'slides.batch': parseSlidesBatchRequest,
+  'slides.media': parseSlidesMediaRequest,
+});
+const SLIDES_SAFE_REJECTION_PATTERNS = Object.freeze([
+  // Reference errors are re-thrown with the parser's own trailing period, so
+  // the inner sentence's period survives the strip; allow it.
+  /^Invalid (?:Union|Node) Reference \([a-z-]+\)\.?$/,
+  /^slide reference(?:, row and col| and style)? is required$/,
+  /^[a-z-]+ (?:is missing a required argument|received an unexpected argument)$/,
+  /^(?:--)?(?:row|col|label|duration|delay|curve|timing|style|fit|name|limit|kinds|fail-on-issues|apply) (?:requires a value|may be provided only once|does not take a value|must be (?:a string|a zero-based non-negative integer|an integer between \d+ and \d+|between \d+ and \d+ seconds|one of [A-Za-z0-9_, -]+)|must not exceed \d+(?: code units)?|must name at least one finding kind|is invalid or too long)$/,
+  /^(?:--col requires --row|col requires row|duplicate option --[a-z-]+)$/,
+  /^view mode must be one of [a-z, -]+$/,
+  /^media (?:requires a slide reference and a file|file must be [a-z., ]+|file path is invalid or too long|reference must not carry a file key)$/,
+  /^batch (?:payload must (?:be JSON|be a JSON array|contain at (?:least|most) (?:one|\d+) items?)|requires exactly one JSON payload argument|items \d+ and \d+ target the same slide reference)$/,
+  /^batch item \d+ (?:must be an object|op must be one of [a-z, ]+|requires a slide reference|reference must not carry a file key; a batch runs against one deck|col requires row|move requires both row and col|(?:row|col) must be an integer between \d+ and \d+|label must be a non-empty string of at most \d+ characters|: Invalid (?:Union|Node) Reference \([a-z-]+\)\.?)$/,
+]);
+
 /**
  * Project a denied argv into bounded, payload-free guidance for human and MCP
  * Adapters. This does not change the fail-closed Command Plan.
+ *
+ * `prefix` lets an Adapter that already said the command was refused (the
+ * in-process Command Application's "Command not allowed") append the reason
+ * without repeating that it was refused.
  */
-export function explainFigmaCommandRejection(rawArgs) {
+export function explainFigmaCommandRejection(rawArgs, {
+  prefix = 'Unknown or unsupported Figma Command — ',
+} = {}) {
   const args = Array.isArray(rawArgs) ? rawArgs : [];
   const rootName = canonicalFigmaCommandRoot(args[0]);
-  const prefix = 'Unknown or unsupported Figma Command — ';
   if (!rootName) {
     return `${prefix}Unknown command group. Accepted form: ["--help"].`;
   }
@@ -2459,6 +2504,18 @@ export function explainFigmaCommandRejection(rawArgs) {
         label: 'style apply',
         parse: parseStyleApplyRequest,
         errorPrefix: /^Invalid style apply command: /,
+      }),
+    );
+  }
+  if (SLIDES_REJECTION_PARSERS[actionId]) {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: actionId.replace('.', ' '),
+        parse: SLIDES_REJECTION_PARSERS[actionId],
+        errorPrefix: /^Invalid Slides(?: [A-Za-z]+)? command: /,
+        safePatterns: [...SLIDES_SAFE_REJECTION_PATTERNS],
       }),
     );
   }

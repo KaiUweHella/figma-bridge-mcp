@@ -101,6 +101,16 @@ test('in-process command denies unknown nested actions before audit or Adapter d
   assert.equal(readFileSync(auditFile, 'utf8'), before, 'denial must happen before the Audit Trail');
 });
 
+test('in-process refusal of a known verb with invalid arguments says why', async () => {
+  const { runInProcessCommand } = await import('../src/engine.js');
+  let called = false;
+  await assert.rejects(
+    () => runInProcessCommand(['slides', 'view', 'sideways'], {}, async () => { called = true; }),
+    /^Error: Command not allowed: slides view\. Allowed: .*\. Malformed request for slides view: view mode must be one of grid, single-slide\. Accepted form: \["slides","view","--help"\]\.$/s,
+  );
+  assert.equal(called, false);
+});
+
 test('in-process mutation never repeats an outcome-unknown daemon failure', async () => {
   const { runInProcessCommand } = await import('../src/engine.js');
   const { DaemonClientError } = await import('../engine/src/lib/daemon-client.js');

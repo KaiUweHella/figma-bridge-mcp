@@ -138,15 +138,18 @@ are kept in the maintainer-local acceptance record under
 `docs-local/live-tests/`, which is not part of the repository — session
 bookkeeping rather than something the repo should carry.
 
-## Known ergonomics wart across the whole group
+## Refusal messages name the reason (resolved 2026-09-03)
 
-Invalid argv for any Slides subcommand is refused by the Capability Catalog
-before dispatch, but the message is the generic "Command not allowed: slides
-&lt;verb&gt;" rather than the specific reason. `slides view sideways` reports the
-verb as disallowed when the real problem is the mode. This is the established
-behaviour for `create`, `duplicate` and `move` too, so it was left consistent
-rather than special-cased; fixing it belongs at the catalog's refusal
-projection, once, for all of them.
+Invalid argv for any Slides subcommand used to be refused with the generic
+"Command not allowed: slides &lt;verb&gt;", so `slides view sideways` read as if
+the verb were disallowed when the mode was the problem. Fixed once, at the
+Capability Catalog's rejection projection (`explainFigmaCommandRejection`):
+every Slides action now maps to its own parser there, and the parser's reason
+is shown when it carries no caller payload — option names, closed value sets,
+bounds and Union Reference codes. A reason that would echo an argument (an
+unknown lint kind, an unknown batch field) stays generic. The in-process
+Command Application appends the same projection to its "Command not allowed"
+error, so the CLI and `figma_run` explain the same refusal the same way.
 
 ## getCanvasGrid() can lag the page tree for minutes (2026-09-03)
 

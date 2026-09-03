@@ -7,6 +7,17 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- A refused Slides command now says why. `slides view sideways` reported
+  "Command not allowed: slides view", as if the verb were disallowed when the
+  mode was the problem; the same held for every Slides verb with invalid
+  arguments. Fixed once at the Capability Catalog's rejection projection: each
+  Slides action maps to its own request parser, and the parser's reason is
+  shown when it carries no caller payload (option names, closed value sets,
+  bounds, Union Reference codes), so `figma_run` reports "Malformed request
+  for slides view: view mode must be one of grid, single-slide". A reason that
+  would echo an argument stays generic. The in-process Command Application
+  appends the same projection to its "Command not allowed" error, so the CLI
+  explains the refusal the same way.
 - The 8 MB `IMAGE_HARD_LIMIT` that `render`, `render-batch` (`<Image src=…>`)
   and `node set-image` advertised was unreachable: inbound image bytes ride
   inside the plugin payload as base64 (the asset stream is export-only), which
