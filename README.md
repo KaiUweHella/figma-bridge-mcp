@@ -658,7 +658,11 @@ compatibility path consumes the same table, so it does not reintroduce a second
 identity lookup.
 
 For raster content, `<Image src="assets/artwork.png" />` is materialized by the
-host as bounded embedded bytes and stays on the native executor. An intentional
+host as bounded embedded bytes and stays on the native executor. Image bytes
+ride inside the plugin payload as base64 against a 5 MB protocol value, so one
+file may be at most 3.5 MB and a render measures its whole plan before
+dispatch: several images that each fit still share that one payload, and the
+refusal says so before the plugin is touched. An intentional
 `<Image name="Artwork placeholder" />` remains useful, but it selects the
 generated compatibility executor and returns `completed-with-findings` with the
 exact `image needs host-materialized embedded bytes` degradation. A placeholder
@@ -694,7 +698,14 @@ family-specific faces such as DM Sans/Manrope `SemiBold` and `ExtraBold` are
 tried before any fallback family. Successful native renders return
 `textStyleReport` and `variableReport` counts for references,
 unique reused resources, created resources, bound properties and literals kept
-as literals. Ambiguous or unsupported preflight errors include the
+as literals. After a native render the text is measured back: every rendered
+text is matched to the plan by the semantic path the executor stamps on it,
+and a font family or style that differs from the requested one, or a line
+count that differs from what the browser measured (`render --dom-capture`
+carries the browser's line count beside the plan), becomes a finding — the
+`text-fidelity` stage in the outcome, printed after every CLI render. The
+native executor falls back to Inter when a family is not installed; that
+fallback is now visible instead of silent. Ambiguous or unsupported preflight errors include the
 corresponding zero/nonzero counts and do not leave newly created variables or
 canvas nodes behind. Command Preview reports the generated-resource policy
 without echoing JSX or other private payloads.
@@ -1206,30 +1217,69 @@ keep the detailed command and readback evidence outside the public repository.
 
 ## Figma Slides beta
 
-Slides uses the same authenticated plugin bridge. The beta surface covers deck
-structure and native slide properties, not a separate presentation renderer:
+Slides uses the same authenticated plugin bridge and the same Semantic Render
+Plan; there is no separate presentation renderer. The surface covers deck
+structure, native slide properties, deck-wide reads, bounded batch edits,
+media insertion and one explicit render target:
 
 ```
-figma_run ["slides", "inspect"]
+figma_run ["slides", "inspect"]                       # deck grid, focus, labels, transitions
+figma_run ["slides", "manifest"]                      # compact per-slide projection for review and version control
+figma_run ["slides", "lint", "--fail-on-issues"]      # duplicate-name, skipped-placement, missing-transition, empty-slide, unlisted-slide
 figma_run ["slides", "create", "Agenda", "--row", "0", "--col", "1"]
 figma_run ["slides", "duplicate", "Agenda", "--label", "Agenda alternative"]
 figma_run ["slides", "move", "Agenda alternative", "1", "0"]
 figma_run ["slides", "transition", "Agenda", "DISSOLVE", "--duration", "0.4"]
 figma_run ["slides", "skip", "Appendix", "on"]
 figma_run ["slides", "delete", "1:42"]
+figma_run ["slides", "batch", "[{\"op\":\"create\",\"label\":\"Q&A\"}]"]          # plan only
+figma_run ["slides", "batch", "[{\"op\":\"create\",\"label\":\"Q&A\"}]", "--apply"]
+figma_run ["slides", "media", "label:Agenda", "assets/loop.gif", "--fit", "FIT"]
+figma_run ["slides", "focus", "label:Agenda"]
+figma_run ["slides", "view", "single-slide"]
+figma_run ["render", "<Frame>…</Frame>", "--slide", "12:34"]   # render one plan into one slide
 ```
 
 Figma renumbers native slide names whenever the canvas grid changes. The
 optional argument to `create` and `--label` on `duplicate` therefore store a
-durable Bridge label in plugin data; `inspect` reports both the native `name`
-and stable `label`. References resolve by id, exact native name or label, then
-unique substring. Ambiguity is an error, delete always requires an explicit
-reference, and duplicate/move refuse a nonexistent target row rather than
-accepting Figma's fallback placement. Every operation checks
-`figma.editorType === "slides"` before touching a Slides-only API. The open
-candidates and the criteria for leaving beta live in
-[`docs/slides-roadmap.md`](docs/slides-roadmap.md); editor acceptance is
-maintainer-verified separately from the public repository.
+durable Bridge label in plugin data; `inspect` and `manifest` report both the
+native `name` and the stable `label`. References resolve by id, exact native
+name or label, then unique substring; typed `node:`, `name:` and `label:`
+prefixes restrict the lookup. Ambiguity is an error, delete always requires an
+explicit reference, and duplicate/move refuse a nonexistent target row rather
+than accepting Figma's fallback placement.
+
+`render --slide <nodeId>` takes a node id from `inspect`; it deliberately does
+not accept a name or label, because a render must never pick its own target
+when a reference turns out ambiguous. The root lands in the slide's own
+coordinate space. `render-plan-batch` stays refused in Slides.
+
+`batch` is a plan by default and performs nothing until `--apply`; every
+reference and coordinate is validated against one grid snapshot first, a
+coordinate that only becomes valid because of an earlier item is refused, and
+the first failing item reverses everything applied before it. A created
+slide whose grid position Figma has not listed yet is verified by identity,
+label, focus and selection and reported as `gridObserved: false`.
+
+`media` inserts a still image (`IMAGE` paint), an animated GIF (a playable
+`MEDIA` node) or a video (`VIDEO` paint) into one slide. The file rides inside
+the plugin payload as base64, so the ceiling is 3.5 MB of file bytes — the
+same ceiling `render` and `node set-image` apply to images.
+
+Two facts about Figma's canvas grid shape every command. `figma.getCanvasGrid()`
+can lag the page tree by minutes: a slide that exists on the page may be
+missing from the grid, or the grid may keep a removed slide's id and throw on
+every read. The Bridge treats the grid as authoritative for coordinates and
+the page tree as authoritative for existence. Readers list such slides under
+`unlisted` with no coordinate (and say why when the grid cannot be read at
+all), `lint` reports them as `unlisted-slide`, `delete`, `transition`, `skip`,
+`media` and `focus` still reach them, and `move` refuses one with the reason
+— without a coordinate there is no origin to restore. Every operation checks
+`figma.editorType === "slides"` before touching a Slides-only API. Polls,
+facepiles, embeds and speaker notes have no public create or read API; the
+roadmap in [`docs/slides-roadmap.md`](docs/slides-roadmap.md) records what was
+probed against the live runtime, and editor acceptance is maintainer-verified
+separately from the public repository.
 
 ## Token sync (two-way)
 
