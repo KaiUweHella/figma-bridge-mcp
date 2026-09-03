@@ -5,6 +5,26 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Added
+
+- **Text fidelity after a render.** Every native render is now measured back:
+  one eval reads each rendered TEXT node (matched to the plan by the semantic
+  path the executor stamps on it) and reports, as findings, a font family or
+  style that differs from what the plan requested and a line count that
+  differs from what the browser measured. The native executor falls back to
+  Inter when a family is not installed and used to say nothing; the Northern
+  headline stayed on one line in the browser and wrapped in Figma with no
+  report. The compound Application runs it as the `text-fidelity` stage
+  (`completed-with-findings` when anything differs, findings as warnings in
+  the outcome), the `render` command prints it after every native render.
+  Browser DOM Capture writes the measured line count onto each text (`lines`)
+  so the probe has something to compare against.
+- Browser DOM Capture no longer turns every single-line run in a responsive
+  container into FILL. The run's measured width against the container's inner
+  width decides: below 75 % of the track the text is HUG, at or above it the
+  copy is track-bound and stays FILL (`TEXT_HUG_BELOW_TRACK_RATIO`, ADR 0069
+  amended).
+
 ### Fixed
 
 - **Every MCP server start reloaded the development plugin in every Figma

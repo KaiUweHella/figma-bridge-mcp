@@ -790,6 +790,7 @@ test('compound native rendering dispatches one journaled batch and returns one b
     { kind: 'component-conversion', status: 'skipped' },
     { kind: 'resize-probe', status: 'skipped' },
     { kind: 'verification', status: 'skipped' },
+    { kind: 'text-fidelity', status: 'skipped' },
   ]);
   assert.equal(semanticRenderOutcomeCode(outcome), 0);
   assert.match(formatSemanticRenderResult(outcome), /2 roots created/);
@@ -1553,4 +1554,37 @@ test('a render whose embedded images together exceed the protocol payload stops 
   });
   const prepared = await prepareCompoundSemanticRenderPlan(fitting, { workspaceIO: io });
   assert.equal(prepared.preparedAssets.localImages, 1);
+});
+
+
+test('the text-fidelity stage measures rendered texts and reports findings as warnings', async (t) => {
+  const roots = ['<Frame name="Card"><Text name="text.0" font="DM Sans" weight="700" size={40}>Keep decisions moving.</Text></Frame>'];
+  const { plan, io } = compoundPlan(t, ['render-batch', JSON.stringify(roots)]);
+  let probes = 0;
+  const outcome = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => nativeBatchResult(1),
+    textFidelityProbe: async (code) => {
+      probes++;
+      assert.match(code, /figmaBridge\.semanticPath/);
+      return [{
+        id: '1:1', path: 'Card/text.0', family: 'Inter', style: 'Bold', size: 40,
+        lineHeight: { unit: 'AUTO' }, width: 406, height: 96, autoResize: 'HEIGHT', characters: 22,
+      }];
+    },
+  });
+  assert.equal(probes, 1);
+  const stage = outcome.stages.find((entry) => entry.kind === 'text-fidelity');
+  assert.equal(stage.status, 'completed-with-findings');
+  assert.equal(outcome.status, 'completed-with-findings');
+  assert.ok(outcome.notices.some((notice) => /text fidelity: Card\/text\.0: font fell back — expected DM Sans Bold, got Inter Bold/.test(notice.text)), JSON.stringify(outcome.notices));
+
+  // A probe that cannot run is reported, not turned into a failed render.
+  const unavailable = await executeCompoundSemanticRenderPlan(plan, {
+    workspaceIO: io,
+    renderPlanBatch: async () => nativeBatchResult(1),
+    textFidelityProbe: async () => { throw new Error('plugin busy'); },
+  });
+  assert.equal(unavailable.stages.find((entry) => entry.kind === 'text-fidelity').status, 'skipped');
+  assert.ok(unavailable.notices.some((notice) => /text fidelity probe unavailable: plugin busy/.test(notice.text)));
 });

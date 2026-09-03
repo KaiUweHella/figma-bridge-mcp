@@ -135,6 +135,23 @@ function executableProps(props) {
     .filter(([, value]) => value !== undefined && value !== null && value !== false && value !== ''));
 }
 
+/** Walk a projection tree with the semantic model's path rule, collecting and
+ * removing every text layer's `_lines` measurement. */
+function extractMeasuredLines(root) {
+  const lines = {};
+  const visit = (node, parentPath) => {
+    const name = String(node.props?.name || node.type || 'element').trim() || node.type;
+    const path = parentPath ? `${parentPath}/${name}` : name;
+    if (node.type === 'text' && node.props && node.props._lines !== undefined) {
+      if (Number.isFinite(node.props._lines) && node.props._lines >= 1) lines[path] = node.props._lines;
+      delete node.props._lines;
+    }
+    for (const child of node.children || []) visit(child, path);
+  };
+  visit(root, '');
+  return Object.freeze(lines);
+}
+
 function renderTreeToJsx(node) {
   if (!node) return '';
   const tag = { frame: 'Frame', text: 'Text', icon: 'Icon', image: 'Image', instance: 'Instance' }[node.type];
@@ -472,8 +489,13 @@ function textLayer(text, ownerRect, index, { owner = null, positioned = true, gr
         : text.text;
   const lineHeight = /px$/.test(style.lineHeight || '') ? px(style.lineHeight) : undefined;
   const letterSpacing = /px$/.test(style.letterSpacing || '') ? px(style.letterSpacing) : undefined;
+  // The browser's line count is kept beside the plan, never on it: the native
+  // executor refuses unknown text props, and the text fidelity probe only
+  // needs it after the render. projectDomCapture lifts it out by path.
+  const measuredLines = singleLine ? 1 : Math.max(2, Math.round(text.rect.h / (lineHeight || fontSize * 1.2)));
   const props = {
     name: `text.${index}`,
+    _lines: measuredLines,
     x: positioned ? round(text.rect.x - ownerRect.x) : undefined,
     y: positioned ? round(text.rect.y - ownerRect.y) : undefined,
     position: positioned ? 'absolute' : undefined,
@@ -794,12 +816,21 @@ function textCanWrap(style) {
   return !['nowrap', 'pre'].includes(whiteSpace);
 }
 
+// A single-line run inside a responsive (FILL) container used to become FILL
+// whenever it could wrap at all, so a short label got the whole track. The
+// measured run width decides instead: below this share of the track the text
+// has visible room and is HUG; at or above it the copy is track-bound and stays
+// FILL so it keeps wrapping with a narrower parent. The band is a judgement,
+// not a measurement; the Northern fixture carries both widths for every run.
+export const TEXT_HUG_BELOW_TRACK_RATIO = 0.75;
+
 function textSizingForContainer(text, node, semantic, containerProps = {}) {
   const layout = semantic?.layout || {};
   if (!semantic || layout.kind === 'leaf') return null;
   const [, pr = 0, , pl = 0] = layout.padding || [];
   const availableWidth = Math.max(1, node.rect.w - pl - pr);
   const fillsTrack = text.rect.w >= availableWidth - 1;
+  const trackRatio = text.rect.w / availableWidth;
   const alignment = normalizedTextAlignment(text.style?.textAlign || node.style?.textAlign);
   const centeredControl = ['trivial-centered-grid', 'single-centered-text-control'].includes(layout.source);
   if (containerProps.w === 'hug') return { width: 'hug', align: alignment };
@@ -808,7 +839,7 @@ function textSizingForContainer(text, node, semantic, containerProps = {}) {
   const multiline = text.rect.h > px(text.style?.fontSize, 14) * 1.6;
   const needsContainerWidth = fillsTrack || multiline
     || (boundedContainer && ['center', 'right', 'justified'].includes(alignment))
-    || (responsiveContainer && textCanWrap(text.style));
+    || (responsiveContainer && textCanWrap(text.style) && trackRatio >= TEXT_HUG_BELOW_TRACK_RATIO);
   return needsContainerWidth
     ? { width: 'fill', align: centeredControl ? 'center' : alignment }
     : { width: 'hug', align: alignment };
@@ -1105,8 +1136,13 @@ function projectDomCapture(capture, { projectIcons = {}, componentLinks = {} } =
   };
   const tree = renderNode(capture.root, capture.root.rect, state, { root: true, semantic: semantic?.root || null });
   const motionTimeline = fillSharedMotionTimeline(state);
+  // Lift the browser-measured line counts out of the tree, keyed by the same
+  // path rule the semantic model applies (names joined by '/'), so neither
+  // projection ever carries them as a prop.
+  const textLines = extractMeasuredLines(tree);
   return {
     tree,
+    textLines,
     icons: state.icons,
     images: state.images,
     imageAssets: state.imageAssets,

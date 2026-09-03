@@ -572,3 +572,45 @@ describe('DOM capture motion on a shared frame timeline', () => {
     assert.equal(motionOf(plan)[0].motion.duration, 3.8);
   });
 });
+
+describe('DOM capture text width decides FILL or HUG', () => {
+  const singleLine = (width, text = 'Live') => ({
+    version: 2,
+    root: {
+      tag: 'main', classes: 'screen', rect: { x: 0, y: 0, w: 240, h: 40 },
+      style: style({ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }),
+      texts: [], before: null, after: null,
+      children: [{
+        tag: 'section', classes: 'copy-card', rect: { x: 0, y: 0, w: 240, h: 40 },
+        style: style({ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }),
+        authoredStyle: { display: 'flex', flexDirection: 'column', width: '100%' },
+        texts: [{
+          text, rect: { x: 0, y: 12, w: width, h: 17 },
+          style: style({ fontSize: '14px', lineHeight: '17px', whiteSpace: 'normal' }),
+        }],
+        contentOrder: [{ kind: 'text', index: 0 }], before: null, after: null, children: [],
+      }],
+    },
+  });
+
+  it('keeps a short single-line run HUG even inside a responsive container', () => {
+    const { jsx, textLines } = domCaptureToJsx(singleLine(60));
+    assert.match(jsx, /<Text[^>]+w="hug"[^>]*>Live<\/Text>/);
+    assert.doesNotMatch(jsx, /_lines/);
+    assert.deepEqual(textLines, { 'screen/copy-card/text.0': 1 });
+  });
+
+  it('keeps a run that is bound to its track FILL so it still wraps with a narrower parent', () => {
+    const { jsx } = domCaptureToJsx(singleLine(200, 'A longer line of copy here'));
+    assert.match(jsx, /<Text[^>]+w="fill"[^>]*>A longer line of copy here<\/Text>/);
+  });
+
+  it('carries the browser-measured line count for multiline copy', () => {
+    const copy = singleLine(200, 'This copy wraps onto three lines in the browser');
+    copy.root.children[0].texts[0].rect.h = 51;
+    const converted = domCaptureToRenderPlan(copy);
+    assert.deepEqual(converted.textLines, { 'screen/copy-card/text.0': 3 });
+    const planned = JSON.stringify(converted.renderPlan);
+    assert.doesNotMatch(planned, /_lines|"lines"/, 'the measurement never rides on the plan');
+  });
+});

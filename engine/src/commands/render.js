@@ -58,6 +58,12 @@ import {
   semanticRootResizeProbeCode,
 } from '../lib/semantic-resize-probe.js';
 import {
+  evaluateTextFidelity,
+  formatTextFidelity,
+  planTextExpectations,
+  semanticTextFidelityProbeCode,
+} from '../lib/semantic-text-fidelity.js';
+import {
   program,
   checkConnection,
   daemonExec,
@@ -419,6 +425,7 @@ async function runCompoundSemanticRender(argv) {
         }, remainingMs()),
         evaluate,
         inspectInventory: evaluate,
+        textFidelityProbe: evaluate,
         writeVerification: ({ index, bytes }) => verificationWriter.write(index, bytes),
       });
       return {
@@ -644,6 +651,7 @@ program
     let jsx;
     let adaptedRenderPlan = null;
     let captureIcons = null;
+    let captureTextLines = {};
     let captureImages = {};
     const projectIcons = options.icons ? loadIconDir(options.icons) : {};
     let componentLinks = {};
@@ -690,6 +698,7 @@ program
           captureHash,
         });
         adaptedRenderPlan = converted.renderPlan;
+        captureTextLines = converted.textLines || {};
         captureIcons = converted.icons;
         captureImages = converted.images || {};
         const d = converted.diagnostics;
@@ -862,6 +871,19 @@ program
       printCreatedVariables(result.createdVariables);
       printVariableScopeQuestions(result.scopeQuestions);
       printOverflow(result);
+      if (structuredSupport.supported) {
+        // The native executor stamps every node with its semantic path, so the
+        // rendered texts can be measured against what the plan asked for.
+        try {
+          const expectations = planTextExpectations(renderPlan, { measuredLines: captureTextLines });
+          if (expectations.length) {
+            const report = evaluateTextFidelity(expectations, await fastEval(semanticTextFidelityProbeCode(result.id)));
+            console.log((report.findings.length ? chalk.yellow : chalk.gray)(`↳ ${formatTextFidelity(report)}`));
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`⚠ text fidelity probe unavailable: ${error.message}`));
+        }
+      }
       if (options.resizeProbe !== undefined) {
         const delta = parseResizeProbeDelta(options.resizeProbe);
         const resizeReport = await fastEval(semanticRootResizeProbeCode(result.id, delta));

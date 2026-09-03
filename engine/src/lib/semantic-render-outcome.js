@@ -60,7 +60,7 @@ const BATCH_TOP_LEVEL_FIELDS = new Set([
 ]);
 const COMPOUND_STAGE_KINDS = new Set([
   'reuse-preflight', 'asset-preparation', 'render', 'placement', 'component-conversion',
-  'resize-probe', 'verification', 'structural-gate',
+  'resize-probe', 'verification', 'structural-gate', 'text-fidelity',
 ]);
 const COMPOUND_STAGE_STATUSES = new Set([
   'completed', 'completed-with-findings', 'failed', 'skipped',

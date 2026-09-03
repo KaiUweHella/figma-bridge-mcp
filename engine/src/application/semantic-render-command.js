@@ -41,6 +41,12 @@ import { rasterDimensions, rasterKind } from '../lib/raster-dimensions.js';
 import { materializeRemoteRenderImage } from '../lib/remote-render-assets.js';
 import { semanticRootResizeProbeCode } from '../lib/semantic-resize-probe.js';
 import {
+  evaluateTextFidelity,
+  formatTextFidelityFinding,
+  planTextExpectations,
+  semanticTextFidelityProbeCode,
+} from '../lib/semantic-text-fidelity.js';
+import {
   assertMultiScreenReuseAcceptance,
   buildMultiScreenReusePlan,
   completeMultiScreenReuseReport,
@@ -813,6 +819,46 @@ export async function executePreparedCompoundSemanticRender(prepared, adapters =
     stages.push(compoundStage('verification', 'completed', handles.length, handles.length, 0, handles, artifacts, verification));
   } else {
     stages.push(compoundStage('verification', 'skipped', 0, 0));
+  }
+
+  // What Figma did with every text: font actually loaded, lines actually set.
+  // Measured through the same eval lane as the resize probe, matched by the
+  // semantic path the executor stamps on each node, reported as findings.
+  if (typeof adapters.textFidelityProbe === 'function') {
+    let attempted = 0;
+    let completed = 0;
+    let findings = 0;
+    let failure = null;
+    for (let index = 0; index < handles.length && !failure; index++) {
+      const expectations = planTextExpectations(prepared.renderPlans[index]);
+      if (!expectations.length) continue;
+      attempted++;
+      try {
+        const report = evaluateTextFidelity(
+          expectations, await adapters.textFidelityProbe(semanticTextFidelityProbeCode(handles[index])),
+        );
+        completed++;
+        findings += report.findings.length;
+        for (const finding of report.findings.slice(0, 20)) {
+          notices.push(Object.freeze({ tone: 'warning', text: boundedText(`text fidelity: ${formatTextFidelityFinding(finding)}`) }));
+        }
+      } catch (error) {
+        failure = error;
+      }
+    }
+    if (failure) {
+      // The render itself succeeded; a probe that could not run is reported,
+      // not turned into a failed render.
+      notices.push(Object.freeze({ tone: 'warning', text: boundedText(`text fidelity probe unavailable: ${failure.message || failure}`) }));
+      stages.push(compoundStage('text-fidelity', 'skipped', 0, 0));
+    } else {
+      stages.push(compoundStage(
+        'text-fidelity', attempted === 0 ? 'skipped' : findings ? 'completed-with-findings' : 'completed',
+        attempted, completed, 0, attempted ? handles : [],
+      ));
+    }
+  } else {
+    stages.push(compoundStage('text-fidelity', 'skipped', 0, 0));
   }
 
   if (typeof adapters.inspectInventory === 'function') {

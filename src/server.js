@@ -2128,6 +2128,7 @@ async function runSemanticRenderApplication(plan, label, prepared) {
       }),
       evaluate,
       inspectInventory: evaluate,
+      textFidelityProbe: evaluate,
       writeVerification: ({ index, bytes }) => verificationWriter.write(index, bytes),
     };
     outcome = compound
