@@ -435,7 +435,7 @@ slides
 
 // Media insertion. The file is authorized and read before any Figma call, and
 // the bytes ride in the eval payload -- there is no inbound asset stream --
-// so the ceiling is the protocol limit, not the 8 MB other image commands name.
+// so the ceiling is derived from the protocol limit, as for every image command.
 slides
   .command('media <slide> <file>')
   .description('Insert a local image, animated GIF or video into one slide')

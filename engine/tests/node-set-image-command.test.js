@@ -6,10 +6,13 @@ import test from 'node:test';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   executePreparedNodeSetImage,
+  nodeSetImageCode,
   nodeSetImagePlanRoute,
   nodeSetImagePlanningArgvFromRequest,
   prepareNodeSetImagePlan,
 } from '../src/application/node-set-image-command.js';
+import { IMAGE_HARD_LIMIT } from '../src/lib/image-file.js';
+import { evalTransportEnvelopeError } from '../src/lib/protocol-contract.js';
 import { parseNodeSetImageRequest } from '../src/application/node-set-image-request.js';
 import { createWorkspaceIO } from '../src/lib/workspace-io.js';
 
@@ -173,4 +176,32 @@ test('preflight refusals are known no-mutation and malformed Plugin results fail
       /invalid/i,
     );
   }
+});
+
+test('a file over the inbound ceiling is refused with guidance, and one at the ceiling fits the transport', () => {
+  const root = mkdtempSync(join(tmpdir(), 'node-set-image-limit-'));
+  const io = createWorkspaceIO({ root });
+  const oversized = join(root, 'oversized.png');
+  writeFileSync(oversized, Buffer.alloc(IMAGE_HARD_LIMIT + 1));
+  const plan = planFigmaCommand(['node', 'set-image', '1:2', oversized], {
+    adapter: 'mcp', workspaceIO: io, workspaceDir: root, fileKey: 'FILEA',
+  });
+  assert.throws(
+    () => prepareNodeSetImagePlan(plan, { workspaceIO: io }),
+    (error) => /over the \d+ byte ceiling/.test(error.message)
+      && /base64/.test(error.message)
+      && !/8 MB/.test(error.message),
+  );
+
+  // The ceiling must be the transport's, not a number the transport refuses:
+  // the generated eval for a file exactly at the limit has to fit the
+  // protocol envelope, or the friendly refusal above is unreachable.
+  const atLimit = join(root, 'at-limit.png');
+  writeFileSync(atLimit, Buffer.alloc(IMAGE_HARD_LIMIT, 0xff));
+  const fitting = planFigmaCommand(['node', 'set-image', '1:2', atLimit], {
+    adapter: 'mcp', workspaceIO: io, workspaceDir: root, fileKey: 'FILEA',
+  });
+  const prepared = prepareNodeSetImagePlan(fitting, { workspaceIO: io });
+  assert.equal(prepared.sourceBytes, IMAGE_HARD_LIMIT);
+  assert.equal(evalTransportEnvelopeError(nodeSetImageCode(prepared)), null);
 });

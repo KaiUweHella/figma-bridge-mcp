@@ -9,10 +9,10 @@ export const SLIDES_MEDIA_GIF_EXT = /\.gif$/i;
 export const SLIDES_MEDIA_VIDEO_EXT = /\.(mp4|mov|webm)$/i;
 
 // Inbound bytes ride inside the eval payload -- the asset stream is an export
-// path only -- and base64 inflates a file by 4/3. The 5 MB protocol ceiling
-// therefore caps a real file at about 3.7 MB; this leaves room for the code
-// around it. `IMAGE_HARD_LIMIT` (8 MB) is the older, unreachable number.
-export const SLIDES_MEDIA_HARD_LIMIT = 3_500_000;
+// path only -- and base64 inflates a file by 4/3 against the 5 MB protocol
+// ceiling. That arithmetic lives once, in image-file.js, and every inbound
+// image command shares it; this name is kept for the media command's wording.
+export { IMAGE_HARD_LIMIT as SLIDES_MEDIA_HARD_LIMIT } from '../lib/image-file.js';
 
 const MODES = new Set(SLIDES_MEDIA_SCALE_MODES);
 const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u2028-\u202e\u2066-\u2069]/u;

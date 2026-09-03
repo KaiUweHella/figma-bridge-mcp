@@ -5,6 +5,21 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ## Unreleased
 
+### Fixed
+
+- The 8 MB `IMAGE_HARD_LIMIT` that `render`, `render-batch` (`<Image src=…>`)
+  and `node set-image` advertised was unreachable: inbound image bytes ride
+  inside the plugin payload as base64 (the asset stream is export-only), which
+  inflates them by 4/3 against a 5 MB protocol limit, so a file between ~3.7
+  and 8 MB failed at the transport with a protocol error instead of the
+  command's own guidance. The ceiling is now 3.5 MB, stated once in
+  `image-file.js` with a test that proves it fits the protocol after base64
+  inflation; `slides media` re-exports the same constant instead of restating
+  the arithmetic. Every refusal names the file's size, the ceiling and the
+  reason. A render additionally measures its whole plan payload before Plugin
+  readiness — the same value the protocol validator measures — because several
+  images that each pass the per-file ceiling still share one protocol value.
+
 ### Added
 
 - Figma Slides content can be authored through the native render pipeline

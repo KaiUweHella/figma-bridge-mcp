@@ -115,8 +115,11 @@ label change the target file.
   (the asset stream is an export path only) and base64 inflates them by 4/3
   against a 5 MB protocol limit. `IMAGE_HARD_LIMIT` is therefore unreachable
   by arithmetic — an 8 MB image becomes ~10.7 MB of base64 — and a file
-  between ~3.7 and 8 MB fails at the transport with a protocol error instead of
-  that command's friendly size message. Worth aligning, once, for all of them.
+  between ~3.7 and 8 MB failed at the transport with a protocol error instead
+  of that command's friendly size message. Aligned since: `IMAGE_HARD_LIMIT`
+  is the shared 3.5 MB ceiling, `slides media` re-exports it, and a render
+  additionally measures its whole plan payload before dispatch, because
+  several images that each fit still share one protocol value.
 - ~~Add viewport/focus helpers only when they improve a concrete authoring or
   verification workflow; do not automate presentation playback for its own
   sake.~~ **Delivered**: `slides focus <slide>` and `slides view <grid |

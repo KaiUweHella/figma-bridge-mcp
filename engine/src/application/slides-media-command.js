@@ -8,8 +8,9 @@
 //
 // Bytes travel inside the eval payload, base64-encoded: the asset stream is an
 // export path only, so there is no inbound streaming. Base64 inflates a file by
-// 4/3 against a 5 MB protocol ceiling, which is why the limit here is ~3.5 MB
-// rather than the 8 MB `IMAGE_HARD_LIMIT` other image commands advertise.
+// 4/3 against a 5 MB protocol ceiling, which is why the ceiling is ~3.5 MB --
+// the same `IMAGE_HARD_LIMIT` every other inbound image command derives from
+// the transport.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { NODE_REFERENCE_PATTERN } from './node-reference.js';

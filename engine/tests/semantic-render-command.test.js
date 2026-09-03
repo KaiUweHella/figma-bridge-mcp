@@ -1518,3 +1518,39 @@ test('bounded Outcome preserves intentional literal resource evidence', async (t
   assert.match(output, /4 generated literal binding candidate\(s\) stayed literal/);
   assert.match(output, /1 unmatched typography candidate\(s\) stayed literal/);
 });
+
+// Every embedded image rides inside one render-plan payload, so the protocol's
+// value limit applies to their sum, not to each file. Two images that each pass
+// the per-file ceiling must still be refused before dispatch when together
+// they cannot be carried -- with the command's own guidance, not a transport
+// error after Plugin readiness.
+test('a render whose embedded images together exceed the protocol payload stops before dispatch', async (t) => {
+  const { root, io } = workspace(t);
+  mkdirSync(join(root, 'assets'));
+  const padded = (fill) => Buffer.concat([PNG_1X1, Buffer.alloc(2_000_000, fill)]);
+  writeFileSync(join(root, 'assets', 'left.png'), padded(0x01));
+  writeFileSync(join(root, 'assets', 'right.png'), padded(0x02));
+  assert.ok(2_000_000 < IMAGE_HARD_LIMIT, 'each file must pass the per-file ceiling on its own');
+
+  const jsx = '<Frame><Image src={assets/left.png} /><Image src={assets/right.png} /></Frame>';
+  const plan = planFigmaCommand(['render', jsx], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+  });
+  await assert.rejects(
+    () => prepareCompoundSemanticRenderPlan(plan, { workspaceIO: io }),
+    (error) => /protocol limit/.test(error.message)
+      && /base64/.test(error.message)
+      && error.outcome === 'not-dispatched'
+      && error.phase === 'request-validation',
+  );
+
+  // One image at the per-file ceiling is the promised case and must prepare.
+  writeFileSync(join(root, 'assets', 'max.png'), Buffer.concat([
+    PNG_1X1, Buffer.alloc(IMAGE_HARD_LIMIT - PNG_1X1.length, 0x03),
+  ]));
+  const fitting = planFigmaCommand(['render', '<Frame><Image src={assets/max.png} /></Frame>'], {
+    adapter: 'mcp', workspaceDir: root, workspaceIO: io, fileKey: 'FILE_A',
+  });
+  const prepared = await prepareCompoundSemanticRenderPlan(fitting, { workspaceIO: io });
+  assert.equal(prepared.preparedAssets.localImages, 1);
+});
