@@ -59,8 +59,16 @@ export function slidePageSlidesFragment() {
       const collect = (node, depth) => {
         if (!node || depth > 4 || walked >= ${MAX_DECK_PAGE_WALK_NODES}) return;
         walked++;
-        if (node.type === 'SLIDE') { found.push(node); return; }
-        const children = node.children;
+        // A node mid-removal can still sit in its parent's children while
+        // every property access throws "does not exist" (seen live on a
+        // freshly removed clone). Such a node is not a slide that exists.
+        let type; let children;
+        try {
+          if (node.removed === true) return;
+          type = node.type;
+          if (type === 'SLIDE') { void node.id; void node.name; found.push(node); return; }
+          children = node.children;
+        } catch { return; }
         if (!Array.isArray(children)) return;
         for (const child of children) collect(child, depth + 1);
       };
@@ -79,7 +87,9 @@ export function slidePageSlidesFragment() {
  * helpers are prefixed `__deck` so a command's own locals never collide.
  *
  * Defines: `__deckRead()` returning
- * `{ rows, slides, coordinates, focusedId }` with `rows` as slide nodes, and
+ * `{ rows, slides, coordinates, focusedId, unlisted, gridError }` with `rows`
+ * as slide nodes (`gridError` is the runtime's message when the grid could
+ * not be read at all, in which case every slide is unlisted), and
  * `__deckFacts(slide)` returning one bounded fact record. Both throw on
  * anything the runtime reports that does not match the closed shape — a
  * caller is expected to turn that into an `invalid-runtime` status.
@@ -100,6 +110,9 @@ export function slideDeckFactsFragment() {
     const __deckText = (value) => typeof value === 'string'
       && value.length <= ${MAX_DECK_NAME_CODE_UNITS};
     const __deckRounded = (value) => Math.round(value * 10000) / 10000;
+    // A runtime message, printable: control characters dropped, bounded.
+    const __deckReason = (error) => Array.from(String(error && error.message ? error.message : error))
+      .filter((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) !== 127).join('').slice(0, 512);
 
     const __deckLabel = (slide) => {
       let label = '';
@@ -146,7 +159,18 @@ export function slideDeckFactsFragment() {
       // Callers re-read after a mutation, so stale coordinates must not
       // survive from the previous walk.
       __deckCoordinates.clear();
-      const grid = figma.getCanvasGrid();
+      // The grid fails the other way round too: after a slide is removed it
+      // can keep the dead id and throw "does not exist" on every read until it
+      // settles (seen live on 2026-09-03). The deck still exists; read it from
+      // the page tree with no coordinates and say why.
+      let grid;
+      let gridError = null;
+      try {
+        grid = figma.getCanvasGrid();
+      } catch (error) {
+        gridError = __deckReason(error);
+        grid = [];
+      }
       if (!Array.isArray(grid) || grid.length > ${MAX_DECK_ROWS}) {
         throw new Error('invalid slide grid');
       }
@@ -198,7 +222,7 @@ export function slideDeckFactsFragment() {
       const focused = figma.currentPage.focusedSlide;
       const focusedId = focused == null ? null : focused.id;
       if (focusedId !== null && !__deckId(focusedId)) throw new Error('invalid focused slide');
-      return { rows, slides, coordinates: __deckCoordinates, focusedId, unlisted };
+      return { rows, slides, coordinates: __deckCoordinates, focusedId, unlisted, gridError };
     };
 
     const __deckFacts = (slide) => {

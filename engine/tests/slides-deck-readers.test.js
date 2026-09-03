@@ -274,3 +274,36 @@ describe('Slides deck lint', () => {
     }
   });
 });
+
+describe('a canvas grid that throws', () => {
+  // Seen live on 2026-09-03: after a slide was removed, figma.getCanvasGrid()
+  // kept the dead id and threw `The node with id "21:299" does not exist` on
+  // every read. The deck still existed; only the grid was unreadable.
+  it('manifest lists the whole deck from the page tree and says why positions are unknown', async () => {
+    const live = runtime([[slide('1:1', '1', { label: 'Cover' }), slide('1:2', '2')]]);
+    live.figma.getCanvasGrid = () => { throw new Error('in getCanvasGrid: The node with id "9:9" does not exist'); };
+    const result = await executeSlidesManifest({ evaluate: live.evaluate });
+    assert.equal(result.result.slideCount, 2);
+    assert.deepEqual(result.result.rows, []);
+    assert.deepEqual(result.result.unlisted.map((fact) => fact.id), ['1:1', '1:2']);
+    assert.match(result.result.gridError, /does not exist/);
+    assert.match(result.stdout, /canvas grid unavailable \(in getCanvasGrid: The node with id "9:9" does not exist\)/);
+    assert.match(result.stdout, /2 slide\(s\) exist on the page but are not listed/);
+  });
+
+  it('lint reports every slide as unlisted with the grid reason', async () => {
+    const live = runtime([[slide('1:1', '1'), slide('1:2', '2')]]);
+    live.figma.getCanvasGrid = () => { throw new Error('in getCanvasGrid: The node with id "9:9" does not exist'); };
+    const result = await executeSlidesLint(['slides', 'lint', '--kinds', 'unlisted-slide'], { evaluate: live.evaluate });
+    assert.equal(result.result.counts['unlisted-slide'], 2);
+    assert.match(result.result.issues[0].detail, /could not be read \(in getCanvasGrid: .*does not exist\)/);
+  });
+
+  it('a runtime the walk cannot trust names its reason', async () => {
+    const broken = runtime([[slide('1:1', '1'), slide('1:1', '2')]]);
+    await assert.rejects(
+      () => executeSlidesManifest({ evaluate: broken.evaluate }),
+      /could not read a bounded native deck: invalid slide identity/,
+    );
+  });
+});

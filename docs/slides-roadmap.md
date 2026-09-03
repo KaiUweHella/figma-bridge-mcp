@@ -202,9 +202,21 @@ What that changes, and what it does not:
   and `move` refuses one with the reason — without a grid coordinate there is
   no origin to restore on rollback. `media` and `focus` resolve names and
   labels over the page tree too. A focus resting on an unlisted slide no
-  longer makes every mutation refuse. Live verification against a lagging
-  deck is still owed: the unit runtimes model the lag, they do not reproduce
-  it. That is far less severe than first recorded, and it
+  longer makes every mutation refuse. Live-verified on 2026-09-03 against a
+  deck whose grid was lagging: `create` landed a slide the grid did not list,
+  `manifest` reported it as unlisted, `focus`, `skip` and `transition` reached
+  it, and it later appeared at a coordinate and was duplicated normally.
+- The grid also fails the other way round. After a slide is removed it can
+  keep the dead id and throw `The node with id "…" does not exist` on every
+  read, for minutes (measured 2026-09-03 after deleting a duplicate). The
+  deck walk now treats a throwing grid as empty and remembers the reason:
+  readers list the deck from the page tree with no coordinates and say why,
+  mutations refuse with the runtime's message.
+- Two of the session's "Plugin disconnected" failures were not Figma's doing
+  at all: every MCP server start copied the plugin bundle unconditionally,
+  and Figma reloads a development plugin whenever its files change on disk.
+  Fixed in `connect` (write only when bytes differ). The 59-second execution
+  timeouts of earlier acceptance sessions most likely had the same cause. That is far less severe than first recorded, and it
   lowers the priority of giving those snapshots the same reconciliation —
   though a command that refuses a slide the user can see is still a poor
   answer, and the fix would also need verification by node existence rather

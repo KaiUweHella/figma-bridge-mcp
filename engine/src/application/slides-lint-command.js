@@ -10,6 +10,7 @@
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
 import { MAX_DECK_SLIDES, slideDeckFactsFragment } from '../lib/slides-snippets.js';
 import { parseSlidesLintRequest } from './slides-lint-request.js';
+import { runtimeDetailSuffix, validRuntimeFailure } from './slides-manifest-command.js';
 
 const APPLICATION_ID = 'slides.lint';
 export const MAX_SLIDES_LINT_RESULT_CODE_UNITS = 2_000_000;
@@ -90,8 +91,11 @@ export function slidesLintCode(request) {
         }
         // The deck's first slide has nothing to transition from, so NONE there
         // is the normal authored state rather than an omission. The exemption
-        // is positional, so it never covers a slide without a position.
-        if (fact.transition.style === 'NONE' && (index > 0 || fact.row === null)) {
+        // is positional, so it never covers a slide without a position -- unless
+        // no slide has one because the grid could not be read at all, in which
+        // case the page tree's first slide is the deck's first slide.
+        const first = index === 0 && (fact.row !== null || deck.gridError);
+        if (fact.transition.style === 'NONE' && !first) {
           add('missing-transition', fact,
             'has no transition while the deck uses them elsewhere');
         }
@@ -99,9 +103,11 @@ export function slidesLintCode(request) {
           add('empty-slide', fact, 'has no content at all');
         }
         if (unlisted.has(fact.id)) {
-          add('unlisted-slide', fact,
-            'exists on the page but figma.getCanvasGrid() does not list it, so every'
-            + ' grid-based command is blind to it and slides delete cannot remove it');
+          add('unlisted-slide', fact, deck.gridError
+            ? 'exists on the page but figma.getCanvasGrid() could not be read (' + deck.gridError
+              + '), so its position is unknown until the grid settles'
+            : 'exists on the page but figma.getCanvasGrid() does not list it yet, so its'
+              + ' position is unknown and slides move cannot address it until the grid settles');
         }
       }
 
@@ -118,8 +124,8 @@ export function slidesLintCode(request) {
           issues,
         },
       });
-    } catch {
-      return JSON.stringify({ schemaVersion, status: 'invalid-runtime' });
+    } catch (error) {
+      return JSON.stringify({ schemaVersion, status: 'invalid-runtime', detail: __deckReason(error) });
     }
   })()`;
 }
@@ -146,7 +152,7 @@ function validPayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   if (value.schemaVersion !== 1) return false;
   if (value.status === 'wrong-editor' || value.status === 'invalid-runtime') {
-    return Object.keys(value).length === 2;
+    return validRuntimeFailure(value);
   }
   if (value.status !== 'ok' || Object.keys(value).length !== 3) return false;
   const data = value.data;
@@ -204,7 +210,7 @@ async function executeParsed(request, adapters) {
     throw new Error('Slides lint requires a Figma Slides deck.');
   }
   if (payload.status !== 'ok') {
-    throw new Error('Slides lint could not read a bounded native deck.');
+    throw new Error(`Slides lint could not read a bounded native deck${runtimeDetailSuffix(payload)}`);
   }
   return {
     stdout: formatLint(payload.data, request),

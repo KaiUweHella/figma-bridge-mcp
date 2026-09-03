@@ -66,10 +66,11 @@ export function slidesManifestCode() {
           focusedId: deck.focusedId,
           rows,
           unlisted,
+          gridError: deck.gridError,
         },
       });
-    } catch {
-      return JSON.stringify({ schemaVersion, status: 'invalid-runtime' });
+    } catch (error) {
+      return JSON.stringify({ schemaVersion, status: 'invalid-runtime', detail: __deckReason(error) });
     }
   })()`;
 }
@@ -98,16 +99,37 @@ function validManifestFact(value) {
   return true;
 }
 
+/** A runtime failure may carry the runtime's own reason, bounded and printable. */
+export function validRuntimeFailure(value) {
+  const keys = Object.keys(value);
+  if (keys.length === 2) return true;
+  return keys.length === 3 && typeof value.detail === 'string'
+    && value.detail.length > 0 && value.detail.length <= 512
+    && !/[\u0000-\u001f\u007f]/.test(value.detail);
+}
+
+/** Null, or the bounded printable reason the canvas grid could not be read. */
+export function validGridError(value) {
+  return value === null || (typeof value === 'string' && value.length > 0
+    && value.length <= 512 && !/[\u0000-\u001f\u007f]/.test(value));
+}
+
+/** The one sentence a reader appends when the runtime said why it failed. */
+export function runtimeDetailSuffix(payload) {
+  return typeof payload?.detail === 'string' && payload.detail ? `: ${payload.detail}` : '.';
+}
+
 function validPayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   if (value.schemaVersion !== 1) return false;
   if (value.status === 'wrong-editor' || value.status === 'invalid-runtime') {
-    return Object.keys(value).length === 2;
+    return validRuntimeFailure(value);
   }
   if (value.status !== 'ok' || Object.keys(value).length !== 3) return false;
   const data = value.data;
   if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
-  if (Object.keys(data).length !== 5) return false;
+  if (Object.keys(data).length !== 6) return false;
+  if (!validGridError(data.gridError)) return false;
   if (data.schema !== SLIDES_MANIFEST_SCHEMA) return false;
   if (!Number.isSafeInteger(data.slideCount) || data.slideCount < 0
     || data.slideCount > MAX_DECK_SLIDES) return false;
@@ -153,6 +175,9 @@ function formatManifest(data) {
     `${data.slideCount} slide(s)${focusNote}`,
     '',
   ];
+  if (data.gridError) {
+    lines.push(`canvas grid unavailable (${data.gridError}); positions are unknown and every slide is listed from the page tree`);
+  }
   const tail = data.unlisted.length
     ? ['', `${data.unlisted.length} slide(s) exist on the page but are not listed in the canvas grid:`]
     : [];
@@ -201,7 +226,7 @@ async function executeParsed(adapters) {
     throw new Error('Slides manifest requires a Figma Slides deck.');
   }
   if (payload.status !== 'ok') {
-    throw new Error('Slides manifest could not read a bounded native deck.');
+    throw new Error(`Slides manifest could not read a bounded native deck${runtimeDetailSuffix(payload)}`);
   }
   return {
     stdout: formatManifest(payload.data),

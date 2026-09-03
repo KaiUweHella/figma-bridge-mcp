@@ -71,6 +71,17 @@ describe('Slides focus', () => {
     assert.equal(live.state.focusedSlide.id, '9:9');
   });
 
+  it('focuses by label when the canvas grid throws instead of listing', async () => {
+    const live = runtime();
+    const ghost = slide('9:9', '9', 'Stray');
+    live.figma.getCanvasGrid = () => { throw new Error('in getCanvasGrid: The node with id "1:2" does not exist'); };
+    Object.defineProperty(live.figma.currentPage, 'children', {
+      get: () => [{ type: 'SLIDE_ROW', children: [ghost] }],
+    });
+    const result = await executeSlidesFocus(['slides', 'focus', 'label:Stray'], { evaluate: live.evaluate });
+    assert.equal(result.result.focusedId, '9:9');
+  });
+
   it('refuses a reference it cannot resolve to exactly one slide', async () => {
     const live = runtime({
       rows: [[slide('1:1', 'dup'), slide('1:2', 'dup')]],

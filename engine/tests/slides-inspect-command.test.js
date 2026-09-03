@@ -83,6 +83,8 @@ test('deck inspection returns the complete native grid, focus, labels and transi
       },
     ]],
     slideCount: 2,
+    unlisted: [],
+    gridError: null,
   });
   assert.deepEqual(JSON.parse(result.stdout), result.result);
 });

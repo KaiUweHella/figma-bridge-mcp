@@ -20,6 +20,7 @@ export {
   slidesInspectArgvFromRequest,
   slidesInspectPlanningArgvFromRequest,
 } from './slides-reference-request.js';
+import { runtimeDetailSuffix, validGridError, validRuntimeFailure } from './slides-manifest-command.js';
 
 const APPLICATION_ID = 'slides.inspect';
 export const MAX_SLIDES_INSPECT_ROWS = 4_096;
@@ -90,11 +91,16 @@ export function slidesInspectCode(request) {
       };
       const focusedId = deck.focusedId;
       if (!reference) {
+        // Slides the grid has not listed still exist; without them the count
+        // would disagree with the rows, and the deck would be under-reported.
+        const unlistedIds = new Set(deck.unlisted);
         const data = {
           editor: 'slides',
           focusedId,
           rows: rows.map((row) => row.map(facts)),
           slideCount: slides.length,
+          unlisted: slides.filter((slide) => unlistedIds.has(slide.id)).map(facts),
+          gridError: deck.gridError,
         };
         return result({ schemaVersion, status: 'ok', data });
       }
@@ -145,8 +151,8 @@ export function slidesInspectCode(request) {
         status: 'ok',
         data: { editor: 'slides', focusedId, slide: facts(target) },
       });
-    } catch {
-      return JSON.stringify({ schemaVersion, status: 'invalid-runtime' });
+    } catch (error) {
+      return JSON.stringify({ schemaVersion, status: 'invalid-runtime', detail: __deckReason(error) });
     }
   })()`;
 }
@@ -206,11 +212,18 @@ function okData(data) {
   if (!record(data) || data.editor !== 'slides'
     || (data.focusedId !== null && !id(data.focusedId))) return false;
   if (exact(data, ['editor', 'focusedId', 'slide'])) return slideFacts(data.slide);
-  if (!exact(data, ['editor', 'focusedId', 'rows', 'slideCount'])
+  if (!exact(data, ['editor', 'focusedId', 'rows', 'slideCount', 'unlisted', 'gridError'])
     || !Array.isArray(data.rows) || data.rows.length > MAX_SLIDES_INSPECT_ROWS
-    || !count(data.slideCount, MAX_SLIDES_INSPECT_SLIDES)) return false;
+    || !count(data.slideCount, MAX_SLIDES_INSPECT_SLIDES)
+    || !Array.isArray(data.unlisted) || data.unlisted.length > MAX_SLIDES_INSPECT_SLIDES
+    || !validGridError(data.gridError)) return false;
   let total = 0;
   const ids = new Set();
+  for (const slide of data.unlisted) {
+    if (!slideFacts(slide) || slide.row !== null || slide.col !== null || ids.has(slide.id)) return false;
+    ids.add(slide.id);
+    total += 1;
+  }
   for (let row = 0; row < data.rows.length; row++) {
     const slides = data.rows[row];
     if (!Array.isArray(slides) || slides.length > MAX_SLIDES_INSPECT_ROW_ENTRIES) return false;
@@ -229,7 +242,8 @@ function okData(data) {
 function validPayload(value) {
   if (!record(value) || value.schemaVersion !== 1 || typeof value.status !== 'string') return false;
   if (value.status === 'ok') return exact(value, ['schemaVersion', 'status', 'data']) && okData(value.data);
-  if (['wrong-editor', 'not-found', 'invalid-runtime'].includes(value.status)) {
+  if (value.status === 'invalid-runtime') return validRuntimeFailure(value);
+  if (['wrong-editor', 'not-found'].includes(value.status)) {
     return exact(value, ['schemaVersion', 'status']);
   }
   if (value.status === 'wrong-type') {
@@ -266,7 +280,7 @@ function statusError(payload, input) {
     return new Error(`Ambiguous slide reference "${display}": ${payload.matches
       .map((match) => `${safeDisplay(match.label || match.name)} (${safeDisplay(match.id)})`).join(', ')}${suffix}`);
   }
-  return new Error('Slides inspect could not read a bounded native deck.');
+  return new Error(`Slides inspect could not read a bounded native deck${runtimeDetailSuffix(payload)}`);
 }
 
 async function executeParsed(input, adapters) {

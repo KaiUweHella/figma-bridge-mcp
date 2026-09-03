@@ -7,6 +7,41 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- **Every MCP server start reloaded the development plugin in every Figma
+  window, killing whatever eval was in flight.** `connect` runs at server
+  start and copied the plugin bundle unconditionally; Figma reloads a
+  development plugin whenever its files change on disk. Measured live on
+  2026-09-03 with the daemon log open: all three windows dropped and
+  re-authenticated the moment a server process started, and the request
+  running at that moment failed with "Plugin disconnected", after which the
+  read lane sat in quarantine until the daemon was restarted. This is the
+  likely cause of the 59-second execution timeouts recorded in the 0.7.4
+  acceptance sessions. The bundle is now written only when its bytes differ
+  (`copyIfDifferent`), with a test that installs twice and requires the
+  second run to leave the files untouched.
+- Slides readers no longer refuse a deck whose canvas grid throws. After a
+  slide is removed, `figma.getCanvasGrid()` can keep the dead id and throw
+  `The node with id "…" does not exist` on every read until it settles (seen
+  live, minutes long). The shared deck walk now treats a throwing grid as an
+  empty one and remembers the reason: `slides manifest`, `inspect` and `lint`
+  list every slide from the page tree with no coordinate and print the
+  reason; `slides focus` and `slides media` still resolve names and labels.
+  Mutations keep refusing, with the runtime's own message. Every reader's
+  "could not read a bounded native deck" now carries that message too, so
+  a refused read says why instead of only that.
+- `slides inspect` (deck-level) reports slides the grid has not listed under
+  `unlisted` and carries `gridError`; before, one unlisted slide made its own
+  count check fail and the read was reported as an invalid result.
+- `slides create` verifies a slide the canvas grid has not listed yet by
+  existence — identity, label, focus and selection, with the grid unchanged —
+  and reports `gridObserved: false`, the way `slides batch` does, after
+  giving the grid the same short settle window the snapshot gets. Measured
+  live: the first create of the session landed exactly so, and the previous
+  behaviour left it behind as partial residue because the rollback could not
+  see it either. A failed create now removes such a slide by existence.
+- The page-tree walk skips a node mid-removal whose property access throws
+  "does not exist" (seen live on a freshly removed clone); such a node is not
+  a slide that exists.
 - Every Slides mutation now reaches a slide the canvas grid has not listed
   yet. `slides delete`, `duplicate`, `move`, `transition` and `skip` walked
   only `figma.getCanvasGrid()`, which lags the page tree by minutes, so such a

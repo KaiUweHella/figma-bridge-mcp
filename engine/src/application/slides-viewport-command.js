@@ -70,7 +70,10 @@ export function slidesFocusCode(request) {
         return result({ schemaVersion, status: 'invalid-runtime' });
       }
       ${slidePageSlidesFragment()}
-      const grid = figma.getCanvasGrid();
+      // A grid that throws (it can keep a removed slide's id) must not hide
+      // the deck: the page tree below still resolves names and labels.
+      let grid;
+      try { grid = figma.getCanvasGrid(); } catch { grid = []; }
       if (!Array.isArray(grid)) return result({ schemaVersion, status: 'invalid-runtime' });
       const slides = [];
       for (const row of grid) {
