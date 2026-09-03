@@ -264,3 +264,26 @@ test('Slides Property generated Plugin code parses for both actions', () => {
     action: 'skip', reference: 'Details', skipped: true,
   })}`));
 });
+
+test('a slide the grid has not listed yet still accepts a property write', async () => {
+  const live = runtime();
+  let skipped = false;
+  const ghost = {
+    id: '1:9', name: 'Ghost', type: 'SLIDE', children: [{ id: '1:9:child' }],
+    getSlideTransition() { return structuredClone(NONE); },
+    getPluginData(key) { return key === 'bridge-slide-label' ? 'Stray' : ''; },
+    get isSkippedSlide() { return skipped; },
+    set isSkippedSlide(value) { skipped = value; },
+  };
+  Object.defineProperty(live.page, 'children', {
+    get: () => [{ type: 'SLIDE_ROW', children: [live.intro, live.details, ghost] }],
+  });
+  const result = await executeSlidesProperty({ action: 'skip', reference: 'label:Stray', skipped: true }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'updated');
+  assert.equal(result.result.before.slide.row, null);
+  assert.equal(result.result.actual.slide.skipped, true);
+  assert.deepEqual(result.result.actual.unlisted, ['1:9']);
+  assert.equal(skipped, true);
+});

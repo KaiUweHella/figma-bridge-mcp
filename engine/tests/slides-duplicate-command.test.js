@@ -314,3 +314,21 @@ test('Slides Duplicate generated Plugin code parses', () => {
     reference: 'label:Body', label: 'Copy', row: 0, col: 1,
   })}`));
 });
+
+test('a source slide the grid has not listed yet can be duplicated', async () => {
+  const live = runtime();
+  const ghost = live.makeSlide('1:9', 'Ghost', { label: 'Stray', childCount: 2 });
+  Object.defineProperty(live.page, 'children', {
+    get: () => [{ type: 'SLIDE_ROW', children: [...live.getGrid().flat(), ghost] }],
+  });
+  const result = await executeSlidesDuplicate({ reference: 'label:Stray' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'duplicated');
+  assert.equal(result.result.before.source.id, '1:9');
+  assert.equal(result.result.before.source.row, null);
+  assert.deepEqual(result.result.before.unlisted, ['1:9']);
+  assert.deepEqual(result.result.actual.unlisted, ['1:9'], 'the source stays where it was');
+  assert.equal(result.result.actual.slide.label, 'Stray copy');
+  assert.ok(result.result.actual.slide.row !== null, 'the copy landed in the grid');
+});

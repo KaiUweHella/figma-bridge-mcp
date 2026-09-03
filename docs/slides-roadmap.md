@@ -194,11 +194,17 @@ What that changes, and what it does not:
   under-report a deck, or refuse to read it, during a lag that can outlast a
   whole working session. `slides lint` calling a nine-slide deck clean was
   wrong regardless of whether the grid would settle later.
-- The gap in the mutation commands is a **window**, not a permanent hole.
-  `slides delete`, `duplicate`, `move`, `transition` and `skip` cannot address
-  such a slide while the grid lags, and `slides media` and `slides focus`
-  reach it only by `node:` id because their `name:`/`label:` resolution walks
-  the grid too; all of them work once it settles. That is far less severe than first recorded, and it
+- The gap in the mutation commands was a **window**, not a permanent hole,
+  and it is closed since 2026-09-03: every mutation snapshot splices the same
+  page-tree walk (`slidePageSlidesFragment`) and carries the unlisted ids in
+  its strict before/after comparison. `delete` verifies an unlisted slide by
+  node existence, `duplicate`, `transition` and `skip` accept one as target,
+  and `move` refuses one with the reason — without a grid coordinate there is
+  no origin to restore on rollback. `media` and `focus` resolve names and
+  labels over the page tree too. A focus resting on an unlisted slide no
+  longer makes every mutation refuse. Live verification against a lagging
+  deck is still owed: the unit runtimes model the lag, they do not reproduce
+  it. That is far less severe than first recorded, and it
   lowers the priority of giving those snapshots the same reconciliation —
   though a command that refuses a slide the user can see is still a poor
   answer, and the fix would also need verification by node existence rather

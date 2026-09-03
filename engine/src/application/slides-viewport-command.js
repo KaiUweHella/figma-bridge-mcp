@@ -9,7 +9,7 @@
 // write confirmation. Both verify by reading the value back.
 
 import { isFigmaCommandPlan } from '../../../src/capability-catalog.js';
-import { SLIDE_LABEL_KEY } from '../lib/slides-snippets.js';
+import { SLIDE_LABEL_KEY, slidePageSlidesFragment } from '../lib/slides-snippets.js';
 import { parseSlidesReferenceRequest } from './slides-reference-request.js';
 import { NODE_REFERENCE_PATTERN } from './node-reference.js';
 
@@ -69,6 +69,7 @@ export function slidesFocusCode(request) {
         || typeof figma.getNodeByIdAsync !== 'function') {
         return result({ schemaVersion, status: 'invalid-runtime' });
       }
+      ${slidePageSlidesFragment()}
       const grid = figma.getCanvasGrid();
       if (!Array.isArray(grid)) return result({ schemaVersion, status: 'invalid-runtime' });
       const slides = [];
@@ -76,6 +77,10 @@ export function slidesFocusCode(request) {
         if (!Array.isArray(row)) return result({ schemaVersion, status: 'invalid-runtime' });
         for (const node of row) if (node && node.type === 'SLIDE') slides.push(node);
       }
+      // The grid lags the page tree; a slide it has not listed yet is still
+      // addressable by name or label.
+      const listed = new Set(slides.map((entry) => entry.id));
+      for (const node of __pageSlides()) if (!listed.has(node.id)) slides.push(node);
 
       let target = null;
       if (reference.kind === 'node' || reference.kind === 'query') {

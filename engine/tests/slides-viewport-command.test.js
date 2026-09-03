@@ -60,6 +60,17 @@ describe('Slides focus', () => {
     assert.equal(live.state.focusedSlide.id, '1:1');
   });
 
+  it('focuses a slide by label when the canvas grid has not listed it yet', async () => {
+    const live = runtime();
+    const ghost = slide('9:9', '9', 'Stray');
+    Object.defineProperty(live.figma.currentPage, 'children', {
+      get: () => [{ type: 'SLIDE_ROW', children: [ghost] }],
+    });
+    const result = await executeSlidesFocus(['slides', 'focus', 'label:Stray'], { evaluate: live.evaluate });
+    assert.equal(result.result.focusedId, '9:9');
+    assert.equal(live.state.focusedSlide.id, '9:9');
+  });
+
   it('refuses a reference it cannot resolve to exactly one slide', async () => {
     const live = runtime({
       rows: [[slide('1:1', 'dup'), slide('1:2', 'dup')]],

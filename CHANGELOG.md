@@ -7,6 +7,20 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
 
 ### Fixed
 
+- Every Slides mutation now reaches a slide the canvas grid has not listed
+  yet. `slides delete`, `duplicate`, `move`, `transition` and `skip` walked
+  only `figma.getCanvasGrid()`, which lags the page tree by minutes, so such a
+  slide could not be addressed at all — and a focus resting on one made every
+  one of them, `create` included, refuse with "invalid focused Slide". Each
+  snapshot now splices the same page-tree walk the deck readers use
+  (`slidePageSlidesFragment`): the grid stays authoritative for coordinates,
+  the page tree for existence, and the snapshot carries the unlisted ids so
+  the strict before/after comparison covers them too. `delete` verifies an
+  unlisted slide by node existence, since the grid cannot change. `move`
+  resolves such a slide but refuses it with the reason: without a grid
+  coordinate there is no origin to restore if the move must be reversed.
+  `slides media` and `slides focus` resolve `name:`/`label:` references over
+  the page tree as well, not only over the grid.
 - A refused Slides command now says why. `slides view sideways` reported
   "Command not allowed: slides view", as if the verb were disallowed when the
   mode was the problem; the same held for every Slides verb with invalid
@@ -73,11 +87,8 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   reported with `row`/`col` `null`, listed under `unlisted` by
   `slides manifest`, and flagged by a new `unlisted-slide` lint kind.
   `slides inspect`, `lint`, `manifest` and the `batch` preflight all gained
-  this. `slides delete`, `duplicate`, `move`, `transition` and `skip` keep
-  their own grid-only walks and cannot address such a slide while the grid
-  lags; `slides media` and `slides focus` reach it only by `node:` id, because
-  their `name:`/`label:` resolution walks the grid too. `docs/slides-roadmap.md`
-  records this together with what fixing it requires.
+  this first; the mutation commands followed (see "Fixed" above), so no
+  Slides command walks the grid alone any more.
 - `slides manifest` no longer refuses a deck whose focused slide the grid has
   not listed, and reports that state instead. A media insert that Figma rejects
   without an Error message now reports what it can recover from the rejection

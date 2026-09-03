@@ -253,3 +253,14 @@ test('Slides Create generated Plugin code parses', () => {
     label: 'Agenda', row: 1, col: 0,
   })}`));
 });
+
+test('a focus resting on a slide the grid has not listed yet does not refuse creation', async () => {
+  const live = runtime();
+  const ghost = { id: '1:9', name: 'Ghost', type: 'SLIDE' };
+  live.page.children = [{ type: 'SLIDE_ROW', children: [ghost] }];
+  live.page.focusedSlide = ghost;
+  const result = await executeSlidesCreate({ label: 'Fresh' }, { evaluate: evaluate(live.figma) });
+  assert.equal(result.result.status, 'created');
+  assert.equal(result.result.before.focusedId, '1:9');
+  assert.deepEqual(result.result.before.unlisted, ['1:9']);
+});

@@ -221,3 +221,51 @@ test('malformed and forged Plugin results cannot claim a deletion', async () => 
 test('Slides Delete generated Plugin code parses', () => {
   assert.doesNotThrow(() => new Function(`return ${slidesDeleteCode({ reference: 'Details' })}`));
 });
+
+// figma.getCanvasGrid() lags the page tree (measured 2026-09-03): a live
+// slide can be absent from the grid for minutes. The snapshot reconciles the
+// two, so such a slide can be addressed and deleted, and a focus resting on
+// one no longer blocks every other mutation.
+function ghostIn(live) {
+  let present = true;
+  const ghost = {
+    id: '1:9', type: 'SLIDE', name: 'Ghost',
+    getPluginData(key) { return key === 'bridge-slide-label' ? 'Stray' : ''; },
+    remove() { live.registry.delete('1:9'); present = false; },
+  };
+  live.registry.set('1:9', ghost);
+  Object.defineProperty(live.page, 'children', {
+    get: () => [{ type: 'SLIDE_ROW', children: [...live.grid.flat(), ...(present ? [ghost] : [])] }],
+  });
+  return ghost;
+}
+
+test('a slide the grid has not listed yet is deleted by existence, not by grid difference', async () => {
+  const live = runtime();
+  ghostIn(live);
+  const before = live.grid.map((row) => row.map((node) => node.id));
+  const result = await executeSlidesDelete({ reference: 'label:Stray' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'deleted');
+  assert.equal(result.result.outcome, 'verified');
+  assert.deepEqual(result.result.before.slide, {
+    id: '1:9', name: 'Ghost', label: 'Stray', row: null, col: null,
+  });
+  assert.deepEqual(result.result.before.unlisted, ['1:9']);
+  assert.deepEqual(result.result.actual.unlisted, []);
+  assert.deepEqual(result.result.actual.rows, before, 'the grid itself was untouched');
+  assert.equal(live.registry.has('1:9'), false);
+});
+
+test('a focus resting on an unlisted slide no longer refuses deleting a listed one', async () => {
+  const live = runtime();
+  const ghost = ghostIn(live);
+  live.page.focusedSlide = ghost;
+  const result = await executeSlidesDelete({ reference: 'label:Body' }, {
+    evaluate: evaluate(live.figma),
+  });
+  assert.equal(result.result.status, 'deleted');
+  assert.equal(result.result.before.focusedId, '1:9');
+  assert.deepEqual(result.result.actual.unlisted, ['1:9']);
+});

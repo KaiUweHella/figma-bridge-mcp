@@ -6,6 +6,7 @@ import {
   TRANSITION_CURVES,
   TRANSITION_STYLES,
   TRANSITION_TIMINGS,
+  slidePageSlidesFragment,
 } from '../lib/slides-snippets.js';
 import {
   MAX_SLIDES_DUPLICATE_INDEX,
@@ -95,6 +96,7 @@ export function slidesDuplicateCode(request) {
       || typeof figma.moveNodesToCoord !== 'function') {
       return refused('Slides Duplicate requires the native Slides API.');
     }
+    ${slidePageSlidesFragment()}
     const transitionOf = (slide) => {
       if (typeof slide.getSlideTransition !== 'function') {
         throw new Error('Slides Duplicate requires native transition facts.');
@@ -162,6 +164,17 @@ export function slidesDuplicateCode(request) {
           return node.id;
         });
       });
+      // The grid is authoritative for coordinates, the page tree for existence:
+      // a slide the grid has not listed yet is still a slide, and still may be
+      // the focused one. It joins the snapshot without a coordinate.
+      const unlisted = [];
+      for (const node of __pageSlides()) {
+        if (ids.has(node.id)) continue;
+        if (node.type !== 'SLIDE' || !validId(node.id) || !text(node.name, ${MAX_SLIDES_DUPLICATE_LABEL_CODE_UNITS})) {
+          throw new Error('Slides Duplicate requires unique native Slide identities.');
+        }
+        ids.add(node.id); nodes.set(node.id, node); unlisted.push(node.id);
+      }
       const focus = page.focusedSlide || null;
       if (focus && (focus.type !== 'SLIDE' || !validId(focus.id) || !ids.has(focus.id))) {
         throw new Error('Slides Duplicate found an invalid focused Slide.');
@@ -175,7 +188,7 @@ export function slidesDuplicateCode(request) {
       }
       return {
         page, nodes, selection: [...page.selection], focus,
-        value: { pageId: page.id, rows, focusedId: focus ? focus.id : null, selectionIds },
+        value: { pageId: page.id, rows, unlisted, focusedId: focus ? focus.id : null, selectionIds },
       };
     };
     const without = (rows, nodeId) => rows
@@ -191,15 +204,16 @@ export function slidesDuplicateCode(request) {
     };
     const attributable = (beforeRows, afterRows, nodeId) => occurrences(afterRows, nodeId) === 1
       && sameRows(without(afterRows, nodeId), beforeRows);
-    const facts = (slide, rows) => {
+    const facts = (slide, state) => {
       if (!slide || slide.type !== 'SLIDE' || !validId(slide.id)
         || !text(slide.name, ${MAX_SLIDES_DUPLICATE_LABEL_CODE_UNITS})
         || !Array.isArray(slide.children) || slide.children.length > ${MAX_SLIDES_DUPLICATE_CHILDREN}
         || typeof slide.isSkippedSlide !== 'boolean') {
         throw new Error('Slides Duplicate found invalid Slide facts.');
       }
-      const coordinate = position(rows, slide.id);
-      if (!coordinate) throw new Error('Slides Duplicate found a Slide outside the native grid.');
+      const coordinate = position(state.rows, slide.id)
+        || (state.unlisted.includes(slide.id) ? { row: null, col: null } : null);
+      if (!coordinate) throw new Error('Slides Duplicate found a Slide outside the grid.');
       return {
         id: slide.id, name: slide.name, label: labelOf(slide) || null,
         row: coordinate.row, col: coordinate.col, skipped: slide.isSkippedSlide,
@@ -272,7 +286,7 @@ export function slidesDuplicateCode(request) {
         && request.col > beforeRefs.value.rows[request.row].length) {
         return refused('Slides Duplicate target column is outside its row.');
       }
-      beforeSource = facts(source, beforeRefs.value.rows);
+      beforeSource = facts(source, beforeRefs.value);
       if (request.label === null
         && ((beforeSource.label || beforeSource.name) + ' copy').length
           > ${MAX_SLIDES_DUPLICATE_LABEL_CODE_UNITS}) {
@@ -320,14 +334,15 @@ export function slidesDuplicateCode(request) {
       }
       if (!copy && copyId) copy = await figma.getNodeByIdAsync(copyId);
       const currentSource = actualRefs.nodes.get(source.id) || null;
-      const sourceFact = currentSource ? facts(currentSource, actualRefs.value.rows) : null;
-      const copyFact = copy ? facts(copy, actualRefs.value.rows) : null;
+      const sourceFact = currentSource ? facts(currentSource, actualRefs.value) : null;
+      const copyFact = copy ? facts(copy, actualRefs.value) : null;
       const expectedLabel = request.label || (sourceFact && (sourceFact.label || sourceFact.name) + ' copy');
       const exactSuccess = sourceFact && copyFact && copyFact.id !== sourceFact.id
         && actualRefs.value.pageId === beforeRefs.value.pageId
         && actualRefs.value.focusedId === copyFact.id
         && same(actualRefs.value.selectionIds, [copyFact.id])
         && attributable(beforeRefs.value.rows, actualRefs.value.rows, copyFact.id)
+        && same(actualRefs.value.unlisted, beforeRefs.value.unlisted)
         && requestedPosition(actualRefs.value.rows, copyFact.id)
         && sameSource(beforeSource, sourceFact) && sameClone(beforeSource, copyFact)
         && copyFact.label === expectedLabel;
@@ -377,7 +392,8 @@ export function slidesDuplicateCode(request) {
       const restored = snapshot().value;
       const residue = [];
       if (candidateId && occurrences(restored.rows, candidateId) > 0) residue.push('duplicated-slide');
-      if (!sameRows(restored.rows, beforeRefs.value.rows)) residue.push('grid-membership');
+      if (!sameRows(restored.rows, beforeRefs.value.rows)
+        || !same(restored.unlisted, beforeRefs.value.unlisted)) residue.push('grid-membership');
       if (restored.pageId !== beforeRefs.value.pageId) residue.push('page');
       if (restored.focusedId !== beforeRefs.value.focusedId) residue.push('focus');
       if (!same(restored.selectionIds, beforeRefs.value.selectionIds)) residue.push('selection');
@@ -434,16 +450,40 @@ function rows(value) {
   return true;
 }
 
+function unlistedIds(value, rowsValue, maximum) {
+  if (!Array.isArray(value) || value.length > maximum) return false;
+  const gridIds = new Set(rowsValue.flat());
+  const seen = new Set();
+  return value.every((nodeId) => {
+    if (!id(nodeId) || gridIds.has(nodeId) || seen.has(nodeId)) return false;
+    seen.add(nodeId);
+    return true;
+  });
+}
+
+// A slide the grid lists must sit where the fact says; one the grid has not
+// listed yet carries no coordinate and must be among the snapshot's unlisted ids.
+function placed(state, slide) {
+  const coordinate = position(state.rows, slide.id);
+  if (coordinate) return coordinate.row === slide.row && coordinate.col === slide.col;
+  return slide.row === null && slide.col === null && state.unlisted.includes(slide.id);
+}
+function coordinateFact(row, col, maxRow, maxCol) {
+  return (count(row, maxRow) && count(col, maxCol)) || (row === null && col === null);
+}
+
 function snapshot(value) {
-  if (!exact(value, ['pageId', 'rows', 'focusedId', 'selectionIds'])
+  if (!exact(value, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds'])
     || !id(value.pageId) || !rows(value.rows)
+    || !unlistedIds(value.unlisted, value.rows, MAX_SLIDES_DUPLICATE_GRID_ENTRIES)
     || (value.focusedId !== null && !id(value.focusedId))
     || !Array.isArray(value.selectionIds)
     || value.selectionIds.length > MAX_SLIDES_DUPLICATE_SELECTION
     || value.selectionIds.some((nodeId) => !id(nodeId))
     || new Set(value.selectionIds).size !== value.selectionIds.length) return false;
   const gridIds = new Set(value.rows.flat());
-  return value.focusedId === null || gridIds.has(value.focusedId);
+  return value.focusedId === null || gridIds.has(value.focusedId)
+    || value.unlisted.includes(value.focusedId);
 }
 
 function transition(value) {
@@ -463,8 +503,7 @@ function slideFact(value) {
     'id', 'name', 'label', 'row', 'col', 'skipped', 'transition', 'childCount',
   ]) && id(value.id) && text(value.name, MAX_SLIDES_DUPLICATE_LABEL_CODE_UNITS)
     && (value.label === null || text(value.label, MAX_SLIDES_DUPLICATE_LABEL_CODE_UNITS))
-    && count(value.row, MAX_SLIDES_DUPLICATE_INDEX)
-    && count(value.col, MAX_SLIDES_DUPLICATE_INDEX)
+    && coordinateFact(value.row, value.col, MAX_SLIDES_DUPLICATE_INDEX, MAX_SLIDES_DUPLICATE_INDEX)
     && typeof value.skipped === 'boolean' && transition(value.transition)
     && count(value.childCount, MAX_SLIDES_DUPLICATE_CHILDREN);
 }
@@ -517,7 +556,9 @@ function matchesSuccess(before, actual, input) {
     || !same(actual.selectionIds, [slide.id]) || !sameSource(before.source, source)
     || source.skipped !== slide.skipped || source.childCount !== slide.childCount
     || !sameTransition(source.transition, slide.transition)
-    || !sameRows(without(actual.rows, slide.id), before.rows)) return false;
+    || !sameRows(without(actual.rows, slide.id), before.rows)
+    || !same(actual.unlisted, before.unlisted)
+    || !placed(before, before.source) || !placed(actual, source)) return false;
   const coordinate = position(actual.rows, slide.id);
   if (!coordinate || coordinate.row !== slide.row || coordinate.col !== slide.col) return false;
   if (input.row === null) {
@@ -539,16 +580,12 @@ function validSuccess(value, input) {
     && value.attempted === 1 && value.restored === 0
     && Array.isArray(value.residue) && value.residue.length === 0
     && validRequest(value.request, input)
-    && exact(value.before, ['pageId', 'rows', 'focusedId', 'selectionIds', 'source'])
-    && snapshot({
-      pageId: value.before.pageId, rows: value.before.rows,
-      focusedId: value.before.focusedId, selectionIds: value.before.selectionIds,
-    }) && slideFact(value.before.source)
-    && exact(value.actual, ['pageId', 'rows', 'focusedId', 'selectionIds', 'source', 'slide'])
-    && snapshot({
-      pageId: value.actual.pageId, rows: value.actual.rows,
-      focusedId: value.actual.focusedId, selectionIds: value.actual.selectionIds,
-    }) && slideFact(value.actual.source) && slideFact(value.actual.slide)
+    && exact(value.before, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'source'])
+    && snapshot({ pageId: value.before.pageId, rows: value.before.rows, unlisted: value.before.unlisted,
+      focusedId: value.before.focusedId, selectionIds: value.before.selectionIds }) && slideFact(value.before.source)
+    && exact(value.actual, ['pageId', 'rows', 'unlisted', 'focusedId', 'selectionIds', 'source', 'slide'])
+    && snapshot({ pageId: value.actual.pageId, rows: value.actual.rows, unlisted: value.actual.unlisted,
+      focusedId: value.actual.focusedId, selectionIds: value.actual.selectionIds }) && slideFact(value.actual.source) && slideFact(value.actual.slide)
     && matchesSuccess(value.before, value.actual, input)
     && Array.isArray(value.warnings)
     && value.warnings.length === (value.outcome === 'verified-after-error' ? 1 : 0)

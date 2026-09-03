@@ -42,6 +42,35 @@ export const DECK_FACT_KEYS = Object.freeze([
 ]);
 
 /**
+ * Eval source for the slides the page tree holds, in tree order.
+ *
+ * `figma.getCanvasGrid()` is authoritative for coordinates but lags the page
+ * tree for existence -- measured on 2026-09-03, a live SLIDE under a
+ * SLIDE_ROW stayed absent from the grid for minutes. Every reader and every
+ * mutation snapshot splices this one walk so none of them can be blind to a
+ * slide the user can see. Defines `__pageSlides()` returning SLIDE nodes
+ * under a node budget; the walk does not descend into a slide.
+ */
+export function slidePageSlidesFragment() {
+  return `
+    const __pageSlides = () => {
+      const found = [];
+      let walked = 0;
+      const collect = (node, depth) => {
+        if (!node || depth > 4 || walked >= ${MAX_DECK_PAGE_WALK_NODES}) return;
+        walked++;
+        if (node.type === 'SLIDE') { found.push(node); return; }
+        const children = node.children;
+        if (!Array.isArray(children)) return;
+        for (const child of children) collect(child, depth + 1);
+      };
+      collect(figma.currentPage, 0);
+      return found;
+    };
+  `;
+}
+
+/**
  * Eval source for reading a whole Slides deck as bounded per-slide facts.
  *
  * The existing single-slide commands each inline their own copy of this walk;
@@ -57,6 +86,7 @@ export const DECK_FACT_KEYS = Object.freeze([
  */
 export function slideDeckFactsFragment() {
   return `
+    ${slidePageSlidesFragment()}
     const __deckStyles = new Set(${JSON.stringify(TRANSITION_STYLES)});
     const __deckCurves = new Set(${JSON.stringify(TRANSITION_CURVES)});
     const __deckTimings = new Set(${JSON.stringify(TRANSITION_TIMINGS)});
@@ -154,27 +184,16 @@ export function slideDeckFactsFragment() {
       // grid stays authoritative for coordinates; the page tree is
       // authoritative for existence.
       const unlisted = [];
-      let walked = 0;
-      const collect = (node, depth) => {
-        if (!node || depth > 4 || walked >= ${MAX_DECK_PAGE_WALK_NODES}) return;
-        walked++;
-        if (node.type === 'SLIDE') {
-          if (!seen.has(node.id)) {
-            if (!__deckId(node.id) || !__deckText(node.name)
-              || slides.length >= ${MAX_DECK_SLIDES}) {
-              throw new Error('invalid slide identity');
-            }
-            seen.add(node.id);
-            slides.push(node);
-            unlisted.push(node.id);
-          }
-          return;
+      for (const node of __pageSlides()) {
+        if (seen.has(node.id)) continue;
+        if (!__deckId(node.id) || !__deckText(node.name)
+          || slides.length >= ${MAX_DECK_SLIDES}) {
+          throw new Error('invalid slide identity');
         }
-        const children = node.children;
-        if (!Array.isArray(children)) return;
-        for (const child of children) collect(child, depth + 1);
-      };
-      collect(figma.currentPage, 0);
+        seen.add(node.id);
+        slides.push(node);
+        unlisted.push(node.id);
+      }
 
       const focused = figma.currentPage.focusedSlide;
       const focusedId = focused == null ? null : focused.id;

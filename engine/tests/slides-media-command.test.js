@@ -134,6 +134,20 @@ describe('Slides media', () => {
     assert.deepEqual(node.fills, [{ type: 'VIDEO', scaleMode: 'FILL', videoHash: 'vid' }]);
   });
 
+  it('resolves a slide by label when the canvas grid has not listed it yet', async () => {
+    const live = runtime();
+    const ghost = {
+      id: '1:9', name: '9', type: 'SLIDE', width: 1920, height: 1080, children: [],
+      getPluginData(key) { return key === SLIDE_LABEL_KEY ? 'Stray' : ''; },
+      appendChild(child) { this.children.push(child); child.parent = this; },
+    };
+    live.nodes.set(ghost.id, ghost);
+    live.figma.currentPage = { children: [{ type: 'SLIDE_ROW', children: [live.slide, ghost] }] };
+    const result = await run(live, ['slides', 'media', 'label:Stray', '/w/shot.png']);
+    assert.equal(result.result.slideId, '1:9');
+    assert.equal(ghost.children.length, 1);
+  });
+
   it('refuses a file larger than the eval payload can carry, before reading it', () => {
     const live = runtime();
     const io = workspace({ size: SLIDES_MEDIA_HARD_LIMIT + 1 });
