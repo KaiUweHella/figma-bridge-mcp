@@ -2439,6 +2439,50 @@ const SLIDES_SAFE_REJECTION_PATTERNS = Object.freeze([
   /^batch item \d+ (?:must be an object|op must be one of [a-z, ]+|requires a slide reference|reference must not carry a file key; a batch runs against one deck|col requires row|move requires both row and col|(?:row|col) must be an integer between \d+ and \d+|label must be a non-empty string of at most \d+ characters|: Invalid (?:Union|Node) Reference \([a-z-]+\)\.?)$/,
 ]);
 
+// Variable and Collection parsers refuse with `Invalid var <verb> command:
+// <reason>.` / `Invalid col <verb> command: <reason>.`. The reasons below name
+// options, field labels, closed value sets and bounds only; a reason that could
+// carry an argument (a value or colour that failed to parse) stays generic.
+// `var list` and `var find` keep their dedicated explanation above.
+const VARIABLE_REJECTION_PARSERS = Object.freeze({
+  'var.create': parseVariableCreateRequest,
+  'var.create-batch': parseVariableCreateBatchRequest,
+  'var.show': parseVariableFactsRequest,
+  'var.update': parseVariableUpdateRequest,
+  'var.update-batch': parseVariableUpdateBatchRequest,
+  'var.set-value': parseVariableSetValueRequest,
+  'var.set-value-batch': parseVariableSetValueBatchRequest,
+  'var.code-syntax': parseVariableCodeSyntaxRequest,
+  'var.resolve': parseVariableResolutionRequest,
+  'var.visualize': parseVariableVisualizationRequest,
+  'var.delete': parseVariableDeleteRequest,
+  'col.list': parseCollectionCatalogRequest,
+  'col.show': parseCollectionFactsRequest,
+  'col.create': parseCollectionCreateRequest,
+  'col.update': parseCollectionUpdateRequest,
+  'col.mode-add': parseCollectionModeRequest,
+  'col.mode-rename': parseCollectionModeRequest,
+  'col.mode-remove': parseCollectionModeRequest,
+  'col.delete': parseCollectionDeleteRequest,
+  'col.extend': parseCollectionExtendRequest,
+});
+const VARIABLE_SAFE_REJECTION_PATTERNS = Object.freeze([
+  /^--[a-z-]{1,32} (?:is required|may be provided only once|requires a (?:value|limit)|cannot be combined with --remove)$/,
+  /^[a-zA-Z][a-zA-Z /-]{0,40}(?:,? (?:and|or) [a-zA-Z /-]{1,40})? (?:is|are) required$/,
+  /^(?:only|exactly) one [a-zA-Z ,/-]{1,60} (?:is|are) (?:accepted|required)$/,
+  /^provide (?:a value or --alias|a value or --remove|either a literal value or --alias(?:, not both)?|exactly one value or --remove|--name or --hidden|--name, --description, --hidden, or --scopes)$/,
+  /^(?:hidden|remove) must be (?:true or false|boolean)$/,
+  /^action must be add, rename, or remove$/,
+  /^platform must be WEB, ANDROID, or iOS$/,
+  /^JSON must be (?:text|valid|a non-empty array|at most \d+ code units)$/,
+  /^at (?:least one exact name or id is required|most \d+ (?:items|names or ids) are accepted)$/,
+  /^duplicate (?:Variable\/mode pairs are not accepted|names or ids are not accepted|names in one batch require --allow-duplicate|option --[a-z-]{1,32})$/,
+  /^value (?:must be text|cannot be combined with --remove)$/,
+  /^[a-zA-Z][a-zA-Z /-]{0,40} (?:contains unsupported control characters|must be at most \d+ code units)$/,
+  /^[a-z-]{1,32} requires exactly \d+ values$/,
+  /^nodeId must be a bounded Figma node id or URL containing node-id$/,
+]);
+
 /**
  * Project a denied argv into bounded, payload-free guidance for human and MCP
  * Adapters. This does not change the fail-closed Command Plan.
@@ -2504,6 +2548,18 @@ export function explainFigmaCommandRejection(rawArgs, {
         label: 'style apply',
         parse: parseStyleApplyRequest,
         errorPrefix: /^Invalid style apply command: /,
+      }),
+    );
+  }
+  if (VARIABLE_REJECTION_PARSERS[actionId]) {
+    return boundedCommandRejection(
+      prefix + explainTypedRequestRejection({
+        normalized,
+        actionId,
+        label: actionId.replace('.', ' '),
+        parse: VARIABLE_REJECTION_PARSERS[actionId],
+        errorPrefix: /^Invalid (?:var|col) [a-z-]+ command: /,
+        safePatterns: [...VARIABLE_SAFE_REJECTION_PATTERNS],
       }),
     );
   }

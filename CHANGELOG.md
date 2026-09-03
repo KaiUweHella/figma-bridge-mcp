@@ -99,6 +99,12 @@ which was prepared on 2026-09-01 and never published.
   coordinate there is no origin to restore if the move must be reversed.
   `slides media` and `slides focus` resolve `name:`/`label:` references over
   the page tree as well, not only over the grid.
+- A refused `var` or `col` command now says why, the same way: each action
+  maps to its parser at the Capability Catalog's rejection projection, and the
+  parser's reason is shown when it carries no caller payload (option names,
+  field labels, closed value sets, bounds). `var set-value` without `--mode`
+  used to be "Malformed request for var set-value"; it now says
+  "--mode is required".
 - A refused Slides command now says why. `slides view sideways` reported
   "Command not allowed: slides view", as if the verb were disallowed when the
   mode was the problem; the same held for every Slides verb with invalid

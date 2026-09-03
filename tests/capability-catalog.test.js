@@ -144,6 +144,45 @@ test('Slides rejection guidance names the parser reason without echoing argument
   );
 });
 
+test('Variable and Collection rejection guidance names the parser reason without echoing arguments', () => {
+  const cases = [
+    {
+      args: ['var', 'set-value', 'private-payload', '--collection', 'private-payload', '--alias', 'accent'],
+      pattern: /Malformed request for var set-value: --mode is required\. Accepted form:/,
+    },
+    {
+      args: ['var', 'set-value', 'private-payload', '--mode', 'M', '--alias', 'accent', 'private-literal'],
+      pattern: /Malformed request for var set-value: provide either a literal value or --alias, not both\./,
+    },
+    {
+      args: ['var', 'create', 'private-payload', '-c', 'private-payload'],
+      pattern: /Malformed request for var create: --type is required\./,
+    },
+    {
+      args: ['var', 'create-batch', 'private-payload', 'private-payload'],
+      pattern: /Malformed request for var create-batch: (?:--collection is required|exactly one JSON value is required|only one JSON value is accepted)\./,
+    },
+    {
+      args: ['col', 'mode-add', 'private-payload'],
+      pattern: /Malformed request for col mode-add: (?:mode-add requires exactly \d+ values|[a-zA-Z ]+ (?:is|are) required)\./,
+    },
+    {
+      args: ['var', 'show', 'private-payload', 'private-payload'],
+      pattern: /Malformed request for var show: only one variable is accepted\./,
+    },
+    {
+      args: ['var', 'update', 'private-payload'],
+      pattern: /Malformed request for var update: provide --name, --description, --hidden, or --scopes\./,
+    },
+  ];
+  for (const { args, pattern } of cases) {
+    const message = explainFigmaCommandRejection(args);
+    assert.match(message, pattern, `${args.join(' ')} → ${message}`);
+    assert.ok(message.length <= 700, args.join(' '));
+    assert.doesNotMatch(message, /private-(?:payload|literal)/, args.join(' '));
+  }
+});
+
 test('catalog owns the full read/write matrix including special flag semantics', () => {
   for (const args of [
     ['render', '<Frame/>'], ['combos', '1:2'], ['node', 'delete', '1:2'],
