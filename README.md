@@ -1564,11 +1564,15 @@ collection/mode identity and publish status. Variable and collection names must
 resolve uniquely; `--collection` is the explicit way to disambiguate duplicate
 variable names. For a color Alias whose opacity was authored in Figma,
 `valuesByMode` retains Figma's native `COMPOSE_COLOR` expression and percentage.
-The current public Figma Plugin API can read but cannot set that expression:
-`var set-value` and `var set-value-batch` therefore refuse before mutation when
-replacing such a prior value, and exact Snapshot import refuses before Plugin
-readiness instead of flattening it. Change or detach the opacity in Figma until
-Figma exposes a writable public setter. `var create-batch` accepts either `value` or an explicit
+The current public Figma Plugin API can read but cannot set that expression
+(measured on 2026-09-03 with typings 1.136.0: `setValueForMode` throws
+`Composed color variable values are not supported`, and the typings admit an
+`Expression` only when reading `valuesByMode`): `var set-value` and
+`var set-value-batch` therefore refuse before mutation when replacing such a
+prior value, and exact Snapshot import refuses before Plugin readiness instead
+of flattening it. Create the variable and its alias through the Bridge, then
+set or detach the opacity in Figma until Figma exposes a writable public
+setter. `var create-batch` accepts either `value` or an explicit
 `alias` per item. `aliasCollection` scopes a target in another Collection;
 same-batch forward references are also supported. Alias ambiguity, type
 mismatch and cycles stop before creation, and equal literals are never inferred
