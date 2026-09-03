@@ -17,8 +17,11 @@ semantic versioning loosely while pre-1.0 (breaking changes bump the minor).
   report. The compound Application runs it as the `text-fidelity` stage
   (`completed-with-findings` when anything differs, findings as warnings in
   the outcome), the `render` command prints it after every native render.
-  Browser DOM Capture writes the measured line count onto each text (`lines`)
-  so the probe has something to compare against.
+  Browser DOM Capture keeps the measured line count beside the plan, keyed by
+  semantic path and never on the plan itself, because the native executor
+  refuses unknown text props. Live against the Northern fixture's code-owned
+  section: 17/17 texts measured, no font fallback, one finding — the headline
+  set on one line in the browser and on two in Figma (406×96 at 40 px).
 - Browser DOM Capture no longer turns every single-line run in a responsive
   container into FILL. The run's measured width against the container's inner
   width decides: below 75 % of the track the text is HUG, at or above it the
