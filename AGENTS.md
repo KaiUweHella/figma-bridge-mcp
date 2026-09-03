@@ -16,6 +16,18 @@ passing is not evidence that this content may be committed: diff the staged
 content for file keys and personal names before any commit, and never
 `git add -A` without reading the added-file list first.
 
+What matters is the **file key** and any access key or token, because those
+address and unlock a file. A bare node or slide id does not: `12:34` identifies
+nothing without the file it belongs to, so real ids in docs, comments and test
+fixtures are fine. Prefer placeholders in _illustrative_ examples anyway — an
+example reads better when it is obviously an example — but do not treat a node
+id as a secret.
+
+Raw measurement logs, probe transcripts and handoff documents belong under
+`docs-local/` (`docs-local/live-tests/`, `docs-local/handoffs/`): not because
+node ids are sensitive, but because that material is session bookkeeping rather
+than something the repository should carry.
+
 ### Triage labels
 
 Use the canonical local triage vocabulary `needs-triage`, `needs-info`,

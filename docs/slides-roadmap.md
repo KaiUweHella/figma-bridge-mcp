@@ -130,6 +130,11 @@ single-slide>`. Both use surfaces the typings declare as settable
   single-slide view before a screenshot. Presentation playback is still not
   automated.
 
+Full probe transcripts and live command output for the items in this document
+are kept in the maintainer-local acceptance record under
+`docs-local/live-tests/`, which is not part of the repository — session
+bookkeeping rather than something the repo should carry.
+
 ## Known ergonomics wart across the whole group
 
 Invalid argv for any Slides subcommand is refused by the Capability Catalog
@@ -146,11 +151,15 @@ The most consequential finding of the session, and it invalidated a claim every
 Slides command rested on. The first write-up of it here was itself wrong about
 the cause, and the correction matters — see the end of this section.
 
-A timed-out `slides create` left slide `15:287` in the deck. It was a live
-`SLIDE`, `removed === false`, whose parent was `SLIDE_ROW 7:21` — and
-`figma.getCanvasGrid()` did not list it. Measured directly: the page tree
-reported 9 slides and row `7:21` holding `7:12, 7:14, 7:16, 7:18, 15:287`,
-while the grid reported 8.
+A timed-out `slides create` left slide `15:287` behind. It was a live `SLIDE`,
+`removed === false`, whose parent was `SLIDE_ROW 7:21` on the current page —
+and `figma.getCanvasGrid()` did not list it. Measured directly against the
+page tree:
+
+```
+page tree : 9 slides, row 7:21 = [7:12, 7:14, 7:16, 7:18, 15:287]
+grid      : 8 slides
+```
 
 Everything that walked only the grid was blind to it. `slides lint` reported
 "no findings across 8 slide(s)" on a nine-slide deck whose ninth slide was

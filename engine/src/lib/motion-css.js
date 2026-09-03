@@ -284,7 +284,7 @@ export function motionToCss(motion, { name = 'figma-motion' } = {}) {
   return { name, duration: round(duration, 4), keyframes, animation, limitations };
 }
 
-/** A CSS identifier derived from a Figma node id (`362:1948` → `motion-362-1948`). */
+/** A CSS identifier derived from a Figma node id (`12:34` → `motion-12-34`). */
 export function motionCssName(nodeId, prefix = 'motion') {
   const safe = String(nodeId || '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
   return `${prefix}-${safe || 'node'}`;

@@ -29,12 +29,12 @@ test('motionToCss composes transform tracks into one keyframe timeline with shif
     TRANSLATION_X: { keyframes: [key(0, float(0)), key(5, float(13)), key(10, float(0))] },
     TRANSLATION_Y: { keyframes: [key(0, float(0)), key(5, float(-7)), key(10, float(0))] },
     SCALE_XY: { keyframes: [key(0, { type: 'VECTOR', value: { x: 1, y: 1 } }), key(5, { type: 'VECTOR', value: { x: 1.04, y: 1.04 } }), key(10, { type: 'VECTOR', value: { x: 1, y: 1 } })] },
-  }, [{ id: '362:1846', duration: 10 }]);
-  const css = motionToCss(fact, { name: motionCssName('362:1948') });
-  assert.equal(css.name, 'motion-362-1948');
-  assert.equal(css.animation, 'animation: motion-362-1948 10s linear 1 normal both;');
+  }, [{ id: '12:34', duration: 10 }]);
+  const css = motionToCss(fact, { name: motionCssName('56:78') });
+  assert.equal(css.name, 'motion-56-78');
+  assert.equal(css.animation, 'animation: motion-56-78 10s linear 1 normal both;');
   assert.equal(css.keyframes, [
-    '@keyframes motion-362-1948 {',
+    '@keyframes motion-56-78 {',
     '  0% { transform: none; animation-timing-function: ease-in-out; }',
     '  50% { transform: translate(13px, -7px) scale(1.04); animation-timing-function: ease-in-out; }',
     '  100% { transform: none; }',
