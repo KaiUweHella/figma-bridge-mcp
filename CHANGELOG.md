@@ -36,6 +36,11 @@ which was prepared on 2026-09-01 and never published.
   repository; they are maintained in the maintainer's private workspace.
   Nothing in the published package changes, because `docs/` never shipped in
   it.
+- The public `docs/` directory now holds user documentation only: API
+  coverage, runtime compatibility, the CSS-to-Figma matrix, the browser
+  fidelity ledger and the Slides roadmap. Release and acceptance procedures,
+  evidence corpora and agent working conventions moved to the maintainer's
+  private workspace.
 - Shipped guidance no longer points at repository-only files: the
   design-to-code skill and the `figma_reference` workflow carry the browser
   fidelity ledger contract inline instead of naming `docs/…`, and the README

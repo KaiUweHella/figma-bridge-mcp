@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-Implementation tickets are maintained as private local Markdown under `docs-local/issues/`; that directory is ignored by Git. See `docs/agents/issue-tracker.md`.
+Implementation tickets are maintained as private local Markdown under `docs-local/issues/`; that directory is ignored by Git. See `docs-local/docs/agents/issue-tracker.md`.
 
 ### Live acceptance fixtures
 
@@ -33,11 +33,11 @@ than something the repository should carry.
 Use the canonical local triage vocabulary `needs-triage`, `needs-info`,
 `ready-for-agent`, `ready-for-human`, and `wontfix`. After verified
 implementation, the local lifecycle status is `completed`. See
-`docs/agents/triage-labels.md`.
+`docs-local/docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-This is a single-context repository: read the root `CONTEXT.md` and, when the maintainer-local workspace is present, the decision pages under `docs-local/decisions/` and the records under `docs-local/adr/` before changing a domain area. A new durable decision is recorded there. See `docs/agents/domain.md`.
+This is a single-context repository: read the root `CONTEXT.md` and, when the maintainer-local workspace is present, the decision pages under `docs-local/decisions/` and the records under `docs-local/adr/` before changing a domain area. A new durable decision is recorded there. See `docs-local/docs/agents/domain.md`.
 
 ### Release boundary
 

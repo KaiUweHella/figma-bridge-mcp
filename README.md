@@ -2154,8 +2154,7 @@ npm test                      # all contracts and regression suites
 ```
 
 The current domain language lives in [`CONTEXT.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/CONTEXT.md), API coverage in
-[`docs/figma-plugin-api-coverage.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/figma-plugin-api-coverage.md), and
-release instructions in [`docs/releasing.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/releasing.md). The public
+[`docs/figma-plugin-api-coverage.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/figma-plugin-api-coverage.md). The public
 documentation index is [`docs/README.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/README.md).
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
