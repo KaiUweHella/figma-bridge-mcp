@@ -69,10 +69,10 @@ label change the target file.
   **Delivered**: `slides batch '<json>' [--apply]`. The plan is the default and
   `--apply` the deliberate step, so the Capability Catalog classifies the plan
   as a read (`effects.figma: 'read'`) and only `--apply` as a write. That
-  default was chosen because three plugin execution timeouts were observed in
-  one session, one of which left an empty slide behind while reporting an
-  unknown outcome: a command bundling several mutations behind one dispatch
-  makes that failure mode more expensive, not less.
+  default was chosen because plugin execution timeouts do occur, and one of
+  them left an empty slide behind while reporting an unknown outcome: a
+  command bundling several mutations behind one dispatch makes that failure
+  mode more expensive, not less.
   Up to 64 heterogeneous items (`create`, `duplicate`, `move`). Every
   reference is resolved and every coordinate validated against **one** grid
   snapshot before anything is written; a coordinate that would only become
@@ -145,8 +145,7 @@ single-slide>`. Both use surfaces the typings declare as settable
 
 Full probe transcripts and live command output for the items in this document
 are kept in the maintainer-local acceptance record under
-`docs-local/live-tests/`, which is not part of the repository — session
-bookkeeping rather than something the repo should carry.
+`docs-local/live-tests/`, which is not part of the repository.
 
 ## Refusal messages name the reason (resolved 2026-09-03)
 
@@ -163,9 +162,9 @@ error, so the CLI and `figma_run` explain the same refusal the same way.
 
 ## getCanvasGrid() can lag the page tree for minutes (2026-09-03)
 
-The most consequential finding of the session, and it invalidated a claim every
-Slides command rested on. The first write-up of it here was itself wrong about
-the cause, and the correction matters — see the end of this section.
+This finding invalidated a claim every Slides command rested on. The first
+write-up of it here was itself wrong about the cause, and the correction
+matters — see the end of this section.
 
 A timed-out `slides create` left slide `15:287` behind. It was a live `SLIDE`,
 `removed === false`, whose parent was `SLIDE_ROW 7:21` on the current page —
@@ -201,8 +200,8 @@ exactly the mistake this document already warns about for typings comments.
 What that changes, and what it does not:
 
 - The reconciliation stays correct and necessary. A reader must not
-  under-report a deck, or refuse to read it, during a lag that can outlast a
-  whole working session. `slides lint` calling a nine-slide deck clean was
+  under-report a deck, or refuse to read it, during a lag that can last for
+  minutes. `slides lint` calling a nine-slide deck clean was
   wrong regardless of whether the grid would settle later.
 - The gap in the mutation commands was a **window**, not a permanent hole,
   and it is closed since 2026-09-03: every mutation snapshot splices the same
@@ -222,15 +221,11 @@ What that changes, and what it does not:
   deck walk now treats a throwing grid as empty and remembers the reason:
   readers list the deck from the page tree with no coordinates and say why,
   mutations refuse with the runtime's message.
-- Two of the session's "Plugin disconnected" failures were not Figma's doing
-  at all: every MCP server start copied the plugin bundle unconditionally,
+- Some "Plugin disconnected" failures were not Figma's doing at all: every
+  MCP server start copied the plugin bundle unconditionally,
   and Figma reloads a development plugin whenever its files change on disk.
   Fixed in `connect` (write only when bytes differ). The 59-second execution
-  timeouts of earlier acceptance sessions most likely had the same cause. That is far less severe than first recorded, and it
-  lowers the priority of giving those snapshots the same reconciliation —
-  though a command that refuses a slide the user can see is still a poor
-  answer, and the fix would also need verification by node existence rather
-  than grid difference.
+  timeouts of earlier acceptance runs most likely had the same cause.
 
 ## Observed Figma behaviour worth knowing (2026-09-02)
 
@@ -245,8 +240,8 @@ Two things that only live runs showed, both now handled rather than assumed:
   an explicit coordinate failed its own readback every time.
 - **A last-slide transition resets to `NONE`.** Creating a slide after the
   deck's final slide and deleting it again leaves that final slide with no
-  transition. Reproduced three times in one session against the same deck, and
-  found by `slides lint` each time rather than by reading the deck. The Bridge
+  transition. Reproduced repeatedly against the same deck, and found by
+  `slides lint` each time rather than by reading the deck. The Bridge
   writes no transition in that path, so this looks like Figma's own grid
   bookkeeping; worth a narrow reproduction against a scratch deck before
   reporting it upstream.

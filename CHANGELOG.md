@@ -53,8 +53,8 @@ which was prepared on 2026-09-01 and never published.
   re-authenticated the moment a server process started, and the request
   running at that moment failed with "Plugin disconnected", after which the
   read lane sat in quarantine until the daemon was restarted. This is the
-  likely cause of the 59-second execution timeouts recorded in the 0.7.4
-  acceptance sessions. The bundle is now written only when its bytes differ
+  likely cause of the 59-second execution timeouts seen during the 0.7.4
+  acceptance runs. The bundle is now written only when its bytes differ
   (`copyIfDifferent`), with a test that installs twice and requires the
   second run to leave the files untouched.
 - Slides readers no longer refuse a deck whose canvas grid throws. After a
@@ -79,7 +79,7 @@ which was prepared on 2026-09-01 and never published.
   existence — identity, label, focus and selection, with the grid unchanged —
   and reports `gridObserved: false`, the way `slides batch` does, after
   giving the grid the same short settle window the snapshot gets. Measured
-  live: the first create of the session landed exactly so, and the previous
+  live: a create against a lagging grid landed exactly so, and the previous
   behaviour left it behind as partial residue because the rollback could not
   see it either. A failed create now removes such a slide by existence.
 - The page-tree walk skips a node mid-removal whose property access throws
