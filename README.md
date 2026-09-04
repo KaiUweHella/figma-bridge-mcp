@@ -1047,9 +1047,7 @@ figma_run ["link","configure","--design-doc","docs/product-design.md","--tokens"
 ```
 
 Commit `figma-bridge.json`. Do not put secrets, absolute paths or generated
-credentials in it. The schema, the conflict rules and the baseline and
-context decisions are documented under
-[`docs/decisions/components-and-library.md`](docs/decisions/components-and-library.md).
+credentials in it.
 
 ### Reviewed CSS ↔ Figma boundary strategies
 
@@ -2155,8 +2153,7 @@ npm run build:package-artifact -- --output-dir release-artifact # reproducible r
 npm test                      # all contracts and regression suites
 ```
 
-The current domain language lives in [`CONTEXT.md`](CONTEXT.md), the design
-decisions in [`docs/decisions/`](docs/decisions/), API coverage in
+The current domain language lives in [`CONTEXT.md`](CONTEXT.md), API coverage in
 [`docs/figma-plugin-api-coverage.md`](docs/figma-plugin-api-coverage.md), and
 release instructions in [`docs/releasing.md`](docs/releasing.md). The public
 documentation index is [`docs/README.md`](docs/README.md).

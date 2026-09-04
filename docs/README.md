@@ -3,8 +3,6 @@
 This directory contains durable documentation that is useful to users,
 contributors, and security reviewers:
 
-- [`decisions/`](decisions/) states the design decisions by area: what the
-  Bridge does or refuses, why, and what that means for users and agents.
 - [`figma-plugin-api-coverage.md`](figma-plugin-api-coverage.md) describes the
   supported public Figma Plugin API surface and its boundaries.
 - [`css-figma-semantic-matrix.md`](css-figma-semantic-matrix.md) documents

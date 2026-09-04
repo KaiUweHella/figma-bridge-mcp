@@ -79,11 +79,10 @@ security-relevant needs a test that fails without the fix — the existing negat
 `tests/daemon-auth.test.js` (forged proof,
 replayed nonce, wrong port, proto downgrade) are the pattern to follow.
 
-Use the nouns in `CONTEXT.md` when a change crosses a Module or Interface. A
-durable architectural choice is stated in `docs/decisions/` as its current
-rule; the full record with context and evidence, like experiments and
-completed plans, belongs in the ignored maintainer workspace under
-`docs-local/`.
+Use the nouns in `CONTEXT.md` when a change crosses a Module or Interface.
+Architectural decisions, experiments and completed plans are maintained in the
+ignored maintainer workspace under `docs-local/`; if a change crosses a
+documented boundary, open an issue first.
 
 `plugin/ui.html` and `plugin/code.js` are only ever parsed by Figma, so
 `tests/plugin-handshake.test.js` parses them and runs the panel's crypto against

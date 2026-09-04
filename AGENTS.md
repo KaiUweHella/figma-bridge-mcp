@@ -37,7 +37,7 @@ implementation, the local lifecycle status is `completed`. See
 
 ### Domain docs
 
-This is a single-context repository: read the root `CONTEXT.md` and the relevant decisions under `docs/decisions/` before changing a domain area. The full decision records with their context and evidence live in the maintainer-local `docs-local/adr/`; a new durable decision is recorded there and its current state is added to `docs/decisions/`. See `docs/agents/domain.md`.
+This is a single-context repository: read the root `CONTEXT.md` and, when the maintainer-local workspace is present, the decision pages under `docs-local/decisions/` and the records under `docs-local/adr/` before changing a domain area. A new durable decision is recorded there. See `docs/agents/domain.md`.
 
 ### Release boundary
 
