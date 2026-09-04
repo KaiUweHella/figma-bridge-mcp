@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   executeTokenSync,
@@ -121,7 +121,7 @@ test('one cross-Adapter Plan distinguishes dry-run read from non-retrying apply'
   assert.equal(apply.effects.workspace, 'write');
   assert.equal(apply.execution.retry, 'never');
   assert.deepEqual(apply.outputs, [{
-    role: 'token-lockfile', path: '/workspace/figma-tokens.lock.json',
+    role: 'token-lockfile', path: resolve('/workspace', 'figma-tokens.lock.json'),
   }]);
   const cli = planFigmaCommand(apply.argv, {
     adapter: 'cli', workspaceDir: '/workspace', fileKey: 'FILE_A',
@@ -137,7 +137,7 @@ test('source and optional lock are prepared before any Figma readiness', () => {
   });
   const reads = [];
   const result = prepareTokenSyncPlan(plan, { workspaceIO: {
-    exists(path, options) { assert.equal(path, '/workspace/figma-tokens.lock.json');
+    exists(path, options) { assert.equal(path, resolve('/workspace', 'figma-tokens.lock.json'));
       assert.deepEqual(options, { role: 'token-lockfile', kind: 'file' }); return false; },
     readText(path, options) { reads.push({ path, options }); return JSON.stringify({
       space: { md: { $type: 'dimension', $value: '8px' } },
@@ -145,7 +145,7 @@ test('source and optional lock are prepared before any Figma readiness', () => {
     write() { throw new Error('preparation must not write'); },
   } });
   assert.deepEqual(reads, [{
-    path: '/workspace/tokens.json', options: { role: 'token-file' },
+    path: resolve('/workspace', 'tokens.json'), options: { role: 'token-file' },
   }]);
   assert.equal(result.tokens[0].name, 'space/md');
 });

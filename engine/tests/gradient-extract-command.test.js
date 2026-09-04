@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 import { PNG } from 'pngjs';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
@@ -187,7 +188,7 @@ test('Gradient Extract prepares one authorized bounded source before optional Fi
   assert.equal(local.plan.effects.workspace, 'read');
   assert.equal(local.plan.effects.figma, 'none');
   assert.equal(local.reads.length, 1);
-  assert.equal(local.reads[0].path, '/workspace/hero.png');
+  assert.equal(local.reads[0].path, resolve('/workspace', 'hero.png'));
   assert.equal(gradientExtractRequiresFigma(local.value), false);
   const result = await executePreparedGradientExtract(local.value, {
     evaluate() { throw new Error('must stay offline'); },
@@ -294,7 +295,7 @@ test('Gradient Extract owns one non-retrying conditional Plan across CLI and MCP
     assert.equal(plan.effects.workspace, 'read');
     assert.equal(plan.execution.retry, 'never');
     assert.equal(gradientExtractPlanRoute(plan), 'command-application');
-    assert.equal(parseGradientExtractRequest(plan.argv).image, '/workspace/hero.png');
+    assert.equal(parseGradientExtractRequest(plan.argv).image, resolve('/workspace', 'hero.png'));
   }
   assert.deepEqual(cli.argv, mcp.argv);
   assert.deepEqual(cli.effects, mcp.effects);

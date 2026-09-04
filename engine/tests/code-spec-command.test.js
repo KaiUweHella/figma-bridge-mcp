@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
 import { planFigmaCommand } from '../../src/capability-catalog.js';
 import {
   codeSpecPlanRoute,
@@ -339,7 +340,7 @@ test('code-spec output paths are owned by the Command Plan, run long, and stay a
   assert.equal(plan.execution.timeout, 'long');
   assert.equal(plan.execution.retry, 'safe-read');
   assert.deepEqual(plan.outputs.map((output) => [output.role, output.path]),
-    [['code-spec-output', '/workspace/spec/screen.json']]);
+    [['code-spec-output', resolve('/workspace', 'spec/screen.json')]]);
   assert.equal(plan.effects.workspace, 'write');
   assert.equal(plan.effects.figma, 'read');
 
@@ -348,8 +349,8 @@ test('code-spec output paths are owned by the Command Plan, run long, and stay a
   const result = await executeCodeSpecPlan(plan, {
     ...adapter, workspaceIO: { write: async (path, text) => { writes.push(path); } },
   });
-  assert.deepEqual(writes, ['/workspace/spec/screen.json']);
-  assert.match(result.stdout, /written to \/workspace\/spec\/screen\.json/);
+  assert.deepEqual(writes, [resolve('/workspace', 'spec/screen.json')]);
+  assert.ok(result.stdout.includes(`written to ${resolve('/workspace', 'spec/screen.json')}`), result.stdout);
 
   const inline = planFigmaCommand(['export', 'code-spec', '1:2'], { adapter: 'mcp', workspaceDir: '/workspace', fileKey: 'FILE_A' });
   assert.equal(inline.execution.timeout, 'long');
