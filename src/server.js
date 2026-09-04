@@ -1438,9 +1438,15 @@ specification — copy it, never interpret it. Follow these steps in order:
    against the rendered build. Do not silently normalize or improve the design:
    ask the user before changing design semantics, such as converting plain
    status text into a pill, tag or other component.
-   Persist this as the bounded browser fidelity ledger documented by
-   docs/browser-fidelity-ledger.md. Pair every source node id with a stable
-   data-figma-entity target or an unambiguous capture path.
+   Persist this as the bounded browser fidelity ledger: a JSON file
+   { schemaVersion: 1, sourceRootNodeId, facts: [{ id, sourceNodeId, target,
+   property, expected }] } where target is { entity } (a data-figma-entity,
+   preferred) or { path } (the capture path, with occurrence when a path
+   repeats) and property is present, font.loaded, style.<computed>,
+   authoredStyle.<prop>, rect.w or rect.h. Gate the build with
+   verify-build <project> --fidelity-ledger <ledger.json>
+   --browser-capture <capture.json>, the capture coming from
+   render --print-browser-capture; a missing fact fails the gate.
 6. Interactive states: the spec ends with "Component sets used on this
    screen". Add the listed SET node ids to the same nodeIds[] batch when
    possible; one bounded set read captures every variant and its exact styles.

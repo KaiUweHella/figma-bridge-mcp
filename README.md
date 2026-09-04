@@ -1056,7 +1056,7 @@ substitutions: `minmax.native-grid`, `space-around.equal-slots`,
 `border.single-paint-native`, `sticky.metadata-only`, `filters.layer-stack`,
 `masks.vector-mask`, `font.named-faces`, and `figma-effects.native`. The full
 matrix and its remaining hard stops live in
-[`docs/css-figma-semantic-matrix.md`](docs/css-figma-semantic-matrix.md).
+[`docs/css-figma-semantic-matrix.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/css-figma-semantic-matrix.md).
 
 Reviewed lossy policies can opt into an automatic native Figma annotation on
 the exact affected semantic node. The annotation explains the unsupported CSS
@@ -1275,7 +1275,7 @@ all), `lint` reports them as `unlisted-slide`, `delete`, `transition`, `skip`,
 — without a coordinate there is no origin to restore. Every operation checks
 `figma.editorType === "slides"` before touching a Slides-only API. Polls,
 facepiles, embeds and speaker notes have no public create or read API; the
-roadmap in [`docs/slides-roadmap.md`](docs/slides-roadmap.md) records what was
+roadmap in [`docs/slides-roadmap.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/slides-roadmap.md) records what was
 probed against the live runtime, and editor acceptance is maintainer-verified
 separately from the public repository.
 
@@ -2124,7 +2124,7 @@ Node's `crypto` so the two implementations cannot drift apart.
   create/duplicate/move/delete, skip state and transitions are supported.
   Speaker notes, interactive polls/embeds, presenter controls and a complete
   content-authoring workflow are not. See the
-  [Slides roadmap](docs/slides-roadmap.md) for actionable candidates versus
+  [Slides roadmap](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/slides-roadmap.md) for actionable candidates versus
   Plugin API boundaries.
 - **Non-localhost network actions are few and explicit**: `api setup` has no
   network effect; it verifies the exact official `@figma/plugin-typings`
@@ -2153,10 +2153,10 @@ npm run build:package-artifact -- --output-dir release-artifact # reproducible r
 npm test                      # all contracts and regression suites
 ```
 
-The current domain language lives in [`CONTEXT.md`](CONTEXT.md), API coverage in
-[`docs/figma-plugin-api-coverage.md`](docs/figma-plugin-api-coverage.md), and
-release instructions in [`docs/releasing.md`](docs/releasing.md). The public
-documentation index is [`docs/README.md`](docs/README.md).
+The current domain language lives in [`CONTEXT.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/CONTEXT.md), API coverage in
+[`docs/figma-plugin-api-coverage.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/figma-plugin-api-coverage.md), and
+release instructions in [`docs/releasing.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/releasing.md). The public
+documentation index is [`docs/README.md`](https://github.com/KaiUweHella/figma-bridge-mcp/blob/main/docs/README.md).
 
 Avoid running an upstream `figma-cli` at the same time. The daemon now falls
 back within 3456–3460 when 3456 is taken, so both _can_ coexist, but the plugin

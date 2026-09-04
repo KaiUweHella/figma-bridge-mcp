@@ -36,6 +36,11 @@ which was prepared on 2026-09-01 and never published.
   repository; they are maintained in the maintainer's private workspace.
   Nothing in the published package changes, because `docs/` never shipped in
   it.
+- Shipped guidance no longer points at repository-only files: the
+  design-to-code skill and the `figma_reference` workflow carry the browser
+  fidelity ledger contract inline instead of naming `docs/…`, and the README
+  links repository documents by absolute URL so they resolve from the npm
+  page as well.
 - `actions/upload-artifact` v6 → v7.0.1 in both workflows.
 - `@figma/plugin-typings` 1.133.0 → 1.136.0 through the pinned review:
   audited version, reviewed source digest, operation audit and Style Facts

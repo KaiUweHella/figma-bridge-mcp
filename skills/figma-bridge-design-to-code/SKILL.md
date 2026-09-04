@@ -72,12 +72,25 @@ for sections whose facts are still missing; put all known same-scope section
 reads into one `nodeIds[]` batch. If Figma changes during the task, invalidate the
 affected evidence and recapture it.
 
-Before implementation, write a bounded browser fidelity ledger per section.
-Follow `docs/browser-fidelity-ledger.md` and account for
-every exported/decorative layer, paint or gradient, blend mode, effect,
-per-side stroke, typography role, and fill/hug/responsive relationship from
-the scoped evidence. A fact may be implemented, intentionally code-only, or an
-explicit user-approved deviation; it may never disappear silently.
+Before implementation, write a bounded browser fidelity ledger per section
+and account for every exported/decorative layer, paint or gradient, blend
+mode, effect, per-side stroke, typography role, and fill/hug/responsive
+relationship from the scoped evidence. A fact may be implemented,
+intentionally code-only, or an explicit user-approved deviation; it may never
+disappear silently.
+
+The ledger is a JSON file `{ "schemaVersion": 1, "sourceRootNodeId": "<root
+node id>", "facts": [...] }`. Each fact carries `id`, `sourceNodeId`, one
+`target` (`{ "entity": "<data-figma-entity>" }` preferred, or
+`{ "path": "<capture path from class names, ARIA label or tag>" }`, plus
+`occurrence` when a path repeats on purpose), a `property` (`present`,
+`font.loaded`, `style.<computedProperty>`, `authoredStyle.<property>`,
+`rect.w` or `rect.h`) and the `expected` value; an approved deviation adds a
+non-empty review note. Gate the build with
+`figma_run ["verify-build", "<project>", "--fidelity-ledger", "<ledger.json>",
+"--browser-capture", "<capture.json>"]`, where the capture comes from
+`render --print-browser-capture`. Every fact resolves to `matched`,
+`approved-deviation` or `missing`, and a missing fact fails the gate.
 
 ## Preserve source fidelity
 
