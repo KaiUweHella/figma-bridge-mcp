@@ -28,11 +28,16 @@ which was prepared on 2026-09-01 and never published.
 - Browser DOM Capture no longer turns every single-line run in a responsive
   container into FILL. The run's measured width against the container's inner
   width decides: below 75 % of the track the text is HUG, at or above it the
-  copy is track-bound and stays FILL (`TEXT_HUG_BELOW_TRACK_RATIO`, ADR 0069
-  amended).
+  copy is track-bound and stays FILL (`TEXT_HUG_BELOW_TRACK_RATIO`; see
+  `docs/decisions/code-to-figma.md`).
 
 ### Changed
 
+- The design decisions now live in `docs/decisions/`, eight pages by area
+  that state each decision as its current rule, the reason, and what it
+  means for users and agents. The decision records they condense are
+  maintained privately by the maintainer; README, CONTRIBUTING and the agent
+  guidance point at the decision pages instead.
 - `actions/upload-artifact` v6 → v7.0.1 in both workflows.
 - `@figma/plugin-typings` 1.133.0 → 1.136.0 through the pinned review:
   audited version, reviewed source digest, operation audit and Style Facts
@@ -132,7 +137,7 @@ which was prepared on 2026-09-01 and never published.
 ### Added
 
 - Figma Slides content can be authored through the native render pipeline
-  (ADR 0130): `render --slide <nodeId>` renders one Semantic Render Plan into
+  (`docs/decisions/editors.md`): `render --slide <nodeId>` renders one Semantic Render Plan into
   the named slide. Previously `render-plan` was refused outside Figma Design,
   so a deck could only be filled by accident — through the legacy compatibility
   executor, which is not editor-gated — and it landed in whichever slide
@@ -250,7 +255,7 @@ which was prepared on 2026-09-01 and never published.
 
 ### Added
 
-- Motion round trip (ADR 0129): Design Capture keeps native Motion keyframe
+- Motion round trip (`docs/decisions/code-to-figma.md`): Design Capture keeps native Motion keyframe
   tracks and Code Spec projects them to `@keyframes` plus `animation` CSS with
   Figma's own easing curves (`## Motion` section, `motion` model field);
   Browser DOM Capture reads CSS animation facts and `@keyframes`, pauses
@@ -274,7 +279,7 @@ which was prepared on 2026-09-01 and never published.
   `figma_spec` accepts `outFile` and `export code-spec` accepts `-o/--output`
   to persist the complete projection in the workspace and return summary
   facts instead of hitting the inline result budget. Code Spec runs in the
-  long timeout class (ADR 0128). The live 826-layer Northern screen, whose
+  long timeout class (`docs/decisions/design-to-code.md`). The live 826-layer Northern screen, whose
   single-eval capture exceeded the 5 MB plugin message limit, now captures
   completely.
 - Canvas and Node authoring now has first-party Command Applications for Frame,

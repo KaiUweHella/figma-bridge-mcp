@@ -52,7 +52,7 @@ label change the target file.
 - Add slide-scoped accessibility and overflow checks.
 - ~~Reuse the existing render pipeline with one explicit target slide. Do not
   introduce a Slides-only renderer or a second transport.~~ **Delivered**
-  (ADR 0130): `render --slide <nodeId>` renders a Semantic Render Plan into one
+  (see `docs/decisions/editors.md`): `render --slide <nodeId>` renders a Semantic Render Plan into one
   named slide. The Dispatch Receipt guard admits exactly `render-plan` +
   `slides` + a well-formed slide id; `render-plan-batch` and every other editor
   stay refused. The executor resolves the target before any mutation and places

@@ -80,8 +80,10 @@ security-relevant needs a test that fails without the fix — the existing negat
 replayed nonce, wrong port, proto downgrade) are the pattern to follow.
 
 Use the nouns in `CONTEXT.md` when a change crosses a Module or Interface. A
-durable architectural choice belongs in `docs/adr/`; experiments and completed
-plans belong in the ignored maintainer workspace under `docs-local/`.
+durable architectural choice is stated in `docs/decisions/` as its current
+rule; the full record with context and evidence, like experiments and
+completed plans, belongs in the ignored maintainer workspace under
+`docs-local/`.
 
 `plugin/ui.html` and `plugin/code.js` are only ever parsed by Figma, so
 `tests/plugin-handshake.test.js` parses them and runs the panel's crypto against

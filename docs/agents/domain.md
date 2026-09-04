@@ -5,7 +5,9 @@ This is a single-context repository.
 ## Before exploring or changing code
 
 1. Read the root `CONTEXT.md` for the project’s domain language.
-2. Read the ADRs under `docs/adr/` that touch the area being changed.
+2. Read the decision pages under `docs/decisions/` that touch the area being
+   changed, and the maintainer-local records under `docs-local/adr/` when they
+   are available.
 3. Read any maintainer-local plan referenced by the active ticket.
 
 If one of these sources is absent, continue without proposing documentation

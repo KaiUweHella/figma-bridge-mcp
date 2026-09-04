@@ -1047,9 +1047,9 @@ figma_run ["link","configure","--design-doc","docs/product-design.md","--tokens"
 ```
 
 Commit `figma-bridge.json`. Do not put secrets, absolute paths or generated
-credentials in it. The schema and conflict rules are documented in
-`docs/adr/0007-dual-anchor-design-entities.md`, with baseline and context
-decisions in ADR-0008 and ADR-0009.
+credentials in it. The schema, the conflict rules and the baseline and
+context decisions are documented under
+[`docs/decisions/components-and-library.md`](docs/decisions/components-and-library.md).
 
 ### Reviewed CSS ↔ Figma boundary strategies
 
@@ -1921,7 +1921,7 @@ Motion is rolling out behind a Figma Beta flag. Without access, the commands
 fail with a named `MOTION_DISABLED` error telling you to update Figma Desktop
 rather than a generic API failure.
 
-Motion also travels with the design in both directions (ADR 0129):
+Motion also travels with the design in both directions:
 
 - **Figma → code.** `figma_spec` and `export code-spec` capture a layer's
   native keyframe tracks and project them to CSS: every animated layer gets a
@@ -2155,8 +2155,8 @@ npm run build:package-artifact -- --output-dir release-artifact # reproducible r
 npm test                      # all contracts and regression suites
 ```
 
-The current domain language lives in [`CONTEXT.md`](CONTEXT.md), accepted
-architectural decisions in [`docs/adr/`](docs/adr/), API coverage in
+The current domain language lives in [`CONTEXT.md`](CONTEXT.md), the design
+decisions in [`docs/decisions/`](docs/decisions/), API coverage in
 [`docs/figma-plugin-api-coverage.md`](docs/figma-plugin-api-coverage.md), and
 release instructions in [`docs/releasing.md`](docs/releasing.md). The public
 documentation index is [`docs/README.md`](docs/README.md).
