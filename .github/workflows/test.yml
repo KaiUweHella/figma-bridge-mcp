@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit
       - run: npm run check:public-safety:history
 
   test:
@@ -56,7 +56,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit
       # Node's test runner gives every test file its own process. Asset Export
       # then creates bounded publication Workers inside that process. A current
       # Windows runner terminated one such file without a JavaScript exception
@@ -77,7 +77,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit
       # Wall-clock budgets need an otherwise idle Node process. Running this
       # inside `node --test` lets parallel test files create false regressions.
       - run: npm run check:architecture-latency
@@ -85,14 +85,17 @@ jobs:
   runtime-audit:
     name: published runtime has no known vulnerabilities
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --ignore-scripts
+      # `npm ci` audits on its own by default; that call went to the retiring
+      # quick-audit endpoint and stalled for five minutes on 2026-09-04. The
+      # explicit audit below is the one check this job exists for.
+      - run: npm ci --ignore-scripts --no-audit
       # Keep this network-backed check separate from `npm test`: contributors
       # can run the deterministic suite offline, while CI and releases still
       # fail on any advisory in the package users actually install.
@@ -106,7 +109,7 @@ jobs:
   pack:
     name: tarball contains the runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -115,7 +118,7 @@ jobs:
           # only against the newer Node used to publish it.
           node-version: 18
           cache: npm
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit
       # The release gate compares the complete inventory to a reviewed
       # allowlist, rejects new executable bits, and requires two identical packs.
       - name: build independently verifiable package
@@ -123,7 +126,7 @@ jobs:
       - name: install the tarball and start its packaged engine
         run: |
           mkdir package-smoke
-          npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts --engine-strict
+          npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts --no-audit --engine-strict
           node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js
           node package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js --help
       - name: verify the installed production dependency graph

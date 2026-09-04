@@ -61,7 +61,7 @@ test("CI dependency installation suppresses lifecycle scripts", () => {
   for (const workflow of [TEST_WORKFLOW, PUBLISH_WORKFLOW]) {
     for (const line of workflow
       .split("\n")
-      .filter((entry) => /npm (?:ci|install)/.test(entry))) {
+      .filter((entry) => !/^\s*#/.test(entry) && /npm (?:ci|install)/.test(entry))) {
       assert.match(
         line,
         /--ignore-scripts/,

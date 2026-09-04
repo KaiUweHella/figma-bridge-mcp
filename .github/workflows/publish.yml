@@ -33,7 +33,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: node -e "const expected='v'+require('./package.json').version;if(process.env.RELEASE_TAG!==expected){throw new Error('tag '+process.env.RELEASE_TAG+' does not match '+expected)}"
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit
       - run: npm run check:public-safety:history
       - run: npm test
       - run: npm run check:audit
@@ -42,7 +42,7 @@ jobs:
       - name: verify the registry-style installed package
         run: |
           mkdir package-smoke
-          npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts --engine-strict
+          npm install --prefix package-smoke ./release-artifact/package.tgz --ignore-scripts --no-audit --engine-strict
           node scripts/smoke-mcp-server.js package-smoke/node_modules/.bin/figma-bridge-mcp package-smoke/node_modules/figma-bridge-mcp/engine/src/index.js
           npm audit --prefix package-smoke --omit=dev
           node scripts/write-installed-dependency-evidence.js package-smoke release-artifact/dependencies.json
